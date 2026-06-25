@@ -15,6 +15,8 @@ const cartItemSchema = z.object({
 const orderSchema = z.object({
   restaurantId: z.string().min(1),
   restaurantSlug: z.string().min(1),
+  tableId: z.string().uuid().optional(),
+  tableCode: z.string().optional(),
   customerName: z.string().min(1),
   customerPhone: z.string().optional(),
   customerAddress: z.string().optional(),
@@ -35,6 +37,8 @@ export async function createPublicOrderAction(formData: FormData) {
   const parsed = orderSchema.safeParse({
     restaurantId: formData.get("restaurantId"),
     restaurantSlug: formData.get("restaurantSlug"),
+    tableId: formData.get("tableId") || undefined,
+    tableCode: formData.get("tableCode") || undefined,
     customerName: formData.get("customerName"),
     customerPhone: formData.get("customerPhone") || undefined,
     customerAddress: formData.get("customerAddress") || undefined,
@@ -49,15 +53,43 @@ export async function createPublicOrderAction(formData: FormData) {
   }
 
   const subtotal = parsed.data.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const deliveryFee = parsed.data.orderType === "delivery" ? 0 : 0;
+  const supabase = await createClient();
+  const { data: settings } = await supabase
+    .from("restaurant_settings")
+    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  if (!settings) {
+    redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=settings`);
+  }
+
+  const orderTypeEnabled =
+    (parsed.data.orderType === "delivery" && settings.delivery_enabled) ||
+    (parsed.data.orderType === "pickup" && settings.pickup_enabled) ||
+    (parsed.data.orderType === "table" && settings.table_orders_enabled);
+
+  if (!orderTypeEnabled) {
+    redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=disabled`);
+  }
+
+  if (subtotal < Number(settings.min_order_amount)) {
+    redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=minimum`);
+  }
+
+  const freeDeliveryFrom = Number(settings.free_delivery_from ?? 0);
+  const deliveryFee =
+    parsed.data.orderType === "delivery" && (!freeDeliveryFrom || subtotal < freeDeliveryFrom)
+      ? Number(settings.delivery_fee)
+      : 0;
   const total = subtotal + deliveryFee;
   const orderNumber = `P-${Date.now().toString().slice(-6)}`;
-  const supabase = await createClient();
 
   const { data: order, error } = await supabase
     .from("orders")
     .insert({
       restaurant_id: parsed.data.restaurantId,
+      table_id: parsed.data.tableId ?? null,
       order_number: orderNumber,
       customer_name: parsed.data.customerName,
       customer_phone: parsed.data.customerPhone,

@@ -87,6 +87,45 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      product_variants: Row<{
+        id: string;
+        restaurant_id: string;
+        product_id: string;
+        name: string;
+        description: string | null;
+        price_delta: number;
+        sort_order: number;
+        is_active: boolean;
+        created_at: string;
+        updated_at: string;
+      }>;
+      product_option_groups: Row<{
+        id: string;
+        restaurant_id: string;
+        product_id: string;
+        name: string;
+        description: string | null;
+        min_choices: number;
+        max_choices: number;
+        is_required: boolean;
+        sort_order: number;
+        is_active: boolean;
+        created_at: string;
+        updated_at: string;
+      }>;
+      product_options: Row<{
+        id: string;
+        restaurant_id: string;
+        product_id: string;
+        option_group_id: string;
+        name: string;
+        description: string | null;
+        price_delta: number;
+        sort_order: number;
+        is_active: boolean;
+        created_at: string;
+        updated_at: string;
+      }>;
       tables: Row<{
         id: string;
         restaurant_id: string;

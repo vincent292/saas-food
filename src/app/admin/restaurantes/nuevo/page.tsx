@@ -17,7 +17,7 @@ export default async function NewRestaurantPage({ searchParams }: { searchParams
           No se pudo crear el restaurante. Verifica que tu usuario sea superadmin y que el slug no exista.
         </div>
       ) : null}
-      <form action={createRestaurantAction} encType="multipart/form-data">
+      <form action={createRestaurantAction}>
         <Card className="mt-6 grid gap-4 md:grid-cols-2">
           <Input name="name" placeholder="Nombre comercial" required />
           <Input name="slug" placeholder="Slug público, ej. cafeteria-luna" />

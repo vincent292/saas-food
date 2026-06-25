@@ -17,9 +17,11 @@ export default async function CheckoutPage({
     notFound();
   }
 
+  const settings = await restaurantService.getSettings(restaurant.id);
+
   return (
     <RestaurantLayout restaurant={restaurant}>
-      <CheckoutClient error={error} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} />
+      <CheckoutClient error={error} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} settings={settings} />
     </RestaurantLayout>
   );
 }

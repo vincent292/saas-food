@@ -26,11 +26,64 @@ const createRestaurantSchema = z.object({
   planKey: z.enum(["basic", "pro", "premium"]).default("basic"),
 });
 
+const updateRestaurantConfigurationSchema = z.object({
+  restaurantId: z.string().uuid(),
+  currentSlug: z.string().min(1),
+  name: z.string().min(2),
+  slug: z.string().min(2),
+  description: z.string().optional(),
+  status: z.enum(["active", "inactive", "suspended"]).default("active"),
+  whatsapp: z.string().optional(),
+  address: z.string().optional(),
+  city: z.string().optional(),
+  primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  secondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  deliveryEnabled: z.boolean(),
+  pickupEnabled: z.boolean(),
+  tableOrdersEnabled: z.boolean(),
+  inventoryEnabled: z.boolean(),
+  cashEnabled: z.boolean(),
+  kitchenEnabled: z.boolean(),
+  deliveryFee: z.coerce.number().nonnegative().default(0),
+  freeDeliveryFrom: z.coerce.number().nonnegative().optional(),
+  minOrderAmount: z.coerce.number().nonnegative().default(0),
+  currency: z.string().min(3).max(3).default("BOB"),
+  qrPaymentUrl: z.string().optional(),
+});
+
 const createCategorySchema = z.object({
   restaurantId: z.string().uuid(),
   name: z.string().min(2),
   description: z.string().optional(),
   sortOrder: z.coerce.number().int().default(0),
+  isActive: z.boolean().default(true),
+});
+
+const productVariantInputSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  priceDelta: z.coerce.number().default(0),
+  sortOrder: z.coerce.number().int().default(0),
+  isActive: z.boolean().default(true),
+});
+
+const productOptionInputSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  priceDelta: z.coerce.number().default(0),
+  sortOrder: z.coerce.number().int().default(0),
+  isActive: z.boolean().default(true),
+});
+
+const productOptionGroupInputSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  minChoices: z.coerce.number().int().nonnegative().default(0),
+  maxChoices: z.coerce.number().int().positive().default(1),
+  isRequired: z.boolean().default(false),
+  sortOrder: z.coerce.number().int().default(0),
+  isActive: z.boolean().default(true),
+  options: z.array(productOptionInputSchema).default([]),
 });
 
 const createProductSchema = z.object({
@@ -40,9 +93,16 @@ const createProductSchema = z.object({
   description: z.string().optional(),
   price: z.coerce.number().nonnegative(),
   imageUrl: z.string().url().optional().or(z.literal("")),
+  isAvailable: z.coerce.boolean().default(true),
   isFeatured: z.coerce.boolean().default(false),
   trackStock: z.coerce.boolean().default(false),
   sortOrder: z.coerce.number().int().default(0),
+  variants: z.array(productVariantInputSchema).default([]),
+  optionGroups: z.array(productOptionGroupInputSchema).default([]),
+});
+
+const updateProductSchema = createProductSchema.extend({
+  productId: z.string().uuid(),
 });
 
 const createTableSchema = z.object({
@@ -50,6 +110,16 @@ const createTableSchema = z.object({
   name: z.string().min(1),
   code: z.string().min(1),
   capacity: z.coerce.number().int().positive().default(2),
+});
+
+const updateTableSchema = createTableSchema.extend({
+  tableId: z.string().uuid(),
+  isActive: z.boolean().default(true),
+});
+
+const deleteTableSchema = z.object({
+  restaurantId: z.string().uuid(),
+  tableId: z.string().uuid(),
 });
 
 const updateOrderStatusSchema = z.object({
@@ -166,6 +236,23 @@ async function expectedAmountForSession(sessionId: string, openingAmount: number
 
     return total + amount;
   }, openingAmount);
+}
+
+function booleanFromForm(formData: FormData, name: string) {
+  return formData.get(name) === "on";
+}
+
+function parseJsonArray(value: FormDataEntryValue | null) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function signInAction(formData: FormData) {
@@ -290,12 +377,152 @@ export async function createRestaurantAction(formData: FormData) {
   redirect(`/admin/restaurantes/${restaurant.id}/dashboard`);
 }
 
+export async function updateRestaurantConfigurationAction(formData: FormData) {
+  const parsed = updateRestaurantConfigurationSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    currentSlug: formData.get("currentSlug"),
+    name: formData.get("name"),
+    slug: formData.get("slug"),
+    description: formData.get("description") || undefined,
+    status: formData.get("status") || "active",
+    whatsapp: formData.get("whatsapp") || undefined,
+    address: formData.get("address") || undefined,
+    city: formData.get("city") || undefined,
+    primaryColor: formData.get("primaryColor") || "#1d8844",
+    secondaryColor: formData.get("secondaryColor") || "#f59e0b",
+    deliveryEnabled: booleanFromForm(formData, "deliveryEnabled"),
+    pickupEnabled: booleanFromForm(formData, "pickupEnabled"),
+    tableOrdersEnabled: booleanFromForm(formData, "tableOrdersEnabled"),
+    inventoryEnabled: booleanFromForm(formData, "inventoryEnabled"),
+    cashEnabled: booleanFromForm(formData, "cashEnabled"),
+    kitchenEnabled: booleanFromForm(formData, "kitchenEnabled"),
+    deliveryFee: formData.get("deliveryFee") || 0,
+    freeDeliveryFrom: formData.get("freeDeliveryFrom") || undefined,
+    minOrderAmount: formData.get("minOrderAmount") || 0,
+    currency: String(formData.get("currency") || "BOB").toUpperCase(),
+    qrPaymentUrl: formData.get("qrPaymentUrl") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?error=invalid`);
+  }
+
+  const { supabase } = await requireUser();
+  const slug = toSlug(parsed.data.slug);
+  const logoUrl = await uploadPublicImage(formData.get("logoFile") as File | null, `restaurants/${parsed.data.restaurantId}/identity`);
+  const bannerUrl = await uploadPublicImage(formData.get("bannerFile") as File | null, `restaurants/${parsed.data.restaurantId}/identity`);
+  const qrPaymentUrl =
+    (await uploadPublicImage(formData.get("qrPaymentFile") as File | null, `restaurants/${parsed.data.restaurantId}/payments`)) ?? parsed.data.qrPaymentUrl ?? null;
+
+  const restaurantUpdate: {
+    name: string;
+    slug: string;
+    description: string | null;
+    status: "active" | "inactive" | "suspended";
+    primary_color: string;
+    secondary_color: string;
+    whatsapp: string | null;
+    address: string | null;
+    city: string | null;
+    logo_url?: string;
+    banner_url?: string;
+  } = {
+    name: parsed.data.name,
+    slug,
+    description: parsed.data.description ?? null,
+    status: parsed.data.status,
+    primary_color: parsed.data.primaryColor,
+    secondary_color: parsed.data.secondaryColor,
+    whatsapp: parsed.data.whatsapp ?? null,
+    address: parsed.data.address ?? null,
+    city: parsed.data.city ?? null,
+  };
+
+  if (logoUrl) {
+    restaurantUpdate.logo_url = logoUrl;
+  }
+
+  if (bannerUrl) {
+    restaurantUpdate.banner_url = bannerUrl;
+  }
+
+  const { error: restaurantError } = await supabase.from("restaurants").update(restaurantUpdate).eq("id", parsed.data.restaurantId);
+
+  if (restaurantError) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?error=${restaurantError.code}`);
+  }
+
+  const { error: settingsError } = await supabase.from("restaurant_settings").upsert(
+    {
+      restaurant_id: parsed.data.restaurantId,
+      delivery_enabled: parsed.data.deliveryEnabled,
+      pickup_enabled: parsed.data.pickupEnabled,
+      table_orders_enabled: parsed.data.tableOrdersEnabled,
+      inventory_enabled: parsed.data.inventoryEnabled,
+      cash_enabled: parsed.data.cashEnabled,
+      kitchen_enabled: parsed.data.kitchenEnabled,
+      delivery_fee: parsed.data.deliveryFee,
+      free_delivery_from: parsed.data.freeDeliveryFrom ?? null,
+      min_order_amount: parsed.data.minOrderAmount,
+      currency: parsed.data.currency,
+      qr_payment_url: qrPaymentUrl,
+    },
+    { onConflict: "restaurant_id" },
+  );
+
+  if (settingsError) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?error=${settingsError.code}`);
+  }
+
+  const businessHours = Array.from({ length: 7 }, (_, dayOfWeek) => {
+    const isClosed = booleanFromForm(formData, `day_${dayOfWeek}_isClosed`);
+    return {
+      restaurant_id: parsed.data.restaurantId,
+      day_of_week: dayOfWeek,
+      opens_at: isClosed ? null : String(formData.get(`day_${dayOfWeek}_opensAt`) || "09:00"),
+      closes_at: isClosed ? null : String(formData.get(`day_${dayOfWeek}_closesAt`) || "22:00"),
+      is_closed: isClosed,
+    };
+  });
+
+  const { error: hoursError } = await supabase.from("business_hours").upsert(businessHours, { onConflict: "restaurant_id,day_of_week" });
+
+  if (hoursError) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?error=${hoursError.code}`);
+  }
+
+  const moduleRows = [
+    { module_key: "public_menu", is_enabled: true },
+    { module_key: "orders", is_enabled: true },
+    { module_key: "table_qr", is_enabled: parsed.data.tableOrdersEnabled },
+    { module_key: "kitchen", is_enabled: parsed.data.kitchenEnabled },
+    { module_key: "cash", is_enabled: parsed.data.cashEnabled },
+    { module_key: "inventory", is_enabled: parsed.data.inventoryEnabled },
+  ].map((module) => ({
+    restaurant_id: parsed.data.restaurantId,
+    ...module,
+  }));
+
+  const { error: modulesError } = await supabase.from("module_settings").upsert(moduleRows, { onConflict: "restaurant_id,module_key" });
+
+  if (modulesError) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?error=${modulesError.code}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
+  revalidatePath(`/r/${parsed.data.currentSlug}`);
+  revalidatePath(`/r/${slug}`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?saved=1`);
+}
+
 export async function createCategoryAction(formData: FormData) {
   const parsed = createCategorySchema.safeParse({
     restaurantId: formData.get("restaurantId"),
     name: formData.get("name"),
     description: formData.get("description") || undefined,
     sortOrder: formData.get("sortOrder") || 0,
+    isActive: formData.get("isActive") === "on",
   });
 
   if (!parsed.success) {
@@ -310,7 +537,7 @@ export async function createCategoryAction(formData: FormData) {
     description: parsed.data.description,
     image_url: imageUrl,
     sort_order: parsed.data.sortOrder,
-    is_active: true,
+    is_active: parsed.data.isActive,
   });
 
   if (error) {
@@ -318,7 +545,11 @@ export async function createCategoryAction(formData: FormData) {
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/categorias`);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/productos`);
   revalidatePath(`/r`, "layout");
+  if (formData.get("returnTo") === "products") {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?categoryCreated=1`);
+  }
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/categorias?created=1`);
 }
 
@@ -330,9 +561,12 @@ export async function createProductAction(formData: FormData) {
     description: formData.get("description") || undefined,
     price: formData.get("price"),
     imageUrl: "",
+    isAvailable: formData.get("isAvailable") === "on",
     isFeatured: formData.get("isFeatured") === "on",
     trackStock: formData.get("trackStock") === "on",
     sortOrder: formData.get("sortOrder") || 0,
+    variants: parseJsonArray(formData.get("variantsJson")),
+    optionGroups: parseJsonArray(formData.get("optionGroupsJson")),
   });
 
   if (!parsed.success) {
@@ -341,26 +575,220 @@ export async function createProductAction(formData: FormData) {
 
   const supabase = await createClient();
   const imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/products`);
-  const { error } = await supabase.from("products").insert({
-    restaurant_id: parsed.data.restaurantId,
-    category_id: parsed.data.categoryId,
-    name: parsed.data.name,
-    description: parsed.data.description,
-    price: parsed.data.price,
-    image_url: imageUrl,
-    is_available: true,
-    is_featured: parsed.data.isFeatured,
-    track_stock: parsed.data.trackStock,
-    sort_order: parsed.data.sortOrder,
-  });
+  const { data: product, error } = await supabase
+    .from("products")
+    .insert({
+      restaurant_id: parsed.data.restaurantId,
+      category_id: parsed.data.categoryId,
+      name: parsed.data.name,
+      description: parsed.data.description,
+      price: parsed.data.price,
+      image_url: imageUrl,
+      is_available: parsed.data.isAvailable,
+      is_featured: parsed.data.isFeatured,
+      track_stock: parsed.data.trackStock,
+      sort_order: parsed.data.sortOrder,
+    })
+    .select("id")
+    .single();
 
-  if (error) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=${error.code}`);
+  if (error || !product) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=${error?.code ?? "product-create"}`);
+  }
+
+  const variants = parsed.data.variants.filter((variant) => variant.name.trim());
+  if (variants.length) {
+    const { error: variantsError } = await supabase.from("product_variants").insert(
+      variants.map((variant) => ({
+        restaurant_id: parsed.data.restaurantId,
+        product_id: product.id,
+        name: variant.name.trim(),
+        description: variant.description || null,
+        price_delta: variant.priceDelta,
+        sort_order: variant.sortOrder,
+        is_active: variant.isActive,
+      })),
+    );
+
+    if (variantsError) {
+      redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=${variantsError.code}`);
+    }
+  }
+
+  const groups = parsed.data.optionGroups.filter((group) => group.name.trim());
+  for (const group of groups) {
+    const { data: insertedGroup, error: groupError } = await supabase
+      .from("product_option_groups")
+      .insert({
+        restaurant_id: parsed.data.restaurantId,
+        product_id: product.id,
+        name: group.name.trim(),
+        description: group.description || null,
+        min_choices: group.minChoices,
+        max_choices: group.maxChoices,
+        is_required: group.isRequired,
+        sort_order: group.sortOrder,
+        is_active: group.isActive,
+      })
+      .select("id")
+      .single();
+
+    if (groupError || !insertedGroup) {
+      redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=${groupError?.code ?? "option-group"}`);
+    }
+
+    const options = group.options.filter((option) => option.name.trim());
+    if (options.length) {
+      const { error: optionsError } = await supabase.from("product_options").insert(
+        options.map((option) => ({
+          restaurant_id: parsed.data.restaurantId,
+          product_id: product.id,
+          option_group_id: insertedGroup.id,
+          name: option.name.trim(),
+          description: option.description || null,
+          price_delta: option.priceDelta,
+          sort_order: option.sortOrder,
+          is_active: option.isActive,
+        })),
+      );
+
+      if (optionsError) {
+        redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=${optionsError.code}`);
+      }
+    }
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/productos`);
   revalidatePath(`/r`, "layout");
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?created=1`);
+}
+
+export async function updateProductAction(formData: FormData) {
+  const parsed = updateProductSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    productId: formData.get("productId"),
+    categoryId: formData.get("categoryId") || undefined,
+    name: formData.get("name"),
+    description: formData.get("description") || undefined,
+    price: formData.get("price"),
+    imageUrl: "",
+    isAvailable: formData.get("isAvailable") === "on",
+    isFeatured: formData.get("isFeatured") === "on",
+    trackStock: formData.get("trackStock") === "on",
+    sortOrder: formData.get("sortOrder") || 0,
+    variants: parseJsonArray(formData.get("variantsJson")),
+    optionGroups: parseJsonArray(formData.get("optionGroupsJson")),
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/productos?error=invalid-update`);
+  }
+
+  const supabase = await createClient();
+  const imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/products`);
+  const updatePayload: {
+    category_id?: string | null;
+    name: string;
+    description: string | null;
+    price: number;
+    is_available: boolean;
+    is_featured: boolean;
+    track_stock: boolean;
+    sort_order: number;
+    image_url?: string | null;
+  } = {
+    category_id: parsed.data.categoryId ?? null,
+    name: parsed.data.name,
+    description: parsed.data.description ?? null,
+    price: parsed.data.price,
+    is_available: parsed.data.isAvailable,
+    is_featured: parsed.data.isFeatured,
+    track_stock: parsed.data.trackStock,
+    sort_order: parsed.data.sortOrder,
+  };
+
+  if (imageUrl) {
+    updatePayload.image_url = imageUrl;
+  }
+
+  const { error } = await supabase
+    .from("products")
+    .update(updatePayload)
+    .eq("id", parsed.data.productId)
+    .eq("restaurant_id", parsed.data.restaurantId);
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=${error.code}`);
+  }
+
+  await supabase.from("product_variants").delete().eq("restaurant_id", parsed.data.restaurantId).eq("product_id", parsed.data.productId);
+  await supabase.from("product_option_groups").delete().eq("restaurant_id", parsed.data.restaurantId).eq("product_id", parsed.data.productId);
+
+  const variants = parsed.data.variants.filter((variant) => variant.name.trim());
+  if (variants.length) {
+    const { error: variantsError } = await supabase.from("product_variants").insert(
+      variants.map((variant) => ({
+        restaurant_id: parsed.data.restaurantId,
+        product_id: parsed.data.productId,
+        name: variant.name.trim(),
+        description: variant.description || null,
+        price_delta: variant.priceDelta,
+        sort_order: variant.sortOrder,
+        is_active: variant.isActive,
+      })),
+    );
+
+    if (variantsError) {
+      redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=${variantsError.code}`);
+    }
+  }
+
+  const groups = parsed.data.optionGroups.filter((group) => group.name.trim());
+  for (const group of groups) {
+    const { data: insertedGroup, error: groupError } = await supabase
+      .from("product_option_groups")
+      .insert({
+        restaurant_id: parsed.data.restaurantId,
+        product_id: parsed.data.productId,
+        name: group.name.trim(),
+        description: group.description || null,
+        min_choices: group.minChoices,
+        max_choices: group.maxChoices,
+        is_required: group.isRequired,
+        sort_order: group.sortOrder,
+        is_active: group.isActive,
+      })
+      .select("id")
+      .single();
+
+    if (groupError || !insertedGroup) {
+      redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=${groupError?.code ?? "option-group-update"}`);
+    }
+
+    const options = group.options.filter((option) => option.name.trim());
+    if (options.length) {
+      const { error: optionsError } = await supabase.from("product_options").insert(
+        options.map((option) => ({
+          restaurant_id: parsed.data.restaurantId,
+          product_id: parsed.data.productId,
+          option_group_id: insertedGroup.id,
+          name: option.name.trim(),
+          description: option.description || null,
+          price_delta: option.priceDelta,
+          sort_order: option.sortOrder,
+          is_active: option.isActive,
+        })),
+      );
+
+      if (optionsError) {
+        redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=${optionsError.code}`);
+      }
+    }
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/productos`);
+  revalidatePath(`/r`, "layout");
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?updated=1`);
 }
 
 export async function createTableAction(formData: FormData) {
@@ -391,6 +819,67 @@ export async function createTableAction(formData: FormData) {
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/mesas`);
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/mesas?created=1`);
+}
+
+export async function updateTableAction(formData: FormData) {
+  const parsed = updateTableSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    tableId: formData.get("tableId"),
+    name: formData.get("name"),
+    code: formData.get("code"),
+    capacity: formData.get("capacity") || 2,
+    isActive: booleanFromForm(formData, "isActive"),
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/mesas?error=invalid`);
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("tables")
+    .update({
+      name: parsed.data.name.trim(),
+      code: parsed.data.code.trim().toUpperCase(),
+      capacity: parsed.data.capacity,
+      is_active: parsed.data.isActive,
+    })
+    .eq("id", parsed.data.tableId)
+    .eq("restaurant_id", parsed.data.restaurantId);
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/mesas?error=${error.code}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/mesas`);
+  revalidatePath(`/r`, "layout");
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/mesas?updated=1`);
+}
+
+export async function deleteTableAction(formData: FormData) {
+  const parsed = deleteTableSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    tableId: formData.get("tableId"),
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/mesas?error=invalid`);
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("tables")
+    .update({ is_active: false, status: "available" })
+    .eq("id", parsed.data.tableId)
+    .eq("restaurant_id", parsed.data.restaurantId);
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/mesas?error=${error.code}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/mesas`);
+  revalidatePath(`/r`, "layout");
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/mesas?deleted=1`);
 }
 
 export async function updateOrderStatusAction(formData: FormData) {
@@ -430,14 +919,14 @@ export async function openCashSessionAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?error=invalid`);
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?tab=cierre&error=invalid`);
   }
 
   const { supabase, user } = await requireUser();
   const currentSession = await getOpenCashSession(parsed.data.restaurantId);
 
   if (currentSession) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=session-open`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=cierre&error=session-open`);
   }
 
   const { data: session, error } = await supabase
@@ -453,7 +942,7 @@ export async function openCashSessionAction(formData: FormData) {
     .single();
 
   if (error || !session) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=${error?.code ?? "open-cash"}`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=cierre&error=${error?.code ?? "open-cash"}`);
   }
 
   await supabase.from("cash_movements").insert({
@@ -468,7 +957,7 @@ export async function openCashSessionAction(formData: FormData) {
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/caja`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
-  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?opened=1`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=cierre&opened=1`);
 }
 
 export async function closeCashSessionAction(formData: FormData) {
@@ -479,14 +968,14 @@ export async function closeCashSessionAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?error=invalid`);
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?tab=cierre&error=invalid`);
   }
 
   const { supabase, user } = await requireUser();
   const session = await getOpenCashSession(parsed.data.restaurantId);
 
   if (!session) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=no-open-session`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=cierre&error=no-open-session`);
   }
 
   const expectedAmount = await expectedAmountForSession(session.id, Number(session.opening_amount));
@@ -506,7 +995,7 @@ export async function closeCashSessionAction(formData: FormData) {
     .eq("restaurant_id", parsed.data.restaurantId);
 
   if (error) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=${error.code}`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=cierre&error=${error.code}`);
   }
 
   await supabase.from("cash_movements").insert({
@@ -521,7 +1010,7 @@ export async function closeCashSessionAction(formData: FormData) {
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/caja`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
-  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?closed=1`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=cierre&closed=1`);
 }
 
 export async function registerCashExpenseAction(formData: FormData) {
@@ -533,14 +1022,14 @@ export async function registerCashExpenseAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?error=invalid-expense`);
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?tab=egresos&error=invalid-expense`);
   }
 
   const { supabase, user } = await requireUser();
   const session = await getOpenCashSession(parsed.data.restaurantId);
 
   if (!session) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=no-open-session`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=egresos&error=no-open-session`);
   }
 
   const { error } = await supabase.from("cash_movements").insert({
@@ -554,12 +1043,12 @@ export async function registerCashExpenseAction(formData: FormData) {
   });
 
   if (error) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=${error.code}`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=egresos&error=${error.code}`);
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/caja`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
-  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?expense=1`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=egresos&expense=1`);
 }
 
 export async function chargeOrderAction(formData: FormData) {
@@ -570,14 +1059,14 @@ export async function chargeOrderAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?error=invalid-charge`);
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?tab=pedidos&error=invalid-charge`);
   }
 
   const { supabase, user } = await requireUser();
   const session = await getOpenCashSession(parsed.data.restaurantId);
 
   if (!session) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=no-open-session`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=pedidos&error=no-open-session`);
   }
 
   const { data: order, error: orderError } = await supabase
@@ -588,11 +1077,11 @@ export async function chargeOrderAction(formData: FormData) {
     .maybeSingle();
 
   if (orderError || !order) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=order-not-found`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=pedidos&error=order-not-found`);
   }
 
   if (order.payment_status === "paid") {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=already-paid`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=pedidos&error=already-paid`);
   }
 
   const { error } = await supabase
@@ -605,7 +1094,7 @@ export async function chargeOrderAction(formData: FormData) {
     .eq("restaurant_id", parsed.data.restaurantId);
 
   if (error) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=${error.code}`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=pedidos&error=${error.code}`);
   }
 
   await supabase.from("cash_movements").insert({
@@ -622,7 +1111,7 @@ export async function chargeOrderAction(formData: FormData) {
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/caja`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
-  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?charged=1`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=pedidos&charged=1`);
 }
 
 export async function createPosSaleAction(formData: FormData) {
@@ -635,14 +1124,14 @@ export async function createPosSaleAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?error=invalid-pos-sale`);
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?tab=venta&error=invalid-pos-sale`);
   }
 
   const { supabase, user } = await requireUser();
   const session = await getOpenCashSession(parsed.data.restaurantId);
 
   if (!session) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=no-open-session`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta&error=no-open-session`);
   }
 
   const { data: product, error: productError } = await supabase
@@ -653,7 +1142,7 @@ export async function createPosSaleAction(formData: FormData) {
     .maybeSingle();
 
   if (productError || !product || !product.is_available) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=product-not-found`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta&error=product-not-found`);
   }
 
   const subtotal = Number(product.price) * parsed.data.quantity;
@@ -675,7 +1164,7 @@ export async function createPosSaleAction(formData: FormData) {
     .single();
 
   if (orderError || !order) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?error=${orderError?.code ?? "pos-order"}`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta&error=${orderError?.code ?? "pos-order"}`);
   }
 
   await supabase.from("order_items").insert({
@@ -701,7 +1190,7 @@ export async function createPosSaleAction(formData: FormData) {
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/caja`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
-  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?pos=1`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta&pos=1`);
 }
 
 export async function createInventoryItemAction(formData: FormData) {

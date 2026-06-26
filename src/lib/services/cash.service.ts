@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
-import type { CashMovement, CashSession } from "@/types/cash.types";
+import type { CashMovement, CashSession, CashSummary } from "@/types/cash.types";
 import type { PaymentMethodType } from "@/types/order.types";
 
 type CashSessionRow = {
@@ -105,10 +105,13 @@ export const cashService = {
     }
 
     const supabase = await createClient();
+    const session = await this.getOpenSession(restaurantId);
+    const fromDate = session?.openedAt ?? startOfTodayIso();
     const { data, error } = await supabase
       .from("cash_movements")
       .select("*")
       .eq("restaurant_id", restaurantId)
+      .gte("created_at", fromDate)
       .order("created_at", { ascending: false })
       .limit(80);
 
@@ -119,7 +122,7 @@ export const cashService = {
     return data.map(mapMovement);
   },
 
-  async getSummary(restaurantId: string) {
+  async getSummary(restaurantId: string): Promise<CashSummary> {
     if (!hasSupabaseEnv()) {
       return {
         session: null,

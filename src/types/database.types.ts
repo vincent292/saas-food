@@ -49,6 +49,9 @@ export type Database = {
         min_order_amount: number;
         currency: string;
         qr_payment_url: string | null;
+        print_format: "thermal_58" | "thermal_80" | "large";
+        auto_print_kitchen: boolean;
+        print_logo: boolean;
         created_at: string;
         updated_at: string;
       }>;
@@ -149,12 +152,23 @@ export type Database = {
         status: "pending" | "accepted" | "preparing" | "ready" | "delivered" | "cancelled";
         payment_status: "pending" | "paid" | "cancelled" | "refunded";
         payment_method: "cash" | "qr" | "bank_transfer" | "card" | "other";
+        payment_receipt_url: string | null;
+        payment_receipt_uploaded_at: string | null;
+        payment_receipt_reference: string | null;
+        payment_verified_at: string | null;
         subtotal: number;
         delivery_fee: number;
         discount_total: number;
         total: number;
         notes: string | null;
         tracking_token: string;
+        accepted_at: string | null;
+        preparing_at: string | null;
+        ready_at: string | null;
+        delivered_at: string | null;
+        cancelled_at: string | null;
+        cancellation_reason: string | null;
+        printed_at: string | null;
         created_at: string;
         updated_at: string;
       }>;
@@ -269,10 +283,24 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      has_open_cash_session_public: {
+        Args: {
+          p_restaurant_id: string;
+        };
+        Returns: boolean;
+      };
       get_public_order: {
         Args: {
           p_order_id: string;
           p_tracking_token: string;
+        };
+        Returns: Json;
+      };
+      get_public_order_lookup: {
+        Args: {
+          p_customer_phone: string;
+          p_order_number: string;
+          p_restaurant_id: string;
         };
         Returns: Json;
       };

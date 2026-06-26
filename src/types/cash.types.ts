@@ -30,3 +30,15 @@ export type CashMovement = {
   createdBy: string;
   createdAt: string;
 };
+
+export type CashSummary = {
+  session: CashSession | null;
+  salesTotal: number;
+  cashTotal: number;
+  qrTotal: number;
+  transferTotal: number;
+  orderCount: number;
+  averageTicket: number;
+  expenses: number;
+  netTotal: number;
+};

@@ -14,12 +14,23 @@ type OrderRow = {
   status: Order["status"];
   payment_status: Order["paymentStatus"];
   payment_method: Order["paymentMethod"];
+  payment_receipt_url: string | null;
+  payment_receipt_uploaded_at: string | null;
+  payment_receipt_reference: string | null;
+  payment_verified_at: string | null;
   subtotal: number;
   delivery_fee: number;
   discount_total: number;
   total: number;
   notes: string | null;
   created_at: string;
+  accepted_at: string | null;
+  preparing_at: string | null;
+  ready_at: string | null;
+  delivered_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+  printed_at: string | null;
 };
 
 type ItemRow = {
@@ -63,12 +74,23 @@ function mapOrder(row: OrderRow, items: OrderItem[]): Order {
     status: row.status,
     paymentStatus: row.payment_status,
     paymentMethod: row.payment_method,
+    paymentReceiptUrl: row.payment_receipt_url ?? undefined,
+    paymentReceiptUploadedAt: row.payment_receipt_uploaded_at ?? undefined,
+    paymentReceiptReference: row.payment_receipt_reference ?? undefined,
+    paymentVerifiedAt: row.payment_verified_at ?? undefined,
     subtotal: Number(row.subtotal),
     deliveryFee: Number(row.delivery_fee),
     discountTotal: Number(row.discount_total),
     total: Number(row.total),
     notes: row.notes ?? undefined,
     createdAt: row.created_at,
+    acceptedAt: row.accepted_at ?? undefined,
+    preparingAt: row.preparing_at ?? undefined,
+    readyAt: row.ready_at ?? undefined,
+    deliveredAt: row.delivered_at ?? undefined,
+    cancelledAt: row.cancelled_at ?? undefined,
+    cancellationReason: row.cancellation_reason ?? undefined,
+    printedAt: row.printed_at ?? undefined,
     items,
   };
 }

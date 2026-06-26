@@ -1,15 +1,19 @@
 "use client";
 
-import { Check, Minus, Plus, ShoppingCart, X } from "lucide-react";
+import { Check, MapPin, Minus, Plus, ShoppingCart, Store, X } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
-import type { RestaurantTable } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
 import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
+
+type PublicOrderType = "delivery" | "pickup";
+type SelectedOptions = Record<string, string[]>;
+type ProductConfigMap = Record<string, { variants: ProductVariant[]; optionGroups: ProductOptionGroup[] }>;
 
 type CartItem = {
   cartId: string;
@@ -21,14 +25,10 @@ type CartItem = {
   notes?: string;
 };
 
-type ProductConfigMap = Record<string, { variants: ProductVariant[]; optionGroups: ProductOptionGroup[] }>;
-type SelectedOptions = Record<string, string[]>;
-
 const defaultImage = "/imagendefault.jpeg";
 
-export function TableOrderClient({
+export function PublicRestaurantOrderClient({
   restaurant,
-  table,
   categories,
   products,
   settings,
@@ -36,7 +36,6 @@ export function TableOrderClient({
   orderError,
 }: {
   restaurant: Restaurant;
-  table: RestaurantTable;
   categories: Category[];
   products: Product[];
   settings: RestaurantSettings | null;
@@ -44,11 +43,12 @@ export function TableOrderClient({
   orderError?: string;
 }) {
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "qr">("cash");
   const [requiresInvoice, setRequiresInvoice] = useState(false);
+  const [orderType, setOrderType] = useState<PublicOrderType>(() => (settings?.pickupEnabled === false && settings?.deliveryEnabled ? "delivery" : "pickup"));
 
   const configByProduct = useMemo<ProductConfigMap>(() => {
     const map: ProductConfigMap = {};
@@ -72,13 +72,15 @@ export function TableOrderClient({
 
   const cartQuantity = cart.reduce((total, item) => total + item.quantity, 0);
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const orderNotes = `${table.name} (${table.code})${requiresInvoice ? " - Requiere factura" : ""}`;
-  const cartJson = JSON.stringify(cart.map(({ productId, name, price, quantity, notes }) => ({ productId, name, price, quantity, notes })));
+  const notes = `Pedido desde menú público${requiresInvoice ? " - Requiere factura" : ""}`;
+  const cartJson = JSON.stringify(cart.map(({ productId, name, price, quantity, notes: itemNotes }) => ({ productId, name, price, quantity, notes: itemNotes })));
+  const hasLogoImage = restaurant.logoUrl.startsWith("http") || restaurant.logoUrl.startsWith("/");
+  const logoText = restaurant.logoUrl || restaurant.name.slice(0, 1).toUpperCase();
 
   function addConfiguredProduct(product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) {
     const price = product.price + (variant?.priceDelta ?? 0) + selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
     const detailParts = [variant?.name, ...selectedOptions.map((option) => option.name)].filter(Boolean);
-    const notes = detailParts.length ? detailParts.join(" | ") : undefined;
+    const itemNotes = detailParts.length ? detailParts.join(" | ") : undefined;
     const name = variant ? `${product.name} - ${variant.name}` : product.name;
     const cartId = [product.id, variant?.id ?? "base", ...selectedOptions.map((option) => option.id).sort()].join(":");
 
@@ -88,18 +90,7 @@ export function TableOrderClient({
         return current.map((item) => (item.cartId === cartId ? { ...item, quantity: item.quantity + 1 } : item));
       }
 
-      return [
-        ...current,
-        {
-          cartId,
-          productId: product.id,
-          name,
-          price,
-          quantity: 1,
-          imageUrl: product.imageUrl || defaultImage,
-          notes,
-        },
-      ];
+      return [...current, { cartId, productId: product.id, name, price, quantity: 1, imageUrl: product.imageUrl || defaultImage, notes: itemNotes }];
     });
     setSelectedProduct(null);
   }
@@ -113,16 +104,55 @@ export function TableOrderClient({
   }
 
   return (
-    <main className="min-h-screen bg-[var(--primary-dark)] text-white">
-      <div className="mx-auto grid max-w-7xl gap-6 px-3 pb-28 pt-5 sm:px-6 lg:grid-cols-[1fr_360px] lg:px-8 lg:pb-8 lg:pt-8">
+    <main className="min-h-screen bg-[var(--background)] text-[var(--text)]">
+      <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-2xl bg-[var(--primary)] text-base font-black text-white shadow-sm">
+              {hasLogoImage ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img alt={restaurant.name} className="h-full w-full object-cover" src={restaurant.logoUrl} />
+              ) : (
+                logoText
+              )}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-base font-black">{restaurant.name}</p>
+              <p className="flex items-center gap-1 text-xs font-semibold text-[var(--muted)]">
+                <Store className="h-3.5 w-3.5" />
+                {restaurant.city || "Menú online"}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="hidden rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-black text-[var(--primary)] sm:inline-flex">Abierto hoy</span>
+            <Link className="hidden rounded-full border border-[var(--border)] bg-white px-4 py-2 text-sm font-black text-[var(--primary)] shadow-sm sm:inline-flex" href={`/r/${restaurant.slug}/seguimiento`}>
+              Rastrear pedido
+            </Link>
+            <button className="relative grid h-11 w-11 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--text)] shadow-sm lg:hidden" onClick={() => setDrawerOpen(true)} type="button">
+              <ShoppingCart className="h-5 w-5" />
+              {cartQuantity ? <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--primary)] text-[10px] font-black text-white">{cartQuantity}</span> : null}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto grid max-w-7xl gap-6 px-3 pb-28 pt-6 sm:px-6 lg:grid-cols-[1fr_360px] lg:px-8 lg:pb-8">
         <section className="min-w-0">
           <div className="mb-5">
-            <h1 className="text-5xl font-black leading-none tracking-normal sm:text-6xl">Mesa {table.name.replace(/^mesa\s*/i, "")}</h1>
-            <p className="mt-3 max-w-2xl text-sm font-bold text-white/90 sm:text-base">Elige tus productos, personaliza variantes y confirma tu pedido directo al equipo.</p>
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-[var(--primary)]">Menú online</p>
+            <h1 className="mt-1 text-5xl font-black leading-none tracking-normal sm:text-6xl">{restaurant.name}</h1>
+            <p className="mt-3 flex max-w-2xl items-start gap-2 text-sm font-bold text-[var(--muted)] sm:text-base">
+              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[var(--primary)]" />
+              Personaliza tus productos, elige recojo o envío, y confirma tu pedido directo al equipo.
+            </p>
+            <Link className="mt-3 inline-flex rounded-full bg-[var(--primary-light)] px-4 py-2 text-sm font-black text-[var(--primary)] sm:hidden" href={`/r/${restaurant.slug}/seguimiento`}>
+              Rastrear pedido
+            </Link>
             {orderError ? <OrderErrorMessage error={orderError} /> : null}
           </div>
 
-          <div className="sticky top-0 z-20 -mx-3 mb-3 border-y border-white/10 bg-[var(--primary-dark)]/95 px-3 py-3 backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border sm:bg-white sm:text-[var(--text)]">
+          <div className="sticky top-[73px] z-20 -mx-3 mb-4 border-y border-[var(--border)] bg-white/95 px-3 py-3 shadow-sm backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border">
             <div className="flex gap-2 overflow-x-auto pb-1">
               <CategoryButton active={selectedCategory === "all"} label="Todo" onClick={() => setSelectedCategory("all")} />
               {categories.map((category) => (
@@ -141,28 +171,25 @@ export function TableOrderClient({
         </section>
 
         <aside className="hidden lg:block">
-          <OrderPanel
+          <PublicOrderPanel
             cart={cart}
             cartJson={cartJson}
             changeQuantity={changeQuantity}
-            notes={orderNotes}
+            notes={notes}
+            orderType={orderType}
             paymentMethod={paymentMethod}
             requiresInvoice={requiresInvoice}
             restaurant={restaurant}
+            setOrderType={setOrderType}
             setPaymentMethod={setPaymentMethod}
             setRequiresInvoice={setRequiresInvoice}
             settings={settings}
-            table={table}
             total={total}
           />
         </aside>
       </div>
 
-      <button
-        className="fixed inset-x-3 bottom-3 z-40 flex h-14 items-center justify-between rounded-full bg-[var(--primary)] px-5 text-sm font-black text-white shadow-2xl lg:hidden"
-        onClick={() => setDrawerOpen(true)}
-        type="button"
-      >
+      <button className="fixed inset-x-3 bottom-3 z-40 flex h-14 items-center justify-between rounded-full bg-[var(--primary)] px-5 text-sm font-black text-white shadow-2xl lg:hidden" onClick={() => setDrawerOpen(true)} type="button">
         <span className="inline-flex items-center gap-2">
           <ShoppingCart className="h-4 w-4" />
           Pedido ({cartQuantity})
@@ -179,49 +206,28 @@ export function TableOrderClient({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <OrderPanel
+            <PublicOrderPanel
               cart={cart}
               cartJson={cartJson}
               changeQuantity={changeQuantity}
               compact
-              notes={orderNotes}
+              notes={notes}
+              orderType={orderType}
               paymentMethod={paymentMethod}
               requiresInvoice={requiresInvoice}
               restaurant={restaurant}
+              setOrderType={setOrderType}
               setPaymentMethod={setPaymentMethod}
               setRequiresInvoice={setRequiresInvoice}
               settings={settings}
-              table={table}
               total={total}
             />
           </div>
         </div>
       ) : null}
 
-      {selectedProduct ? (
-        <ProductOptionModal
-          config={configByProduct[selectedProduct.id]}
-          product={selectedProduct}
-          onAdd={addConfiguredProduct}
-          onClose={() => setSelectedProduct(null)}
-        />
-      ) : null}
+      {selectedProduct ? <ProductOptionModal config={configByProduct[selectedProduct.id]} onAdd={addConfiguredProduct} onClose={() => setSelectedProduct(null)} product={selectedProduct} /> : null}
     </main>
-  );
-}
-
-function CategoryButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      className={cn(
-        "h-11 shrink-0 rounded-full px-4 text-sm font-black transition",
-        active ? "bg-[var(--primary)] text-white" : "bg-[var(--primary-light)] text-[var(--muted)] hover:text-[var(--primary-dark)]",
-      )}
-      onClick={onClick}
-      type="button"
-    >
-      {label}
-    </button>
   );
 }
 
@@ -234,6 +240,14 @@ function OrderErrorMessage({ error }: { error: string }) {
         : "No se pudo confirmar el pedido. Revisa los datos e intenta nuevamente.";
 
   return <div className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{message}</div>;
+}
+
+function CategoryButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button className={cn("h-11 shrink-0 rounded-full px-4 text-sm font-black transition", active ? "bg-[var(--primary)] text-white" : "bg-[var(--primary-light)] text-[var(--muted)] hover:text-[var(--primary-dark)]")} onClick={onClick} type="button">
+      {label}
+    </button>
+  );
 }
 
 function ProductTile({ product, config, onSelect }: { product: Product; config?: ProductConfigMap[string]; onSelect: () => void }) {
@@ -251,7 +265,7 @@ function ProductTile({ product, config, onSelect }: { product: Product; config?:
           {hasConfiguration ? <span className="rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]">Configurable</span> : null}
         </div>
         <h3 className="truncate text-lg font-black leading-5">{product.name}</h3>
-        <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--muted)]">{product.description || "Listo para pedir en mesa."}</p>
+        <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--muted)]">{product.description || "Listo para pedir."}</p>
         <button className={buttonClasses("secondary", "mt-3 min-h-10 w-full bg-slate-100 font-black")} onClick={onSelect} type="button">
           {hasConfiguration ? "Personalizar" : "Agregar"} {formatMoney(product.price)}
         </button>
@@ -277,11 +291,7 @@ function ProductOptionModal({
   const [selectedOptions, setSelectedOptions] = useState<SelectedOptions>(() => {
     const initial: SelectedOptions = {};
     for (const group of optionGroups) {
-      if (group.isRequired && group.maxChoices === 1 && group.options[0]) {
-        initial[group.id] = [group.options[0].id];
-      } else {
-        initial[group.id] = [];
-      }
+      initial[group.id] = group.isRequired && group.maxChoices === 1 && group.options[0] ? [group.options[0].id] : [];
     }
     return initial;
   });
@@ -302,15 +312,12 @@ function ProductOptionModal({
       if (group.maxChoices === 1) {
         return { ...current, [group.id]: exists && !group.isRequired ? [] : [option.id] };
       }
-
       if (exists) {
         return { ...current, [group.id]: currentGroup.filter((id) => id !== option.id) };
       }
-
       if (currentGroup.length >= group.maxChoices) {
         return { ...current, [group.id]: [...currentGroup.slice(1), option.id] };
       }
-
       return { ...current, [group.id]: [...currentGroup, option.id] };
     });
   }
@@ -330,28 +337,12 @@ function ProductOptionModal({
         </div>
 
         <div className="grid gap-5 p-4">
-          <div className="grid gap-4 sm:grid-cols-[180px_1fr]">
-            <div className="overflow-hidden rounded-2xl bg-[var(--primary-light)]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt={product.name} className="aspect-[4/3] h-full w-full object-cover sm:aspect-square" src={product.imageUrl || defaultImage} />
-            </div>
-            <p className="text-sm leading-6 text-[var(--muted)]">{product.description || "Configura tu producto antes de agregarlo al pedido."}</p>
-          </div>
-
           {variants.length ? (
             <section>
               <h3 className="text-sm font-black">Variante</h3>
               <div className="mt-2 grid gap-2">
                 {variants.map((variant) => (
-                  <button
-                    className={cn(
-                      "flex min-h-14 items-center justify-between rounded-2xl border px-4 text-left transition",
-                      variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-white",
-                    )}
-                    key={variant.id}
-                    onClick={() => setVariantId(variant.id)}
-                    type="button"
-                  >
+                  <button className={cn("flex min-h-14 items-center justify-between rounded-2xl border px-4 text-left transition", variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-white")} key={variant.id} onClick={() => setVariantId(variant.id)} type="button">
                     <span>
                       <span className="block text-sm font-black">{variant.name}</span>
                       {variant.description ? <span className="block text-xs font-semibold text-[var(--muted)]">{variant.description}</span> : null}
@@ -378,24 +369,13 @@ function ProductOptionModal({
                     {selectedCount}/{group.maxChoices}
                   </span>
                 </div>
-
                 <div className="mt-3 grid gap-2">
                   {group.options.map((option) => {
                     const selected = selectedOptions[group.id]?.includes(option.id) ?? false;
                     return (
-                      <button
-                        className={cn(
-                          "flex min-h-12 items-center justify-between rounded-2xl border px-3 text-left transition",
-                          selected ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-white",
-                        )}
-                        key={option.id}
-                        onClick={() => toggleOption(group, option)}
-                        type="button"
-                      >
+                      <button className={cn("flex min-h-12 items-center justify-between rounded-2xl border px-3 text-left transition", selected ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-white")} key={option.id} onClick={() => toggleOption(group, option)} type="button">
                         <span className="flex min-w-0 items-center gap-2">
-                          <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded-full border", selected ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-[var(--border)]")}>
-                            {selected ? <Check className="h-3.5 w-3.5" /> : null}
-                          </span>
+                          <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded-full border", selected ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-[var(--border)]")}>{selected ? <Check className="h-3.5 w-3.5" /> : null}</span>
                           <span className="min-w-0">
                             <span className="block truncate text-sm font-black">{option.name}</span>
                             {option.description ? <span className="block truncate text-xs font-semibold text-[var(--muted)]">{option.description}</span> : null}
@@ -425,47 +405,59 @@ function ProductOptionModal({
   );
 }
 
-function OrderPanel({
+function PublicOrderPanel({
   restaurant,
-  table,
   settings,
   cart,
   cartJson,
   total,
   paymentMethod,
+  orderType,
   requiresInvoice,
   notes,
   compact = false,
   changeQuantity,
+  setOrderType,
   setPaymentMethod,
   setRequiresInvoice,
 }: {
   restaurant: Restaurant;
-  table: RestaurantTable;
   settings: RestaurantSettings | null;
   cart: CartItem[];
   cartJson: string;
   total: number;
   paymentMethod: "cash" | "qr";
+  orderType: PublicOrderType;
   requiresInvoice: boolean;
   notes: string;
   compact?: boolean;
   changeQuantity: (cartId: string, delta: number) => void;
+  setOrderType: (type: PublicOrderType) => void;
   setPaymentMethod: (method: "cash" | "qr") => void;
   setRequiresInvoice: (value: boolean) => void;
 }) {
+  const deliveryEnabled = settings?.deliveryEnabled ?? true;
+  const pickupEnabled = settings?.pickupEnabled ?? true;
+
   return (
     <form action={createPublicOrderAction} className={cn("rounded-[1.5rem] bg-[var(--surface)] p-4 text-[var(--text)] shadow-sm", compact && "rounded-none p-0 shadow-none")}>
       <input name="restaurantId" type="hidden" value={restaurant.id} />
       <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
-      <input name="tableId" type="hidden" value={table.id} />
-      <input name="tableCode" type="hidden" value={table.code} />
-      <input name="orderType" type="hidden" value="table" />
+      <input name="orderType" type="hidden" value={orderType} />
       <input name="paymentMethod" type="hidden" value={paymentMethod} />
       <input name="notes" type="hidden" value={notes} />
       <input name="cartJson" type="hidden" value={cartJson} />
 
       {!compact ? <h2 className="text-2xl font-black">Tu pedido</h2> : null}
+
+      <div className="mt-3 grid rounded-2xl bg-[var(--primary-light)] p-1 sm:grid-cols-2">
+        <button className={cn("h-12 rounded-full text-sm font-black text-[var(--muted)] disabled:opacity-40", orderType === "pickup" && "bg-[var(--primary)] text-white")} disabled={!pickupEnabled} onClick={() => setOrderType("pickup")} type="button">
+          Recojo
+        </button>
+        <button className={cn("h-12 rounded-full text-sm font-black text-[var(--muted)] disabled:opacity-40", orderType === "delivery" && "bg-[var(--primary)] text-white")} disabled={!deliveryEnabled} onClick={() => setOrderType("delivery")} type="button">
+          Envío a domicilio
+        </button>
+      </div>
 
       <div className="mt-4 space-y-2">
         {cart.length ? (
@@ -505,6 +497,12 @@ function OrderPanel({
         WhatsApp
         <Input className="mt-2" name="customerPhone" type="tel" />
       </label>
+      {orderType === "delivery" ? (
+        <label className="mt-3 block text-sm font-black">
+          Dirección de entrega
+          <Input className="mt-2" name="customerAddress" required />
+        </label>
+      ) : null}
 
       <label className="mt-4 flex items-center justify-between text-sm font-black">
         ¿Requiere factura?
@@ -513,7 +511,7 @@ function OrderPanel({
 
       <div className="mt-3 grid rounded-2xl bg-[var(--primary-light)] p-1 sm:grid-cols-2">
         <button className={cn("h-12 rounded-full text-sm font-black", paymentMethod === "cash" && "bg-[var(--primary)] text-white")} onClick={() => setPaymentMethod("cash")} type="button">
-          Caja / efectivo
+          Efectivo
         </button>
         <button className={cn("h-12 rounded-full text-sm font-black text-[var(--muted)]", paymentMethod === "qr" && "bg-[var(--primary)] text-white")} onClick={() => setPaymentMethod("qr")} type="button">
           Pago QR
@@ -526,7 +524,7 @@ function OrderPanel({
           <img alt="QR de pago" className="h-24 w-24 rounded-2xl border border-[var(--border)] object-cover" src={settings.qrPaymentUrl} />
           <div>
             <p className="text-sm font-black text-[var(--text)]">Escanea el QR del restaurante</p>
-            <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Paga desde tu celular y sube el comprobante para que caja lo confirme.</p>
+            <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Realiza el pago y luego sube tu comprobante para que el equipo lo valide.</p>
           </div>
         </div>
       ) : null}
@@ -540,7 +538,7 @@ function OrderPanel({
 
       <p className="mt-4 rounded-2xl bg-white/60 p-3 text-sm leading-6 text-[var(--muted)]">
         {paymentMethod === "cash"
-          ? "Para procesar tu pedido, por favor acércate a caja y realiza el pago."
+          ? "El equipo confirmará tu pedido y coordinará el pago."
           : settings?.qrPaymentUrl
             ? "Seleccionaste pago QR. El equipo confirmará el pago antes de preparar el pedido."
             : "Seleccionaste pago QR. El equipo te indicará el QR disponible para completar el pago."}

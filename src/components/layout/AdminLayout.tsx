@@ -1,18 +1,19 @@
 import Link from "next/link";
 import { BarChart3, Boxes, ChefHat, ClipboardList, CreditCard, Home, LayoutDashboard, LogIn, LogOut, Settings, Store, Table2, Utensils } from "lucide-react";
+import type { ReactNode } from "react";
 import { signOutAction } from "@/app/admin/actions";
 import { cn } from "@/lib/utils/cn";
-import type { ReactNode } from "react";
 
 const nav = [
   { label: "Dashboard", href: "dashboard", icon: LayoutDashboard },
   { label: "Productos", href: "productos", icon: Utensils },
-  { label: "Categorías", href: "categorias", icon: ClipboardList },
+  { label: "Categorias", href: "categorias", icon: ClipboardList },
   { label: "Mesas", href: "mesas", icon: Table2 },
   { label: "Pedidos", href: "pedidos", icon: ChefHat },
+  { label: "Cocina", href: "cocina", icon: ChefHat },
   { label: "Caja", href: "caja", icon: CreditCard },
   { label: "Inventario", href: "inventario", icon: Boxes },
-  { label: "Configuración", href: "configuracion", icon: Settings },
+  { label: "Configuracion", href: "configuracion", icon: Settings },
 ];
 
 export function AdminLayout({
@@ -77,6 +78,22 @@ export function AdminLayout({
               </form>
             </div>
           </div>
+          {restaurantId ? (
+            <nav className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:hidden">
+              {nav.map((item) => (
+                <Link
+                  className={cn(
+                    "shrink-0 rounded-full px-4 py-2 text-sm font-semibold text-slate-600",
+                    active === item.href ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-600",
+                  )}
+                  href={`/admin/restaurantes/${restaurantId}/${item.href}`}
+                  key={`mobile-${item.href}`}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          ) : null}
         </header>
         <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>

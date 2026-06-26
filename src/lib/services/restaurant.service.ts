@@ -69,6 +69,9 @@ function mapSettings(row: {
   min_order_amount: number;
   currency: string;
   qr_payment_url: string | null;
+  print_format?: "thermal_58" | "thermal_80" | "large" | null;
+  auto_print_kitchen?: boolean | null;
+  print_logo?: boolean | null;
 }): RestaurantSettings {
   return {
     restaurantId: row.restaurant_id,
@@ -83,6 +86,9 @@ function mapSettings(row: {
     minOrderAmount: Number(row.min_order_amount),
     currency: row.currency,
     qrPaymentUrl: row.qr_payment_url ?? "",
+    printFormat: row.print_format ?? "thermal_80",
+    autoPrintKitchen: row.auto_print_kitchen ?? false,
+    printLogo: row.print_logo ?? true,
   };
 }
 

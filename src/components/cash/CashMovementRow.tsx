@@ -10,7 +10,7 @@ export function CashMovementRow({ movement }: { movement: CashMovement }) {
       <div>
         <p className="font-semibold text-slate-950">{movement.description}</p>
         <p className="text-sm text-slate-500">
-          {movement.type} · {movement.paymentMethod} · {formatShortTime(movement.createdAt)}
+          {movement.type} | {movement.paymentMethod} | {formatShortTime(movement.createdAt)}
         </p>
       </div>
       <p className={isExpense ? "font-black text-red-600" : "font-black text-slate-950"}>

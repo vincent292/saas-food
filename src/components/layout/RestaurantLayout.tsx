@@ -4,12 +4,22 @@ import { MobileBottomNav } from "./MobileBottomNav";
 import { RestaurantThemeProvider } from "@/components/restaurant/RestaurantThemeProvider";
 import type { Restaurant } from "@/types/restaurant.types";
 
-export function RestaurantLayout({ restaurant, children }: { restaurant: Restaurant; children: ReactNode }) {
+export function RestaurantLayout({
+  restaurant,
+  children,
+  showCart = true,
+  showMobileNav = true,
+}: {
+  restaurant: Restaurant;
+  children: ReactNode;
+  showCart?: boolean;
+  showMobileNav?: boolean;
+}) {
   return (
     <RestaurantThemeProvider theme={restaurant.theme}>
-      <Header restaurant={restaurant} cartCount={2} />
+      <Header restaurant={restaurant} cartCount={0} showCart={showCart} />
       {children}
-      <MobileBottomNav restaurantSlug={restaurant.slug} />
+      {showMobileNav ? <MobileBottomNav restaurantSlug={restaurant.slug} /> : null}
     </RestaurantThemeProvider>
   );
 }

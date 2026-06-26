@@ -12,7 +12,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ rest
   }
 
   return (
-    <AdminLayout active="dashboard" restaurantId={restaurant.id} title={`Dashboard · ${restaurant.name}`}>
+    <AdminLayout active="dashboard" restaurantId={restaurant.id} title={`Dashboard | ${restaurant.name}`}>
       <RestaurantDashboard restaurantId={restaurant.id} />
     </AdminLayout>
   );

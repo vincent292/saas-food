@@ -4,6 +4,7 @@ import { POSProductGrid } from "@/components/cash/POSProductGrid";
 import { RestaurantThemeProvider } from "@/components/restaurant/RestaurantThemeProvider";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { cashService } from "@/lib/services/cash.service";
+import { categoryService } from "@/lib/services/category.service";
 import { productService } from "@/lib/services/product.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
@@ -15,7 +16,12 @@ export default async function PublicCashPage({ params }: { params: Promise<{ res
     notFound();
   }
 
-  const [summary, products] = await Promise.all([cashService.getSummary(restaurant.id), productService.listAvailableByRestaurant(restaurant.id)]);
+  const [summary, categories, products] = await Promise.all([
+    cashService.getSummary(restaurant.id),
+    categoryService.listByRestaurant(restaurant.id),
+    productService.listAvailableByRestaurant(restaurant.id),
+  ]);
+  const configuration = await productService.listConfigurationsByRestaurant(restaurant.id);
 
   return (
     <RestaurantThemeProvider theme={restaurant.theme}>
@@ -28,7 +34,7 @@ export default async function PublicCashPage({ params }: { params: Promise<{ res
           <CashSummaryCard amount={summary.netTotal} label="Neto" />
         </div>
         <div className="mt-6">
-          <POSProductGrid products={products} restaurantId={restaurant.id} />
+          <POSProductGrid categories={categories} configuration={configuration} disabled={!summary.session} products={products} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} />
         </div>
       </main>
     </RestaurantThemeProvider>

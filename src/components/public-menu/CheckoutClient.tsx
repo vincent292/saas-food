@@ -56,6 +56,10 @@ export function CheckoutClient({
   const errorMessage =
     error === "minimum"
       ? "El pedido no llega al minimo configurado por el restaurante."
+      : error === "no-open-cash"
+        ? "La caja esta cerrada. El restaurante debe abrir caja para recibir pedidos."
+        : error === "receipt-required"
+          ? "Para pago QR debes subir el comprobante antes de confirmar."
       : error === "disabled"
         ? "La modalidad seleccionada ya no esta habilitada para este restaurante."
         : error === "settings"
@@ -115,6 +119,14 @@ export function CheckoutClient({
                 <h3 className="font-black text-[var(--text)]">Pago por QR</h3>
                 <p className="mt-1 text-sm text-[var(--muted)]">Escanea el QR del restaurante y confirma el pedido.</p>
               </div>
+            </Card>
+          ) : null}
+          {selectedPaymentMethod === "qr" ? (
+            <Card>
+              <label className="block text-sm font-black">
+                Comprobante QR
+                <Input accept="image/*,.pdf" className="mt-2" name="paymentReceiptFile" required type="file" />
+              </label>
             </Card>
           ) : null}
           <Button className="w-full md:w-auto" disabled={!cart.length || belowMinimum || !orderTypes.length}>

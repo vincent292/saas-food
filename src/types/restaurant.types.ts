@@ -56,6 +56,9 @@ export type RestaurantSettings = {
   minOrderAmount: number;
   currency: string;
   qrPaymentUrl: string;
+  printFormat?: "thermal_58" | "thermal_80" | "large";
+  autoPrintKitchen?: boolean;
+  printLogo?: boolean;
 };
 
 export type BusinessHour = {

@@ -28,10 +28,10 @@ export default async function PublicCashPage({ params }: { params: Promise<{ res
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <SectionTitle title={`Caja · ${restaurant.name}`} description="Vista rápida para cajero con POS y resumen." />
         <div className="mt-6 grid gap-4 md:grid-cols-4">
+          <CashSummaryCard amount={summary.expectedCash} label="Efectivo esperado" />
           <CashSummaryCard amount={summary.salesTotal} label="Ventas" />
-          <CashSummaryCard amount={summary.cashTotal} label="Efectivo" />
-          <CashSummaryCard amount={summary.qrTotal} label="QR" />
-          <CashSummaryCard amount={summary.netTotal} label="Neto" />
+          <CashSummaryCard amount={summary.digitalTotal} label="Cobros digitales" />
+          <CashSummaryCard amount={summary.netTotal} label="Neto turno" />
         </div>
         <div className="mt-6">
           <POSProductGrid categories={categories} configuration={configuration} disabled={!summary.session} products={products} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} />

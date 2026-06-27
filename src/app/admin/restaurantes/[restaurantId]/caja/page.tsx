@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { CashWorkspaceClient } from "@/components/cash/CashWorkspaceClient";
+import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
 import { cashService } from "@/lib/services/cash.service";
 import { categoryService } from "@/lib/services/category.service";
 import { orderService } from "@/lib/services/order.service";
@@ -17,21 +18,29 @@ export default async function CashPage({
   const [{ restaurantId }, status] = await Promise.all([params, searchParams]);
   const restaurant = await restaurantService.getById(restaurantId);
 
-  if (!restaurant) {
+  if (!restaurant || !hasRestaurantModule(restaurant, "cash")) {
     notFound();
   }
 
-  const [summary, products, categories, configuration, movements, orders] = await Promise.all([
+  const [summary, products, categories, configuration, movements, orders, reports] = await Promise.all([
     cashService.getSummary(restaurant.id),
     productService.listAvailableByRestaurant(restaurant.id),
     categoryService.listByRestaurant(restaurant.id),
     productService.listConfigurationsByRestaurant(restaurant.id),
     cashService.listMovements(restaurant.id),
     orderService.listByRestaurant(restaurant.id),
+    cashService.listSessionReports(restaurant.id),
   ]);
 
   return (
-    <AdminLayout active="caja" restaurantId={restaurant.id} title="Caja / POS">
+    <AdminLayout
+      active="caja"
+      enabledModules={modulesForAdminLayout(restaurant)}
+      restaurantId={restaurant.id}
+      restaurantName={restaurant.name}
+      restaurantStatus={restaurant.status}
+      title="Caja / POS"
+    >
       <CashWorkspaceClient
         key={[
           restaurant.id,
@@ -50,6 +59,7 @@ export default async function CashPage({
         movements={movements}
         orders={orders}
         products={products}
+        reports={reports}
         restaurant={restaurant}
         status={status}
         summary={summary}

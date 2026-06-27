@@ -10,7 +10,7 @@ export default async function RestaurantsPage() {
   const restaurants = await restaurantService.listRestaurants();
 
   return (
-    <AdminLayout active="admin" title="Restaurantes">
+    <AdminLayout active="/admin/restaurantes" title="Restaurantes">
       <SectionTitle
         action={
           <Link className={buttonClasses("primary")} href="/admin/restaurantes/nuevo">
@@ -18,16 +18,16 @@ export default async function RestaurantsPage() {
             Nuevo restaurante
           </Link>
         }
-        description="Solo superadmin puede crear, activar, suspender y asignar usuarios."
+        description="Solo superadmin puede crear, activar, suspender, archivar y asignar responsables."
         title="Empresas gastronómicas"
       />
       <div className="mt-6">
         <DataTable
-          headers={["Nombre", "Slug", "Ciudad", "Plan", "Módulos", "Estado", "Acción"]}
+          headers={["Nombre", "Responsable", "Slug", "Plan", "Módulos", "Estado", "Acción"]}
           rows={restaurants.map((restaurant) => [
             restaurant.name,
+            restaurant.ownerEmail || "Sin responsable",
             restaurant.slug,
-            restaurant.city,
             restaurant.planKey ?? "sin plan",
             restaurant.activeModules?.length ?? 0,
             restaurant.status,

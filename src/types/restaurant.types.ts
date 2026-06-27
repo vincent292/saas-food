@@ -31,6 +31,11 @@ export type Restaurant = {
   slug: string;
   description: string;
   status: RestaurantStatus;
+  ownerUserId?: string;
+  ownerName?: string;
+  ownerEmail?: string;
+  deactivatedAt?: string;
+  deletedAt?: string;
   logoUrl: string;
   bannerUrl: string;
   primaryColor: string;

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { RestaurantDashboard } from "@/components/admin/RestaurantDashboard";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { modulesForAdminLayout } from "@/lib/modules";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
 export default async function DashboardPage({ params }: { params: Promise<{ restaurantId: string }> }) {
@@ -12,7 +13,14 @@ export default async function DashboardPage({ params }: { params: Promise<{ rest
   }
 
   return (
-    <AdminLayout active="dashboard" restaurantId={restaurant.id} title={`Dashboard | ${restaurant.name}`}>
+    <AdminLayout
+      active="dashboard"
+      enabledModules={modulesForAdminLayout(restaurant)}
+      restaurantId={restaurant.id}
+      restaurantName={restaurant.name}
+      restaurantStatus={restaurant.status}
+      title={`Dashboard | ${restaurant.name}`}
+    >
       <RestaurantDashboard restaurantId={restaurant.id} />
     </AdminLayout>
   );

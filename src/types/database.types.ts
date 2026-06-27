@@ -32,6 +32,15 @@ export type Database = {
         whatsapp: string | null;
         address: string | null;
         city: string | null;
+        owner_user_id: string | null;
+        owner_name: string | null;
+        owner_email: string | null;
+        deactivated_at: string | null;
+        deactivated_by: string | null;
+        deleted_at: string | null;
+        deleted_by: string | null;
+        restored_at: string | null;
+        restored_by: string | null;
         created_at: string;
         updated_at: string;
       }>;
@@ -217,6 +226,12 @@ export type Database = {
         current_stock: number;
         min_stock: number;
         unit_cost: number;
+        sku: string | null;
+        category: string | null;
+        category_id: string | null;
+        purchase_unit: string | null;
+        purchase_to_stock_factor: number;
+        supplier_id: string | null;
         is_active: boolean;
         created_at: string;
         updated_at: string;
@@ -231,6 +246,87 @@ export type Database = {
         new_stock: number;
         reason: string | null;
         created_by: string | null;
+        created_at: string;
+        from_zone_id: string | null;
+        to_zone_id: string | null;
+        supplier_id: string | null;
+        order_id: string | null;
+        related_movement_id: string | null;
+      }>;
+      inventory_categories: Row<{
+        id: string;
+        restaurant_id: string;
+        name: string;
+        description: string | null;
+        is_active: boolean;
+        created_at: string;
+        updated_at: string;
+      }>;
+      inventory_zones: Row<{
+        id: string;
+        restaurant_id: string;
+        name: string;
+        description: string | null;
+        is_active: boolean;
+        created_at: string;
+        updated_at: string;
+      }>;
+      inventory_item_zones: Row<{
+        id: string;
+        restaurant_id: string;
+        inventory_item_id: string;
+        zone_id: string;
+        stock: number;
+        updated_at: string;
+      }>;
+      product_suppliers: Row<{
+        id: string;
+        restaurant_id: string;
+        product_id: string;
+        supplier_id: string;
+        notes: string | null;
+        created_at: string;
+      }>;
+      inventory_suppliers: Row<{
+        id: string;
+        restaurant_id: string;
+        name: string;
+        phone: string | null;
+        notes: string | null;
+        is_active: boolean;
+        created_at: string;
+        updated_at: string;
+      }>;
+      product_ingredients: Row<{
+        id: string;
+        restaurant_id: string;
+        product_id: string;
+        inventory_item_id: string;
+        quantity: number;
+        waste_factor: number;
+        notes: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      inventory_counts: Row<{
+        id: string;
+        restaurant_id: string;
+        status: "open" | "closed";
+        opened_by: string | null;
+        closed_by: string | null;
+        opened_at: string;
+        closed_at: string | null;
+        notes: string | null;
+      }>;
+      inventory_count_lines: Row<{
+        id: string;
+        inventory_count_id: string;
+        restaurant_id: string;
+        inventory_item_id: string;
+        expected_stock: number;
+        counted_stock: number;
+        difference_stock: number;
+        notes: string | null;
         created_at: string;
       }>;
       module_settings: Row<{
@@ -283,11 +379,136 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      cash_expected_amount: {
+        Args: {
+          p_cash_session_id: string;
+        };
+        Returns: number;
+      };
+      apply_order_inventory_usage: {
+        Args: {
+          p_order_id: string;
+        };
+        Returns: undefined;
+      };
+      create_default_inventory_zone: {
+        Args: {
+          p_restaurant_id: string;
+        };
+        Returns: string;
+      };
+      charge_order_with_cash_movement: {
+        Args: {
+          p_order_id: string;
+          p_payment_method: Database["public"]["Enums"]["payment_method_type"];
+          p_receipt_reference?: string | null;
+          p_receipt_url?: string | null;
+          p_restaurant_id: string;
+        };
+        Returns: string;
+      };
+      close_cash_session_atomic: {
+        Args: {
+          p_counted_amount: number;
+          p_notes?: string | null;
+          p_restaurant_id: string;
+        };
+        Returns: {
+          session_id: string;
+          expected_amount: number;
+          counted_amount: number;
+          difference_amount: number;
+        }[];
+      };
+      close_inventory_count_atomic: {
+        Args: {
+          p_notes?: string | null;
+          p_restaurant_id: string;
+        };
+        Returns: string;
+      };
+      create_pos_sale_with_cash_movement: {
+        Args: {
+          p_customer_name?: string | null;
+          p_items?: Json;
+          p_order_number: string;
+          p_payment_method: Database["public"]["Enums"]["payment_method_type"];
+          p_receipt_reference?: string | null;
+          p_receipt_url?: string | null;
+          p_restaurant_id: string;
+        };
+        Returns: string;
+      };
       has_open_cash_session_public: {
         Args: {
           p_restaurant_id: string;
         };
         Returns: boolean;
+      };
+      open_cash_session_atomic: {
+        Args: {
+          p_notes?: string | null;
+          p_opening_amount: number;
+          p_restaurant_id: string;
+        };
+        Returns: string;
+      };
+      open_inventory_count_atomic: {
+        Args: {
+          p_notes?: string | null;
+          p_restaurant_id: string;
+        };
+        Returns: string;
+      };
+      record_inventory_count_line_atomic: {
+        Args: {
+          p_counted_stock: number;
+          p_inventory_item_id: string;
+          p_notes?: string | null;
+          p_restaurant_id: string;
+        };
+        Returns: string;
+      };
+      register_cash_movement_atomic: {
+        Args: {
+          p_amount: number;
+          p_description: string;
+          p_payment_method: Database["public"]["Enums"]["payment_method_type"];
+          p_restaurant_id: string;
+          p_type: Database["public"]["Enums"]["cash_movement_type"];
+        };
+        Returns: string;
+      };
+      register_inventory_movement_atomic: {
+        Args: {
+          p_from_zone_id?: string | null;
+          p_inventory_item_id: string;
+          p_quantity: number;
+          p_reason: string;
+          p_restaurant_id: string;
+          p_supplier_id?: string | null;
+          p_to_zone_id?: string | null;
+          p_type: Database["public"]["Enums"]["inventory_movement_type"];
+        };
+        Returns: string;
+      };
+      reverse_order_inventory_usage: {
+        Args: {
+          p_order_id: string;
+          p_reason?: string | null;
+        };
+        Returns: undefined;
+      };
+      transfer_inventory_zone_atomic: {
+        Args: {
+          p_from_zone_id: string;
+          p_inventory_item_id: string;
+          p_quantity: number;
+          p_reason: string;
+          p_restaurant_id: string;
+          p_to_zone_id: string;
+        };
+        Returns: string;
       };
       get_public_order: {
         Args: {
@@ -303,6 +524,25 @@ export type Database = {
           p_restaurant_id: string;
         };
         Returns: Json;
+      };
+      archive_restaurant: {
+        Args: {
+          p_restaurant_id: string;
+        };
+        Returns: undefined;
+      };
+      restore_restaurant: {
+        Args: {
+          p_restaurant_id: string;
+        };
+        Returns: undefined;
+      };
+      set_restaurant_status: {
+        Args: {
+          p_restaurant_id: string;
+          p_status: Database["public"]["Enums"]["restaurant_status"];
+        };
+        Returns: undefined;
       };
     };
     Enums: {

@@ -49,7 +49,9 @@ function statusMessage(status: ReceptionStatus) {
           ? "Ese pedido ya fue rechazado."
           : status.error === "already-paid"
             ? "Ese pedido ya fue cobrado."
-            : `No se pudo completar la accion: ${status.error}.`;
+            : status.error.startsWith("negative-stock")
+              ? "No hay stock suficiente para aprobar el pedido. Revisa inventario o ajusta el insumo."
+              : `No se pudo completar la acción: ${status.error}.`;
 
   return { tone: "error", text: message };
 }
@@ -129,7 +131,7 @@ export function OrdersReceptionClient({
           <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Recepcion</p>
           <h1 className="text-3xl font-black text-[var(--text)]">Pedidos en tiempo real</h1>
           <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">
-            Aqui llegan los pedidos de mesa y de afuera. Caja o recepcion los aprueba, valida el comprobante y los manda a cocina.
+            Aquí llegan los pedidos de mesa y de afuera. Caja o recepción los aprueba, valida el comprobante y los manda a cocina.
           </p>
         </div>
         <div className="flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-[var(--muted)] shadow-sm">
@@ -140,7 +142,7 @@ export function OrdersReceptionClient({
 
       {!hasOpenSession ? (
         <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-800">
-          La caja esta cerrada. Puedes revisar pedidos, pero para aprobarlos y sumarlos al dia primero debes abrir caja.
+          La caja está cerrada. Puedes revisar pedidos, pero para aprobarlos y sumarlos al día primero debes abrir caja.
         </div>
       ) : null}
 
@@ -169,7 +171,7 @@ export function OrdersReceptionClient({
       ) : (
         <EmptyState
           title={activeTab === "nuevos" ? "Sin pedidos nuevos" : activeTab === "cocina" ? "Nada enviado a cocina" : "Sin historial reciente"}
-          description="Cuando Supabase reciba o actualice pedidos apareceran aqui automaticamente."
+          description="Cuando Supabase reciba o actualice pedidos aparecerán aquí automáticamente."
         />
       )}
     </div>

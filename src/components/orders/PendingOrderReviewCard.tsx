@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3, ReceiptText, WalletCards } from "lucide-react";
+import { ChevronDown, Clock3, ReceiptText, WalletCards } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { chargeOrderAction, rejectCashOrderAction } from "@/app/admin/actions";
@@ -33,8 +33,10 @@ export function PendingOrderReviewCard({
   disabled?: boolean;
 }) {
   const [paymentMethod, setPaymentMethod] = useState<Order["paymentMethod"]>(order.paymentMethod);
+  const [showReject, setShowReject] = useState(false);
   const whatsappUrl = whatsappHref(order.customerPhone, order.orderNumber);
   const pendingLabel = context === "pedidos" ? "Pendiente por aprobar" : "Pendiente de caja";
+  const hasReceiptEvidence = Boolean(order.paymentReceiptUrl || order.paymentReceiptReference);
 
   return (
     <Card className="rounded-[1.25rem] p-4">
@@ -76,7 +78,7 @@ export function PendingOrderReviewCard({
             <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Decision de caja</p>
             <p className="mt-1 text-2xl font-black text-[var(--primary-dark)]">{formatMoney(order.total)}</p>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
-              {context === "pedidos" ? "Aprueba aqui para enviarlo directo a cocina." : "Cobro y validacion del pedido antes de cocina."}
+              {context === "pedidos" ? "Aprueba aquí para enviarlo directo a cocina." : "Cobro y validación del pedido antes de cocina."}
             </p>
             {order.paymentReceiptReference ? <p className="mt-2 text-xs font-black text-[var(--primary-dark)]">Referencia: {order.paymentReceiptReference}</p> : null}
             {order.paymentReceiptUrl ? (
@@ -102,8 +104,16 @@ export function PendingOrderReviewCard({
             </Select>
             {paymentMethod === "qr" ? (
               <>
-                <Input defaultValue={order.paymentReceiptReference || ""} name="paymentReceiptReference" placeholder="Numero de comprobante o referencia QR" />
-                <Input accept="image/*,.pdf" name="paymentReceiptFile" required={!order.paymentReceiptUrl && !order.paymentReceiptReference} type="file" />
+                {hasReceiptEvidence ? (
+                  <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
+                    Comprobante ya recibido. Solo revisa la referencia o abre la imagen antes de aprobar.
+                  </div>
+                ) : (
+                  <>
+                    <Input name="paymentReceiptReference" placeholder="Número de comprobante o referencia QR" />
+                    <Input accept="image/*,.pdf" name="paymentReceiptFile" required type="file" />
+                  </>
+                )}
               </>
             ) : null}
             <Button disabled={disabled} type="submit">
@@ -111,16 +121,28 @@ export function PendingOrderReviewCard({
             </Button>
           </form>
 
-          <form action={rejectCashOrderAction} className="grid gap-3 rounded-2xl border border-red-100 p-3">
-            <input name="restaurantId" type="hidden" value={order.restaurantId} />
-            <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
-            <input name="orderId" type="hidden" value={order.id} />
-            <input name="source" type="hidden" value={context} />
-            <Textarea name="reason" placeholder="Motivo del rechazo" required />
-            <Button className="w-full" type="submit" variant="danger">
+          <div className="rounded-2xl border border-red-100 p-3">
+            <button
+              className="flex w-full items-center justify-between gap-3 text-left text-sm font-black text-red-700"
+              onClick={() => setShowReject((current) => !current)}
+              type="button"
+            >
               Rechazar pedido
-            </Button>
-          </form>
+              <ChevronDown className={cn("h-4 w-4 transition", showReject ? "rotate-180" : "")} />
+            </button>
+            {showReject ? (
+              <form action={rejectCashOrderAction} className="mt-3 grid gap-3">
+                <input name="restaurantId" type="hidden" value={order.restaurantId} />
+                <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
+                <input name="orderId" type="hidden" value={order.id} />
+                <input name="source" type="hidden" value={context} />
+                <Textarea name="reason" placeholder="Motivo del rechazo" required />
+                <Button className="w-full" type="submit" variant="danger">
+                  Confirmar rechazo
+                </Button>
+              </form>
+            ) : null}
+          </div>
 
           {whatsappUrl ? (
             <a className={cn(buttonClasses("secondary"), "w-full")} href={whatsappUrl} rel="noreferrer" target="_blank">

@@ -114,12 +114,12 @@ export function POSProductGrid({
   }
 
   if (!products.length) {
-    return <Card className="text-sm text-slate-500">Aun no hay productos disponibles para vender.</Card>;
+    return <Card className="text-sm text-slate-500">Aún no hay productos disponibles para vender.</Card>;
   }
 
   return (
     <>
-      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+      <div className={cn("grid gap-4 xl:grid-cols-[1fr_360px]", cart.length ? "pb-24 xl:pb-0" : "")}>
         <section className="min-w-0 space-y-4">
           <Card className="rounded-[1.25rem] p-3">
             <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
@@ -136,7 +136,7 @@ export function POSProductGrid({
             </div>
           </Card>
 
-          {disabled ? <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-800">Abre caja para habilitar la venta rapida.</div> : null}
+          {disabled ? <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-800">Abre caja para habilitar la venta rápida.</div> : null}
 
           <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
             {filteredProducts.map((product) => {
@@ -165,10 +165,10 @@ export function POSProductGrid({
           {!filteredProducts.length ? <div className="rounded-[1.25rem] bg-white p-6 text-center text-sm font-semibold text-[var(--muted)]">No hay productos para este filtro.</div> : null}
         </section>
 
-        <Card className="h-fit rounded-[1.25rem] p-4">
+        <Card className="h-fit rounded-[1.25rem] p-4 xl:sticky xl:top-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta rapida</p>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta rápida</p>
               <h2 className="text-2xl font-black text-[var(--text)]">Pedido POS</h2>
             </div>
             <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--primary-light)] text-[var(--primary)]">
@@ -205,7 +205,7 @@ export function POSProductGrid({
             )}
           </div>
 
-          <form action={createPosSaleAction} className="mt-4 space-y-3">
+          <form action={createPosSaleAction} className="mt-4 space-y-3" id="pos-sale-form">
             <input name="restaurantId" type="hidden" value={restaurantId} />
             <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
             <input name="cartJson" type="hidden" value={cartJson} />
@@ -223,7 +223,7 @@ export function POSProductGrid({
             </Select>
             {paymentMethod === "qr" ? (
               <div className="space-y-2 rounded-2xl border border-[var(--border)] p-3">
-                <Input name="paymentReceiptReference" placeholder="Numero de comprobante o referencia QR" />
+                <Input name="paymentReceiptReference" placeholder="Número de comprobante o referencia QR" />
                 <Input accept="image/*,.pdf" name="paymentReceiptFile" type="file" />
                 <p className="text-xs font-semibold text-[var(--muted)]">En POS puedes subir una captura o registrar la referencia del pago QR.</p>
               </div>
@@ -234,6 +234,20 @@ export function POSProductGrid({
           </form>
         </Card>
       </div>
+
+      {cart.length ? (
+        <div className="fixed inset-x-3 bottom-3 z-40 rounded-2xl border border-[var(--border)] bg-white p-3 shadow-2xl xl:hidden">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">{cart.length} ítems</p>
+              <p className="truncate text-xl font-black text-[var(--text)]">{formatMoney(total)}</p>
+            </div>
+            <Button className="min-h-11 shrink-0 px-5" disabled={disabled || !cart.length} form="pos-sale-form" type="submit">
+              Cobrar
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {selectedProduct ? (
         <ProductOptionModal

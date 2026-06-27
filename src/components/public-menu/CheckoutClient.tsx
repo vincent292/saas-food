@@ -55,7 +55,7 @@ export function CheckoutClient({
   const belowMinimum = subtotal > 0 && subtotal < minOrderAmount;
   const errorMessage =
     error === "minimum"
-      ? "El pedido no llega al minimo configurado por el restaurante."
+      ? "El pedido no llega al mínimo configurado por el restaurante."
       : error === "no-open-cash"
         ? "La caja esta cerrada. El restaurante debe abrir caja para recibir pedidos."
         : error === "receipt-required"
@@ -73,7 +73,7 @@ export function CheckoutClient({
         {error ? <div className="rounded-2xl bg-red-50 p-3 text-sm font-semibold text-red-700">{errorMessage}</div> : null}
         {belowMinimum ? (
           <div className="rounded-2xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">
-            Pedido minimo: {formatMoney(minOrderAmount, settings?.currency)}.
+            Pedido mínimo: {formatMoney(minOrderAmount, settings?.currency)}.
           </div>
         ) : null}
         <form action={createPublicOrderAction} className="space-y-6">
@@ -96,7 +96,7 @@ export function CheckoutClient({
               <option value="bank_transfer">Transferencia</option>
               <option value="card">Tarjeta futuro</option>
             </Select>
-            <Input className="md:col-span-2" name="customerAddress" placeholder="Direccion si es delivery" />
+            <Input className="md:col-span-2" name="customerAddress" placeholder="Dirección si es delivery" />
             <Textarea className="md:col-span-2" name="notes" placeholder="Notas del pedido" />
           </Card>
           <div className="grid gap-3 md:grid-cols-3">

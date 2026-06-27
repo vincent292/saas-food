@@ -4,6 +4,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { SectionTitle } from "@/components/ui/SectionTitle";
+import { modulesForAdminLayout } from "@/lib/modules";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
 export default async function RestaurantOverviewPage({ params }: { params: Promise<{ restaurantId: string }> }) {
@@ -15,7 +16,14 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
   }
 
   return (
-    <AdminLayout active="admin" restaurantId={restaurant.id} title={restaurant.name}>
+    <AdminLayout
+      active="admin"
+      enabledModules={modulesForAdminLayout(restaurant)}
+      restaurantId={restaurant.id}
+      restaurantName={restaurant.name}
+      restaurantStatus={restaurant.status}
+      title={restaurant.name}
+    >
       <SectionTitle title="Resumen del restaurante" description="Ficha base para superadmin y admins asignados." />
       <Card className="mt-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -34,8 +42,12 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Link className={buttonClasses("secondary")} href={`/r/${restaurant.slug}`}>Ver menú</Link>
-            <Link className={buttonClasses("primary")} href={`/admin/restaurantes/${restaurant.id}/dashboard`}>Gestionar</Link>
+            <Link className={buttonClasses("secondary")} href={`/r/${restaurant.slug}`}>
+              Ver menú
+            </Link>
+            <Link className={buttonClasses("primary")} href={`/admin/restaurantes/${restaurant.id}/dashboard`}>
+              Gestionar
+            </Link>
           </div>
         </div>
       </Card>

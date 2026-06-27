@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { RestaurantSettingsFormClient } from "@/components/settings/RestaurantSettingsFormClient";
+import { modulesForAdminLayout } from "@/lib/modules";
+import { planService } from "@/lib/services/plan.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { settingsService } from "@/lib/services/settings.service";
 
@@ -19,11 +21,22 @@ export default async function SettingsPage({
     notFound();
   }
 
-  const [settings, businessHours] = await Promise.all([restaurantService.getSettings(restaurant.id), settingsService.listBusinessHours(restaurant.id)]);
+  const [settings, businessHours, plans] = await Promise.all([
+    restaurantService.getSettings(restaurant.id),
+    settingsService.listBusinessHours(restaurant.id),
+    planService.listPlans(),
+  ]);
 
   return (
-    <AdminLayout active="configuracion" restaurantId={restaurant.id} title="Configuracion">
-      <RestaurantSettingsFormClient businessHours={businessHours} error={error} initialTab={tab} restaurant={restaurant} saved={saved} settings={settings} />
+    <AdminLayout
+      active="configuracion"
+      enabledModules={modulesForAdminLayout(restaurant)}
+      restaurantId={restaurant.id}
+      restaurantName={restaurant.name}
+      restaurantStatus={restaurant.status}
+      title="Configuración"
+    >
+      <RestaurantSettingsFormClient businessHours={businessHours} error={error} initialTab={tab} plans={plans} restaurant={restaurant} saved={saved} settings={settings} />
     </AdminLayout>
   );
 }

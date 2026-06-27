@@ -2,16 +2,38 @@ import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import type { ModuleKey, PlanKey, Restaurant, RestaurantSettings } from "@/types/restaurant.types";
 
-function themeFromColors(primaryColor: string, secondaryColor?: string | null) {
+function themeFromColors({
+  primaryColor,
+  secondaryColor,
+  backgroundColor,
+  surfaceColor,
+  textColor,
+  mutedColor,
+  borderColor,
+  navBackgroundColor,
+  navTextColor,
+}: {
+  primaryColor: string;
+  secondaryColor?: string | null;
+  backgroundColor?: string | null;
+  surfaceColor?: string | null;
+  textColor?: string | null;
+  mutedColor?: string | null;
+  borderColor?: string | null;
+  navBackgroundColor?: string | null;
+  navTextColor?: string | null;
+}) {
   return {
     primary: primaryColor || "#1d8844",
     primaryDark: "#146333",
     primaryLight: "#e8f7ee",
-    background: "#f7faf7",
-    surface: "#ffffff",
-    text: "#142018",
-    muted: "#68766c",
-    border: "#dfe8e2",
+    background: backgroundColor || "#f7faf7",
+    surface: surfaceColor || "#ffffff",
+    text: textColor || "#142018",
+    muted: mutedColor || "#68766c",
+    border: borderColor || "#dfe8e2",
+    navBackground: navBackgroundColor || surfaceColor || "#ffffff",
+    navText: navTextColor || textColor || "#142018",
     success: primaryColor || "#1d8844",
     warning: secondaryColor || "#d97706",
     danger: "#dc2626",
@@ -33,9 +55,22 @@ function mapRestaurant(row: {
   banner_url: string | null;
   primary_color: string;
   secondary_color: string | null;
+  background_color?: string | null;
+  surface_color?: string | null;
+  text_color?: string | null;
+  muted_color?: string | null;
+  border_color?: string | null;
+  nav_background_color?: string | null;
+  nav_text_color?: string | null;
+  menu_background_image_url?: string | null;
+  public_banner_size?: "compact" | "standard" | "large" | null;
   whatsapp: string | null;
   address: string | null;
+  address_reference?: string | null;
   city: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  maps_url?: string | null;
 }): Restaurant {
   const initials = row.name
     .split(" ")
@@ -61,8 +96,24 @@ function mapRestaurant(row: {
     secondaryColor: row.secondary_color ?? "#f59e0b",
     whatsapp: row.whatsapp ?? "",
     address: row.address ?? "",
+    addressReference: row.address_reference ?? "",
     city: row.city ?? "",
-    theme: themeFromColors(row.primary_color, row.secondary_color),
+    latitude: row.latitude === null || row.latitude === undefined ? undefined : Number(row.latitude),
+    longitude: row.longitude === null || row.longitude === undefined ? undefined : Number(row.longitude),
+    mapsUrl: row.maps_url ?? "",
+    menuBackgroundImageUrl: row.menu_background_image_url ?? "",
+    publicBannerSize: row.public_banner_size ?? "compact",
+    theme: themeFromColors({
+      primaryColor: row.primary_color,
+      secondaryColor: row.secondary_color,
+      backgroundColor: row.background_color,
+      surfaceColor: row.surface_color,
+      textColor: row.text_color,
+      mutedColor: row.muted_color,
+      borderColor: row.border_color,
+      navBackgroundColor: row.nav_background_color,
+      navTextColor: row.nav_text_color,
+    }),
   };
 }
 
@@ -79,6 +130,11 @@ function mapSettings(row: {
   min_order_amount: number;
   currency: string;
   qr_payment_url: string | null;
+  qr_account_name?: string | null;
+  qr_account_document?: string | null;
+  qr_bank_name?: string | null;
+  qr_account_type?: string | null;
+  qr_currency?: string | null;
   print_format?: "thermal_58" | "thermal_80" | "large" | null;
   auto_print_kitchen?: boolean | null;
   print_logo?: boolean | null;
@@ -96,6 +152,11 @@ function mapSettings(row: {
     minOrderAmount: Number(row.min_order_amount),
     currency: row.currency,
     qrPaymentUrl: row.qr_payment_url ?? "",
+    qrAccountName: row.qr_account_name ?? "",
+    qrAccountDocument: row.qr_account_document ?? "",
+    qrBankName: row.qr_bank_name ?? "",
+    qrAccountType: row.qr_account_type ?? "",
+    qrCurrency: row.qr_currency ?? row.currency,
     printFormat: row.print_format ?? "thermal_80",
     autoPrintKitchen: row.auto_print_kitchen ?? false,
     printLogo: row.print_logo ?? true,

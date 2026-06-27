@@ -20,6 +20,8 @@ export type RestaurantTheme = {
   text: string;
   muted: string;
   border: string;
+  navBackground: string;
+  navText: string;
   success: string;
   warning: string;
   danger: string;
@@ -42,7 +44,13 @@ export type Restaurant = {
   secondaryColor: string;
   whatsapp: string;
   address: string;
+  addressReference: string;
   city: string;
+  latitude?: number;
+  longitude?: number;
+  mapsUrl: string;
+  menuBackgroundImageUrl: string;
+  publicBannerSize: "compact" | "standard" | "large";
   theme: RestaurantTheme;
   planKey?: PlanKey;
   activeModules?: ModuleKey[];
@@ -61,6 +69,11 @@ export type RestaurantSettings = {
   minOrderAmount: number;
   currency: string;
   qrPaymentUrl: string;
+  qrAccountName: string;
+  qrAccountDocument: string;
+  qrBankName: string;
+  qrAccountType: string;
+  qrCurrency: string;
   printFormat?: "thermal_58" | "thermal_80" | "large";
   autoPrintKitchen?: boolean;
   printLogo?: boolean;

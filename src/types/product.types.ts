@@ -18,8 +18,11 @@ export type Product = {
   imageUrl: string;
   isAvailable: boolean;
   isFeatured: boolean;
+  isAutoFeatured?: boolean;
   trackStock: boolean;
   isPromotion?: boolean;
+  orderCount: number;
+  lastOrderedAt?: string;
   sortOrder: number;
 };
 

@@ -11,6 +11,8 @@ export function RestaurantThemeProvider({ theme, children }: { theme: Restaurant
     "--text": theme.text,
     "--muted": theme.muted,
     "--border": theme.border,
+    "--nav-background": theme.navBackground,
+    "--nav-text": theme.navText,
     "--success": theme.success,
     "--warning": theme.warning,
     "--danger": theme.danger,

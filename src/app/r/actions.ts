@@ -20,7 +20,15 @@ const orderSchema = z.object({
   tableCode: z.string().optional(),
   customerName: z.string().min(1),
   customerPhone: z.string().optional(),
+  customerEmail: z.string().email().optional().or(z.literal("")),
   customerAddress: z.string().optional(),
+  deliveryAddressDetail: z.string().optional(),
+  deliveryMapsUrl: z.string().optional(),
+  requestedFulfillmentAt: z.string().optional(),
+  invoiceRequired: z.boolean().default(false),
+  invoiceDocumentType: z.enum(["nit", "ci", "cex", "passport", "other"]).optional(),
+  invoiceDocumentNumber: z.string().optional(),
+  invoiceName: z.string().optional(),
   orderType: z.enum(["table", "delivery", "pickup"]),
   paymentMethod: z.enum(["cash", "qr", "bank_transfer", "card"]),
   notes: z.string().optional(),
@@ -54,7 +62,15 @@ export async function createPublicOrderAction(formData: FormData) {
     tableCode: formData.get("tableCode") || undefined,
     customerName: formData.get("customerName"),
     customerPhone: formData.get("customerPhone") || undefined,
+    customerEmail: formData.get("customerEmail") || undefined,
     customerAddress: formData.get("customerAddress") || undefined,
+    deliveryAddressDetail: formData.get("deliveryAddressDetail") || undefined,
+    deliveryMapsUrl: formData.get("deliveryMapsUrl") || undefined,
+    requestedFulfillmentAt: formData.get("requestedFulfillmentAt") || undefined,
+    invoiceRequired: formData.get("invoiceRequired") === "on",
+    invoiceDocumentType: formData.get("invoiceDocumentType") || undefined,
+    invoiceDocumentNumber: formData.get("invoiceDocumentNumber") || undefined,
+    invoiceName: formData.get("invoiceName") || undefined,
     orderType: formData.get("orderType"),
     paymentMethod: formData.get("paymentMethod"),
     notes: formData.get("notes") || undefined,
@@ -95,6 +111,14 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=disabled`);
   }
 
+  if (parsed.data.orderType === "delivery" && !parsed.data.customerAddress?.trim()) {
+    redirect(`${failPath}?error=delivery-address`);
+  }
+
+  if (parsed.data.invoiceRequired && (!parsed.data.invoiceDocumentType || !parsed.data.invoiceDocumentNumber?.trim() || !parsed.data.invoiceName?.trim())) {
+    redirect(`${failPath}?error=invoice`);
+  }
+
   if (subtotal < Number(settings.min_order_amount)) {
     redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=minimum`);
   }
@@ -125,7 +149,15 @@ export async function createPublicOrderAction(formData: FormData) {
       order_number: orderNumber,
       customer_name: parsed.data.customerName,
       customer_phone: parsed.data.customerPhone,
+      customer_email: parsed.data.customerEmail || null,
       customer_address: parsed.data.customerAddress,
+      delivery_address_detail: parsed.data.deliveryAddressDetail ?? null,
+      delivery_maps_url: parsed.data.deliveryMapsUrl ?? null,
+      requested_fulfillment_at: parsed.data.requestedFulfillmentAt ? new Date(parsed.data.requestedFulfillmentAt).toISOString() : null,
+      invoice_required: parsed.data.invoiceRequired,
+      invoice_document_type: parsed.data.invoiceRequired ? parsed.data.invoiceDocumentType : null,
+      invoice_document_number: parsed.data.invoiceRequired ? parsed.data.invoiceDocumentNumber : null,
+      invoice_name: parsed.data.invoiceRequired ? parsed.data.invoiceName : null,
       order_type: parsed.data.orderType,
       status: "pending",
       payment_status: "pending",

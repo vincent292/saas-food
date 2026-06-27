@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowRight, Check, Clock3, MapPin, Minus, Plus, Search, ShoppingCart, Star, X } from "lucide-react";
+import { ArrowRight, Check, Clock3, Minus, Plus, Search, ShoppingCart, Star, X } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { type CSSProperties, useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
-import { Button, buttonClasses } from "@/components/ui/Button";
+import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
@@ -48,6 +48,7 @@ export function PublicRestaurantOrderClient({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "qr">("cash");
   const [requiresInvoice, setRequiresInvoice] = useState(false);
+  const [fulfillmentMode, setFulfillmentMode] = useState<"now" | "scheduled">("now");
   const [orderType, setOrderType] = useState<PublicOrderType>(() => (settings?.pickupEnabled === false && settings?.deliveryEnabled ? "delivery" : "pickup"));
 
   const configByProduct = useMemo<ProductConfigMap>(() => {
@@ -77,6 +78,16 @@ export function PublicRestaurantOrderClient({
   const hasLogoImage = restaurant.logoUrl.startsWith("http") || restaurant.logoUrl.startsWith("/");
   const logoText = restaurant.logoUrl || restaurant.name.slice(0, 1).toUpperCase();
   const heroImage = restaurant.bannerUrl || products.find((product) => product.isFeatured && product.imageUrl)?.imageUrl || products.find((product) => product.imageUrl)?.imageUrl || defaultImage;
+  const topOrderedProducts = useMemo(() => products.filter((product) => product.isAutoFeatured).slice(0, 3), [products]);
+  const bannerHeightClass = restaurant.publicBannerSize === "large" ? "min-h-[300px] sm:min-h-[380px]" : restaurant.publicBannerSize === "standard" ? "min-h-[240px] sm:min-h-[320px]" : "min-h-[190px] sm:min-h-[260px]";
+  const publicBackgroundStyle: CSSProperties = restaurant.menuBackgroundImageUrl
+    ? {
+        backgroundImage: `linear-gradient(rgba(255,255,255,.88), rgba(255,255,255,.88)), url(${restaurant.menuBackgroundImageUrl})`,
+        backgroundSize: "cover",
+        backgroundAttachment: "fixed",
+        backgroundPosition: "center",
+      }
+    : {};
 
   function addConfiguredProduct(product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) {
     const price = product.price + (variant?.priceDelta ?? 0) + selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
@@ -104,15 +115,10 @@ export function PublicRestaurantOrderClient({
   }
 
   return (
-    <main className="min-h-screen bg-[var(--background)] text-[var(--text)]">
-      <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-white/95 backdrop-blur">
-        <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
-          <div className="hidden min-w-0 items-center gap-2 text-xs font-black text-[var(--primary)] sm:flex">
-            <MapPin className="h-4 w-4" />
-            <span className="truncate">{restaurant.city || restaurant.address || "Pedido online"}</span>
-          </div>
-
-          <Link className="col-start-1 flex min-w-0 items-center justify-self-start sm:col-start-2 sm:justify-self-center" href={`/r/${restaurant.slug}`}>
+    <main className="min-h-screen bg-[var(--background)] text-[var(--text)]" style={publicBackgroundStyle}>
+      <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--nav-background)] text-[var(--nav-text)] shadow-sm backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-3 py-2.5 sm:px-6 lg:px-8">
+          <Link className="flex min-w-0 items-center" href={`/r/${restaurant.slug}`}>
             <span className="grid h-12 min-w-12 place-items-center overflow-hidden rounded-2xl bg-[var(--primary)] px-3 text-base font-black text-white shadow-sm">
               {hasLogoImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -121,33 +127,34 @@ export function PublicRestaurantOrderClient({
                 logoText
               )}
             </span>
-            <span className="ml-3 max-w-[46vw] truncate text-sm font-black uppercase text-[var(--primary)] sm:max-w-none sm:text-base">{restaurant.name}</span>
+            <span className="ml-3 max-w-[42vw] truncate text-sm font-black uppercase sm:max-w-[260px] sm:text-base">{restaurant.name}</span>
           </Link>
 
-          <div className="flex items-center justify-end gap-2">
-            <span className="hidden items-center gap-1 rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-black text-[var(--primary)] sm:inline-flex">
+          <div className="flex shrink-0 items-center justify-end gap-2">
+            <span className="hidden items-center gap-1 rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-black text-[var(--primary)] md:inline-flex">
               <Clock3 className="h-3.5 w-3.5" />
               Abierto hoy
             </span>
             <Link className="hidden rounded-full border border-[var(--border)] bg-white px-4 py-2 text-sm font-black text-[var(--primary)] shadow-sm sm:inline-flex" href={`/r/${restaurant.slug}/seguimiento`}>
               Rastrear pedido
             </Link>
-            <button className="relative grid h-11 w-11 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--text)] shadow-sm lg:hidden" onClick={() => setDrawerOpen(true)} type="button">
+            <button className="relative inline-flex h-11 items-center gap-2 rounded-full border border-[var(--border)] bg-white px-3 text-[var(--text)] shadow-sm transition hover:-translate-y-0.5" onClick={() => setDrawerOpen(true)} type="button">
               <ShoppingCart className="h-5 w-5" />
+              <span className="hidden text-sm font-black md:inline">Tu pedido</span>
               {cartQuantity ? <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--primary)] text-[10px] font-black text-white">{cartQuantity}</span> : null}
             </button>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-6 px-3 pb-28 pt-5 sm:px-6 lg:grid-cols-[1fr_360px] lg:px-8 lg:pb-8">
+      <div className="mx-auto max-w-6xl px-3 pb-28 pt-5 sm:px-6 lg:px-8 lg:pb-8">
         <section className="min-w-0">
           <div className="relative mb-5 overflow-hidden rounded-tl-[1.75rem] rounded-br-[2.5rem] border border-[var(--border)] bg-white shadow-sm">
-            <div className="relative min-h-[260px] sm:min-h-[340px]">
+            <div className={cn("relative", bannerHeightClass)}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img alt={restaurant.name} className="absolute inset-0 h-full w-full object-cover" src={heroImage} />
               <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/25 to-transparent" />
-              <div className="relative z-10 flex min-h-[260px] max-w-xl flex-col justify-end p-5 pb-20 text-white sm:min-h-[340px] sm:p-8 sm:pb-8">
+              <div className={cn("relative z-10 flex max-w-xl flex-col justify-end p-5 pb-20 text-white sm:p-8 sm:pb-8", bannerHeightClass)}>
                 <span className="mb-3 inline-flex w-fit items-center gap-2 rounded-full bg-white/90 px-3 py-1 text-xs font-black text-[var(--primary)]">
                   <Star className="h-3.5 w-3.5 fill-current" />
                   Menú online
@@ -171,6 +178,29 @@ export function PublicRestaurantOrderClient({
               </div>
             </div>
           </div>
+
+          {topOrderedProducts.length ? (
+            <div className="mb-4 rounded-[1.5rem] border border-[var(--border)] bg-white/95 p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase text-[var(--primary)]">Mas pedido</p>
+                  <h2 className="text-xl font-black">Productos estrella por demanda</h2>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                {topOrderedProducts.map((product) => (
+                  <button className="grid grid-cols-[64px_1fr] gap-3 rounded-2xl bg-[var(--primary-light)] p-2 text-left" key={product.id} onClick={() => setSelectedProduct(product)} type="button">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img alt={product.name} className="h-16 w-16 rounded-2xl object-cover" src={product.imageUrl || defaultImage} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-black">{product.name}</span>
+                      <span className="block text-xs font-bold text-[var(--muted)]">{product.orderCount} pedidos</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="mb-4 grid gap-3 md:grid-cols-[1fr_auto]">
             <div className="flex min-h-12 items-center gap-3 rounded-2xl border border-[var(--border)] bg-white px-4 shadow-sm">
@@ -200,59 +230,51 @@ export function PublicRestaurantOrderClient({
 
           {!filteredProducts.length ? <div className="rounded-[1.25rem] bg-white p-6 text-center text-sm font-semibold text-[var(--muted)]">No hay productos disponibles en esta categoría.</div> : null}
         </section>
-
-        <aside className="hidden lg:block">
-          <PublicOrderPanel
-            cart={cart}
-            cartJson={cartJson}
-            changeQuantity={changeQuantity}
-            notes={notes}
-            orderType={orderType}
-            paymentMethod={paymentMethod}
-            requiresInvoice={requiresInvoice}
-            restaurant={restaurant}
-            setOrderType={setOrderType}
-            setPaymentMethod={setPaymentMethod}
-            setRequiresInvoice={setRequiresInvoice}
-            settings={settings}
-            total={total}
-          />
-        </aside>
       </div>
 
-      <button className="fixed inset-x-3 bottom-3 z-40 flex h-14 items-center justify-between rounded-full bg-[var(--primary)] px-5 text-sm font-black text-white shadow-2xl lg:hidden" onClick={() => setDrawerOpen(true)} type="button">
-        <span className="inline-flex items-center gap-2">
-          <ShoppingCart className="h-4 w-4" />
-          Pedido ({cartQuantity})
+      <button className="fixed bottom-3 left-14 right-3 z-40 flex min-h-14 items-center justify-between gap-3 rounded-2xl bg-[var(--primary)] px-4 py-3 text-left text-sm font-black text-white shadow-2xl ring-1 ring-white/30 sm:left-4 lg:hidden" onClick={() => setDrawerOpen(true)} type="button">
+        <span className="inline-flex min-w-0 items-center gap-3">
+          <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-sm">
+            <ShoppingCart className="h-5 w-5" />
+            {cartQuantity ? <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-emerald-950 text-[10px] text-white">{cartQuantity}</span> : null}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate">Tu pedido</span>
+            <span className="block text-xs font-semibold text-white/80">{cartQuantity ? `${cartQuantity} producto${cartQuantity === 1 ? "" : "s"}` : "Carrito vacio"}</span>
+          </span>
         </span>
-        <span>{formatMoney(total)}</span>
+        <span className="shrink-0 text-base">{formatMoney(total)}</span>
       </button>
 
       {drawerOpen ? (
-        <div className="fixed inset-0 z-50 bg-slate-950/45 lg:hidden">
-          <div className="absolute inset-x-0 bottom-0 max-h-[92vh] overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] p-4 text-[var(--text)] shadow-2xl">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-2xl font-black">Tu pedido</h2>
-              <button className="grid h-11 w-11 place-items-center rounded-full bg-slate-100" onClick={() => setDrawerOpen(false)} type="button">
+        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden bg-slate-950/45 px-2 pb-2 pt-16 backdrop-blur-sm sm:items-center sm:p-4">
+          <div className="max-h-[min(92dvh,760px)] w-full max-w-[min(100%,560px)] overflow-hidden rounded-[1.35rem] bg-[var(--surface)] text-[var(--text)] shadow-2xl" data-order-sheet>
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+              <h2 className="min-w-0 truncate text-xl font-black sm:text-2xl">Tu pedido</h2>
+              <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-100" onClick={() => setDrawerOpen(false)} type="button">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <PublicOrderPanel
-              cart={cart}
-              cartJson={cartJson}
-              changeQuantity={changeQuantity}
-              compact
-              notes={notes}
-              orderType={orderType}
-              paymentMethod={paymentMethod}
-              requiresInvoice={requiresInvoice}
-              restaurant={restaurant}
-              setOrderType={setOrderType}
-              setPaymentMethod={setPaymentMethod}
-              setRequiresInvoice={setRequiresInvoice}
-              settings={settings}
-              total={total}
-            />
+            <div className="max-h-[calc(min(92dvh,760px)-68px)] overflow-x-hidden overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3">
+              <PublicOrderPanel
+                cart={cart}
+                cartJson={cartJson}
+                changeQuantity={changeQuantity}
+                compact
+                notes={notes}
+                orderType={orderType}
+                paymentMethod={paymentMethod}
+                fulfillmentMode={fulfillmentMode}
+                requiresInvoice={requiresInvoice}
+                restaurant={restaurant}
+                setOrderType={setOrderType}
+                setPaymentMethod={setPaymentMethod}
+                setFulfillmentMode={setFulfillmentMode}
+                setRequiresInvoice={setRequiresInvoice}
+                settings={settings}
+                total={total}
+              />
+            </div>
           </div>
         </div>
       ) : null}
@@ -268,7 +290,11 @@ function OrderErrorMessage({ error }: { error: string }) {
       ? "La caja está cerrada. El restaurante debe abrir caja para recibir pedidos."
       : error === "receipt-required"
         ? "Para pago QR debes subir el comprobante antes de confirmar."
-        : "No se pudo confirmar el pedido. Revisa los datos e intenta nuevamente.";
+        : error === "delivery-address"
+          ? "Para delivery debes registrar una direccion de entrega."
+          : error === "invoice"
+            ? "Completa los datos de factura para confirmar el pedido."
+            : "No se pudo confirmar el pedido. Revisa los datos e intenta nuevamente.";
 
   return <div className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700 md:col-span-2">{message}</div>;
 }
@@ -285,22 +311,29 @@ function ProductTile({ product, config, onSelect }: { product: Product; config?:
   const hasConfiguration = Boolean(config?.variants.length || config?.optionGroups.length);
 
   return (
-    <article className="grid grid-cols-[96px_1fr] gap-3 rounded-tl-[1.5rem] rounded-br-[2rem] border border-[var(--border)] bg-white p-3 text-[var(--text)] shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:block sm:p-0">
-      <div className="aspect-square overflow-hidden rounded-tl-[1.25rem] rounded-br-[1.75rem] bg-[var(--primary-light)] sm:aspect-[4/3] sm:rounded-tl-[1.5rem] sm:rounded-br-[2rem]">
+    <article className="grid grid-cols-[88px_minmax(0,1fr)] gap-3 rounded-2xl border border-[var(--border)] bg-white p-3 text-[var(--text)] shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:block sm:overflow-hidden sm:p-0">
+      <div className="h-24 overflow-hidden rounded-2xl bg-[var(--primary-light)] sm:h-auto sm:aspect-[4/3] sm:rounded-none">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img alt={product.name} className="h-full w-full object-cover" src={product.imageUrl || defaultImage} />
       </div>
-      <div className="min-w-0 sm:p-4 sm:pt-3">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[10px] font-black uppercase text-[var(--primary)]">Producto</p>
-          {hasConfiguration ? <span className="rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]">Configurable</span> : null}
+      <div className="grid min-w-0 content-between gap-2 sm:p-4 sm:pt-3">
+        <div className="min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <p className="pt-1 text-[10px] font-black uppercase text-[var(--primary)]">Producto</p>
+            <div className="flex max-w-[64%] shrink-0 flex-wrap justify-end gap-1">
+            {product.isFeatured ? <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">Estrella</span> : null}
+            {product.isAutoFeatured ? <span className="rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]">Mas pedido</span> : null}
+            {hasConfiguration ? <span className="rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]">Configurable</span> : null}
+            </div>
+          </div>
+          <h3 className="mt-1 line-clamp-2 text-lg font-black leading-5">{product.name}</h3>
+          <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--muted)]">{product.description || "Listo para pedir."}</p>
         </div>
-        <h3 className="truncate text-lg font-black leading-5">{product.name}</h3>
-        <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--muted)]">{product.description || "Listo para pedir."}</p>
-        <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="flex items-end justify-between gap-2">
           <span className="text-base font-black text-[var(--primary)]">{formatMoney(product.price)}</span>
-          <button className={buttonClasses("secondary", "min-h-10 shrink-0 bg-[var(--primary)] px-3 font-black text-white hover:bg-[var(--primary-dark)]")} onClick={onSelect} type="button">
-            {hasConfiguration ? "Personalizar" : "Agregar"}
+          <button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-full bg-[var(--primary)] px-3 text-sm font-black text-white shadow-sm transition hover:bg-[var(--primary-dark)]" onClick={onSelect} type="button">
+            <span className="hidden min-[390px]:inline">{hasConfiguration ? "Personalizar" : "Agregar"}</span>
+            <span className="min-[390px]:hidden">{hasConfiguration ? "Editar" : "Sumar"}</span>
             <Plus className="h-4 w-4" />
           </button>
         </div>
@@ -449,6 +482,7 @@ function PublicOrderPanel({
   cartJson,
   total,
   paymentMethod,
+  fulfillmentMode,
   orderType,
   requiresInvoice,
   notes,
@@ -456,6 +490,7 @@ function PublicOrderPanel({
   changeQuantity,
   setOrderType,
   setPaymentMethod,
+  setFulfillmentMode,
   setRequiresInvoice,
 }: {
   restaurant: Restaurant;
@@ -464,6 +499,7 @@ function PublicOrderPanel({
   cartJson: string;
   total: number;
   paymentMethod: "cash" | "qr";
+  fulfillmentMode: "now" | "scheduled";
   orderType: PublicOrderType;
   requiresInvoice: boolean;
   notes: string;
@@ -471,32 +507,51 @@ function PublicOrderPanel({
   changeQuantity: (cartId: string, delta: number) => void;
   setOrderType: (type: PublicOrderType) => void;
   setPaymentMethod: (method: "cash" | "qr") => void;
+  setFulfillmentMode: (mode: "now" | "scheduled") => void;
   setRequiresInvoice: (value: boolean) => void;
 }) {
   const deliveryEnabled = settings?.deliveryEnabled ?? true;
   const pickupEnabled = settings?.pickupEnabled ?? true;
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   return (
-    <form action={createPublicOrderAction} className={cn("rounded-[1.5rem] bg-[var(--surface)] p-4 text-[var(--text)] shadow-sm", compact && "rounded-none p-0 shadow-none")}>
+    <form action={createPublicOrderAction} className={cn("w-full min-w-0 rounded-[1.5rem] bg-[var(--surface)] text-[var(--text)] shadow-sm", compact ? "rounded-none p-0 shadow-none" : "p-4")} onSubmit={() => setIsSubmitting(true)}>
       <input name="restaurantId" type="hidden" value={restaurant.id} />
       <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
       <input name="orderType" type="hidden" value={orderType} />
       <input name="paymentMethod" type="hidden" value={paymentMethod} />
       <input name="notes" type="hidden" value={notes} />
+      <input name="invoiceRequired" type="hidden" value={requiresInvoice ? "on" : ""} />
       <input name="cartJson" type="hidden" value={cartJson} />
 
       {!compact ? <h2 className="text-2xl font-black">Tu pedido</h2> : null}
 
-      <div className="mt-3 grid rounded-2xl bg-[var(--primary-light)] p-1 sm:grid-cols-2">
-        <button className={cn("h-12 rounded-full text-sm font-black text-[var(--muted)] disabled:opacity-40", orderType === "pickup" && "bg-[var(--primary)] text-white")} disabled={!pickupEnabled} onClick={() => setOrderType("pickup")} type="button">
+      <div className="mt-2 grid grid-cols-2 rounded-2xl bg-[var(--primary-light)] p-1">
+        <button className={cn("min-h-11 rounded-full px-2 text-xs font-black text-[var(--muted)] disabled:opacity-40 min-[380px]:text-sm", orderType === "pickup" && "bg-[var(--primary)] text-white")} disabled={!pickupEnabled} onClick={() => setOrderType("pickup")} type="button">
           Recojo
         </button>
-        <button className={cn("h-12 rounded-full text-sm font-black text-[var(--muted)] disabled:opacity-40", orderType === "delivery" && "bg-[var(--primary)] text-white")} disabled={!deliveryEnabled} onClick={() => setOrderType("delivery")} type="button">
+        <button className={cn("min-h-11 rounded-full px-2 text-xs font-black text-[var(--muted)] disabled:opacity-40 min-[380px]:text-sm", orderType === "delivery" && "bg-[var(--primary)] text-white")} disabled={!deliveryEnabled} onClick={() => setOrderType("delivery")} type="button">
           Envío a domicilio
         </button>
       </div>
 
-      <div className="mt-4 space-y-2">
+      <div className="mt-2 grid grid-cols-2 rounded-2xl bg-[var(--primary-light)] p-1">
+        <button className={cn("min-h-11 rounded-full px-2 text-xs font-black text-[var(--muted)] min-[380px]:text-sm", fulfillmentMode === "now" && "bg-[var(--primary)] text-white")} onClick={() => setFulfillmentMode("now")} type="button">
+          Ahora mismo
+        </button>
+        <button className={cn("min-h-11 rounded-full px-2 text-xs font-black text-[var(--muted)] min-[380px]:text-sm", fulfillmentMode === "scheduled" && "bg-[var(--primary)] text-white")} onClick={() => setFulfillmentMode("scheduled")} type="button">
+          Programar hora
+        </button>
+      </div>
+
+      {fulfillmentMode === "scheduled" ? (
+        <label className="mt-3 block text-sm font-black">
+          Hora de entrega o recojo
+          <Input className="mt-2" name="requestedFulfillmentAt" required type="datetime-local" />
+        </label>
+      ) : null}
+
+      <div className="mt-3 space-y-2">
         {cart.length ? (
           cart.map((item) => (
             <div className="grid grid-cols-[1fr_auto] gap-3 rounded-2xl bg-[var(--primary-light)]/45 p-3" key={item.cartId}>
@@ -521,12 +576,12 @@ function PublicOrderPanel({
         )}
       </div>
 
-      <div className="mt-4 flex items-center justify-between text-base">
+      <div className="mt-3 flex items-center justify-between border-t border-[var(--border)] pt-3 text-base">
         <span>Total</span>
         <strong>{formatMoney(total)}</strong>
       </div>
 
-      <label className="mt-4 block text-sm font-black">
+      <label className="mt-3 block text-sm font-black">
         Nombre completo
         <Input className="mt-2" name="customerName" required />
       </label>
@@ -534,11 +589,38 @@ function PublicOrderPanel({
         WhatsApp
         <Input className="mt-2" name="customerPhone" type="tel" />
       </label>
+      <label className="mt-3 block text-sm font-black">
+        Correo electronico
+        <Input className="mt-2" name="customerEmail" type="email" />
+      </label>
       {orderType === "delivery" ? (
         <label className="mt-3 block text-sm font-black">
           Dirección de entrega
           <Input className="mt-2" name="customerAddress" required />
         </label>
+      ) : null}
+      {orderType === "delivery" ? (
+        <div className="mt-3 space-y-3">
+          <label className="block text-sm font-black">
+            Numero de casa, apartamento o aclaracion
+            <Input className="mt-2" name="deliveryAddressDetail" />
+          </label>
+          <label className="block text-sm font-black">
+            Link de Google Maps
+            <Input className="mt-2" name="deliveryMapsUrl" placeholder="https://maps.google.com/..." />
+          </label>
+        </div>
+      ) : restaurant.mapsUrl || restaurant.address ? (
+        <div className="mt-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 text-sm font-semibold text-[var(--muted)]">
+          <p className="font-black text-[var(--text)]">Recojo en local</p>
+          <p className="mt-1">{restaurant.address || "El restaurante confirmara la direccion."}</p>
+          {restaurant.addressReference ? <p className="mt-1">{restaurant.addressReference}</p> : null}
+          {restaurant.mapsUrl ? (
+            <a className="mt-2 inline-flex font-black text-[var(--primary)]" href={restaurant.mapsUrl} rel="noreferrer" target="_blank">
+              Abrir en Google Maps
+            </a>
+          ) : null}
+        </div>
       ) : null}
 
       <label className="mt-4 flex items-center justify-between text-sm font-black">
@@ -546,11 +628,25 @@ function PublicOrderPanel({
         <input checked={requiresInvoice} onChange={(event) => setRequiresInvoice(event.target.checked)} type="checkbox" />
       </label>
 
-      <div className="mt-3 grid rounded-2xl bg-[var(--primary-light)] p-1 sm:grid-cols-2">
-        <button className={cn("h-12 rounded-full text-sm font-black", paymentMethod === "cash" && "bg-[var(--primary)] text-white")} onClick={() => setPaymentMethod("cash")} type="button">
+      {requiresInvoice ? (
+        <div className="mt-3 grid gap-3 rounded-2xl border border-[var(--border)] p-3">
+          <select className="h-12 rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-bold text-[var(--text)]" name="invoiceDocumentType" required>
+            <option value="nit">NIT</option>
+            <option value="ci">Carnet</option>
+            <option value="cex">CEX extranjero</option>
+            <option value="passport">Pasaporte</option>
+            <option value="other">Otro documento</option>
+          </select>
+          <Input name="invoiceDocumentNumber" placeholder="Numero de documento" required />
+          <Input name="invoiceName" placeholder="Nombre o razon social" required />
+        </div>
+      ) : null}
+
+      <div className="mt-3 grid grid-cols-2 rounded-2xl bg-[var(--primary-light)] p-1">
+        <button className={cn("min-h-11 rounded-full px-2 text-xs font-black min-[380px]:text-sm", paymentMethod === "cash" && "bg-[var(--primary)] text-white")} onClick={() => setPaymentMethod("cash")} type="button">
           Efectivo
         </button>
-        <button className={cn("h-12 rounded-full text-sm font-black text-[var(--muted)]", paymentMethod === "qr" && "bg-[var(--primary)] text-white")} onClick={() => setPaymentMethod("qr")} type="button">
+        <button className={cn("min-h-11 rounded-full px-2 text-xs font-black text-[var(--muted)] min-[380px]:text-sm", paymentMethod === "qr" && "bg-[var(--primary)] text-white")} onClick={() => setPaymentMethod("qr")} type="button">
           Pago QR
         </button>
       </div>
@@ -562,6 +658,14 @@ function PublicOrderPanel({
           <div>
             <p className="text-sm font-black text-[var(--text)]">Escanea el QR del restaurante</p>
             <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Realiza el pago y luego sube tu comprobante para que el equipo lo valide.</p>
+            {settings.qrAccountName || settings.qrBankName ? (
+              <p className="mt-2 text-xs font-bold text-[var(--muted)]">
+                {settings.qrAccountName ? settings.qrAccountName : ""}
+                {settings.qrBankName ? ` · ${settings.qrBankName}` : ""}
+                {settings.qrAccountType ? ` · ${settings.qrAccountType === "checking" ? "Cuenta corriente" : "Caja de ahorro"}` : ""}
+                {settings.qrCurrency ? ` · ${settings.qrCurrency}` : ""}
+              </p>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -581,9 +685,23 @@ function PublicOrderPanel({
             : "Seleccionaste pago QR. El equipo te indicará el QR disponible para completar el pago."}
       </p>
 
-      <Button className="mt-5 min-h-13 w-full" disabled={!cart.length} type="submit">
-        Confirmar pedido
+      <div className="mt-4">
+      <Button className={cn("min-h-12 w-full overflow-hidden transition-all", isSubmitting && "justify-center bg-emerald-600")} disabled={!cart.length || isSubmitting} type="submit">
+        {isSubmitting ? (
+          <span className="inline-flex items-center gap-3">
+            <span className="relative grid h-8 w-8 place-items-center rounded-full border-2 border-white/40">
+              <span className="order-ring absolute inset-0 rounded-full border-2 border-transparent border-t-white" />
+              <ShoppingCart className="cart-roll-forward h-4 w-4" />
+            </span>
+            <span className="grid h-8 w-8 place-items-center rounded-full bg-white text-emerald-700">
+              <Check className="h-4 w-4" />
+            </span>
+          </span>
+        ) : (
+          "Confirmar pedido"
+        )}
       </Button>
+      </div>
     </form>
   );
 }

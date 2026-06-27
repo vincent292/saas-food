@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, ImageIcon, Settings2, Store, Clock3 } from "lucide-react";
+import { CreditCard, ImageIcon, MapPin, Palette, Printer, Settings2, Store, Clock3 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { updateRestaurantConfigurationAction } from "@/app/admin/actions";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
@@ -13,10 +13,69 @@ import { cn } from "@/lib/utils/cn";
 import type { BusinessHour, ModuleKey, Restaurant, RestaurantSettings, SubscriptionPlan } from "@/types/restaurant.types";
 
 const days = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+const defaultPalette = {
+  primaryColor: "#1d8844",
+  secondaryColor: "#f59e0b",
+  backgroundColor: "#f7faf7",
+  surfaceColor: "#ffffff",
+  textColor: "#142018",
+  mutedColor: "#68766c",
+  borderColor: "#dfe8e2",
+  navBackgroundColor: "#ffffff",
+  navTextColor: "#142018",
+};
+const colorPalettes = [
+  { name: "Verde limpio", colors: defaultPalette },
+  {
+    name: "Urbano",
+    colors: {
+      primaryColor: "#0f766e",
+      secondaryColor: "#f97316",
+      backgroundColor: "#f8fafc",
+      surfaceColor: "#ffffff",
+      textColor: "#111827",
+      mutedColor: "#64748b",
+      borderColor: "#e2e8f0",
+      navBackgroundColor: "#ffffff",
+      navTextColor: "#111827",
+    },
+  },
+  {
+    name: "Nocturno",
+    colors: {
+      primaryColor: "#22c55e",
+      secondaryColor: "#facc15",
+      backgroundColor: "#101714",
+      surfaceColor: "#18211d",
+      textColor: "#f8fafc",
+      mutedColor: "#b6c4bc",
+      borderColor: "#2b3a33",
+      navBackgroundColor: "#121a16",
+      navTextColor: "#f8fafc",
+    },
+  },
+  {
+    name: "Calido",
+    colors: {
+      primaryColor: "#b45309",
+      secondaryColor: "#15803d",
+      backgroundColor: "#fff7ed",
+      surfaceColor: "#ffffff",
+      textColor: "#1c1917",
+      mutedColor: "#78716c",
+      borderColor: "#fed7aa",
+      navBackgroundColor: "#ffffff",
+      navTextColor: "#1c1917",
+    },
+  },
+];
 const tabs = [
   { key: "general", label: "General", icon: Store },
+  { key: "estilo", label: "Estilo", icon: Palette },
   { key: "pagos", label: "Pagos", icon: CreditCard },
   { key: "operacion", label: "Operación", icon: Settings2 },
+  { key: "impresion", label: "ImpresiÃ³n", icon: Printer },
+  { key: "ubicacion", label: "UbicaciÃ³n", icon: MapPin },
   { key: "horarios", label: "Horarios", icon: Clock3 },
 ] as const;
 
@@ -49,6 +108,17 @@ export function RestaurantSettingsFormClient({
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeTab(initialTab));
   const [selectedPlanKey, setSelectedPlanKey] = useState(() => restaurant.planKey ?? plans[0]?.key ?? "basic");
+  const [colors, setColors] = useState(() => ({
+    primaryColor: restaurant.primaryColor,
+    secondaryColor: restaurant.secondaryColor,
+    backgroundColor: restaurant.theme.background,
+    surfaceColor: restaurant.theme.surface,
+    textColor: restaurant.theme.text,
+    mutedColor: restaurant.theme.muted,
+    borderColor: restaurant.theme.border,
+    navBackgroundColor: restaurant.theme.navBackground,
+    navTextColor: restaurant.theme.navText,
+  }));
   const selectedPlan = useMemo(() => plans.find((plan) => plan.key === selectedPlanKey), [plans, selectedPlanKey]);
   const planModules = useMemo(() => new Set<ModuleKey>(selectedPlan?.modules ?? []), [selectedPlan]);
   const canUseModule = (moduleKey: ModuleKey) => planModules.has(moduleKey);
@@ -56,12 +126,14 @@ export function RestaurantSettingsFormClient({
   const logoIsImage = isImageUrl(restaurant.logoUrl);
   const bannerIsImage = isImageUrl(restaurant.bannerUrl);
   const qrIsImage = isImageUrl(settings?.qrPaymentUrl);
+  const updateColor = (key: keyof typeof colors, value: string) => setColors((current) => ({ ...current, [key]: value }));
 
   return (
     <form action={updateRestaurantConfigurationAction} className="space-y-6">
       <input name="restaurantId" type="hidden" value={restaurant.id} />
       <input name="currentSlug" type="hidden" value={restaurant.slug} />
       <input name="currentQrPaymentUrl" type="hidden" value={settings?.qrPaymentUrl ?? ""} />
+      <input name="currentMenuBackgroundImageUrl" type="hidden" value={restaurant.menuBackgroundImageUrl} />
       <input name="tab" type="hidden" value={activeTab} />
 
       {saved ? <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">Configuración guardada en Supabase.</div> : null}
@@ -91,11 +163,10 @@ export function RestaurantSettingsFormClient({
             <div className="md:col-span-2" />
             <Input defaultValue={restaurant.name} name="name" placeholder="Nombre" required />
             <Input defaultValue={restaurant.slug} name="slug" placeholder="Slug" required />
-            <Input defaultValue={restaurant.primaryColor} name="primaryColor" type="color" />
-            <Input defaultValue={restaurant.secondaryColor} name="secondaryColor" type="color" />
+            <Input name="primaryColor" onChange={(event) => updateColor("primaryColor", event.target.value)} type="color" value={colors.primaryColor} />
+            <Input name="secondaryColor" onChange={(event) => updateColor("secondaryColor", event.target.value)} type="color" value={colors.secondaryColor} />
             <Input defaultValue={restaurant.whatsapp} name="whatsapp" placeholder="WhatsApp" />
             <Input defaultValue={restaurant.city} name="city" placeholder="Ciudad" />
-            <Input className="md:col-span-2" defaultValue={restaurant.address} name="address" placeholder="Dirección" />
             <Select defaultValue={restaurant.status} name="status">
               <option value="active">Activo</option>
               <option value="inactive">Inactivo</option>
@@ -129,6 +200,82 @@ export function RestaurantSettingsFormClient({
         </div>
       </div>
 
+      <div className={cn(activeTab === "estilo" ? "block" : "hidden")}>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <Card className="grid gap-4 md:grid-cols-2">
+            <SectionTitle title="Apariencia del menu" description="Colores, fondo y tamaño del banner publico." />
+            <div className="md:col-span-2" />
+            <div className="grid gap-3 md:col-span-2 md:grid-cols-4">
+              {colorPalettes.map((palette) => (
+                <button className="rounded-2xl border border-slate-200 bg-white p-3 text-left text-sm font-black text-slate-800 shadow-sm transition hover:-translate-y-0.5" key={palette.name} onClick={() => setColors(palette.colors)} type="button">
+                  <span>{palette.name}</span>
+                  <span className="mt-2 flex gap-1">
+                    {Object.values(palette.colors)
+                      .slice(0, 5)
+                      .map((color) => (
+                        <span className="h-5 w-5 rounded-full border border-slate-200" key={color} style={{ background: color }} />
+                      ))}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <button className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black text-slate-700 md:col-span-2" onClick={() => setColors(defaultPalette)} type="button">
+              Restablecer paleta
+            </button>
+            <Input name="backgroundColor" onChange={(event) => updateColor("backgroundColor", event.target.value)} type="color" value={colors.backgroundColor} />
+            <Input name="surfaceColor" onChange={(event) => updateColor("surfaceColor", event.target.value)} type="color" value={colors.surfaceColor} />
+            <Input name="textColor" onChange={(event) => updateColor("textColor", event.target.value)} type="color" value={colors.textColor} />
+            <Input name="mutedColor" onChange={(event) => updateColor("mutedColor", event.target.value)} type="color" value={colors.mutedColor} />
+            <Input name="borderColor" onChange={(event) => updateColor("borderColor", event.target.value)} type="color" value={colors.borderColor} />
+            <Input name="navBackgroundColor" onChange={(event) => updateColor("navBackgroundColor", event.target.value)} type="color" value={colors.navBackgroundColor} />
+            <Input name="navTextColor" onChange={(event) => updateColor("navTextColor", event.target.value)} type="color" value={colors.navTextColor} />
+            <Select defaultValue={restaurant.publicBannerSize} name="publicBannerSize">
+              <option value="compact">Banner compacto</option>
+              <option value="standard">Banner medio</option>
+              <option value="large">Banner grande</option>
+            </Select>
+            <div className="md:col-span-2">
+              <CompressedImageInput label="Imagen de fondo del menu" name="menuBackgroundImageFile" />
+            </div>
+            <div className="md:col-span-2 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+              El banner compacto deja ver antes las categorias y productos, especialmente en celular.
+            </div>
+          </Card>
+
+          <Card className="space-y-4">
+            <SectionTitle title="Vista publica" description="Aproximacion del estilo aplicado." />
+            <div className="rounded-2xl border p-4" style={{ background: colors.backgroundColor, borderColor: colors.borderColor, color: colors.textColor }}>
+              <div className="flex items-center justify-between rounded-2xl px-3 py-2 text-sm font-black" style={{ background: colors.navBackgroundColor, color: colors.navTextColor }}>
+                <span>{restaurant.name}</span>
+                <span>Carrito</span>
+              </div>
+              <div className="mt-3 h-24 overflow-hidden rounded-2xl bg-slate-100">
+                {bannerIsImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img alt={restaurant.name} className="h-full w-full object-cover" src={restaurant.bannerUrl} />
+                ) : null}
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl text-sm font-black text-white" style={{ background: colors.primaryColor }}>
+                  {logoIsImage ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img alt={restaurant.name} className="h-full w-full object-cover" src={restaurant.logoUrl} />
+                  ) : (
+                    restaurant.name.slice(0, 2).toUpperCase()
+                  )}
+                </div>
+                <div>
+                  <p className="font-black">{restaurant.name}</p>
+                  <p className="text-sm font-semibold" style={{ color: colors.mutedColor }}>
+                    Productos, combos y destacados.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+
       <div className={cn(activeTab === "pagos" ? "block" : "hidden")}>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
           <Card className="grid gap-4 md:grid-cols-2">
@@ -140,6 +287,18 @@ export function RestaurantSettingsFormClient({
             <Select defaultValue={settings?.currency ?? "BOB"} name="currency">
               <option value="BOB">BOB</option>
               <option value="USD">USD</option>
+            </Select>
+            <Input defaultValue={settings?.qrAccountName} name="qrAccountName" placeholder="Titular de cuenta QR" />
+            <Input defaultValue={settings?.qrAccountDocument} name="qrAccountDocument" placeholder="CI / NIT del titular" />
+            <Input defaultValue={settings?.qrBankName} name="qrBankName" placeholder="Banco" />
+            <Select defaultValue={settings?.qrAccountType || ""} name="qrAccountType">
+              <option value="">Tipo de cuenta</option>
+              <option value="savings">Caja de ahorro</option>
+              <option value="checking">Cuenta corriente</option>
+            </Select>
+            <Select defaultValue={settings?.qrCurrency ?? settings?.currency ?? "BOB"} name="qrCurrency">
+              <option value="BOB">QR en bolivianos</option>
+              <option value="USD">QR en dolares</option>
             </Select>
             <div className="md:col-span-2">
               <CompressedImageInput label="QR de pago" name="qrPaymentFile" />
@@ -196,18 +355,18 @@ export function RestaurantSettingsFormClient({
           <div className="space-y-6">
             <Card className="grid gap-4">
               <SectionTitle title="Impresión" description="Formato por defecto para ticket de caja y cocina." />
-              <Select defaultValue={settings?.printFormat ?? "thermal_80"} name="printFormat">
+              <Select defaultValue={settings?.printFormat ?? "thermal_80"} name="operationPrintFormatPreview">
                 <option value="thermal_58">Ticket térmico 58 mm</option>
                 <option value="thermal_80">Ticket térmico 80 mm</option>
                 <option value="large">Formato grande</option>
               </Select>
               <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
                 Imprimir automáticamente en cocina
-                <input defaultChecked={settings?.autoPrintKitchen ?? false} name="autoPrintKitchen" type="checkbox" />
+                <input defaultChecked={settings?.autoPrintKitchen ?? false} name="operationAutoPrintKitchenPreview" type="checkbox" />
               </label>
               <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
                 Mostrar logo en ticket
-                <input defaultChecked={settings?.printLogo ?? true} name="printLogo" type="checkbox" />
+                <input defaultChecked={settings?.printLogo ?? true} name="operationPrintLogoPreview" type="checkbox" />
               </label>
             </Card>
 
@@ -221,6 +380,46 @@ export function RestaurantSettingsFormClient({
             </Card>
           </div>
         </div>
+      </div>
+
+      <div className={cn(activeTab === "impresion" ? "block" : "hidden")}>
+        <Card className="grid gap-4 md:grid-cols-2">
+          <SectionTitle title="Impresion" description="Tamaño y formato por defecto para pedidos de caja y cocina." />
+          <div className="md:col-span-2" />
+          <Select defaultValue={settings?.printFormat ?? "thermal_80"} name="printFormat">
+            <option value="thermal_58">Ticket termico 58 mm</option>
+            <option value="thermal_80">Ticket termico 80 mm</option>
+            <option value="large">Hoja normal / formato grande</option>
+          </Select>
+          <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+            Usa 58/80 mm para impresora termica y hoja normal para impresion A4 o carta.
+          </div>
+          <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
+            Imprimir automaticamente en cocina
+            <input defaultChecked={settings?.autoPrintKitchen ?? false} name="autoPrintKitchen" type="checkbox" />
+          </label>
+          <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
+            Mostrar logo en ticket
+            <input defaultChecked={settings?.printLogo ?? true} name="printLogo" type="checkbox" />
+          </label>
+        </Card>
+      </div>
+
+      <div className={cn(activeTab === "ubicacion" ? "block" : "hidden")}>
+        <Card className="grid gap-4 md:grid-cols-2">
+          <SectionTitle title="Ubicacion" description="Direccion del local, referencia y enlace de Google Maps para recojo." />
+          <div className="md:col-span-2" />
+          <Input className="md:col-span-2" defaultValue={restaurant.address} name="address" placeholder="Direccion del local" />
+          <Input className="md:col-span-2" defaultValue={restaurant.addressReference} name="addressReference" placeholder="Referencia, piso, zona o indicaciones" />
+          <Input defaultValue={restaurant.latitude ?? ""} name="latitude" placeholder="Latitud" step="0.0000001" type="number" />
+          <Input defaultValue={restaurant.longitude ?? ""} name="longitude" placeholder="Longitud" step="0.0000001" type="number" />
+          <Input className="md:col-span-2" defaultValue={restaurant.mapsUrl} name="mapsUrl" placeholder="Link de Google Maps" />
+          {restaurant.mapsUrl ? (
+            <a className="font-black text-[var(--primary)] md:col-span-2" href={restaurant.mapsUrl} rel="noreferrer" target="_blank">
+              Abrir ubicacion actual
+            </a>
+          ) : null}
+        </Card>
       </div>
 
       <div className={cn(activeTab === "horarios" ? "block" : "hidden")}>

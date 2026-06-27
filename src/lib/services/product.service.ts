@@ -12,9 +12,11 @@ function mapProduct(row: {
   image_url: string | null;
   is_available: boolean;
   is_featured: boolean;
+  order_count?: number | null;
+  last_ordered_at?: string | null;
   track_stock: boolean;
   sort_order: number;
-}): Product {
+}, isAutoFeatured = false): Product {
   return {
     id: row.id,
     restaurantId: row.restaurant_id,
@@ -25,7 +27,10 @@ function mapProduct(row: {
     imageUrl: row.image_url ?? "",
     isAvailable: row.is_available,
     isFeatured: row.is_featured,
+    isAutoFeatured,
     trackStock: row.track_stock,
+    orderCount: Number(row.order_count ?? 0),
+    lastOrderedAt: row.last_ordered_at ?? undefined,
     sortOrder: row.sort_order,
   };
 }
@@ -119,7 +124,15 @@ export const productService = {
       return [];
     }
 
-    return data.map(mapProduct);
+    const mostOrderedIds = new Set(
+      [...data]
+        .filter((product) => Number(product.order_count ?? 0) > 0)
+        .sort((first, second) => Number(second.order_count ?? 0) - Number(first.order_count ?? 0))
+        .slice(0, 3)
+        .map((product) => product.id),
+    );
+
+    return data.map((product) => mapProduct(product, mostOrderedIds.has(product.id)));
   },
 
   async listAvailableByRestaurant(restaurantId: string) {

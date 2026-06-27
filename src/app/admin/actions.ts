@@ -43,8 +43,21 @@ const updateRestaurantConfigurationSchema = z.object({
   whatsapp: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
+  addressReference: z.string().optional(),
+  latitude: z.coerce.number().optional(),
+  longitude: z.coerce.number().optional(),
+  mapsUrl: z.string().optional(),
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   secondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#f7faf7"),
+  surfaceColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#ffffff"),
+  textColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#142018"),
+  mutedColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#68766c"),
+  borderColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#dfe8e2"),
+  navBackgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#ffffff"),
+  navTextColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#142018"),
+  currentMenuBackgroundImageUrl: z.string().optional(),
+  publicBannerSize: z.enum(["compact", "standard", "large"]).default("compact"),
   deliveryEnabled: z.boolean(),
   pickupEnabled: z.boolean(),
   tableOrdersEnabled: z.boolean(),
@@ -56,6 +69,11 @@ const updateRestaurantConfigurationSchema = z.object({
   minOrderAmount: z.coerce.number().nonnegative().default(0),
   currency: z.string().min(3).max(3).default("BOB"),
   qrPaymentUrl: z.string().optional(),
+  qrAccountName: z.string().optional(),
+  qrAccountDocument: z.string().optional(),
+  qrBankName: z.string().optional(),
+  qrAccountType: z.string().optional(),
+  qrCurrency: z.string().min(3).max(3).default("BOB"),
   printFormat: z.enum(["thermal_58", "thermal_80", "large"]).default("thermal_80"),
   autoPrintKitchen: z.boolean().default(false),
   printLogo: z.boolean().default(true),
@@ -314,9 +332,10 @@ async function modulesForPlan(planKey: PlanKey): Promise<ModuleKey[]> {
 
 async function requireUser() {
   const supabase = await createClient();
-  const { data } = await supabase.auth.getUser();
+  const { data, error } = await supabase.auth.getUser();
 
-  if (!data.user) {
+  if (error || !data.user) {
+    await supabase.auth.signOut();
     redirect("/admin/login?error=session");
   }
 
@@ -825,9 +844,22 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     status: formData.get("status") || "active",
     whatsapp: formData.get("whatsapp") || undefined,
     address: formData.get("address") || undefined,
+    addressReference: formData.get("addressReference") || undefined,
     city: formData.get("city") || undefined,
+    latitude: formData.get("latitude") || undefined,
+    longitude: formData.get("longitude") || undefined,
+    mapsUrl: formData.get("mapsUrl") || undefined,
     primaryColor: formData.get("primaryColor") || "#1d8844",
     secondaryColor: formData.get("secondaryColor") || "#f59e0b",
+    backgroundColor: formData.get("backgroundColor") || "#f7faf7",
+    surfaceColor: formData.get("surfaceColor") || "#ffffff",
+    textColor: formData.get("textColor") || "#142018",
+    mutedColor: formData.get("mutedColor") || "#68766c",
+    borderColor: formData.get("borderColor") || "#dfe8e2",
+    navBackgroundColor: formData.get("navBackgroundColor") || "#ffffff",
+    navTextColor: formData.get("navTextColor") || "#142018",
+    currentMenuBackgroundImageUrl: formData.get("currentMenuBackgroundImageUrl") || undefined,
+    publicBannerSize: formData.get("publicBannerSize") || "compact",
     deliveryEnabled: booleanFromForm(formData, "deliveryEnabled"),
     pickupEnabled: booleanFromForm(formData, "pickupEnabled"),
     tableOrdersEnabled: booleanFromForm(formData, "tableOrdersEnabled"),
@@ -839,6 +871,11 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     minOrderAmount: formData.get("minOrderAmount") || 0,
     currency: String(formData.get("currency") || "BOB").toUpperCase(),
     qrPaymentUrl: formData.get("qrPaymentUrl") || undefined,
+    qrAccountName: formData.get("qrAccountName") || undefined,
+    qrAccountDocument: formData.get("qrAccountDocument") || undefined,
+    qrBankName: formData.get("qrBankName") || undefined,
+    qrAccountType: formData.get("qrAccountType") || undefined,
+    qrCurrency: String(formData.get("qrCurrency") || formData.get("currency") || "BOB").toUpperCase(),
     printFormat: formData.get("printFormat") || "thermal_80",
     autoPrintKitchen: booleanFromForm(formData, "autoPrintKitchen"),
     printLogo: booleanFromForm(formData, "printLogo"),
@@ -863,6 +900,10 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   const slug = toSlug(parsed.data.slug);
   const logoUrl = await uploadPublicImage(formData.get("logoFile") as File | null, `restaurants/${parsed.data.restaurantId}/identity`);
   const bannerUrl = await uploadPublicImage(formData.get("bannerFile") as File | null, `restaurants/${parsed.data.restaurantId}/identity`);
+  const menuBackgroundImageUrl =
+    (await uploadPublicImage(formData.get("menuBackgroundImageFile") as File | null, `restaurants/${parsed.data.restaurantId}/identity`)) ??
+    parsed.data.currentMenuBackgroundImageUrl ??
+    null;
   const qrPaymentUrl =
     (await uploadPublicImage(formData.get("qrPaymentFile") as File | null, `restaurants/${parsed.data.restaurantId}/payments`)) ??
     parsed.data.qrPaymentUrl ??
@@ -876,9 +917,22 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     status: "active" | "inactive" | "suspended";
     primary_color: string;
     secondary_color: string;
+    background_color: string;
+    surface_color: string;
+    text_color: string;
+    muted_color: string;
+    border_color: string;
+    nav_background_color: string;
+    nav_text_color: string;
+    menu_background_image_url: string | null;
+    public_banner_size: "compact" | "standard" | "large";
     whatsapp: string | null;
     address: string | null;
+    address_reference: string | null;
     city: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    maps_url: string | null;
     logo_url?: string;
     banner_url?: string;
   } = {
@@ -888,9 +942,22 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     status: parsed.data.status,
     primary_color: parsed.data.primaryColor,
     secondary_color: parsed.data.secondaryColor,
+    background_color: parsed.data.backgroundColor,
+    surface_color: parsed.data.surfaceColor,
+    text_color: parsed.data.textColor,
+    muted_color: parsed.data.mutedColor,
+    border_color: parsed.data.borderColor,
+    nav_background_color: parsed.data.navBackgroundColor,
+    nav_text_color: parsed.data.navTextColor,
+    menu_background_image_url: menuBackgroundImageUrl,
+    public_banner_size: parsed.data.publicBannerSize,
     whatsapp: parsed.data.whatsapp ?? null,
     address: parsed.data.address ?? null,
+    address_reference: parsed.data.addressReference ?? null,
     city: parsed.data.city ?? null,
+    latitude: parsed.data.latitude ?? null,
+    longitude: parsed.data.longitude ?? null,
+    maps_url: parsed.data.mapsUrl ?? null,
   };
 
   if (logoUrl) {
@@ -921,6 +988,11 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
       min_order_amount: parsed.data.minOrderAmount,
       currency: parsed.data.currency,
       qr_payment_url: qrPaymentUrl,
+      qr_account_name: parsed.data.qrAccountName ?? null,
+      qr_account_document: parsed.data.qrAccountDocument ?? null,
+      qr_bank_name: parsed.data.qrBankName ?? null,
+      qr_account_type: parsed.data.qrAccountType ?? null,
+      qr_currency: parsed.data.qrCurrency,
       print_format: parsed.data.printFormat,
       auto_print_kitchen: parsed.data.autoPrintKitchen,
       print_logo: parsed.data.printLogo,

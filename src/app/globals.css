@@ -26,10 +26,18 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 html {
+  max-width: 100%;
+  overflow-x: clip;
   scroll-behavior: smooth;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 button,
@@ -38,4 +46,30 @@ input,
 select,
 textarea {
   letter-spacing: 0;
+}
+
+@keyframes cart-roll-forward {
+  0% {
+    transform: translateX(0) rotate(0deg);
+  }
+  55% {
+    transform: translateX(12px) rotate(8deg);
+  }
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+}
+
+@keyframes order-ring {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cart-roll-forward {
+  animation: cart-roll-forward 760ms ease-in-out infinite;
+}
+
+.order-ring {
+  animation: order-ring 900ms linear infinite;
 }

@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { RestaurantSettingsFormClient } from "@/components/settings/RestaurantSettingsFormClient";
 import { modulesForAdminLayout } from "@/lib/modules";
+import { authService } from "@/lib/services/auth.service";
 import { planService } from "@/lib/services/plan.service";
+import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { settingsService } from "@/lib/services/settings.service";
 
@@ -21,10 +23,13 @@ export default async function SettingsPage({
     notFound();
   }
 
-  const [settings, businessHours, plans] = await Promise.all([
+  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/configuracion`);
+
+  const [settings, businessHours, plans, profile] = await Promise.all([
     restaurantService.getSettings(restaurant.id),
     settingsService.listBusinessHours(restaurant.id),
     planService.listPlans(),
+    authService.getCurrentProfile(),
   ]);
 
   return (
@@ -36,7 +41,16 @@ export default async function SettingsPage({
       restaurantStatus={restaurant.status}
       title="Configuración"
     >
-      <RestaurantSettingsFormClient businessHours={businessHours} error={error} initialTab={tab} plans={plans} restaurant={restaurant} saved={saved} settings={settings} />
+      <RestaurantSettingsFormClient
+        businessHours={businessHours}
+        canManagePlan={profile?.globalRole === "superadmin"}
+        error={error}
+        initialTab={tab}
+        plans={plans}
+        restaurant={restaurant}
+        saved={saved}
+        settings={settings}
+      />
     </AdminLayout>
   );
 }

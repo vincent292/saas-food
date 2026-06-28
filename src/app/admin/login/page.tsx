@@ -4,6 +4,7 @@ import { signInAction } from "@/app/admin/actions";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 const errorMessages: Record<string, string> = {
   invalid: "Revisa correo y contraseña.",
@@ -30,7 +31,7 @@ export default async function AdminLoginPage({ searchParams }: { searchParams: P
         ) : null}
         <form action={signInAction} className="mt-6 space-y-3">
           <Input name="email" placeholder="correo@restaurante.com" required type="email" />
-          <Input name="password" placeholder="Contraseña" required type="password" />
+          <PasswordInput name="password" placeholder="Contraseña" required />
           <Button className="w-full">Ingresar</Button>
           <Link className={buttonClasses("secondary", "w-full")} href="/">
             Volver al inicio

@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { uploadPublicImage } from "@/lib/supabase/storage";
+import { deleteRestaurantAssets, uploadPublicImage } from "@/lib/supabase/storage";
+import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { moduleCatalog } from "@/lib/modules";
 import { toSlug } from "@/lib/utils/slug";
 import type { Json } from "@/types/database.types";
@@ -78,6 +79,9 @@ const updateRestaurantConfigurationSchema = z.object({
   autoPrintKitchen: z.boolean().default(false),
   printLogo: z.boolean().default(true),
   planKey: z.enum(["basic", "pro", "premium"]).optional(),
+  ownerName: z.string().optional(),
+  ownerEmail: z.string().email().optional().or(z.literal("")),
+  ownerPassword: z.string().min(8).optional().or(z.literal("")),
 });
 
 const setRestaurantStatusSchema = z.object({
@@ -87,6 +91,11 @@ const setRestaurantStatusSchema = z.object({
 
 const restaurantIdSchema = z.object({
   restaurantId: z.string().uuid(),
+});
+
+const permanentDeleteRestaurantSchema = z.object({
+  restaurantId: z.string().uuid(),
+  confirmationSlug: z.string().min(1),
 });
 
 const updatePlanSchema = z.object({
@@ -318,6 +327,42 @@ const recordInventoryCountLineSchema = z.object({
   notes: z.string().optional(),
 });
 
+const supportTicketSchema = z.object({
+  restaurantId: z.string().uuid().optional(),
+  title: z.string().min(3),
+  description: z.string().optional(),
+  category: z.enum(["access", "billing", "orders", "cash", "inventory", "incident", "other"]).default("other"),
+  priority: z.enum(["low", "medium", "high", "urgent"]).default("medium"),
+});
+
+const updateSupportTicketSchema = z.object({
+  ticketId: z.string().uuid(),
+  status: z.enum(["open", "in_progress", "waiting_customer", "resolved", "closed"]),
+  priority: z.enum(["low", "medium", "high", "urgent"]),
+});
+
+const incidentSchema = z.object({
+  restaurantId: z.string().uuid().optional(),
+  title: z.string().min(3),
+  description: z.string().optional(),
+  impactArea: z.enum(["platform", "public_menu", "orders", "cash", "kitchen", "inventory", "storage", "supabase", "other"]).default("platform"),
+  severity: z.enum(["minor", "major", "critical"]).default("minor"),
+});
+
+const updateIncidentSchema = z.object({
+  incidentId: z.string().uuid(),
+  status: z.enum(["investigating", "identified", "monitoring", "resolved"]),
+  severity: z.enum(["minor", "major", "critical"]),
+  postmortem: z.string().optional(),
+});
+
+const releaseAccessSessionSchema = z.object({
+  sessionId: z.string().uuid(),
+});
+
+const MAX_SUPPORT_ATTACHMENTS = 5;
+const MAX_SUPPORT_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
 async function modulesForPlan(planKey: PlanKey): Promise<ModuleKey[]> {
   const supabase = await createClient();
   const { data: plan } = await supabase.from("subscription_plans").select("id").eq("key", planKey).maybeSingle();
@@ -351,6 +396,57 @@ async function requireSuperadmin() {
   }
 
   return { supabase, user };
+}
+
+async function requireRestaurantAccess(restaurantId: string, returnTo?: string) {
+  await restaurantAccessService.claimOrRedirect(restaurantId, returnTo ?? `/admin/restaurantes/${restaurantId}/dashboard`);
+}
+
+async function requireRestaurantAdminOrSuperadmin(restaurantId: string) {
+  const { supabase, user } = await requireUser();
+  const { data: profile } = await supabase.from("profiles").select("global_role").eq("id", user.id).maybeSingle();
+
+  if (profile?.global_role === "superadmin") {
+    return { supabase, user, isSuperadmin: true };
+  }
+
+  const { data: membership } = await supabase
+    .from("restaurant_memberships")
+    .select("role")
+    .eq("restaurant_id", restaurantId)
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .eq("role", "restaurant_admin")
+    .maybeSingle();
+
+  if (!membership) {
+    redirect(`/admin/restaurantes/${restaurantId}/dashboard?error=admin-required`);
+  }
+
+  return { supabase, user, isSuperadmin: false };
+}
+
+async function requireRestaurantMemberOrSuperadmin(restaurantId: string) {
+  const { supabase, user } = await requireUser();
+  const { data: profile } = await supabase.from("profiles").select("global_role").eq("id", user.id).maybeSingle();
+
+  if (profile?.global_role === "superadmin") {
+    return { supabase, user, isSuperadmin: true };
+  }
+
+  const { data: membership } = await supabase
+    .from("restaurant_memberships")
+    .select("role")
+    .eq("restaurant_id", restaurantId)
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (!membership) {
+    redirect(`/admin/restaurantes/${restaurantId}/dashboard?error=membership-required`);
+  }
+
+  return { supabase, user, isSuperadmin: false };
 }
 
 async function getPlanKeyForRestaurant(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string): Promise<PlanKey> {
@@ -486,6 +582,165 @@ async function ensureRestaurantOwner({
   };
 }
 
+async function updateRestaurantOwnerAccess({
+  supabase,
+  restaurantId,
+  currentOwnerUserId,
+  currentOwnerName,
+  currentOwnerEmail,
+  ownerName,
+  ownerEmail,
+  ownerPassword,
+  fallbackUserId,
+  fallbackEmail,
+}: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  restaurantId: string;
+  currentOwnerUserId?: string | null;
+  currentOwnerName?: string | null;
+  currentOwnerEmail?: string | null;
+  ownerName?: string;
+  ownerEmail?: string;
+  ownerPassword?: string;
+  fallbackUserId: string;
+  fallbackEmail: string;
+}) {
+  const normalizedName = ownerName?.trim() || currentOwnerName?.trim() || "Responsable";
+  const normalizedEmail = ownerEmail?.trim().toLowerCase() || currentOwnerEmail?.trim().toLowerCase() || "";
+
+  if (!normalizedEmail) {
+    if (ownerPassword) {
+      throw new Error("owner-email-required");
+    }
+
+    return {
+      id: currentOwnerUserId ?? null,
+      email: null,
+      name: normalizedName,
+    };
+  }
+
+  const admin = createAdminClient();
+
+  if (!admin) {
+    throw new Error("service-role-required");
+  }
+
+  const { data: existingProfile } = await supabase
+    .from("profiles")
+    .select("id,email,full_name,global_role")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+
+  let ownerId = currentOwnerUserId ?? null;
+
+  if (existingProfile && existingProfile.id !== currentOwnerUserId) {
+    ownerId = existingProfile.id;
+
+    const updatePayload: {
+      password?: string;
+      user_metadata?: {
+        full_name: string;
+      };
+    } = {
+      user_metadata: {
+        full_name: normalizedName,
+      },
+    };
+
+    if (ownerPassword) {
+      updatePayload.password = ownerPassword;
+    }
+
+    const { error: updateExistingError } = await admin.auth.admin.updateUserById(existingProfile.id, updatePayload);
+    if (updateExistingError) {
+      throw updateExistingError;
+    }
+
+    await supabase.from("profiles").upsert(
+      {
+        id: existingProfile.id,
+        email: normalizedEmail,
+        full_name: normalizedName,
+        global_role: existingProfile.global_role,
+      },
+      { onConflict: "id" },
+    );
+  } else if (currentOwnerUserId) {
+    ownerId = currentOwnerUserId;
+
+    const updatePayload: {
+      email?: string;
+      email_confirm?: true;
+      password?: string;
+      user_metadata: {
+        full_name: string;
+      };
+    } = {
+      user_metadata: {
+        full_name: normalizedName,
+      },
+    };
+
+    if (normalizedEmail !== currentOwnerEmail?.trim().toLowerCase()) {
+      updatePayload.email = normalizedEmail;
+      updatePayload.email_confirm = true;
+    }
+
+    if (ownerPassword) {
+      updatePayload.password = ownerPassword;
+    }
+
+    const { error: updateCurrentError } = await admin.auth.admin.updateUserById(currentOwnerUserId, updatePayload);
+    if (updateCurrentError) {
+      throw updateCurrentError;
+    }
+
+    const { data: currentProfile } = await supabase.from("profiles").select("global_role").eq("id", currentOwnerUserId).maybeSingle();
+
+    await supabase.from("profiles").upsert(
+      {
+        id: currentOwnerUserId,
+        email: normalizedEmail,
+        full_name: normalizedName,
+        global_role: currentProfile?.global_role ?? null,
+      },
+      { onConflict: "id" },
+    );
+  } else {
+    const owner = await ensureRestaurantOwner({
+      supabase,
+      fallbackUserId,
+      fallbackEmail,
+      ownerName: normalizedName,
+      ownerEmail: normalizedEmail,
+      ownerPassword,
+    });
+
+    ownerId = owner.id;
+  }
+
+  if (!ownerId) {
+    throw new Error("owner-not-found");
+  }
+
+  await supabase.from("restaurant_memberships").upsert(
+    {
+      restaurant_id: restaurantId,
+      user_id: ownerId,
+      role: "restaurant_admin",
+      is_active: true,
+    },
+    { onConflict: "restaurant_id,user_id,role" },
+  );
+
+  return {
+    id: ownerId,
+    email: normalizedEmail,
+    name: normalizedName,
+  };
+}
+
 async function getOpenCashSession(restaurantId: string) {
   const supabase = await createClient();
   const { data } = await supabase
@@ -527,6 +782,11 @@ async function revalidateOrderDecisionPaths(restaurantId: string, restaurantSlug
 
 function booleanFromForm(formData: FormData, name: string) {
   return formData.get(name) === "on";
+}
+
+function adminReturnTo(formData: FormData, fallback: string) {
+  const value = String(formData.get("returnTo") || "");
+  return value.startsWith("/admin") ? value : fallback;
 }
 
 function parseJsonArray(value: FormDataEntryValue | null) {
@@ -603,19 +863,23 @@ export async function signInAction(formData: FormData) {
 
 export async function signOutAction() {
   const supabase = await createClient();
+  await supabase.rpc("release_all_restaurant_access_sessions", {
+    p_reason: "Cierre de sesión",
+  });
   await supabase.auth.signOut();
   revalidatePath("/admin", "layout");
   redirect("/admin/login");
 }
 
 export async function setRestaurantStatusAction(formData: FormData) {
+  const returnTo = adminReturnTo(formData, "/admin/restaurantes");
   const parsed = setRestaurantStatusSchema.safeParse({
     restaurantId: formData.get("restaurantId"),
     status: formData.get("status"),
   });
 
   if (!parsed.success) {
-    redirect("/admin/restaurantes?error=invalid-status");
+    redirect(`${returnTo}?error=invalid-status`);
   }
 
   const { supabase } = await requireSuperadmin();
@@ -625,21 +889,23 @@ export async function setRestaurantStatusAction(formData: FormData) {
   });
 
   if (error) {
-    redirect(`/admin/restaurantes?error=${error.code}`);
+    redirect(`${returnTo}?error=${error.code}`);
   }
 
   revalidatePath("/admin");
   revalidatePath("/admin/restaurantes");
-  redirect("/admin/restaurantes?status=1");
+  revalidatePath("/admin/restauracion");
+  redirect(`${returnTo}?status=1`);
 }
 
 export async function archiveRestaurantAction(formData: FormData) {
+  const returnTo = adminReturnTo(formData, "/admin/restaurantes");
   const parsed = restaurantIdSchema.safeParse({
     restaurantId: formData.get("restaurantId"),
   });
 
   if (!parsed.success) {
-    redirect("/admin/restaurantes?error=invalid-restaurant");
+    redirect(`${returnTo}?error=invalid-restaurant`);
   }
 
   const { supabase } = await requireSuperadmin();
@@ -648,21 +914,23 @@ export async function archiveRestaurantAction(formData: FormData) {
   });
 
   if (error) {
-    redirect(`/admin/restaurantes?error=${error.code}`);
+    redirect(`${returnTo}?error=${error.code}`);
   }
 
   revalidatePath("/admin");
   revalidatePath("/admin/restaurantes");
-  redirect("/admin/restaurantes?archived=1");
+  revalidatePath("/admin/restauracion");
+  redirect(`${returnTo}?archived=1`);
 }
 
 export async function restoreRestaurantAction(formData: FormData) {
+  const returnTo = adminReturnTo(formData, "/admin/restauracion");
   const parsed = restaurantIdSchema.safeParse({
     restaurantId: formData.get("restaurantId"),
   });
 
   if (!parsed.success) {
-    redirect("/admin/restaurantes?error=invalid-restaurant");
+    redirect(`${returnTo}?error=invalid-restaurant`);
   }
 
   const { supabase } = await requireSuperadmin();
@@ -671,12 +939,340 @@ export async function restoreRestaurantAction(formData: FormData) {
   });
 
   if (error) {
-    redirect(`/admin/restaurantes?error=${error.code}`);
+    redirect(`${returnTo}?error=${error.code}`);
   }
 
   revalidatePath("/admin");
   revalidatePath("/admin/restaurantes");
-  redirect("/admin/restaurantes?restored=1");
+  revalidatePath("/admin/restauracion");
+  redirect(`${returnTo}?restored=1`);
+}
+
+export async function permanentlyDeleteRestaurantAction(formData: FormData) {
+  const returnTo = adminReturnTo(formData, "/admin/restauracion");
+  const parsed = permanentDeleteRestaurantSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    confirmationSlug: formData.get("confirmationSlug"),
+  });
+
+  if (!parsed.success) {
+    redirect(`${returnTo}?error=invalid-delete`);
+  }
+
+  const { supabase } = await requireSuperadmin();
+  const { data: restaurant, error: restaurantError } = await supabase
+    .from("restaurants")
+    .select("id,slug,deleted_at")
+    .eq("id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  if (restaurantError || !restaurant) {
+    redirect(`${returnTo}?error=restaurant-not-found`);
+  }
+
+  if (!restaurant.deleted_at) {
+    redirect(`${returnTo}?error=archive-required`);
+  }
+
+  await deleteRestaurantAssets(restaurant.id, restaurant.slug);
+
+  const { error } = await supabase.rpc("permanently_delete_restaurant", {
+    p_restaurant_id: parsed.data.restaurantId,
+    p_confirmation_slug: parsed.data.confirmationSlug,
+  });
+
+  if (error) {
+    redirect(`${returnTo}?error=${error.code}`);
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/restaurantes");
+  revalidatePath("/admin/restauracion");
+  redirect(`${returnTo}?deleted=1`);
+}
+
+export async function createSupportTicketAction(formData: FormData) {
+  const parsed = supportTicketSchema.safeParse({
+    restaurantId: formData.get("restaurantId") || undefined,
+    title: formData.get("title"),
+    description: formData.get("description") || undefined,
+    category: formData.get("category") || "other",
+    priority: formData.get("priority") || "medium",
+  });
+
+  if (!parsed.success) {
+    const restaurantId = String(formData.get("restaurantId") || "");
+    const fallbackPath = restaurantId ? `/admin/restaurantes/${restaurantId}/soporte` : "/admin/soporte";
+    redirect(`${fallbackPath}?error=invalid-ticket`);
+  }
+
+  const attachmentEntries = formData.getAll("attachments").filter((entry): entry is File => entry instanceof File && entry.size > 0);
+  const files = attachmentEntries.slice(0, MAX_SUPPORT_ATTACHMENTS);
+
+  if (attachmentEntries.length > MAX_SUPPORT_ATTACHMENTS || files.some((file) => !file.type.startsWith("image/") || file.size > MAX_SUPPORT_ATTACHMENT_BYTES)) {
+    const invalidPath = parsed.data.restaurantId
+      ? `/admin/restaurantes/${parsed.data.restaurantId}/soporte`
+      : "/admin/soporte";
+    redirect(`${invalidPath}?error=invalid-attachment`);
+  }
+
+  const authResult = parsed.data.restaurantId
+    ? await requireRestaurantMemberOrSuperadmin(parsed.data.restaurantId)
+    : { ...(await requireSuperadmin()), isSuperadmin: true };
+  const { supabase, user, isSuperadmin } = authResult;
+  const returnTo = adminReturnTo(formData, parsed.data.restaurantId && !isSuperadmin ? `/admin/restaurantes/${parsed.data.restaurantId}/soporte` : "/admin/soporte");
+  const { data: restaurant } = parsed.data.restaurantId
+    ? await supabase.from("restaurants").select("name").eq("id", parsed.data.restaurantId).maybeSingle()
+    : { data: null };
+
+  if (!isSuperadmin && !parsed.data.restaurantId) {
+    redirect("/admin/soporte?error=restaurant-required");
+  }
+
+  const { data: ticket, error } = await supabase
+    .from("support_tickets")
+    .insert({
+      restaurant_id: parsed.data.restaurantId,
+      restaurant_name_snapshot: restaurant?.name ?? null,
+      title: parsed.data.title,
+      description: parsed.data.description ?? null,
+      category: parsed.data.category,
+      priority: parsed.data.priority,
+      status: "open",
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (error || !ticket) {
+    redirect(`${returnTo}?error=${error?.code ?? "ticket-create"}`);
+  }
+
+  if (files.length) {
+    const attachmentRows = [];
+
+    for (const file of files) {
+      const folder = parsed.data.restaurantId ? `restaurants/${parsed.data.restaurantId}/support/${ticket.id}` : `platform/support/${ticket.id}`;
+      const fileUrl = await uploadPublicImage(file, folder);
+
+      if (!fileUrl) {
+        continue;
+      }
+
+      attachmentRows.push({
+        ticket_id: ticket.id,
+        restaurant_id: parsed.data.restaurantId ?? null,
+        file_url: fileUrl,
+        file_name: file.name,
+        file_size: file.size,
+        uploaded_by: user.id,
+      });
+    }
+
+    if (attachmentRows.length) {
+      const { error: attachmentError } = await supabase.from("support_ticket_attachments").insert(attachmentRows);
+
+      if (attachmentError) {
+        redirect(`${returnTo}?error=${attachmentError.code}`);
+      }
+    }
+  }
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: "support_ticket_created",
+    p_entity_type: "support_ticket",
+    p_entity_id: ticket.id,
+    p_restaurant_id: parsed.data.restaurantId ?? null,
+    p_severity: parsed.data.priority === "urgent" ? "critical" : "info",
+    p_metadata: { title: parsed.data.title, priority: parsed.data.priority },
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/soporte");
+  if (parsed.data.restaurantId) {
+    revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/soporte`);
+    revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}`);
+  }
+  redirect(`${returnTo}?ticket=1`);
+}
+
+export async function updateSupportTicketAction(formData: FormData) {
+  const parsed = updateSupportTicketSchema.safeParse({
+    ticketId: formData.get("ticketId"),
+    status: formData.get("status"),
+    priority: formData.get("priority"),
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/soporte?error=invalid-ticket-update");
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  const returnTo = adminReturnTo(formData, "/admin/soporte");
+  const closed = parsed.data.status === "resolved" || parsed.data.status === "closed";
+  const { data: updatedTicket, error } = await supabase
+    .from("support_tickets")
+    .update({
+      status: parsed.data.status,
+      priority: parsed.data.priority,
+      first_response_at: parsed.data.status === "in_progress" ? new Date().toISOString() : undefined,
+      resolved_at: closed ? new Date().toISOString() : null,
+      resolved_by: closed ? user.id : null,
+    })
+    .eq("id", parsed.data.ticketId)
+    .select("restaurant_id")
+    .single();
+
+  if (error) {
+    redirect(`${returnTo}?error=${error.code}`);
+  }
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: "support_ticket_updated",
+    p_entity_type: "support_ticket",
+    p_entity_id: parsed.data.ticketId,
+    p_severity: "info",
+    p_metadata: { status: parsed.data.status, priority: parsed.data.priority },
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/soporte");
+  if (updatedTicket?.restaurant_id) {
+    revalidatePath(`/admin/restaurantes/${updatedTicket.restaurant_id}/soporte`);
+    revalidatePath(`/admin/restaurantes/${updatedTicket.restaurant_id}`);
+  }
+  redirect(`${returnTo}?updated=1`);
+}
+
+export async function createIncidentAction(formData: FormData) {
+  const parsed = incidentSchema.safeParse({
+    restaurantId: formData.get("restaurantId") || undefined,
+    title: formData.get("title"),
+    description: formData.get("description") || undefined,
+    impactArea: formData.get("impactArea") || "platform",
+    severity: formData.get("severity") || "minor",
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/incidencias?error=invalid-incident");
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  const { data: restaurant } = parsed.data.restaurantId
+    ? await supabase.from("restaurants").select("name").eq("id", parsed.data.restaurantId).maybeSingle()
+    : { data: null };
+  const { data: incident, error } = await supabase
+    .from("platform_incidents")
+    .insert({
+      affected_restaurant_id: parsed.data.restaurantId,
+      affected_restaurant_snapshot: restaurant?.name ?? null,
+      title: parsed.data.title,
+      description: parsed.data.description ?? null,
+      impact_area: parsed.data.impactArea,
+      severity: parsed.data.severity,
+      status: "investigating",
+      reported_by: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (error || !incident) {
+    redirect(`/admin/incidencias?error=${error?.code ?? "incident-create"}`);
+  }
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: "incident_created",
+    p_entity_type: "platform_incident",
+    p_entity_id: incident.id,
+    p_restaurant_id: parsed.data.restaurantId ?? null,
+    p_severity: parsed.data.severity === "critical" ? "critical" : "warning",
+    p_metadata: { title: parsed.data.title, impactArea: parsed.data.impactArea, severity: parsed.data.severity },
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/incidencias");
+  redirect("/admin/incidencias?incident=1");
+}
+
+export async function updateIncidentAction(formData: FormData) {
+  const parsed = updateIncidentSchema.safeParse({
+    incidentId: formData.get("incidentId"),
+    status: formData.get("status"),
+    severity: formData.get("severity"),
+    postmortem: formData.get("postmortem") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/incidencias?error=invalid-incident-update");
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  const resolved = parsed.data.status === "resolved";
+  const { error } = await supabase
+    .from("platform_incidents")
+    .update({
+      status: parsed.data.status,
+      severity: parsed.data.severity,
+      postmortem: parsed.data.postmortem ?? null,
+      resolved_at: resolved ? new Date().toISOString() : null,
+      resolved_by: resolved ? user.id : null,
+    })
+    .eq("id", parsed.data.incidentId);
+
+  if (error) {
+    redirect(`/admin/incidencias?error=${error.code}`);
+  }
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: "incident_updated",
+    p_entity_type: "platform_incident",
+    p_entity_id: parsed.data.incidentId,
+    p_severity: parsed.data.severity === "critical" ? "critical" : "warning",
+    p_metadata: { status: parsed.data.status, severity: parsed.data.severity },
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/incidencias");
+  redirect("/admin/incidencias?updated=1");
+}
+
+export async function releaseAccessSessionByIdAction(formData: FormData) {
+  const parsed = releaseAccessSessionSchema.safeParse({
+    sessionId: formData.get("sessionId"),
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/soporte?error=invalid-session");
+  }
+
+  const { supabase } = await requireSuperadmin();
+  const { error } = await supabase.rpc("release_restaurant_access_session_by_id", {
+    p_session_id: parsed.data.sessionId,
+    p_reason: "Liberada desde soporte",
+  });
+
+  if (error) {
+    redirect(`/admin/soporte?error=${error.code}`);
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/soporte");
+  redirect("/admin/soporte?released=1");
+}
+
+export async function releaseCurrentRestaurantAccessAction(formData: FormData) {
+  const returnTo = adminReturnTo(formData, "/admin");
+  const parsed = restaurantIdSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+  });
+
+  if (!parsed.success) {
+    redirect("/admin?error=invalid-session-release");
+  }
+
+  await restaurantAccessService.release(parsed.data.restaurantId, "Liberada para cambiar de restaurante");
+  revalidatePath("/admin", "layout");
+  redirect(returnTo);
 }
 
 export async function updatePlanAction(formData: FormData) {
@@ -690,7 +1286,7 @@ export async function updatePlanAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect("/admin?error=invalid-plan");
+    redirect("/admin/planes?error=invalid-plan");
   }
 
   const { supabase } = await requireSuperadmin();
@@ -707,7 +1303,7 @@ export async function updatePlanAction(formData: FormData) {
     .eq("id", parsed.data.planId);
 
   if (planError) {
-    redirect(`/admin?error=${planError.code}`);
+    redirect(`/admin/planes?error=${planError.code}`);
   }
 
   const moduleRows = moduleCatalog.map((module) => ({
@@ -718,12 +1314,13 @@ export async function updatePlanAction(formData: FormData) {
   const { error: moduleError } = await supabase.from("plan_modules").upsert(moduleRows, { onConflict: "plan_id,module_key" });
 
   if (moduleError) {
-    redirect(`/admin?error=${moduleError.code}`);
+    redirect(`/admin/planes?error=${moduleError.code}`);
   }
 
   revalidatePath("/admin");
+  revalidatePath("/admin/planes");
   revalidatePath("/admin/restaurantes", "layout");
-  redirect("/admin?plans=1");
+  redirect("/admin/planes?plans=1");
 }
 
 export async function createRestaurantAction(formData: FormData) {
@@ -880,15 +1477,35 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     autoPrintKitchen: booleanFromForm(formData, "autoPrintKitchen"),
     printLogo: booleanFromForm(formData, "printLogo"),
     planKey: formData.get("planKey") || undefined,
+    ownerName: formData.get("ownerName") || undefined,
+    ownerEmail: formData.get("ownerEmail") || undefined,
+    ownerPassword: formData.get("ownerPassword") || undefined,
   });
 
   if (!parsed.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=${returnTab}&error=invalid`);
   }
 
-  const { supabase, user } = await requireUser();
-  const { data: profile } = await supabase.from("profiles").select("global_role").eq("id", user.id).maybeSingle();
-  const canChangePlan = profile?.global_role === "superadmin";
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=${returnTab}`);
+
+  const { supabase, user, isSuperadmin } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  const admin = createAdminClient();
+
+  if (!admin) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=${returnTab}&error=service-role-required`);
+  }
+
+  const { data: currentRestaurant } = await supabase
+    .from("restaurants")
+    .select("owner_user_id,owner_name,owner_email,status")
+    .eq("id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  if (!currentRestaurant) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=${returnTab}&error=restaurant-not-found`);
+  }
+
+  const canChangePlan = isSuperadmin;
   const planKey = canChangePlan && parsed.data.planKey ? parsed.data.planKey : await getPlanKeyForRestaurant(supabase, parsed.data.restaurantId);
   const allowedModules = await modulesForPlan(planKey);
   const isAllowedModule = (moduleKey: ModuleKey) => allowedModules.includes(moduleKey);
@@ -939,7 +1556,7 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     name: parsed.data.name,
     slug,
     description: parsed.data.description ?? null,
-    status: parsed.data.status,
+    status: isSuperadmin ? parsed.data.status : currentRestaurant.status,
     primary_color: parsed.data.primaryColor,
     secondary_color: parsed.data.secondaryColor,
     background_color: parsed.data.backgroundColor,
@@ -968,7 +1585,30 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     restaurantUpdate.banner_url = bannerUrl;
   }
 
-  const { error: restaurantError } = await supabase.from("restaurants").update(restaurantUpdate).eq("id", parsed.data.restaurantId);
+  const owner = await updateRestaurantOwnerAccess({
+    supabase,
+    restaurantId: parsed.data.restaurantId,
+    currentOwnerUserId: currentRestaurant.owner_user_id,
+    currentOwnerName: currentRestaurant.owner_name,
+    currentOwnerEmail: currentRestaurant.owner_email,
+    ownerName: parsed.data.ownerName,
+    ownerEmail: parsed.data.ownerEmail || undefined,
+    ownerPassword: parsed.data.ownerPassword || undefined,
+    fallbackUserId: user.id,
+    fallbackEmail: user.email ?? "",
+  }).catch((error: Error) => {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=${returnTab}&error=${error.message}`);
+  });
+
+  const { error: restaurantError } = await admin
+    .from("restaurants")
+    .update({
+      ...restaurantUpdate,
+      owner_user_id: owner.id,
+      owner_name: owner.name,
+      owner_email: owner.email,
+    })
+    .eq("id", parsed.data.restaurantId);
 
   if (restaurantError) {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=${returnTab}&error=${restaurantError.code}`);
@@ -1062,6 +1702,8 @@ export async function createCategoryAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/categorias?error=invalid`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/categorias`);
+
   const supabase = await createClient();
   const imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/categories`);
   const { error } = await supabase.from("categories").insert({
@@ -1105,6 +1747,8 @@ export async function createProductAction(formData: FormData) {
   if (!parsed.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/productos?error=invalid`);
   }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/productos`);
 
   const supabase = await createClient();
   const imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/products`);
@@ -1216,6 +1860,8 @@ export async function updateProductAction(formData: FormData) {
   if (!parsed.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/productos?error=invalid-update`);
   }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/productos`);
 
   const supabase = await createClient();
   const imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/products`);
@@ -1336,6 +1982,8 @@ export async function createTableAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/mesas?error=invalid`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/mesas`);
+
   const supabase = await createClient();
   const { error } = await supabase.from("tables").insert({
     restaurant_id: parsed.data.restaurantId,
@@ -1368,6 +2016,8 @@ export async function updateTableAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/mesas?error=invalid`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/mesas`);
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("tables")
@@ -1399,6 +2049,8 @@ export async function deleteTableAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/mesas?error=invalid`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/mesas`);
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("tables")
@@ -1427,6 +2079,8 @@ export async function updateOrderStatusAction(formData: FormData) {
   if (!parsed.success) {
     redirect("/admin?error=invalid-order-status");
   }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/pedidos`);
 
   const nextStatus = parsed.data.status as OrderStatus;
   const supabase = await createClient();
@@ -1510,6 +2164,8 @@ export async function openCashSessionAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?tab=cierre&error=invalid`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=cierre`);
+
   const { supabase, user } = await requireUser();
   void user;
   const { error } = await supabase.rpc("open_cash_session_atomic", {
@@ -1537,6 +2193,8 @@ export async function closeCashSessionAction(formData: FormData) {
   if (!parsed.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?tab=cierre&error=invalid`);
   }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=cierre`);
 
   const { supabase, user } = await requireUser();
   void user;
@@ -1567,6 +2225,8 @@ export async function registerCashMovementAction(formData: FormData) {
   if (!parsed.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?tab=egresos&error=invalid-expense`);
   }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=egresos`);
 
   const { supabase, user } = await requireUser();
   void user;
@@ -1609,6 +2269,7 @@ export async function chargeOrderAction(formData: FormData) {
   const { supabase, user } = await requireUser();
   void user;
   const redirectPath = orderDecisionRedirectPath(parsed.data.restaurantId, parsed.data.source);
+  await requireRestaurantAccess(parsed.data.restaurantId, redirectPath);
 
   const receiptFile = formData.get("paymentReceiptFile") as File | null;
   const uploadedReceiptUrl =
@@ -1645,6 +2306,8 @@ export async function rejectCashOrderAction(formData: FormData) {
     const fallbackPath = orderDecisionRedirectPath(String(formData.get("restaurantId")), "caja");
     redirect(`${fallbackPath}${fallbackPath.includes("?") ? "&" : "?"}error=invalid-reject`);
   }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, orderDecisionRedirectPath(parsed.data.restaurantId, parsed.data.source));
 
   const { supabase } = await requireUser();
   const redirectPath = orderDecisionRedirectPath(parsed.data.restaurantId, parsed.data.source);
@@ -1688,6 +2351,8 @@ export async function createPosSaleAction(formData: FormData) {
   if (!parsed.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?tab=venta&error=invalid-pos-sale`);
   }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta`);
 
   const { supabase, user } = await requireUser();
   void user;
@@ -1747,6 +2412,8 @@ export async function createInventoryItemAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?error=invalid-item`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario`);
+
   const { supabase, user } = await requireUser();
   const { data: item, error } = await supabase
     .from("inventory_items")
@@ -1800,6 +2467,8 @@ export async function createInventorySupplierAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?tab=proveedores&error=invalid-supplier`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=proveedores`);
+
   const { supabase } = await requireUser();
   const { error } = await supabase.from("inventory_suppliers").insert({
     restaurant_id: parsed.data.restaurantId,
@@ -1827,6 +2496,8 @@ export async function createInventoryCategoryAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?tab=catalogo&error=invalid-category`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=catalogo`);
+
   const { supabase } = await requireUser();
   const { error } = await supabase.from("inventory_categories").insert({
     restaurant_id: parsed.data.restaurantId,
@@ -1852,6 +2523,8 @@ export async function createInventoryZoneAction(formData: FormData) {
   if (!parsed.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?tab=zonas&error=invalid-zone`);
   }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=zonas`);
 
   const { supabase } = await requireUser();
   const { error } = await supabase.from("inventory_zones").insert({
@@ -1881,6 +2554,8 @@ export async function linkProductIngredientAction(formData: FormData) {
   if (!parsed.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?tab=recetas&error=invalid-ingredient`);
   }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=recetas`);
 
   const { supabase } = await requireUser();
   const { error } = await supabase.from("product_ingredients").upsert(
@@ -1914,6 +2589,8 @@ export async function linkProductSupplierAction(formData: FormData) {
   if (!parsed.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?tab=proveedores&error=invalid-product-supplier`);
   }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=proveedores`);
 
   const { supabase } = await requireUser();
   const { error } = await supabase.from("product_suppliers").upsert(
@@ -1950,6 +2627,8 @@ export async function registerInventoryMovementAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?error=invalid-movement`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario`);
+
   const { supabase } = await requireUser();
   const { error } = await supabase.rpc("register_inventory_movement_atomic", {
     p_restaurant_id: parsed.data.restaurantId,
@@ -1985,6 +2664,8 @@ export async function transferInventoryZoneAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?tab=zonas&error=invalid-transfer`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=zonas`);
+
   const { supabase } = await requireUser();
   const { error } = await supabase.rpc("transfer_inventory_zone_atomic", {
     p_restaurant_id: parsed.data.restaurantId,
@@ -2013,6 +2694,8 @@ export async function openInventoryCountAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?tab=conteo&error=invalid-count`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=conteo`);
+
   const { supabase } = await requireUser();
   const { error } = await supabase.rpc("open_inventory_count_atomic", {
     p_restaurant_id: parsed.data.restaurantId,
@@ -2039,6 +2722,8 @@ export async function recordInventoryCountLineAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?tab=conteo&error=invalid-count-line`);
   }
 
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=conteo`);
+
   const { supabase } = await requireUser();
   const { error } = await supabase.rpc("record_inventory_count_line_atomic", {
     p_restaurant_id: parsed.data.restaurantId,
@@ -2064,6 +2749,8 @@ export async function closeInventoryCountAction(formData: FormData) {
   if (!parsed.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?tab=conteo&error=invalid-close-count`);
   }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=conteo`);
 
   const { supabase } = await requireUser();
   const { error } = await supabase.rpc("close_inventory_count_atomic", {

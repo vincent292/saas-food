@@ -4,6 +4,7 @@ import { ProductManagementClient } from "@/components/products/ProductManagement
 import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
 import { categoryService } from "@/lib/services/category.service";
 import { productService } from "@/lib/services/product.service";
+import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
 export default async function ProductsPage({
@@ -23,6 +24,8 @@ export default async function ProductsPage({
   if (!hasRestaurantModule(restaurant, "public_menu")) {
     notFound();
   }
+
+  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/productos`);
 
   const [products, categories, configuration] = await Promise.all([
     productService.listByRestaurant(restaurant.id),

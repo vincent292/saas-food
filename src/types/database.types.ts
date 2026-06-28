@@ -396,6 +396,79 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      admin_audit_logs: Row<{
+        id: string;
+        actor_user_id: string | null;
+        actor_email: string | null;
+        restaurant_id: string | null;
+        restaurant_name_snapshot: string | null;
+        action: string;
+        entity_type: string;
+        entity_id: string | null;
+        severity: "info" | "warning" | "critical";
+        ip_address: string | null;
+        user_agent: string | null;
+        metadata: Json;
+        created_at: string;
+      }>;
+      support_tickets: Row<{
+        id: string;
+        restaurant_id: string | null;
+        restaurant_name_snapshot: string | null;
+        title: string;
+        description: string | null;
+        category: "access" | "billing" | "orders" | "cash" | "inventory" | "incident" | "other";
+        priority: "low" | "medium" | "high" | "urgent";
+        status: "open" | "in_progress" | "waiting_customer" | "resolved" | "closed";
+        created_by: string | null;
+        assigned_to: string | null;
+        resolved_by: string | null;
+        first_response_at: string | null;
+        resolved_at: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      support_ticket_attachments: Row<{
+        id: string;
+        ticket_id: string;
+        restaurant_id: string | null;
+        file_url: string;
+        file_name: string;
+        file_size: number;
+        uploaded_by: string | null;
+        created_at: string;
+      }>;
+      platform_incidents: Row<{
+        id: string;
+        affected_restaurant_id: string | null;
+        affected_restaurant_snapshot: string | null;
+        title: string;
+        description: string | null;
+        impact_area: "platform" | "public_menu" | "orders" | "cash" | "kitchen" | "inventory" | "storage" | "supabase" | "other";
+        severity: "minor" | "major" | "critical";
+        status: "investigating" | "identified" | "monitoring" | "resolved";
+        reported_by: string | null;
+        resolved_by: string | null;
+        started_at: string;
+        resolved_at: string | null;
+        postmortem: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      restaurant_access_sessions: Row<{
+        id: string;
+        restaurant_id: string;
+        user_id: string;
+        role: Database["public"]["Enums"]["app_role"];
+        ip_address: string | null;
+        user_agent: string | null;
+        status: "active" | "released" | "expired" | "blocked";
+        opened_at: string;
+        last_seen_at: string;
+        expires_at: string;
+        released_at: string | null;
+        release_reason: string | null;
+      }>;
       business_hours: Row<{
         id: string;
         restaurant_id: string;
@@ -571,6 +644,68 @@ export type Database = {
         Args: {
           p_restaurant_id: string;
           p_status: Database["public"]["Enums"]["restaurant_status"];
+        };
+        Returns: undefined;
+      };
+      permanently_delete_restaurant: {
+        Args: {
+          p_confirmation_slug: string;
+          p_restaurant_id: string;
+        };
+        Returns: undefined;
+      };
+      write_admin_audit: {
+        Args: {
+          p_action: string;
+          p_entity_id?: string | null;
+          p_entity_type?: string;
+          p_ip_address?: string | null;
+          p_metadata?: Json;
+          p_restaurant_id?: string | null;
+          p_severity?: string;
+          p_user_agent?: string | null;
+        };
+        Returns: string;
+      };
+      expire_stale_restaurant_access_sessions: {
+        Args: Record<string, never>;
+        Returns: undefined;
+      };
+      claim_restaurant_access_session: {
+        Args: {
+          p_ip_address?: string | null;
+          p_restaurant_id: string;
+          p_user_agent?: string | null;
+        };
+        Returns: {
+          allowed: boolean;
+          session_id: string | null;
+          restaurant_id: string;
+          restaurant_name: string;
+          active_restaurant_id: string | null;
+          active_restaurant_name: string | null;
+          active_ip_address: string | null;
+          active_last_seen_at: string | null;
+          message: string;
+        }[];
+      };
+      release_restaurant_access_session: {
+        Args: {
+          p_reason?: string | null;
+          p_restaurant_id: string;
+        };
+        Returns: undefined;
+      };
+      release_restaurant_access_session_by_id: {
+        Args: {
+          p_reason?: string | null;
+          p_session_id: string;
+        };
+        Returns: undefined;
+      };
+      release_all_restaurant_access_sessions: {
+        Args: {
+          p_reason?: string | null;
         };
         Returns: undefined;
       };

@@ -8,6 +8,7 @@ import { Input, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
 import { categoryService } from "@/lib/services/category.service";
+import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
 export default async function CategoriesPage({
@@ -23,6 +24,8 @@ export default async function CategoriesPage({
   if (!restaurant || !hasRestaurantModule(restaurant, "public_menu")) {
     notFound();
   }
+
+  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/categorias`);
 
   const categories = await categoryService.listByRestaurant(restaurant.id);
 

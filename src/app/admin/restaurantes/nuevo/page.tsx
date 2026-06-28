@@ -3,13 +3,15 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { planService } from "@/lib/services/plan.service";
 
 const errorMessages: Record<string, string> = {
   invalid: "Revisa los datos obligatorios.",
   "owner-password-required": "Ingresa una contraseña inicial para crear el usuario responsable.",
-  "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para crear usuarios desde el panel.",
+  "owner-email-required": "Ingresa un correo para asignar un responsable.",
+  "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para crear o actualizar usuarios desde el panel.",
 };
 
 export default async function NewRestaurantPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
@@ -47,7 +49,7 @@ export default async function NewRestaurantPage({ searchParams }: { searchParams
           <SectionTitle className="md:col-span-2" title="Responsable" description="Este usuario entrará directo al panel del restaurante." />
           <Input name="ownerName" placeholder="Nombre del responsable" />
           <Input name="ownerEmail" placeholder="correo@restaurante.com" type="email" />
-          <Input className="md:col-span-2" minLength={8} name="ownerPassword" placeholder="Contraseña inicial si el usuario no existe" type="password" />
+          <PasswordInput className="md:col-span-2" minLength={8} name="ownerPassword" placeholder="Contraseña inicial si el usuario no existe" />
 
           <div className="grid gap-3 md:col-span-2 md:grid-cols-3">
             {plans.map((plan) => (
@@ -58,6 +60,7 @@ export default async function NewRestaurantPage({ searchParams }: { searchParams
               </div>
             ))}
           </div>
+
           <div className="md:col-span-2">
             <Button>Crear restaurante</Button>
           </div>

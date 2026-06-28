@@ -4,6 +4,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
 import { inventoryService } from "@/lib/services/inventory.service";
 import { productService } from "@/lib/services/product.service";
+import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
 export default async function InventoryPage({
@@ -19,6 +20,8 @@ export default async function InventoryPage({
   if (!restaurant || !hasRestaurantModule(restaurant, "inventory")) {
     notFound();
   }
+
+  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/inventario`);
 
   const [items, suppliers, ingredients, movements, openCount, countReports, products, categories, zones, itemZones, productSuppliers] = await Promise.all([
     inventoryService.listItems(restaurant.id),

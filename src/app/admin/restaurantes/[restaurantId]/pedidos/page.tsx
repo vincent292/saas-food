@@ -4,6 +4,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { OrdersReceptionClient } from "@/components/orders/OrdersReceptionClient";
 import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
 import { orderService } from "@/lib/services/order.service";
+import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
 export default async function OrdersPage({
@@ -19,6 +20,8 @@ export default async function OrdersPage({
   if (!restaurant || !hasRestaurantModule(restaurant, "orders")) {
     notFound();
   }
+
+  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/pedidos`);
 
   const [orders, settings, session] = await Promise.all([orderService.listByRestaurant(restaurant.id), restaurantService.getSettings(restaurant.id), cashService.getOpenSession(restaurant.id)]);
 

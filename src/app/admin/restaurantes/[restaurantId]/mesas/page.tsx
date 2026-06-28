@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { TableManagementClient } from "@/components/tables/TableManagementClient";
 import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
+import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { tableService } from "@/lib/services/table.service";
 
@@ -18,6 +19,8 @@ export default async function TablesPage({
   if (!restaurant || !hasRestaurantModule(restaurant, "table_qr")) {
     notFound();
   }
+
+  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/mesas`);
 
   const tables = await tableService.listByRestaurant(restaurant.id);
 

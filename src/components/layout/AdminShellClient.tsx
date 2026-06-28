@@ -7,17 +7,21 @@ import {
   ChefHat,
   ClipboardList,
   CreditCard,
+  FileBarChart,
   Home,
   LayoutDashboard,
   LifeBuoy,
   LogOut,
   Menu,
   RotateCcw,
+  ScrollText,
   Settings,
   Shield,
+  Siren,
   Store,
   Table2,
   Utensils,
+  WalletCards,
   X,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -42,14 +46,19 @@ const restaurantNav: NavItem[] = [
   { label: "Cocina", href: "cocina", icon: ChefHat, moduleKey: "kitchen" },
   { label: "Caja", href: "caja", icon: CreditCard, moduleKey: "cash" },
   { label: "Inventario", href: "inventario", icon: Boxes, moduleKey: "inventory" },
+  { label: "Soporte", href: "soporte", icon: LifeBuoy },
   { label: "Configuración", href: "configuracion", icon: Settings },
 ];
 
 const superAdminNav: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: Shield },
   { label: "Restaurantes", href: "/admin/restaurantes", icon: Store },
-  { label: "Soporte", href: "/admin#soporte", icon: LifeBuoy },
-  { label: "Restauración", href: "/admin#restauracion", icon: RotateCcw },
+  { label: "Planes", href: "/admin/planes", icon: WalletCards },
+  { label: "Soporte", href: "/admin/soporte", icon: LifeBuoy },
+  { label: "Reportes", href: "/admin/reportes", icon: FileBarChart },
+  { label: "Incidencias", href: "/admin/incidencias", icon: Siren },
+  { label: "Auditoría", href: "/admin/auditoria", icon: ScrollText },
+  { label: "Restauración", href: "/admin/restauracion", icon: RotateCcw },
 ];
 
 export function AdminShellClient({
@@ -102,7 +111,8 @@ export function AdminShellClient({
         <nav className="mt-5 flex-1 space-y-1 overflow-y-auto pr-1">
           {nav.map((item) => {
             const href = restaurantId ? `/admin/restaurantes/${restaurantId}/${item.href}` : item.href;
-            const selected = restaurantId ? active === item.href : active === item.href || (active === "admin" && item.href === "/admin");
+            const selected = active === item.href;
+
             return (
               <Link
                 className={cn(

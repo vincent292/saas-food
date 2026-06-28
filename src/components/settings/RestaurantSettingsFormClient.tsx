@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, ImageIcon, MapPin, Palette, Printer, Settings2, Store, Clock3 } from "lucide-react";
+import { Clock3, CreditCard, ImageIcon, MapPin, Palette, Printer, Settings2, ShieldCheck, Store, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
 import { updateRestaurantConfigurationAction } from "@/app/admin/actions";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
@@ -8,11 +8,13 @@ import { ModuleToggle } from "@/components/settings/ModuleToggle";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { cn } from "@/lib/utils/cn";
 import type { BusinessHour, ModuleKey, Restaurant, RestaurantSettings, SubscriptionPlan } from "@/types/restaurant.types";
 
 const days = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
 const defaultPalette = {
   primaryColor: "#1d8844",
   secondaryColor: "#f59e0b",
@@ -24,6 +26,7 @@ const defaultPalette = {
   navBackgroundColor: "#ffffff",
   navTextColor: "#142018",
 };
+
 const colorPalettes = [
   { name: "Verde limpio", colors: defaultPalette },
   {
@@ -55,7 +58,7 @@ const colorPalettes = [
     },
   },
   {
-    name: "Calido",
+    name: "Cálido",
     colors: {
       primaryColor: "#b45309",
       secondaryColor: "#15803d",
@@ -69,15 +72,26 @@ const colorPalettes = [
     },
   },
 ];
+
 const tabs = [
   { key: "general", label: "General", icon: Store },
   { key: "estilo", label: "Estilo", icon: Palette },
   { key: "pagos", label: "Pagos", icon: CreditCard },
   { key: "operacion", label: "Operación", icon: Settings2 },
-  { key: "impresion", label: "ImpresiÃ³n", icon: Printer },
-  { key: "ubicacion", label: "UbicaciÃ³n", icon: MapPin },
+  { key: "impresion", label: "Impresión", icon: Printer },
+  { key: "ubicacion", label: "Ubicación", icon: MapPin },
   { key: "horarios", label: "Horarios", icon: Clock3 },
-] as const;
+  { key: "responsable", label: "Responsable", icon: UserRound },
+];
+
+const errorMessages: Record<string, string> = {
+  invalid: "Revisa los datos obligatorios.",
+  "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para actualizar el responsable.",
+  "owner-email-required": "Debes indicar un correo para cambiar la contraseña del responsable.",
+  "owner-not-found": "No se pudo encontrar o crear el usuario responsable.",
+  "restaurant-not-found": "No se encontró el restaurante para guardar la configuración.",
+  "admin-required": "Solo el responsable principal o superadmin puede guardar esta configuración.",
+};
 
 type SettingsTab = (typeof tabs)[number]["key"];
 
@@ -97,6 +111,7 @@ export function RestaurantSettingsFormClient({
   saved,
   error,
   initialTab,
+  canManagePlan,
 }: {
   restaurant: Restaurant;
   settings: RestaurantSettings | null;
@@ -105,6 +120,7 @@ export function RestaurantSettingsFormClient({
   saved?: string;
   error?: string;
   initialTab?: string;
+  canManagePlan: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeTab(initialTab));
   const [selectedPlanKey, setSelectedPlanKey] = useState(() => restaurant.planKey ?? plans[0]?.key ?? "basic");
@@ -119,13 +135,14 @@ export function RestaurantSettingsFormClient({
     navBackgroundColor: restaurant.theme.navBackground,
     navTextColor: restaurant.theme.navText,
   }));
+
   const selectedPlan = useMemo(() => plans.find((plan) => plan.key === selectedPlanKey), [plans, selectedPlanKey]);
   const planModules = useMemo(() => new Set<ModuleKey>(selectedPlan?.modules ?? []), [selectedPlan]);
-  const canUseModule = (moduleKey: ModuleKey) => planModules.has(moduleKey);
   const hoursByDay = new Map(businessHours.map((hour) => [hour.dayOfWeek, hour]));
   const logoIsImage = isImageUrl(restaurant.logoUrl);
   const bannerIsImage = isImageUrl(restaurant.bannerUrl);
   const qrIsImage = isImageUrl(settings?.qrPaymentUrl);
+  const canUseModule = (moduleKey: ModuleKey) => planModules.has(moduleKey);
   const updateColor = (key: keyof typeof colors, value: string) => setColors((current) => ({ ...current, [key]: value }));
 
   return (
@@ -136,8 +153,8 @@ export function RestaurantSettingsFormClient({
       <input name="currentMenuBackgroundImageUrl" type="hidden" value={restaurant.menuBackgroundImageUrl} />
       <input name="tab" type="hidden" value={activeTab} />
 
-      {saved ? <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">Configuración guardada en Supabase.</div> : null}
-      {error ? <div className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">No se pudo guardar la configuración: {error}.</div> : null}
+      {saved ? <Banner tone="success">Configuración guardada en Supabase.</Banner> : null}
+      {error ? <Banner tone="danger">{errorMessages[error] ?? `No se pudo guardar la configuración: ${error}.`}</Banner> : null}
 
       <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-white p-2 shadow-sm">
         {tabs.map((tab) => (
@@ -161,30 +178,35 @@ export function RestaurantSettingsFormClient({
           <Card className="grid gap-4 md:grid-cols-2">
             <SectionTitle title="Identidad" description="Lo visible en el menú público y en los paneles operativos." />
             <div className="md:col-span-2" />
-            <Input defaultValue={restaurant.name} name="name" placeholder="Nombre" required />
-            <Input defaultValue={restaurant.slug} name="slug" placeholder="Slug" required />
-            <Input name="primaryColor" onChange={(event) => updateColor("primaryColor", event.target.value)} type="color" value={colors.primaryColor} />
-            <Input name="secondaryColor" onChange={(event) => updateColor("secondaryColor", event.target.value)} type="color" value={colors.secondaryColor} />
+            <Input defaultValue={restaurant.name} name="name" placeholder="Nombre comercial" required />
+            <Input defaultValue={restaurant.slug} name="slug" placeholder="Slug público" required />
             <Input defaultValue={restaurant.whatsapp} name="whatsapp" placeholder="WhatsApp" />
             <Input defaultValue={restaurant.city} name="city" placeholder="Ciudad" />
-            <Select defaultValue={restaurant.status} name="status">
+            <Select defaultValue={restaurant.status} disabled={!canManagePlan} name="status">
               <option value="active">Activo</option>
               <option value="inactive">Inactivo</option>
               <option value="suspended">Suspendido</option>
             </Select>
-            <Select name="planKey" onChange={(event) => setSelectedPlanKey(event.target.value as typeof selectedPlanKey)} value={selectedPlanKey}>
+            <Select
+              disabled={!canManagePlan}
+              name="planKey"
+              onChange={(event) => setSelectedPlanKey(event.target.value as typeof selectedPlanKey)}
+              value={selectedPlanKey}
+            >
               {plans.map((plan) => (
                 <option key={plan.key} value={plan.key}>
                   {plan.name} - Bs {plan.priceMonthly}/mes
                 </option>
               ))}
             </Select>
-            <div className="rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
-              El menú público de <strong>/r/{restaurant.slug}</strong> solo responde cuando el restaurante está en estado <strong>Activo</strong>.
-            </div>
-            <Textarea className="md:col-span-2" defaultValue={restaurant.description} name="description" placeholder="Descripción" />
+            <Input name="primaryColor" onChange={(event) => updateColor("primaryColor", event.target.value)} type="color" value={colors.primaryColor} />
+            <Input name="secondaryColor" onChange={(event) => updateColor("secondaryColor", event.target.value)} type="color" value={colors.secondaryColor} />
+            <Textarea className="md:col-span-2" defaultValue={restaurant.description} name="description" placeholder="Descripción del negocio" />
             <CompressedImageInput label="Logo" name="logoFile" />
             <CompressedImageInput label="Banner" name="bannerFile" />
+            <div className="rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700 md:col-span-2">
+              El menú público <strong>/r/{restaurant.slug}</strong> solo responde cuando el restaurante está activo.
+            </div>
           </Card>
 
           <Card className="space-y-4">
@@ -192,7 +214,7 @@ export function RestaurantSettingsFormClient({
             <PreviewMedia label="Logo" title={restaurant.name} url={logoIsImage ? restaurant.logoUrl : ""} fallback={restaurant.name.slice(0, 2).toUpperCase()} square />
             <PreviewMedia label="Banner" title={`${restaurant.name} banner`} url={bannerIsImage ? restaurant.bannerUrl : ""} fallback="Sin banner" />
             <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
-              <p>Menu: /r/{restaurant.slug}</p>
+              <p>Menú: /r/{restaurant.slug}</p>
               <p className="mt-2">Cocina: /cocina/{restaurant.slug}</p>
               <p className="mt-2">Caja: /caja/{restaurant.slug}</p>
             </div>
@@ -203,7 +225,7 @@ export function RestaurantSettingsFormClient({
       <div className={cn(activeTab === "estilo" ? "block" : "hidden")}>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
           <Card className="grid gap-4 md:grid-cols-2">
-            <SectionTitle title="Apariencia del menu" description="Colores, fondo y tamaño del banner publico." />
+            <SectionTitle title="Apariencia del menú" description="Colores, fondo y tamaño del banner público." />
             <div className="md:col-span-2" />
             <div className="grid gap-3 md:col-span-2 md:grid-cols-4">
               {colorPalettes.map((palette) => (
@@ -235,15 +257,15 @@ export function RestaurantSettingsFormClient({
               <option value="large">Banner grande</option>
             </Select>
             <div className="md:col-span-2">
-              <CompressedImageInput label="Imagen de fondo del menu" name="menuBackgroundImageFile" />
+              <CompressedImageInput label="Imagen de fondo del menú" name="menuBackgroundImageFile" />
             </div>
             <div className="md:col-span-2 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
-              El banner compacto deja ver antes las categorias y productos, especialmente en celular.
+              El banner compacto deja ver antes las categorías y productos, especialmente en celular.
             </div>
           </Card>
 
           <Card className="space-y-4">
-            <SectionTitle title="Vista publica" description="Aproximacion del estilo aplicado." />
+            <SectionTitle title="Vista pública" description="Aproximación del estilo aplicado." />
             <div className="rounded-2xl border p-4" style={{ background: colors.backgroundColor, borderColor: colors.borderColor, color: colors.textColor }}>
               <div className="flex items-center justify-between rounded-2xl px-3 py-2 text-sm font-black" style={{ background: colors.navBackgroundColor, color: colors.navTextColor }}>
                 <span>{restaurant.name}</span>
@@ -298,13 +320,13 @@ export function RestaurantSettingsFormClient({
             </Select>
             <Select defaultValue={settings?.qrCurrency ?? settings?.currency ?? "BOB"} name="qrCurrency">
               <option value="BOB">QR en bolivianos</option>
-              <option value="USD">QR en dolares</option>
+              <option value="USD">QR en dólares</option>
             </Select>
             <div className="md:col-span-2">
               <CompressedImageInput label="QR de pago" name="qrPaymentFile" />
             </div>
             <div className="md:col-span-2 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
-              Este QR se muestra en el pedido publico y en mesa para que el cliente pueda pagar y luego subir su comprobante.
+              Este QR se muestra en el pedido público y en mesa para que el cliente pague y luego suba su comprobante.
             </div>
           </Card>
 
@@ -353,29 +375,27 @@ export function RestaurantSettingsFormClient({
           </Card>
 
           <div className="space-y-6">
-            <Card className="grid gap-4">
-              <SectionTitle title="Impresión" description="Formato por defecto para ticket de caja y cocina." />
-              <Select defaultValue={settings?.printFormat ?? "thermal_80"} name="operationPrintFormatPreview">
-                <option value="thermal_58">Ticket térmico 58 mm</option>
-                <option value="thermal_80">Ticket térmico 80 mm</option>
-                <option value="large">Formato grande</option>
-              </Select>
-              <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
-                Imprimir automáticamente en cocina
-                <input defaultChecked={settings?.autoPrintKitchen ?? false} name="operationAutoPrintKitchenPreview" type="checkbox" />
-              </label>
-              <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
-                Mostrar logo en ticket
-                <input defaultChecked={settings?.printLogo ?? true} name="operationPrintLogoPreview" type="checkbox" />
-              </label>
+            <Card className="space-y-4">
+              <SectionTitle title="Estado operativo" description="Visibilidad y publicación del restaurante." />
+              <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+                {restaurant.status === "active"
+                  ? "El menú público está habilitado y puede recibir pedidos."
+                  : "El menú público está cerrado porque el restaurante no está activo."}
+              </div>
+              {!canManagePlan ? (
+                <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+                  <ShieldCheck className="h-4 w-4" />
+                  El plan y el estado general solo los cambia superadmin.
+                </div>
+              ) : null}
             </Card>
 
             <Card className="space-y-3">
-              <SectionTitle title="Publicación" description="Estado operativo actual del restaurante." />
-              <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
-                {restaurant.status === "active"
-                  ? "El menú público está habilitado mientras el restaurante siga activo."
-                  : "El menú público está cerrado porque el restaurante no está activo."}
+              <SectionTitle title="Resumen rápido" description="Atajos mentales para el equipo operativo." />
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">
+                <p>Plan actual: {selectedPlan?.name ?? "Sin plan"}</p>
+                <p className="mt-2">Responsable: {restaurant.ownerEmail || "Sin responsable"}</p>
+                <p className="mt-2">Ciudad: {restaurant.city || "Sin ciudad"}</p>
               </div>
             </Card>
           </div>
@@ -384,18 +404,18 @@ export function RestaurantSettingsFormClient({
 
       <div className={cn(activeTab === "impresion" ? "block" : "hidden")}>
         <Card className="grid gap-4 md:grid-cols-2">
-          <SectionTitle title="Impresion" description="Tamaño y formato por defecto para pedidos de caja y cocina." />
+          <SectionTitle title="Impresión" description="Tamaño y formato por defecto para pedidos de caja y cocina." />
           <div className="md:col-span-2" />
           <Select defaultValue={settings?.printFormat ?? "thermal_80"} name="printFormat">
-            <option value="thermal_58">Ticket termico 58 mm</option>
-            <option value="thermal_80">Ticket termico 80 mm</option>
+            <option value="thermal_58">Ticket térmico 58 mm</option>
+            <option value="thermal_80">Ticket térmico 80 mm</option>
             <option value="large">Hoja normal / formato grande</option>
           </Select>
           <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
-            Usa 58/80 mm para impresora termica y hoja normal para impresion A4 o carta.
+            Usa 58/80 mm para impresora térmica y hoja normal para impresión A4 o carta.
           </div>
           <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
-            Imprimir automaticamente en cocina
+            Imprimir automáticamente en cocina
             <input defaultChecked={settings?.autoPrintKitchen ?? false} name="autoPrintKitchen" type="checkbox" />
           </label>
           <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
@@ -407,16 +427,16 @@ export function RestaurantSettingsFormClient({
 
       <div className={cn(activeTab === "ubicacion" ? "block" : "hidden")}>
         <Card className="grid gap-4 md:grid-cols-2">
-          <SectionTitle title="Ubicacion" description="Direccion del local, referencia y enlace de Google Maps para recojo." />
+          <SectionTitle title="Ubicación" description="Dirección del local, referencia y enlace de Google Maps para recojo." />
           <div className="md:col-span-2" />
-          <Input className="md:col-span-2" defaultValue={restaurant.address} name="address" placeholder="Direccion del local" />
+          <Input className="md:col-span-2" defaultValue={restaurant.address} name="address" placeholder="Dirección del local" />
           <Input className="md:col-span-2" defaultValue={restaurant.addressReference} name="addressReference" placeholder="Referencia, piso, zona o indicaciones" />
           <Input defaultValue={restaurant.latitude ?? ""} name="latitude" placeholder="Latitud" step="0.0000001" type="number" />
           <Input defaultValue={restaurant.longitude ?? ""} name="longitude" placeholder="Longitud" step="0.0000001" type="number" />
           <Input className="md:col-span-2" defaultValue={restaurant.mapsUrl} name="mapsUrl" placeholder="Link de Google Maps" />
           {restaurant.mapsUrl ? (
             <a className="font-black text-[var(--primary)] md:col-span-2" href={restaurant.mapsUrl} rel="noreferrer" target="_blank">
-              Abrir ubicacion actual
+              Abrir ubicación actual
             </a>
           ) : null}
         </Card>
@@ -428,6 +448,7 @@ export function RestaurantSettingsFormClient({
           <div className="mt-4 grid gap-3">
             {days.map((day, dayOfWeek) => {
               const hour = hoursByDay.get(dayOfWeek);
+
               return (
                 <div className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-[140px_1fr_1fr_120px]" key={day}>
                   <p className="font-bold text-slate-900">{day}</p>
@@ -444,11 +465,47 @@ export function RestaurantSettingsFormClient({
         </Card>
       </div>
 
+      <div className={cn(activeTab === "responsable" ? "block" : "hidden")}>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <Card className="grid gap-4 md:grid-cols-2">
+            <SectionTitle title="Responsable principal" description="Correo, nombre y contraseña del acceso principal del restaurante." />
+            <div className="md:col-span-2" />
+            <Input defaultValue={restaurant.ownerName ?? ""} name="ownerName" placeholder="Nombre del responsable" />
+            <Input defaultValue={restaurant.ownerEmail ?? ""} name="ownerEmail" placeholder="correo@restaurante.com" type="email" />
+            <div className="md:col-span-2">
+              <PasswordInput minLength={8} name="ownerPassword" placeholder="Nueva contraseña del responsable" />
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700 md:col-span-2">
+              Si cambias el correo o la contraseña aquí, el acceso principal del restaurante se actualiza en Auth y en el panel.
+            </div>
+          </Card>
+
+          <Card className="space-y-4">
+            <SectionTitle title="Contacto actual" description="Referencia rápida del responsable asignado." />
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-black uppercase text-slate-500">Nombre</p>
+              <p className="mt-1 text-lg font-black text-slate-950">{restaurant.ownerName || "Sin responsable"}</p>
+              <p className="mt-4 text-xs font-black uppercase text-slate-500">Correo</p>
+              <p className="mt-1 break-all text-lg font-black text-slate-950">{restaurant.ownerEmail || "Sin correo"}</p>
+            </div>
+          </Card>
+        </div>
+      </div>
+
       <div className="sticky bottom-4 z-10 flex justify-end">
-        <Button type="submit">Guardar configuracion</Button>
+        <Button type="submit">Guardar configuración</Button>
       </div>
     </form>
   );
+}
+
+function Banner({ children, tone }: { children: string; tone: "success" | "danger" }) {
+  const className =
+    tone === "success"
+      ? "rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"
+      : "rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700";
+
+  return <div className={className}>{children}</div>;
 }
 
 function PreviewMedia({

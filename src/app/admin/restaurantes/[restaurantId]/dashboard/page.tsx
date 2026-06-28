@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { RestaurantDashboard } from "@/components/admin/RestaurantDashboard";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { modulesForAdminLayout } from "@/lib/modules";
+import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
 export default async function DashboardPage({ params }: { params: Promise<{ restaurantId: string }> }) {
@@ -11,6 +12,8 @@ export default async function DashboardPage({ params }: { params: Promise<{ rest
   if (!restaurant) {
     notFound();
   }
+
+  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/dashboard`);
 
   return (
     <AdminLayout

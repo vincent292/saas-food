@@ -4,9 +4,10 @@ import { Card } from "./Card";
 type DataTableProps = {
   headers: string[];
   rows: ReactNode[][];
+  emptyMessage?: string;
 };
 
-export function DataTable({ headers, rows }: DataTableProps) {
+export function DataTable({ headers, rows, emptyMessage = "Sin registros." }: DataTableProps) {
   return (
     <Card className="overflow-hidden p-0">
       <div className="overflow-x-auto">
@@ -21,15 +22,23 @@ export function DataTable({ headers, rows }: DataTableProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--border)]">
-            {rows.map((row, rowIndex) => (
-              <tr className="bg-white" key={rowIndex}>
-                {row.map((cell, cellIndex) => (
-                  <td className="px-5 py-4 text-[var(--text)]" key={`${rowIndex}-${cellIndex}`}>
-                    {cell}
-                  </td>
-                ))}
+            {rows.length ? (
+              rows.map((row, rowIndex) => (
+                <tr className="bg-white" key={rowIndex}>
+                  {row.map((cell, cellIndex) => (
+                    <td className="px-5 py-4 text-[var(--text)]" key={`${rowIndex}-${cellIndex}`}>
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : (
+              <tr className="bg-white">
+                <td className="px-5 py-6 text-center text-sm font-semibold text-[var(--muted)]" colSpan={headers.length}>
+                  {emptyMessage}
+                </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>

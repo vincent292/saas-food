@@ -6,6 +6,7 @@ import { cashService } from "@/lib/services/cash.service";
 import { categoryService } from "@/lib/services/category.service";
 import { orderService } from "@/lib/services/order.service";
 import { productService } from "@/lib/services/product.service";
+import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
 export default async function CashPage({
@@ -21,6 +22,8 @@ export default async function CashPage({
   if (!restaurant || !hasRestaurantModule(restaurant, "cash")) {
     notFound();
   }
+
+  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/caja`);
 
   const [summary, products, categories, configuration, movements, orders, reports] = await Promise.all([
     cashService.getSummary(restaurant.id),

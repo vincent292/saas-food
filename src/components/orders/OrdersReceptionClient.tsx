@@ -4,6 +4,7 @@ import { CheckCircle2, Clock, Printer, RefreshCw, Truck } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { DeliveryDispatchPanel } from "@/components/delivery/DeliveryDispatchPanel";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { elapsedLabel, minutesSince, orderSourceLabel, orderStatusLabels, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
@@ -261,6 +262,8 @@ function ReceptionOrderCard({
               Grande
             </button>
           </div>
+
+          <DeliveryDispatchPanel compact order={order} restaurantSlug={restaurant.slug} />
         </div>
       </div>
     </Card>

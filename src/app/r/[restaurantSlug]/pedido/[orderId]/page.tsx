@@ -3,6 +3,7 @@ import { CheckCircle2, ChefHat, PackageCheck, Truck, XCircle } from "lucide-reac
 import { RestaurantLayout } from "@/components/layout/RestaurantLayout";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { OrderTrackingLiveRefresh } from "@/components/orders/OrderTrackingLiveRefresh";
+import { VirtualQueueCard } from "@/components/orders/VirtualQueueCard";
 import { ClearCartOnOrderSuccess } from "@/components/public-menu/ClearCartOnOrderSuccess";
 import { Card } from "@/components/ui/Card";
 import { SectionTitle } from "@/components/ui/SectionTitle";
@@ -35,7 +36,10 @@ export default async function TrackingPage({
     notFound();
   }
 
-  const order = token ? await orderService.getPublicByTracking(restaurant.id, orderId, token) : await orderService.getById(restaurant.id, orderId);
+  const [order, queueState] = await Promise.all([
+    token ? orderService.getPublicByTracking(restaurant.id, orderId, token) : orderService.getById(restaurant.id, orderId),
+    token ? orderService.getPublicQueueState(restaurant.id, orderId, token) : Promise.resolve(null),
+  ]);
 
   if (!order) {
     notFound();
@@ -87,6 +91,8 @@ export default async function TrackingPage({
             </div>
           )}
         </Card>
+
+        <VirtualQueueCard order={order} queue={queueState} />
 
         <Card className="mt-6">
           <h2 className="text-xl font-black">Resumen</h2>

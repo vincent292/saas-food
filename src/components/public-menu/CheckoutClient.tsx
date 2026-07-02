@@ -59,11 +59,17 @@ export function CheckoutClient({
       : error === "no-open-cash"
         ? "La caja esta cerrada. El restaurante debe abrir caja para recibir pedidos."
         : error === "receipt-required"
-          ? "Para pago QR debes subir el comprobante antes de confirmar."
+        ? "Para pago QR debes subir el comprobante antes de confirmar."
       : error === "disabled"
         ? "La modalidad seleccionada ya no esta habilitada para este restaurante."
         : error === "settings"
           ? "Falta configurar las reglas operativas del restaurante."
+          : error === "invalid"
+            ? "Faltan datos obligatorios o el carrito no tiene el formato correcto."
+            : error === "create"
+              ? "Supabase rechazo la creacion del pedido. Revisa permisos o intenta nuevamente."
+              : error === "create-items"
+                ? "El pedido se inicio, pero no se pudieron guardar sus productos. Intenta nuevamente."
           : "No se pudo confirmar el pedido. Revisa que el carrito tenga productos y que la conexion con Supabase este activa.";
 
   return (

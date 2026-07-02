@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { uploadPublicImage } from "@/lib/supabase/storage";
 
 const cartItemSchema = z.object({
@@ -47,6 +48,54 @@ type TrackingLookupPayload = {
   tracking_token?: string;
 };
 
+type PublicOrderSettings = {
+  delivery_enabled: boolean;
+  pickup_enabled: boolean;
+  table_orders_enabled: boolean;
+  delivery_fee: number;
+  free_delivery_from: number | null;
+  min_order_amount: number;
+};
+
+async function getOrCreatePublicOrderSettings(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {
+  const { data: settings } = await supabase
+    .from("restaurant_settings")
+    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount")
+    .eq("restaurant_id", restaurantId)
+    .maybeSingle();
+
+  if (settings) {
+    return settings as PublicOrderSettings;
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    return null;
+  }
+
+  const { data: createdSettings } = await admin
+    .from("restaurant_settings")
+    .upsert(
+      {
+        restaurant_id: restaurantId,
+        delivery_enabled: true,
+        pickup_enabled: true,
+        table_orders_enabled: true,
+        inventory_enabled: true,
+        cash_enabled: true,
+        kitchen_enabled: true,
+        delivery_fee: 0,
+        min_order_amount: 0,
+        currency: "BOB",
+      },
+      { onConflict: "restaurant_id" },
+    )
+    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount")
+    .maybeSingle();
+
+  return (createdSettings as PublicOrderSettings | null) ?? null;
+}
+
 export async function createPublicOrderAction(formData: FormData) {
   const rawCart = String(formData.get("cartJson") ?? "[]");
   let cart: unknown;
@@ -84,6 +133,7 @@ export async function createPublicOrderAction(formData: FormData) {
   const failPath = parsed.data.tableCode ? `/r/${parsed.data.restaurantSlug}/mesa/${parsed.data.tableCode}` : `/r/${parsed.data.restaurantSlug}`;
   const subtotal = parsed.data.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const supabase = await createClient();
+  const writeClient = createAdminClient() ?? supabase;
   const { data: hasOpenCashSession } = await supabase.rpc("has_open_cash_session_public", {
     p_restaurant_id: parsed.data.restaurantId,
   });
@@ -92,11 +142,7 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${failPath}?error=no-open-cash`);
   }
 
-  const { data: settings } = await supabase
-    .from("restaurant_settings")
-    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount")
-    .eq("restaurant_id", parsed.data.restaurantId)
-    .maybeSingle();
+  const settings = await getOrCreatePublicOrderSettings(supabase, parsed.data.restaurantId);
 
   if (!settings) {
     redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=settings`);
@@ -141,7 +187,7 @@ export async function createPublicOrderAction(formData: FormData) {
   const total = subtotal + deliveryFee;
   const orderNumber = `P-${Date.now().toString().slice(-6)}`;
 
-  const { data: order, error } = await supabase
+  const { data: order, error } = await writeClient
     .from("orders")
     .insert({
       restaurant_id: parsed.data.restaurantId,
@@ -177,7 +223,7 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=create`);
   }
 
-  await supabase.from("order_items").insert(
+  const { error: itemsError } = await writeClient.from("order_items").insert(
     parsed.data.cart.map((item) => ({
       order_id: order.id,
       product_id: /^[0-9a-f-]{36}$/i.test(item.productId) ? item.productId : null,
@@ -188,6 +234,11 @@ export async function createPublicOrderAction(formData: FormData) {
       notes: item.notes,
     })),
   );
+
+  if (itemsError) {
+    await writeClient.from("orders").delete().eq("id", order.id);
+    redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=create-items`);
+  }
 
   redirect(`/r/${parsed.data.restaurantSlug}/pedido/${order.id}?token=${order.tracking_token}`);
 }

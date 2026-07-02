@@ -66,10 +66,38 @@ textarea {
   }
 }
 
+@keyframes virtual-queue-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes virtual-queue-sheen {
+  0% {
+    transform: translateX(-45%);
+  }
+  100% {
+    transform: translateX(45%);
+  }
+}
+
 .cart-roll-forward {
   animation: cart-roll-forward 760ms ease-in-out infinite;
 }
 
 .order-ring {
   animation: order-ring 900ms linear infinite;
+}
+
+.virtual-queue-breathe {
+  animation: virtual-queue-breathe 1.9s ease-in-out infinite;
+}
+
+.virtual-queue-sheen {
+  background: linear-gradient(105deg, transparent 0%, rgb(255 255 255 / 0.08) 35%, rgb(255 255 255 / 0.18) 50%, transparent 65%);
+  animation: virtual-queue-sheen 4.8s ease-in-out infinite alternate;
 }

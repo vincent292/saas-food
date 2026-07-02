@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
@@ -184,6 +185,14 @@ const updateOrderStatusSchema = z.object({
   orderId: z.string().uuid(),
   status: z.enum(["pending", "accepted", "preparing", "ready", "delivered", "cancelled"]),
   source: z.enum(["admin", "kitchen"]).default("admin"),
+});
+
+const createDeliveryLinkSchema = z.object({
+  restaurantId: z.string().uuid(),
+  restaurantSlug: z.string().min(1),
+  orderId: z.string().uuid(),
+  deliveryPhone: z.string().min(5),
+  deliveryName: z.string().optional(),
 });
 
 const paymentMethodSchema = z.enum(["cash", "qr", "bank_transfer", "card", "other"]);
@@ -2151,6 +2160,104 @@ export async function updateOrderStatusAction(formData: FormData) {
   }
 
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?updated=1`);
+}
+
+function normalizePhoneForWhatsApp(phone: string) {
+  return phone.replace(/\D/g, "");
+}
+
+async function currentPublicOrigin() {
+  const headerStore = await headers();
+  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host") ?? "localhost:3000";
+  const protocol = headerStore.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
+  return `${protocol}://${host}`;
+}
+
+export async function createDeliveryLinkAction(input: {
+  restaurantId: string;
+  restaurantSlug: string;
+  orderId: string;
+  deliveryPhone: string;
+  deliveryName?: string;
+}) {
+  const parsed = createDeliveryLinkSchema.safeParse(input);
+
+  if (!parsed.success) {
+    return { ok: false, error: "Datos invalidos para enviar al repartidor." };
+  }
+
+  const { supabase } = await requireRestaurantMemberOrSuperadmin(parsed.data.restaurantId);
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("id, restaurant_id, order_number, order_type, status, customer_name, customer_phone, customer_address, delivery_address_detail, delivery_maps_url")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("id", parsed.data.orderId)
+    .maybeSingle();
+
+  if (orderError || !order) {
+    return { ok: false, error: "No encontramos ese pedido." };
+  }
+
+  if (order.order_type !== "delivery") {
+    return { ok: false, error: "Solo los pedidos delivery se pueden enviar a repartidor." };
+  }
+
+  if (["cancelled", "delivered"].includes(order.status)) {
+    return { ok: false, error: "Este pedido ya no esta disponible para envio." };
+  }
+
+  const deliveryToken = `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+  const deliveryPhone = parsed.data.deliveryPhone.trim();
+  const deliveryName = parsed.data.deliveryName?.trim() || null;
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  const { error } = await supabase.from("order_delivery_links").upsert(
+    {
+      restaurant_id: parsed.data.restaurantId,
+      order_id: parsed.data.orderId,
+      delivery_token: deliveryToken,
+      delivery_phone: deliveryPhone,
+      delivery_name: deliveryName,
+      status: "active",
+      opened_at: null,
+      delivered_at: null,
+      expires_at: expiresAt,
+    },
+    { onConflict: "order_id" },
+  );
+
+  if (error) {
+    return { ok: false, error: `No se pudo generar el link: ${error.message}` };
+  }
+
+  const deliveryUrl = `${await currentPublicOrigin()}/delivery/${deliveryToken}`;
+  const message = encodeURIComponent(
+    [
+      `Pedido ${order.order_number} para entregar.`,
+      `Cliente: ${order.customer_name ?? "Cliente"}`,
+      order.customer_phone ? `Telefono: ${order.customer_phone}` : "",
+      order.customer_address ? `Direccion: ${order.customer_address}` : "",
+      order.delivery_address_detail ? `Referencia: ${order.delivery_address_detail}` : "",
+      order.delivery_maps_url ? `Google Maps: ${order.delivery_maps_url}` : "",
+      `Abrir datos y marcar entrega: ${deliveryUrl}`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+  const whatsappDigits = normalizePhoneForWhatsApp(deliveryPhone);
+  const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}?text=${message}` : "";
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos`);
+  revalidatePath(`/cocina/${parsed.data.restaurantSlug}`);
+
+  return {
+    ok: true,
+    orderNumber: order.order_number,
+    deliveryUrl,
+    whatsappUrl,
+    deliveryPhone,
+    expiresAt,
+  };
 }
 
 export async function openCashSessionAction(formData: FormData) {

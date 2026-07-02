@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateOrderStatusAction } from "@/app/admin/actions";
+import { DeliveryDispatchPanel } from "@/components/delivery/DeliveryDispatchPanel";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { elapsedLabel, kitchenStartDate, minutesSince, orderSourceLabel, paymentMethodLabels, timerTone } from "@/components/orders/orderPresentation";
 import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
@@ -237,6 +238,8 @@ function KitchenCard({
         ) : (
           <div className="rounded-2xl bg-[var(--primary-light)] p-3 text-center text-sm font-black text-[var(--primary-dark)]">Pedido despachado</div>
         )}
+
+        <DeliveryDispatchPanel compact order={order} restaurantSlug={restaurant.slug} />
       </div>
     </Card>
   );

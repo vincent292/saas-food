@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
-import type { Order, OrderItem, OrderStatus } from "@/types/order.types";
+import type { Order, OrderItem, OrderQueueState, OrderStatus } from "@/types/order.types";
 
 type OrderRow = {
   id: string;
@@ -9,7 +9,11 @@ type OrderRow = {
   order_number: string;
   customer_name: string | null;
   customer_phone: string | null;
+  customer_email?: string | null;
   customer_address: string | null;
+  delivery_address_detail?: string | null;
+  delivery_maps_url?: string | null;
+  requested_fulfillment_at?: string | null;
   order_type: Order["orderType"];
   status: Order["status"];
   payment_status: Order["paymentStatus"];
@@ -48,6 +52,29 @@ type PublicOrderPayload = OrderRow & {
   items?: ItemRow[];
 };
 
+type PublicQueuePayload = {
+  restaurant_id?: string;
+  status?: OrderStatus;
+  queue_enabled?: boolean;
+  queue_position?: number | null;
+  orders_ahead?: number | null;
+  active_orders?: number;
+  preparing_orders?: number;
+  ready_orders?: number;
+  recent_orders?: number;
+  estimated_min_minutes?: number;
+  estimated_max_minutes?: number;
+  estimated_ready_at_min?: string | null;
+  estimated_ready_at_max?: string | null;
+  demand_label?: string;
+  demand_level?: OrderQueueState["demandLevel"];
+  confidence?: OrderQueueState["confidence"];
+  kitchen_capacity?: number;
+  base_prep_minutes?: number;
+  history_sample_size?: number;
+  updated_at?: string;
+};
+
 function mapItem(row: ItemRow): OrderItem {
   return {
     id: row.id,
@@ -69,7 +96,11 @@ function mapOrder(row: OrderRow, items: OrderItem[]): Order {
     orderNumber: row.order_number,
     customerName: row.customer_name ?? "",
     customerPhone: row.customer_phone ?? "",
+    customerEmail: row.customer_email ?? undefined,
     customerAddress: row.customer_address ?? undefined,
+    deliveryAddressDetail: row.delivery_address_detail ?? undefined,
+    deliveryMapsUrl: row.delivery_maps_url ?? undefined,
+    requestedFulfillmentAt: row.requested_fulfillment_at ?? undefined,
     orderType: row.order_type,
     status: row.status,
     paymentStatus: row.payment_status,
@@ -92,6 +123,34 @@ function mapOrder(row: OrderRow, items: OrderItem[]): Order {
     cancellationReason: row.cancellation_reason ?? undefined,
     printedAt: row.printed_at ?? undefined,
     items,
+  };
+}
+
+function mapQueueState(payload: PublicQueuePayload): OrderQueueState | null {
+  if (!payload.status) {
+    return null;
+  }
+
+  return {
+    queueEnabled: payload.queue_enabled ?? true,
+    status: payload.status,
+    queuePosition: payload.queue_position ?? undefined,
+    ordersAhead: payload.orders_ahead ?? undefined,
+    activeOrders: Number(payload.active_orders ?? 0),
+    preparingOrders: Number(payload.preparing_orders ?? 0),
+    readyOrders: Number(payload.ready_orders ?? 0),
+    recentOrders: Number(payload.recent_orders ?? 0),
+    estimatedMinMinutes: Number(payload.estimated_min_minutes ?? 0),
+    estimatedMaxMinutes: Number(payload.estimated_max_minutes ?? 0),
+    estimatedReadyAtMin: payload.estimated_ready_at_min ?? undefined,
+    estimatedReadyAtMax: payload.estimated_ready_at_max ?? undefined,
+    demandLabel: payload.demand_label ?? "Demanda normal",
+    demandLevel: payload.demand_level ?? "normal",
+    confidence: payload.confidence ?? "low",
+    kitchenCapacity: Number(payload.kitchen_capacity ?? 1),
+    basePrepMinutes: Number(payload.base_prep_minutes ?? 0),
+    historySampleSize: Number(payload.history_sample_size ?? 0),
+    updatedAt: payload.updated_at ?? new Date().toISOString(),
   };
 }
 
@@ -163,5 +222,28 @@ export const orderService = {
     }
 
     return mapOrder(payload, (payload.items ?? []).map(mapItem));
+  },
+
+  async getPublicQueueState(restaurantId: string, orderId: string, token: string) {
+    if (!hasSupabaseEnv() || !token) {
+      return null;
+    }
+
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("get_public_order_queue_state", {
+      p_order_id: orderId,
+      p_tracking_token: token,
+    });
+
+    if (error || !data) {
+      return null;
+    }
+
+    const payload = data as PublicQueuePayload;
+    if (payload.restaurant_id !== restaurantId) {
+      return null;
+    }
+
+    return mapQueueState(payload);
   },
 };

@@ -222,6 +222,20 @@ export type Database = {
         notes: string | null;
         created_at: string;
       }>;
+      order_delivery_links: Row<{
+        id: string;
+        restaurant_id: string;
+        order_id: string;
+        delivery_token: string;
+        delivery_phone: string | null;
+        delivery_name: string | null;
+        status: "active" | "delivered" | "cancelled" | "expired";
+        opened_at: string | null;
+        delivered_at: string | null;
+        expires_at: string;
+        created_at: string;
+        updated_at: string;
+      }>;
       cash_sessions: Row<{
         id: string;
         restaurant_id: string;
@@ -625,6 +639,25 @@ export type Database = {
           p_customer_phone: string;
           p_order_number: string;
           p_restaurant_id: string;
+        };
+        Returns: Json;
+      };
+      get_public_order_queue_state: {
+        Args: {
+          p_order_id: string;
+          p_tracking_token: string;
+        };
+        Returns: Json;
+      };
+      get_delivery_order: {
+        Args: {
+          p_delivery_token: string;
+        };
+        Returns: Json;
+      };
+      mark_delivery_order_delivered: {
+        Args: {
+          p_delivery_token: string;
         };
         Returns: Json;
       };

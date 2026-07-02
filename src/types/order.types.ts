@@ -32,7 +32,11 @@ export type Order = {
   orderNumber: string;
   customerName: string;
   customerPhone: string;
+  customerEmail?: string;
   customerAddress?: string;
+  deliveryAddressDetail?: string;
+  deliveryMapsUrl?: string;
+  requestedFulfillmentAt?: string;
   orderType: OrderType;
   status: OrderStatus;
   paymentStatus: PaymentStatus;
@@ -55,4 +59,26 @@ export type Order = {
   cancellationReason?: string;
   printedAt?: string;
   items: OrderItem[];
+};
+
+export type OrderQueueState = {
+  queueEnabled: boolean;
+  status: OrderStatus;
+  queuePosition?: number;
+  ordersAhead?: number;
+  activeOrders: number;
+  preparingOrders: number;
+  readyOrders: number;
+  recentOrders: number;
+  estimatedMinMinutes: number;
+  estimatedMaxMinutes: number;
+  estimatedReadyAtMin?: string;
+  estimatedReadyAtMax?: string;
+  demandLabel: string;
+  demandLevel: "calm" | "normal" | "busy" | "event";
+  confidence: "low" | "medium" | "high";
+  kitchenCapacity: number;
+  basePrepMinutes: number;
+  historySampleSize: number;
+  updatedAt: string;
 };

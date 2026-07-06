@@ -3,7 +3,9 @@ import type { OrderStatus, PaymentMethodType, PaymentStatus } from "@/types/orde
 export type DeliveryOrderItem = {
   id: string;
   productName: string;
+  unitPrice: number;
   quantity: number;
+  subtotal: number;
   notes?: string;
 };
 

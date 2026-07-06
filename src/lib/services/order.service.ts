@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
-import type { Order, OrderItem, OrderQueueState, OrderStatus } from "@/types/order.types";
+import type { Order, OrderDeliveryDispatch, OrderItem, OrderQueueState, OrderStatus } from "@/types/order.types";
 
 type OrderRow = {
   id: string;
@@ -48,8 +48,24 @@ type ItemRow = {
   notes: string | null;
 };
 
+type DeliveryLinkRow = {
+  order_id: string;
+  delivery_phone: string | null;
+  delivery_name: string | null;
+  status: OrderDeliveryDispatch["status"];
+  opened_at: string | null;
+  arrived_at: string | null;
+  delivered_at: string | null;
+};
+
 type PublicOrderPayload = OrderRow & {
   items?: ItemRow[];
+  delivery_dispatch_status?: OrderDeliveryDispatch["status"] | null;
+  delivery_dispatch_phone?: string | null;
+  delivery_dispatch_name?: string | null;
+  delivery_opened_at?: string | null;
+  delivery_arrived_at?: string | null;
+  delivery_delivered_at?: string | null;
 };
 
 type PublicQueuePayload = {
@@ -88,7 +104,37 @@ function mapItem(row: ItemRow): OrderItem {
   };
 }
 
-function mapOrder(row: OrderRow, items: OrderItem[]): Order {
+function mapDeliveryLink(row?: DeliveryLinkRow | null): OrderDeliveryDispatch | undefined {
+  if (!row?.status) {
+    return undefined;
+  }
+
+  return {
+    status: row.status,
+    deliveryPhone: row.delivery_phone ?? undefined,
+    deliveryName: row.delivery_name ?? undefined,
+    openedAt: row.opened_at ?? undefined,
+    arrivedAt: row.arrived_at ?? undefined,
+    deliveredAt: row.delivered_at ?? undefined,
+  };
+}
+
+function mapPublicDelivery(payload: PublicOrderPayload): OrderDeliveryDispatch | undefined {
+  if (!payload.delivery_dispatch_status) {
+    return undefined;
+  }
+
+  return {
+    status: payload.delivery_dispatch_status,
+    deliveryPhone: payload.delivery_dispatch_phone ?? undefined,
+    deliveryName: payload.delivery_dispatch_name ?? undefined,
+    openedAt: payload.delivery_opened_at ?? undefined,
+    arrivedAt: payload.delivery_arrived_at ?? undefined,
+    deliveredAt: payload.delivery_delivered_at ?? undefined,
+  };
+}
+
+function mapOrder(row: OrderRow, items: OrderItem[], deliveryDispatch?: OrderDeliveryDispatch): Order {
   return {
     id: row.id,
     restaurantId: row.restaurant_id,
@@ -122,6 +168,7 @@ function mapOrder(row: OrderRow, items: OrderItem[]): Order {
     cancelledAt: row.cancelled_at ?? undefined,
     cancellationReason: row.cancellation_reason ?? undefined,
     printedAt: row.printed_at ?? undefined,
+    deliveryDispatch,
     items,
   };
 }
@@ -174,7 +221,15 @@ export const orderService = {
     const orderIds = orders.map((order) => order.id);
     const { data: items } = await supabase.from("order_items").select("*").in("order_id", orderIds);
 
-    return orders.map((order) => mapOrder(order, (items ?? []).filter((item) => item.order_id === order.id).map(mapItem)));
+    const { data: deliveryLinks } = await supabase.from("order_delivery_links").select("*").in("order_id", orderIds);
+
+    return orders.map((order) =>
+      mapOrder(
+        order,
+        (items ?? []).filter((item) => item.order_id === order.id).map(mapItem),
+        mapDeliveryLink((deliveryLinks ?? []).find((link) => link.order_id === order.id) as DeliveryLinkRow | undefined),
+      ),
+    );
   },
 
   async listLiveByRestaurant(restaurantId: string) {
@@ -198,7 +253,8 @@ export const orderService = {
     }
 
     const { data: items } = await supabase.from("order_items").select("*").eq("order_id", order.id);
-    return mapOrder(order, (items ?? []).map(mapItem));
+    const { data: deliveryLink } = await supabase.from("order_delivery_links").select("*").eq("order_id", order.id).maybeSingle();
+    return mapOrder(order, (items ?? []).map(mapItem), mapDeliveryLink(deliveryLink as DeliveryLinkRow | null));
   },
 
   async getPublicByTracking(restaurantId: string, orderId: string, token: string) {
@@ -221,7 +277,7 @@ export const orderService = {
       return null;
     }
 
-    return mapOrder(payload, (payload.items ?? []).map(mapItem));
+    return mapOrder(payload, (payload.items ?? []).map(mapItem), mapPublicDelivery(payload));
   },
 
   async getPublicQueueState(restaurantId: string, orderId: string, token: string) {

@@ -25,6 +25,17 @@ export type OrderItem = {
   notes?: string;
 };
 
+export type OrderDeliveryDispatchStatus = "active" | "arrived" | "delivered" | "cancelled" | "expired";
+
+export type OrderDeliveryDispatch = {
+  status: OrderDeliveryDispatchStatus;
+  deliveryPhone?: string;
+  deliveryName?: string;
+  openedAt?: string;
+  arrivedAt?: string;
+  deliveredAt?: string;
+};
+
 export type Order = {
   id: string;
   restaurantId: string;
@@ -58,6 +69,7 @@ export type Order = {
   cancelledAt?: string;
   cancellationReason?: string;
   printedAt?: string;
+  deliveryDispatch?: OrderDeliveryDispatch;
   items: OrderItem[];
 };
 

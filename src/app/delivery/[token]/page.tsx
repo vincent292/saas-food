@@ -141,15 +141,29 @@ export default async function DeliveryOrderPage({
           <h2 className="text-xl font-black">Contenido del pedido</h2>
           <div className="mt-4 grid gap-2">
             {order.items.map((item) => (
-              <div className="rounded-2xl bg-slate-50 p-3" key={item.id}>
-                <p className="font-black">
-                  {item.quantity}x {item.productName}
-                </p>
-                {item.notes ? <p className="mt-1 text-sm font-semibold text-[var(--muted)]">{item.notes}</p> : null}
+              <div className="flex justify-between gap-3 rounded-2xl bg-slate-50 p-3" key={item.id}>
+                <div>
+                  <p className="font-black">
+                    {item.quantity}x {item.productName}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-[var(--muted)]">{formatMoney(item.unitPrice)} c/u</p>
+                  {item.notes ? <p className="mt-1 text-sm font-semibold text-[var(--muted)]">{item.notes}</p> : null}
+                </div>
+                <span className="shrink-0 text-sm font-black">{formatMoney(item.subtotal)}</span>
               </div>
             ))}
           </div>
           {order.notes ? <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-800">{order.notes}</p> : null}
+          <div className="mt-4 space-y-2 border-t border-[var(--border)] pt-4 text-sm font-bold">
+            <div className="flex justify-between">
+              <span>Productos</span>
+              <span>{formatMoney(order.items.reduce((sum, item) => sum + item.subtotal, 0))}</span>
+            </div>
+            <div className="flex justify-between text-xl font-black">
+              <span>Total a entregar</span>
+              <span>{formatMoney(order.total)}</span>
+            </div>
+          </div>
         </Card>
 
         <Card className="sticky bottom-3 z-10 bg-white/95 shadow-xl backdrop-blur">
@@ -160,7 +174,7 @@ export default async function DeliveryOrderPage({
                   <input name="token" type="hidden" value={token} />
                   <Button className="min-h-14 w-full text-base" type="submit" variant="secondary">
                     <MapPinned className="h-5 w-5" />
-                    Ya estoy en ubicacion
+                    Llegue
                   </Button>
                 </form>
               ) : null}
@@ -168,7 +182,7 @@ export default async function DeliveryOrderPage({
                 <input name="token" type="hidden" value={token} />
                 <Button className="min-h-14 w-full text-base" type="submit">
                   <CheckCircle2 className="h-5 w-5" />
-                  Marcar entregado
+                  Entregue
                 </Button>
               </form>
             </div>

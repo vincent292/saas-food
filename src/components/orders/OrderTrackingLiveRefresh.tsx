@@ -13,6 +13,7 @@ export function OrderTrackingLiveRefresh({ orderId, restaurantId }: { orderId: s
     const channel = supabase
       .channel(`seguimiento-pedido-${orderId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `id=eq.${orderId}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_delivery_links", filter: `order_id=eq.${orderId}` }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, refresh)
       .subscribe();
 

@@ -2166,6 +2166,20 @@ function normalizePhoneForWhatsApp(phone: string) {
   return phone.replace(/\D/g, "");
 }
 
+function endOfBusinessDayIso(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/La_Paz",
+    year: "numeric",
+  }).formatToParts(date);
+  const year = Number(parts.find((part) => part.type === "year")?.value ?? date.getUTCFullYear());
+  const month = Number(parts.find((part) => part.type === "month")?.value ?? date.getUTCMonth() + 1);
+  const day = Number(parts.find((part) => part.type === "day")?.value ?? date.getUTCDate());
+
+  return new Date(Date.UTC(year, month - 1, day + 1, 4, 0, 0, 0)).toISOString();
+}
+
 async function currentPublicOrigin() {
   const headerStore = await headers();
   const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host") ?? "localhost:3000";
@@ -2206,10 +2220,12 @@ export async function createDeliveryLinkAction(input: {
     return { ok: false, error: "Este pedido ya no esta disponible para envio." };
   }
 
+  await supabase.rpc("expire_old_delivery_links");
+
   const deliveryToken = `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
   const deliveryPhone = parsed.data.deliveryPhone?.trim() ?? "";
   const deliveryName = parsed.data.deliveryName?.trim() || null;
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = endOfBusinessDayIso();
 
   const { error } = await supabase.from("order_delivery_links").upsert(
     {

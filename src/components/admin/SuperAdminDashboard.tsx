@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Building2, ClipboardList, LifeBuoy, LockKeyhole, ShieldCheck, WalletCards } from "lucide-react";
+import { AlertTriangle, Building2, ClipboardList, Flame, LifeBuoy, LockKeyhole, ShieldCheck, TrendingUp, Utensils, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -7,12 +7,13 @@ import { DataTable } from "@/components/ui/DataTable";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { StatCard } from "@/components/ui/StatCard";
 import { authService } from "@/lib/services/auth.service";
+import { publicDirectoryService } from "@/lib/services/public-directory.service";
 import { superadminService } from "@/lib/services/superadmin.service";
 import { formatShortDate, formatShortTime } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
 
 export async function SuperAdminDashboard() {
-  const [summary, profile] = await Promise.all([superadminService.getDashboardSummary(), authService.getCurrentProfile()]);
+  const [summary, profile, directory] = await Promise.all([superadminService.getDashboardSummary(), authService.getCurrentProfile(), publicDirectoryService.getDirectory()]);
 
   return (
     <div className="space-y-6">
@@ -63,6 +64,33 @@ export async function SuperAdminDashboard() {
         </Card>
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card>
+          <SectionTitle title="Mas visitados" description="Visitas publicas de los ultimos 7 dias." />
+          <div className="mt-4 space-y-2">
+            {directory.mostVisited.slice(0, 5).map((item, index) => (
+              <AdminRankRow href={`/admin/restaurantes/${item.restaurant.id}`} key={item.restaurant.id} label={item.restaurant.name} metric={`${item.visits7d} visitas`} rank={index + 1} />
+            ))}
+          </div>
+        </Card>
+        <Card>
+          <SectionTitle title="Mas pedidos" description="Restaurantes por pedidos de los ultimos 30 dias." />
+          <div className="mt-4 space-y-2">
+            {directory.mostOrderedRestaurants.slice(0, 5).map((item, index) => (
+              <AdminRankRow href={`/admin/restaurantes/${item.restaurant.id}`} key={item.restaurant.id} label={item.restaurant.name} metric={`${item.orders30d} pedidos`} rank={index + 1} />
+            ))}
+          </div>
+        </Card>
+        <Card>
+          <SectionTitle title="Platos top" description="Productos con mas pedidos acumulados." />
+          <div className="mt-4 space-y-2">
+            {directory.mostOrderedDishes.slice(0, 5).map((item, index) => (
+              <AdminRankRow href={`/r/${item.restaurantSlug}`} key={item.id} label={item.name} metric={`${item.orderCount} pedidos | ${item.restaurantName}`} rank={index + 1} />
+            ))}
+          </div>
+        </Card>
+      </div>
+
       <section className="space-y-3">
         <SectionTitle
           action={<Link className={buttonClasses("secondary")} href="/admin/reportes">Ver reportes</Link>}
@@ -107,5 +135,18 @@ export async function SuperAdminDashboard() {
         </section>
       </div>
     </div>
+  );
+}
+
+function AdminRankRow({ rank, label, metric, href }: { rank: number; label: string; metric: string; href: string }) {
+  return (
+    <Link className="grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl bg-slate-50 p-2" href={href}>
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-white text-xs font-black text-emerald-700">{rank}</span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-black">{label}</span>
+        <span className="block truncate text-xs font-semibold text-slate-500">{metric}</span>
+      </span>
+      {rank === 1 ? <TrendingUp className="h-4 w-4 text-emerald-700" /> : rank === 2 ? <Flame className="h-4 w-4 text-amber-600" /> : <Utensils className="h-4 w-4 text-slate-400" />}
+    </Link>
   );
 }

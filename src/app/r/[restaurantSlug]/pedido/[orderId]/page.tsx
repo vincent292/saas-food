@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { CheckCircle2, ChefHat, PackageCheck, Truck, XCircle } from "lucide-react";
+import { CheckCircle2, ChefHat, MapPinned, PackageCheck, Truck, XCircle } from "lucide-react";
 import { RestaurantLayout } from "@/components/layout/RestaurantLayout";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { OrderTrackingLiveRefresh } from "@/components/orders/OrderTrackingLiveRefresh";
@@ -45,13 +45,36 @@ export default async function TrackingPage({
     notFound();
   }
 
-  const currentStep = statusStep[order.status];
-  const steps = [
-    { label: "Pedido recibido", icon: CheckCircle2 },
-    { label: "En preparacion", icon: ChefHat },
-    { label: order.orderType === "delivery" ? "En camino" : "Listo para recoger", icon: Truck },
-    { label: "Entregado", icon: PackageCheck },
-  ];
+  const deliveryArrived = order.orderType === "delivery" && order.deliveryDispatch?.status === "arrived";
+  const currentStep =
+    order.status === "cancelled"
+      ? -1
+      : order.orderType === "delivery"
+        ? order.status === "delivered"
+          ? 4
+          : deliveryArrived
+            ? 3
+            : order.status === "ready"
+              ? 2
+              : order.status === "accepted" || order.status === "preparing"
+                ? 1
+                : 0
+        : statusStep[order.status];
+  const steps =
+    order.orderType === "delivery"
+      ? [
+          { label: "Pedido recibido", icon: CheckCircle2 },
+          { label: "En preparacion", icon: ChefHat },
+          { label: "En camino", icon: Truck },
+          { label: "Llego a tu ubicacion", icon: MapPinned },
+          { label: "Entregado", icon: PackageCheck },
+        ]
+      : [
+          { label: "Pedido recibido", icon: CheckCircle2 },
+          { label: "En preparacion", icon: ChefHat },
+          { label: "Listo para recoger", icon: Truck },
+          { label: "Entregado", icon: PackageCheck },
+        ];
 
   return (
     <RestaurantLayout restaurant={restaurant} showCart={false} showMobileNav={false}>
@@ -68,7 +91,7 @@ export default async function TrackingPage({
               <p className="mt-2 text-sm font-semibold">{order.cancellationReason || "El equipo no pudo aprobar tu pedido."}</p>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className={cn("grid gap-4", order.orderType === "delivery" ? "md:grid-cols-5" : "md:grid-cols-4")}>
               {steps.map((step, index) => {
                 const done = currentStep > index;
                 const active = currentStep === index;
@@ -91,6 +114,12 @@ export default async function TrackingPage({
             </div>
           )}
         </Card>
+
+        {deliveryArrived ? (
+          <div className="mt-6 rounded-2xl bg-sky-50 p-4 text-sm font-black text-sky-800">
+            Tu repartidor ya llego a la ubicacion. Revisa tu telefono o sal a recibir el pedido.
+          </div>
+        ) : null}
 
         <VirtualQueueCard order={order} queue={queueState} />
 

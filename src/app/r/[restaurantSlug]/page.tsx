@@ -3,6 +3,7 @@ import { PublicRestaurantOrderClient } from "@/components/public-menu/PublicRest
 import { RestaurantThemeProvider } from "@/components/restaurant/RestaurantThemeProvider";
 import { categoryService } from "@/lib/services/category.service";
 import { productService } from "@/lib/services/product.service";
+import { publicDirectoryService } from "@/lib/services/public-directory.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
 export default async function RestaurantPublicPage({
@@ -18,6 +19,8 @@ export default async function RestaurantPublicPage({
   if (!restaurant) {
     notFound();
   }
+
+  await publicDirectoryService.recordVisit(restaurant.id);
 
   const [settings, categories, products, configuration] = await Promise.all([
     restaurantService.getSettings(restaurant.id),

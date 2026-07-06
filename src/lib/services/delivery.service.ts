@@ -35,7 +35,9 @@ type DeliveryOrderPayload = {
   items?: Array<{
     id: string;
     product_name: string;
+    unit_price?: number;
     quantity: number;
+    subtotal?: number;
     notes: string | null;
   }>;
 };
@@ -44,7 +46,9 @@ function mapItem(item: NonNullable<DeliveryOrderPayload["items"]>[number]): Deli
   return {
     id: item.id,
     productName: item.product_name,
+    unitPrice: Number(item.unit_price ?? 0),
     quantity: Number(item.quantity),
+    subtotal: Number(item.subtotal ?? 0),
     notes: item.notes ?? undefined,
   };
 }

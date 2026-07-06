@@ -237,6 +237,11 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      restaurant_public_visits: Row<{
+        id: string;
+        restaurant_id: string;
+        visited_at: string;
+      }>;
       cash_sessions: Row<{
         id: string;
         restaurant_id: string;
@@ -747,6 +752,10 @@ export type Database = {
         Args: {
           p_reason?: string | null;
         };
+        Returns: undefined;
+      };
+      expire_old_delivery_links: {
+        Args: Record<string, never>;
         Returns: undefined;
       };
     };

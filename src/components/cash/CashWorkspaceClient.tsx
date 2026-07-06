@@ -2,7 +2,8 @@
 
 import { Banknote, Bike, Calculator, CreditCard, FileText, History, PackageSearch, ReceiptText, ShoppingBag, Store, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction } from "@/app/admin/actions";
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
@@ -17,6 +18,7 @@ import { SectionTitle } from "@/components/ui/SectionTitle";
 import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils/dates";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
+import { createClient } from "@/lib/supabase/client";
 import type { CashMovement, CashSessionReport, CashSummary } from "@/types/cash.types";
 import type { Order } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
@@ -105,12 +107,27 @@ export function CashWorkspaceClient({
   orders: Order[];
   status: CashPageStatus;
 }) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<CashTab>(() => normalizeTab(status.tab));
+
+  useEffect(() => {
+    const refresh = () => router.refresh();
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`caja-despacho-${restaurant.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurant.id}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_delivery_links", filter: `restaurant_id=eq.${restaurant.id}` }, refresh)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [restaurant.id, router]);
 
   const todaysOrders = useMemo(() => orders.filter((order) => isSameBusinessDay(order.createdAt)), [orders]);
   const pendingOrders = useMemo(() => todaysOrders.filter((order) => order.status === "pending" && order.orderType !== "delivery" && order.orderType !== "pickup"), [todaysOrders]);
   const deliveryOrders = useMemo(
-    () => todaysOrders.filter((order) => order.orderType === "delivery" && ["pending", "accepted", "preparing", "ready"].includes(order.status)),
+    () => todaysOrders.filter((order) => order.orderType === "delivery" && ["pending", "accepted", "preparing", "ready", "delivered"].includes(order.status)),
     [todaysOrders],
   );
   const pickupOrders = useMemo(
@@ -358,12 +375,17 @@ function switchTab(nextTab: CashTab) {
 
 function DeliveryOrderCard({ order, restaurantSlug }: { order: Order; restaurantSlug: string }) {
   const isReady = order.status === "ready";
+  const dispatchStatus = order.status === "delivered" ? "delivered" : order.deliveryDispatch?.status;
 
   return (
     <Card className="rounded-[1.25rem] p-4">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <OrderOperationalSummary order={order} title="Delivery" />
-        {isReady ? (
+        {dispatchStatus === "delivered" ? (
+          <DispatchStatusPanel label="Entregado" tone="success" value={order.deliveryDispatch?.deliveredAt ?? order.deliveredAt} />
+        ) : dispatchStatus === "arrived" ? (
+          <DispatchStatusPanel label="La moto ya llego" tone="info" value={order.deliveryDispatch?.arrivedAt} />
+        ) : isReady ? (
           <DeliveryDispatchPanel compact order={order} restaurantSlug={restaurantSlug} />
         ) : (
           <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800">
@@ -372,6 +394,15 @@ function DeliveryOrderCard({ order, restaurantSlug }: { order: Order; restaurant
         )}
       </div>
     </Card>
+  );
+}
+
+function DispatchStatusPanel({ label, tone, value }: { label: string; tone: "info" | "success"; value?: string }) {
+  return (
+    <div className={cn("rounded-2xl p-4 text-sm font-bold", tone === "success" ? "bg-emerald-50 text-emerald-800" : "bg-sky-50 text-sky-800")}>
+      <p className="text-lg font-black">{label}</p>
+      {value ? <p className="mt-1">Actualizado a las {formatShortTime(value)}</p> : null}
+    </div>
   );
 }
 
@@ -391,6 +422,8 @@ function OrderOperationalSummary({ order, title }: { order: Order; title: string
           {title} {order.orderNumber}
         </h3>
         <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{order.status}</span>
+        {order.deliveryDispatch?.status === "arrived" ? <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">llego</span> : null}
+        {order.deliveryDispatch?.status === "delivered" ? <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">entregado por moto</span> : null}
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">{formatMoney(order.total)}</span>
       </div>
       <p className="mt-2 text-sm font-semibold text-[var(--muted)]">

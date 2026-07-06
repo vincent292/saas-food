@@ -9,6 +9,7 @@ type DeliveryOrderPayload = {
   delivery_name?: string | null;
   link_status?: DeliveryOrder["linkStatus"];
   opened_at?: string | null;
+  arrived_at?: string | null;
   link_delivered_at?: string | null;
   expires_at?: string;
   restaurant_id?: string;
@@ -60,6 +61,7 @@ function mapDeliveryOrder(payload: DeliveryOrderPayload): DeliveryOrder | null {
     deliveryName: payload.delivery_name ?? undefined,
     linkStatus: payload.link_status ?? "active",
     openedAt: payload.opened_at ?? undefined,
+    arrivedAt: payload.arrived_at ?? undefined,
     linkDeliveredAt: payload.link_delivered_at ?? undefined,
     expiresAt: payload.expires_at ?? "",
     restaurantId: payload.restaurant_id,

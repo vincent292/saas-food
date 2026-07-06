@@ -191,7 +191,7 @@ const createDeliveryLinkSchema = z.object({
   restaurantId: z.string().uuid(),
   restaurantSlug: z.string().min(1),
   orderId: z.string().uuid(),
-  deliveryPhone: z.string().min(5),
+  deliveryPhone: z.string().optional(),
   deliveryName: z.string().optional(),
 });
 
@@ -2207,7 +2207,7 @@ export async function createDeliveryLinkAction(input: {
   }
 
   const deliveryToken = `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
-  const deliveryPhone = parsed.data.deliveryPhone.trim();
+  const deliveryPhone = parsed.data.deliveryPhone?.trim() ?? "";
   const deliveryName = parsed.data.deliveryName?.trim() || null;
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
@@ -2220,6 +2220,7 @@ export async function createDeliveryLinkAction(input: {
       delivery_name: deliveryName,
       status: "active",
       opened_at: null,
+      arrived_at: null,
       delivered_at: null,
       expires_at: expiresAt,
     },

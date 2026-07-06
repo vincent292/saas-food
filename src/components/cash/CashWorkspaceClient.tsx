@@ -7,6 +7,7 @@ import { closeCashSessionAction, openCashSessionAction, registerCashMovementActi
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
+import { DeliveryDispatchPanel } from "@/components/delivery/DeliveryDispatchPanel";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -107,11 +108,15 @@ export function CashWorkspaceClient({
   const [activeTab, setActiveTab] = useState<CashTab>(() => normalizeTab(status.tab));
 
   const pendingOrders = useMemo(() => orders.filter((order) => order.status === "pending"), [orders]);
+  const dispatchOrders = useMemo(
+    () => orders.filter((order) => order.orderType === "delivery" && ["accepted", "preparing", "ready"].includes(order.status)),
+    [orders],
+  );
   const latestReport = reports[0];
   const banner = statusMessage(status);
   const tabs: { key: CashTab; label: string; icon: LucideIcon; count?: number }[] = [
     { key: "venta", label: "Venta POS", icon: Store },
-    { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: pendingOrders.length },
+    { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: pendingOrders.length + dispatchOrders.length },
     { key: "movimientos", label: "Movimientos", icon: History, count: movements.length },
     { key: "egresos", label: "Caja chica", icon: CreditCard },
     { key: "cierre", label: "Cierre", icon: Calculator },
@@ -231,6 +236,43 @@ export function CashWorkspaceClient({
           ) : (
             <EmptyState title="Sin pedidos pendientes" description="Cuando llegue un pedido nuevo aparecerá aquí para cobro y aprobación." />
           )}
+          <div className="pt-2">
+            <SectionTitle title="Delivery para moto" description="Pedidos delivery ya aprobados: genera QR para escanear o envia el link por WhatsApp." />
+            {dispatchOrders.length ? (
+              <div className="mt-3 grid gap-3">
+                {dispatchOrders.map((order) => (
+                  <Card className="rounded-[1.25rem] p-4" key={order.id}>
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-xl font-black text-[var(--text)]">Pedido {order.orderNumber}</h3>
+                          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{order.status}</span>
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">{formatMoney(order.total)}</span>
+                        </div>
+                        <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
+                          {order.customerName || "Cliente"} | {order.customerPhone || "Sin telefono"} | {order.customerAddress || "Sin direccion"}
+                        </p>
+                        {order.deliveryAddressDetail ? <p className="mt-2 text-sm font-bold text-[var(--text)]">Referencia: {order.deliveryAddressDetail}</p> : null}
+                        <div className="mt-3 grid gap-2">
+                          {order.items.map((item) => (
+                            <div className="rounded-2xl bg-slate-50 p-3" key={item.id}>
+                              <p className="font-black text-[var(--text)]">
+                                {item.quantity}x {item.productName}
+                              </p>
+                              {item.notes ? <p className="mt-1 text-sm font-semibold text-[var(--muted)]">{item.notes}</p> : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <DeliveryDispatchPanel compact order={order} restaurantSlug={restaurant.slug} />
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="Sin delivery para despachar" description="Cuando un pedido delivery este aprobado o listo, aparecera aqui para generar el QR de la moto." />
+            )}
+          </div>
         </section>
       ) : null}
 

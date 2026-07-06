@@ -229,8 +229,9 @@ export type Database = {
         delivery_token: string;
         delivery_phone: string | null;
         delivery_name: string | null;
-        status: "active" | "delivered" | "cancelled" | "expired";
+        status: "active" | "arrived" | "delivered" | "cancelled" | "expired";
         opened_at: string | null;
+        arrived_at: string | null;
         delivered_at: string | null;
         expires_at: string;
         created_at: string;
@@ -656,6 +657,12 @@ export type Database = {
         Returns: Json;
       };
       mark_delivery_order_delivered: {
+        Args: {
+          p_delivery_token: string;
+        };
+        Returns: Json;
+      };
+      mark_delivery_order_arrived: {
         Args: {
           p_delivery_token: string;
         };

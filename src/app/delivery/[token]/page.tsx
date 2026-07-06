@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { Bike, CheckCircle2, Clock3, MapPinned, MessageCircle, Phone, ReceiptText, Route, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
-import { markDeliveryDeliveredAction } from "@/app/delivery/actions";
+import { markDeliveryArrivedAction, markDeliveryDeliveredAction } from "@/app/delivery/actions";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -35,7 +35,7 @@ export default async function DeliveryOrderPage({
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ delivered?: string; error?: string }>;
+  searchParams: Promise<{ arrived?: string; delivered?: string; error?: string }>;
 }) {
   const [{ token }, status] = await Promise.all([params, searchParams]);
   const order = await deliveryService.getByToken(token);
@@ -44,7 +44,9 @@ export default async function DeliveryOrderPage({
     notFound();
   }
 
-  const canMarkDelivered = order.orderStatus !== "delivered" && order.linkStatus === "active";
+  const canMarkArrived = order.orderStatus !== "delivered" && order.linkStatus === "active";
+  const canMarkDelivered = order.orderStatus !== "delivered" && ["active", "arrived"].includes(order.linkStatus);
+  const deliveryStatusLabel = order.orderStatus === "delivered" ? "Entregado" : order.linkStatus === "arrived" ? "En ubicacion" : "En entrega";
   const mapUrl = mapsHref(order.customerAddress, order.deliveryMapsUrl);
   const phoneDigits = digitsOnly(order.customerPhone);
   const waUrl = whatsappHref(order.customerPhone, order.orderNumber);
@@ -68,7 +70,7 @@ export default async function DeliveryOrderPage({
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <InfoPill icon={<Clock3 className="h-4 w-4" />} label="Estado" value={order.orderStatus === "delivered" ? "Entregado" : "En entrega"} />
+            <InfoPill icon={<Clock3 className="h-4 w-4" />} label="Estado" value={deliveryStatusLabel} />
             <InfoPill icon={<ReceiptText className="h-4 w-4" />} label="Total" value={formatMoney(order.total)} />
             <InfoPill icon={<ShieldCheck className="h-4 w-4" />} label="Acceso" value="Link seguro" />
           </div>
@@ -80,7 +82,13 @@ export default async function DeliveryOrderPage({
           </div>
         ) : null}
 
-        {status.error ? <div className="rounded-2xl bg-red-50 p-4 text-sm font-black text-red-700">No se pudo marcar entregado: {status.error}</div> : null}
+        {status.arrived || order.linkStatus === "arrived" ? (
+          <div className="rounded-2xl bg-sky-50 p-4 text-sm font-black text-sky-800">
+            Repartidor marcado en la ubicacion {order.arrivedAt ? `a las ${formatShortTime(order.arrivedAt)}` : ""}.
+          </div>
+        ) : null}
+
+        {status.error ? <div className="rounded-2xl bg-red-50 p-4 text-sm font-black text-red-700">No se pudo actualizar el pedido: {status.error}</div> : null}
 
         <Card className="space-y-4">
           <div>
@@ -146,13 +154,24 @@ export default async function DeliveryOrderPage({
 
         <Card className="sticky bottom-3 z-10 bg-white/95 shadow-xl backdrop-blur">
           {canMarkDelivered ? (
-            <form action={markDeliveryDeliveredAction}>
-              <input name="token" type="hidden" value={token} />
-              <Button className="min-h-14 w-full text-base" type="submit">
-                <CheckCircle2 className="h-5 w-5" />
-                Marcar entregado
-              </Button>
-            </form>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {canMarkArrived ? (
+                <form action={markDeliveryArrivedAction}>
+                  <input name="token" type="hidden" value={token} />
+                  <Button className="min-h-14 w-full text-base" type="submit" variant="secondary">
+                    <MapPinned className="h-5 w-5" />
+                    Ya estoy en ubicacion
+                  </Button>
+                </form>
+              ) : null}
+              <form action={markDeliveryDeliveredAction} className={canMarkArrived ? "" : "sm:col-span-2"}>
+                <input name="token" type="hidden" value={token} />
+                <Button className="min-h-14 w-full text-base" type="submit">
+                  <CheckCircle2 className="h-5 w-5" />
+                  Marcar entregado
+                </Button>
+              </form>
+            </div>
           ) : (
             <div className="rounded-2xl bg-emerald-50 p-4 text-center text-sm font-black text-emerald-800">
               Pedido entregado {order.deliveredAt ? `a las ${formatShortTime(order.deliveredAt)}` : ""}

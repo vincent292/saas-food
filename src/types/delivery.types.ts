@@ -12,8 +12,9 @@ export type DeliveryOrder = {
   deliveryToken: string;
   deliveryPhone?: string;
   deliveryName?: string;
-  linkStatus: "active" | "delivered" | "cancelled" | "expired";
+  linkStatus: "active" | "arrived" | "delivered" | "cancelled" | "expired";
   openedAt?: string;
+  arrivedAt?: string;
   linkDeliveredAt?: string;
   expiresAt: string;
   restaurantId: string;

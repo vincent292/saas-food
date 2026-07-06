@@ -63,7 +63,7 @@ export function DeliveryDispatchPanel({
     };
   }, [result]);
 
-  if (order.orderType !== "delivery" || !["accepted", "preparing", "ready"].includes(order.status)) {
+  if (order.orderType !== "delivery" || order.status !== "ready") {
     return null;
   }
 

@@ -4,7 +4,6 @@ import { CheckCircle2, Clock, Printer, RefreshCw, Truck } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { DeliveryDispatchPanel } from "@/components/delivery/DeliveryDispatchPanel";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { elapsedLabel, minutesSince, orderSourceLabel, orderStatusLabels, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
@@ -13,6 +12,7 @@ import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils/cn";
+import { isSameBusinessDay } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
 import { createClient } from "@/lib/supabase/client";
 import type { Order } from "@/types/order.types";
@@ -114,11 +114,14 @@ export function OrdersReceptionClient({
   }, [router]);
 
   const groups = useMemo(
-    () => ({
-      nuevos: orders.filter((order) => order.status === "pending"),
-      cocina: orders.filter((order) => ["accepted", "preparing", "ready"].includes(order.status)),
-      historial: orders.filter((order) => ["delivered", "cancelled"].includes(order.status)).slice(0, 40),
-    }),
+    () => {
+      const todayOrders = orders.filter((order) => isSameBusinessDay(order.createdAt));
+      return {
+        nuevos: todayOrders.filter((order) => order.status === "pending"),
+        cocina: todayOrders.filter((order) => ["accepted", "preparing", "ready"].includes(order.status)),
+        historial: todayOrders.filter((order) => ["delivered", "cancelled"].includes(order.status)).slice(0, 40),
+      };
+    },
     [orders],
   );
 
@@ -262,8 +265,6 @@ function ReceptionOrderCard({
               Grande
             </button>
           </div>
-
-          <DeliveryDispatchPanel compact order={order} restaurantSlug={restaurant.slug} />
         </div>
       </div>
     </Card>

@@ -7,6 +7,7 @@ import { inventoryService } from "@/lib/services/inventory.service";
 import { orderService } from "@/lib/services/order.service";
 import { productService } from "@/lib/services/product.service";
 import { tableService } from "@/lib/services/table.service";
+import { isSameBusinessDay } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
 
 export async function RestaurantDashboard({ restaurantId }: { restaurantId: string }) {
@@ -17,13 +18,14 @@ export async function RestaurantDashboard({ restaurantId }: { restaurantId: stri
     productService.listByRestaurant(restaurantId),
     inventoryService.listLowStock(restaurantId),
   ]);
+  const todaysOrders = orders.filter((order) => isSameBusinessDay(order.createdAt));
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={<WalletCards className="h-5 w-5" />} label="Ventas del día" value={formatMoney(summary.salesTotal)} detail="Pagadas hasta ahora" />
-        <StatCard icon={<ClipboardList className="h-5 w-5" />} label="Pedidos pendientes" value={String(orders.filter((order) => order.status === "pending").length)} />
-        <StatCard icon={<ChefHat className="h-5 w-5" />} label="En preparación" value={String(orders.filter((order) => order.status === "preparing").length)} />
+        <StatCard icon={<ClipboardList className="h-5 w-5" />} label="Pedidos pendientes" value={String(todaysOrders.filter((order) => order.status === "pending").length)} />
+        <StatCard icon={<ChefHat className="h-5 w-5" />} label="En preparación" value={String(todaysOrders.filter((order) => order.status === "preparing").length)} />
         <StatCard icon={<Table2 className="h-5 w-5" />} label="Mesas activas" value={String(tables.filter((table) => table.status !== "available").length)} />
       </div>
 

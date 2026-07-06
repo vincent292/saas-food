@@ -10,7 +10,7 @@ import { modulesForAdminLayout } from "@/lib/modules";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { superadminService } from "@/lib/services/superadmin.service";
-import { formatShortDate, formatShortTime } from "@/lib/utils/dates";
+import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
 
 export default async function RestaurantOverviewPage({ params }: { params: Promise<{ restaurantId: string }> }) {
@@ -28,7 +28,8 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
     notFound();
   }
 
-  const paidOrders = control.orders.filter((order) => order.paymentStatus === "paid");
+  const todaysOrders = control.orders.filter((order) => isSameBusinessDay(order.createdAt));
+  const paidOrders = todaysOrders.filter((order) => order.paymentStatus === "paid");
 
   return (
     <AdminLayout
@@ -88,7 +89,7 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
             <DataTable
               emptyMessage="Sin pedidos recientes."
               headers={["Pedido", "Cliente", "Estado", "Total", "Fecha"]}
-              rows={control.orders.map((order) => [
+              rows={todaysOrders.map((order) => [
                 order.orderNumber,
                 order.customerName || "Sin nombre",
                 order.status,

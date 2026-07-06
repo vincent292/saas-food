@@ -5,7 +5,6 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateOrderStatusAction } from "@/app/admin/actions";
-import { DeliveryDispatchPanel } from "@/components/delivery/DeliveryDispatchPanel";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { elapsedLabel, kitchenStartDate, minutesSince, orderSourceLabel, paymentMethodLabels, timerTone } from "@/components/orders/orderPresentation";
 import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
@@ -13,6 +12,7 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils/cn";
+import { formatShortTime } from "@/lib/utils/dates";
 import { createClient } from "@/lib/supabase/client";
 import type { Order, OrderStatus } from "@/types/order.types";
 import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
@@ -96,7 +96,7 @@ export function KitchenBoardClient({
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Cocina</p>
             <h1 className="text-3xl font-black text-[var(--text)]">{restaurant.name}</h1>
-            <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Solo aparecen pedidos aprobados. El contador inicia cuando recepcion aprueba el pedido.</p>
+            <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Solo aparecen pedidos del dia aprobados por caja. Cocina prepara y marca listo; el despacho se maneja en Caja.</p>
           </div>
           <div className="flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-[var(--muted)] shadow-sm">
             <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin text-[var(--primary)]")} />
@@ -170,16 +170,17 @@ function KitchenCard({
   defaultPrintFormat: PrintFormat;
 }) {
   const elapsedMinutes = minutesSince(kitchenStartDate(order), now);
-  const tone = timerTone(elapsedMinutes);
-  const nextStatus = order.status === "accepted" ? "preparing" : order.status === "preparing" ? "ready" : order.status === "ready" ? "delivered" : null;
-  const actionLabel = order.status === "accepted" ? "Iniciar" : order.status === "preparing" ? "Marcar preparado" : "Despachar";
+  const isReady = order.status === "ready";
+  const tone = isReady ? { label: "Listo", className: "border-emerald-200 bg-emerald-50 text-emerald-800" } : timerTone(elapsedMinutes);
+  const nextStatus = order.status === "accepted" ? "preparing" : order.status === "preparing" ? "ready" : null;
+  const actionLabel = order.status === "accepted" ? "Iniciar" : "Marcar preparado";
 
   return (
     <Card className={cn("overflow-hidden rounded-[1.25rem] p-0", elapsedMinutes >= 20 && order.status !== "ready" && "border-red-200")}>
       <div className={cn("flex items-center justify-between gap-3 border-b px-4 py-3", tone.className)}>
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.12em]">Tiempo</p>
-          <p className="text-2xl font-black">{elapsedLabel(elapsedMinutes)}</p>
+          <p className="text-xs font-black uppercase tracking-[0.12em]">{isReady ? "Preparado" : "Tiempo"}</p>
+          <p className="text-2xl font-black">{isReady ? (order.readyAt ? formatShortTime(order.readyAt) : "Listo") : elapsedLabel(elapsedMinutes)}</p>
         </div>
         <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-black text-slate-900">{tone.label}</span>
       </div>
@@ -236,10 +237,10 @@ function KitchenCard({
             </Button>
           </form>
         ) : (
-          <div className="rounded-2xl bg-[var(--primary-light)] p-3 text-center text-sm font-black text-[var(--primary-dark)]">Pedido despachado</div>
+          <div className="rounded-2xl bg-[var(--primary-light)] p-3 text-center text-sm font-black text-[var(--primary-dark)]">
+            Listo para caja/despacho
+          </div>
         )}
-
-        <DeliveryDispatchPanel compact order={order} restaurantSlug={restaurant.slug} />
       </div>
     </Card>
   );

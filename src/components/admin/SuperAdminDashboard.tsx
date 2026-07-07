@@ -19,10 +19,10 @@ export async function SuperAdminDashboard() {
     <div className="space-y-6">
       <Card className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-slate-500">Sesión administrativa</p>
-          <p className="mt-1 text-xl font-black text-slate-950">{profile?.email ?? "Sin sesión activa"}</p>
+          <p className="text-sm font-semibold text-[var(--color-secondary-text)]">Sesión administrativa</p>
+          <p className="mt-1 text-xl font-black text-[var(--color-heading)]">{profile?.email ?? "Sin sesión activa"}</p>
         </div>
-        <Badge className={profile?.globalRole === "superadmin" ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}>
+        <Badge className={profile?.globalRole === "superadmin" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]"}>
           {profile?.globalRole === "superadmin" ? "Superadmin" : "Sin rol superadmin"}
         </Badge>
       </Card>
@@ -37,27 +37,27 @@ export async function SuperAdminDashboard() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <div className="flex items-center gap-3">
-            <ShieldCheck className="h-5 w-5 text-emerald-700" />
+            <ShieldCheck className="h-5 w-5 text-[var(--color-success-strong)]" />
             <div>
-              <p className="text-sm font-bold text-slate-500">Suspendidos</p>
+              <p className="text-sm font-bold text-[var(--color-secondary-text)]">Suspendidos</p>
               <p className="text-2xl font-black">{summary.suspendedRestaurantCount}</p>
             </div>
           </div>
         </Card>
         <Card>
           <div className="flex items-center gap-3">
-            <ClipboardList className="h-5 w-5 text-amber-700" />
+            <ClipboardList className="h-5 w-5 text-[var(--color-warning-strong)]" />
             <div>
-              <p className="text-sm font-bold text-slate-500">Archivados</p>
+              <p className="text-sm font-bold text-[var(--color-secondary-text)]">Archivados</p>
               <p className="text-2xl font-black">{summary.archivedRestaurantCount}</p>
             </div>
           </div>
         </Card>
         <Card>
           <div className="flex items-center gap-3">
-            <LockKeyhole className="h-5 w-5 text-slate-700" />
+            <LockKeyhole className="h-5 w-5 text-[var(--color-body)]" />
             <div>
-              <p className="text-sm font-bold text-slate-500">Sesiones activas</p>
+              <p className="text-sm font-bold text-[var(--color-secondary-text)]">Sesiones activas</p>
               <p className="text-2xl font-black">{summary.activeAccessSessions}</p>
             </div>
           </div>
@@ -103,7 +103,7 @@ export async function SuperAdminDashboard() {
           rows={summary.topRestaurants.map((restaurant) => [
             <div key={`${restaurant.id}-name`}>
               <p className="font-black">{restaurant.name}</p>
-              <p className="text-xs text-slate-500">/r/{restaurant.slug}</p>
+              <p className="text-xs text-[var(--color-secondary-text)]">/r/{restaurant.slug}</p>
             </div>,
             restaurant.orders30d,
             formatMoney(restaurant.revenue30d),
@@ -140,13 +140,13 @@ export async function SuperAdminDashboard() {
 
 function AdminRankRow({ rank, label, metric, href }: { rank: number; label: string; metric: string; href: string }) {
   return (
-    <Link className="grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl bg-slate-50 p-2" href={href}>
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-white text-xs font-black text-emerald-700">{rank}</span>
+    <Link className="grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl bg-[var(--color-surface)] p-2" href={href}>
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--surface)] text-xs font-black text-[var(--color-success-strong)]">{rank}</span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-black">{label}</span>
-        <span className="block truncate text-xs font-semibold text-slate-500">{metric}</span>
+        <span className="block truncate text-xs font-semibold text-[var(--color-secondary-text)]">{metric}</span>
       </span>
-      {rank === 1 ? <TrendingUp className="h-4 w-4 text-emerald-700" /> : rank === 2 ? <Flame className="h-4 w-4 text-amber-600" /> : <Utensils className="h-4 w-4 text-slate-400" />}
+      {rank === 1 ? <TrendingUp className="h-4 w-4 text-[var(--color-success-strong)]" /> : rank === 2 ? <Flame className="h-4 w-4 text-[var(--color-warning)]" /> : <Utensils className="h-4 w-4 text-[var(--color-placeholder)]" />}
     </Link>
   );
 }

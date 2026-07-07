@@ -23,7 +23,7 @@ export default async function IncidentsPage() {
         <Card>
           <h2 className="text-lg font-black">Nueva incidencia</h2>
           <form action={createIncidentAction} className="mt-4 grid gap-3 lg:grid-cols-5">
-            <select className="min-h-11 rounded-2xl border border-slate-200 px-3 text-sm font-semibold outline-none" name="restaurantId">
+            <select className="min-h-11 rounded-2xl border border-[var(--border)] px-3 text-sm font-semibold outline-none" name="restaurantId">
               <option value="">Plataforma</option>
               {restaurants.map((restaurant) => (
                 <option key={restaurant.id} value={restaurant.id}>
@@ -31,8 +31,8 @@ export default async function IncidentsPage() {
                 </option>
               ))}
             </select>
-            <input className="min-h-11 rounded-2xl border border-slate-200 px-3 text-sm outline-none lg:col-span-2" name="title" placeholder="Qué está fallando" required />
-            <select className="min-h-11 rounded-2xl border border-slate-200 px-3 text-sm font-semibold outline-none" name="impactArea">
+            <input className="min-h-11 rounded-2xl border border-[var(--border)] px-3 text-sm outline-none lg:col-span-2" name="title" placeholder="Qué está fallando" required />
+            <select className="min-h-11 rounded-2xl border border-[var(--border)] px-3 text-sm font-semibold outline-none" name="impactArea">
               <option value="platform">Plataforma</option>
               <option value="public_menu">Menú público</option>
               <option value="orders">Pedidos</option>
@@ -43,14 +43,14 @@ export default async function IncidentsPage() {
               <option value="supabase">Supabase</option>
               <option value="other">Otro</option>
             </select>
-            <select className="min-h-11 rounded-2xl border border-slate-200 px-3 text-sm font-semibold outline-none" name="severity" defaultValue="minor">
+            <select className="min-h-11 rounded-2xl border border-[var(--border)] px-3 text-sm font-semibold outline-none" name="severity" defaultValue="minor">
               {severities.map((severity) => (
                 <option key={severity} value={severity}>
                   {severity}
                 </option>
               ))}
             </select>
-            <textarea className="min-h-20 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none lg:col-span-4" name="description" placeholder="Impacto, síntomas y alcance" />
+            <textarea className="min-h-20 rounded-2xl border border-[var(--border)] px-3 py-2 text-sm outline-none lg:col-span-4" name="description" placeholder="Impacto, síntomas y alcance" />
             <button className={buttonClasses("primary", "lg:self-start")} type="submit">
               Registrar
             </button>
@@ -65,7 +65,7 @@ export default async function IncidentsPage() {
             rows={incidents.map((incident) => [
               <div key={`${incident.id}-title`}>
                 <p className="font-black">{incident.title}</p>
-                <p className="max-w-md text-xs text-slate-500">{incident.description || "Sin detalle"}</p>
+                <p className="max-w-md text-xs text-[var(--color-secondary-text)]">{incident.description || "Sin detalle"}</p>
               </div>,
               incident.affectedRestaurantName,
               incident.impactArea,
@@ -75,14 +75,14 @@ export default async function IncidentsPage() {
               <form action={updateIncidentAction} className="grid min-w-64 gap-2" key={incident.id}>
                 <input name="incidentId" type="hidden" value={incident.id} />
                 <div className="flex flex-wrap gap-2">
-                  <select className="min-h-10 rounded-2xl border border-slate-200 px-2 text-xs font-bold" name="status" defaultValue={incident.status}>
+                  <select className="min-h-10 rounded-2xl border border-[var(--border)] px-2 text-xs font-bold" name="status" defaultValue={incident.status}>
                     {statuses.map((status) => (
                       <option key={status} value={status}>
                         {status}
                       </option>
                     ))}
                   </select>
-                  <select className="min-h-10 rounded-2xl border border-slate-200 px-2 text-xs font-bold" name="severity" defaultValue={incident.severity}>
+                  <select className="min-h-10 rounded-2xl border border-[var(--border)] px-2 text-xs font-bold" name="severity" defaultValue={incident.severity}>
                     {severities.map((severity) => (
                       <option key={severity} value={severity}>
                         {severity}
@@ -90,7 +90,7 @@ export default async function IncidentsPage() {
                     ))}
                   </select>
                 </div>
-                <textarea className="min-h-16 rounded-2xl border border-slate-200 px-3 py-2 text-xs outline-none" name="postmortem" placeholder="Postmortem" defaultValue={incident.postmortem} />
+                <textarea className="min-h-16 rounded-2xl border border-[var(--border)] px-3 py-2 text-xs outline-none" name="postmortem" placeholder="Postmortem" defaultValue={incident.postmortem} />
                 <button className={buttonClasses("secondary")} type="submit">
                   Guardar
                 </button>

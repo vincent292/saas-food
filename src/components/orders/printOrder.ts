@@ -1,3 +1,4 @@
+import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import { formatShortTime } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
 import type { Order } from "@/types/order.types";
@@ -33,6 +34,9 @@ export function printOrderTicket({
   const isThermal = format !== "large";
   const paperWidth = format === "thermal_58" ? "58mm" : format === "thermal_80" ? "80mm" : "210mm";
   const safeRestaurant = escapeHtml(restaurantName);
+  const printBackground = defaultRestaurantPalette.surfaceColor;
+  const printText = defaultRestaurantPalette.textColor;
+  const printMuted = defaultRestaurantPalette.mutedColor;
   const items = order.items
     .map(
       (item) => `
@@ -66,8 +70,8 @@ export function printOrderTicket({
 
           body {
             margin: 0;
-            background: #fff;
-            color: #111;
+            background: ${printBackground};
+            color: ${printText};
             font-family: Arial, sans-serif;
             font-size: ${isThermal ? "11px" : "14px"};
           }
@@ -100,7 +104,7 @@ export function printOrderTicket({
           }
 
           .divider {
-            border-top: 1px dashed #111;
+            border-top: 1px dashed ${printText};
             margin: 8px 0;
           }
 
@@ -126,7 +130,7 @@ export function printOrderTicket({
           small {
             display: block;
             margin-top: 2px;
-            color: #444;
+            color: ${printMuted};
             font-size: ${isThermal ? "10px" : "12px"};
           }
 
@@ -139,7 +143,7 @@ export function printOrderTicket({
           }
 
           .notes {
-            border: 1px solid #111;
+            border: 1px solid ${printText};
             padding: 6px;
             margin-top: 8px;
           }

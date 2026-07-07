@@ -116,12 +116,12 @@ export function InventoryWorkspaceClient({
         <MetricCard label="Recetas ligadas" value={String(ingredients.length)} />
       </section>
 
-      <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-white p-2 shadow-sm">
+      <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
         {tabs.map((tab) => (
           <button
             className={cn(
               "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-black transition",
-              activeTab === tab.key ? "bg-[var(--primary)] text-white" : "text-[var(--muted)] hover:bg-[var(--primary-light)]",
+              activeTab === tab.key ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "text-[var(--muted)] hover:bg-[var(--primary-light)]",
             )}
             key={tab.key}
             onClick={() => switchTab(tab.key)}
@@ -129,7 +129,7 @@ export function InventoryWorkspaceClient({
           >
             <tab.icon className="h-4 w-4" />
             {tab.label}
-            {tab.count !== undefined ? <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-black", activeTab === tab.key ? "bg-white/15 text-white" : "bg-slate-100 text-slate-600")}>{tab.count}</span> : null}
+            {tab.count !== undefined ? <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-black", activeTab === tab.key ? "bg-[var(--color-on-primary-soft)] text-[var(--color-on-primary)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]")}>{tab.count}</span> : null}
           </button>
         ))}
       </div>
@@ -191,14 +191,14 @@ export function InventoryWorkspaceClient({
                 movements.map((movement) => {
                   const item = items.find((inventoryItem) => inventoryItem.id === movement.inventoryItemId);
                   return (
-                    <div className="grid gap-2 rounded-2xl bg-slate-50 p-3 sm:grid-cols-[1fr_auto] sm:items-center print:border print:bg-white" key={movement.id}>
+                    <div className="grid gap-2 rounded-2xl bg-[var(--color-surface)] p-3 sm:grid-cols-[1fr_auto] sm:items-center print:border print:bg-[var(--surface)]" key={movement.id}>
                       <div>
-                        <p className="font-bold text-slate-950">
+                        <p className="font-bold text-[var(--color-heading)]">
                         {item?.name ?? "Insumo"} · {movementLabels[movement.type]}
                         </p>
-                        <p className="text-sm text-slate-500">{movement.reason}</p>
+                        <p className="text-sm text-[var(--color-secondary-text)]">{movement.reason}</p>
                       </div>
-                      <p className="text-sm font-semibold text-slate-700">
+                      <p className="text-sm font-semibold text-[var(--color-body)]">
                         {movement.previousStock} → {movement.newStock} {item?.unit ?? ""} · {formatShortDate(movement.createdAt)} {formatShortTime(movement.createdAt)}
                       </p>
                     </div>
@@ -233,9 +233,9 @@ export function InventoryWorkspaceClient({
                   const item = items.find((inventoryItem) => inventoryItem.id === stock.inventoryItemId);
                   const zone = zones.find((inventoryZone) => inventoryZone.id === stock.zoneId);
                   return (
-                    <div className="rounded-2xl bg-slate-50 p-4" key={stock.id}>
-                      <p className="font-black text-slate-950">{item?.name ?? "Insumo"}</p>
-                      <p className="text-sm font-semibold text-slate-600">
+                    <div className="rounded-2xl bg-[var(--color-surface)] p-4" key={stock.id}>
+                      <p className="font-black text-[var(--color-heading)]">{item?.name ?? "Insumo"}</p>
+                      <p className="text-sm font-semibold text-[var(--color-secondary-text)]">
                         {zone?.name ?? "Zona"} · {stock.stock} {item?.unit ?? ""}
                       </p>
                     </div>
@@ -259,13 +259,13 @@ export function InventoryWorkspaceClient({
             <div className="mt-4 space-y-3">
               {ingredients.length ? (
                 ingredients.map((ingredient) => (
-                  <div className="rounded-2xl bg-slate-50 p-3" key={ingredient.id}>
-                    <p className="font-black text-slate-950">{ingredient.productName}</p>
-                    <p className="text-sm font-semibold text-slate-600">
+                  <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={ingredient.id}>
+                    <p className="font-black text-[var(--color-heading)]">{ingredient.productName}</p>
+                    <p className="text-sm font-semibold text-[var(--color-secondary-text)]">
                       {ingredient.quantity} {ingredient.inventoryItemUnit} de {ingredient.inventoryItemName}
                       {ingredient.wasteFactor ? ` · merma ${ingredient.wasteFactor}%` : ""}
                     </p>
-                    {ingredient.notes ? <p className="mt-1 text-sm text-slate-500">{ingredient.notes}</p> : null}
+                    {ingredient.notes ? <p className="mt-1 text-sm text-[var(--color-secondary-text)]">{ingredient.notes}</p> : null}
                   </div>
                 ))
               ) : (
@@ -282,13 +282,13 @@ export function InventoryWorkspaceClient({
             <SectionTitle title={openCount ? "Conteo abierto" : "Abrir conteo"} description="Registra apertura y cierre del conteo físico." />
             {openCount ? (
               <div className="mt-4 space-y-3">
-                <p className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
+                <p className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">
                   Abierto el {formatShortDate(openCount.openedAt)} a las {formatShortTime(openCount.openedAt)}
                 </p>
                 <Button className="w-full" onClick={() => setModal("countLine")} type="button" variant="secondary">
                   Agregar línea contada
                 </Button>
-                <form action={closeInventoryCountAction} className="space-y-3 border-t border-slate-200 pt-3">
+                <form action={closeInventoryCountAction} className="space-y-3 border-t border-[var(--border)] pt-3">
                   <input name="restaurantId" type="hidden" value={restaurantId} />
                   <Textarea name="notes" placeholder="Notas de cierre" />
                   <Button className="w-full" type="submit" variant="danger">
@@ -312,13 +312,13 @@ export function InventoryWorkspaceClient({
             {openCount?.lines.length ? <CountLines lines={openCount.lines} /> : <EmptyState title="Sin líneas contadas" description="Agrega cada insumo contado para ver diferencias." />}
             {countReports.length ? (
               <div className="mt-6 space-y-3">
-                <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-500">Últimos conteos</h3>
+                <h3 className="text-sm font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Últimos conteos</h3>
                 {countReports.map((count) => (
-                  <div className="rounded-2xl bg-slate-50 p-3" key={count.id}>
-                    <p className="font-black text-slate-950">
+                  <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={count.id}>
+                    <p className="font-black text-[var(--color-heading)]">
                       {formatShortDate(count.openedAt)} · {count.status === "closed" ? "Cerrado" : "Abierto"}
                     </p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-[var(--color-secondary-text)]">
                       {count.lines.length} líneas · diferencia total {count.lines.reduce((sum, line) => sum + Math.abs(line.differenceStock), 0)}
                     </p>
                   </div>
@@ -344,10 +344,10 @@ export function InventoryWorkspaceClient({
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {suppliers.length ? (
                 suppliers.map((supplier) => (
-                  <div className="rounded-2xl bg-slate-50 p-4" key={supplier.id}>
-                    <p className="font-black text-slate-950">{supplier.name}</p>
-                    {supplier.phone ? <p className="text-sm font-semibold text-slate-600">{supplier.phone}</p> : null}
-                    {supplier.notes ? <p className="mt-2 text-sm text-slate-500">{supplier.notes}</p> : null}
+                  <div className="rounded-2xl bg-[var(--color-surface)] p-4" key={supplier.id}>
+                    <p className="font-black text-[var(--color-heading)]">{supplier.name}</p>
+                    {supplier.phone ? <p className="text-sm font-semibold text-[var(--color-secondary-text)]">{supplier.phone}</p> : null}
+                    {supplier.notes ? <p className="mt-2 text-sm text-[var(--color-secondary-text)]">{supplier.notes}</p> : null}
                   </div>
                 ))
               ) : (
@@ -401,12 +401,12 @@ function MetricCard({ label, value, danger }: { label: string; value: string; da
   return (
     <Card className="p-4">
       <div className="flex items-center gap-3">
-        <span className={cn("grid h-10 w-10 place-items-center rounded-full", danger ? "bg-amber-50 text-amber-700" : "bg-[var(--primary-light)] text-[var(--primary)]")}>
+        <span className={cn("grid h-10 w-10 place-items-center rounded-full", danger ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--primary-light)] text-[var(--primary)]")}>
           <Scale className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-sm font-semibold text-slate-500">{label}</p>
-          <p className={cn("text-2xl font-black", danger ? "text-amber-700" : "text-slate-950")}>{value}</p>
+          <p className="text-sm font-semibold text-[var(--color-secondary-text)]">{label}</p>
+          <p className={cn("text-2xl font-black", danger ? "text-[var(--color-warning-strong)]" : "text-[var(--color-heading)]")}>{value}</p>
         </div>
       </div>
     </Card>
@@ -427,11 +427,11 @@ function ActionModal({ open, title, children, onClose }: { open: boolean; title:
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-end bg-slate-950/50 p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
-      <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[1.5rem] bg-white p-4 shadow-2xl sm:max-w-lg sm:rounded-[1.5rem]">
+    <div className="fixed inset-0 z-50 grid place-items-end bg-[var(--color-overlay)] p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
+      <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] p-4 shadow-2xl sm:max-w-lg sm:rounded-[1.5rem]">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-xl font-black text-slate-950">{title}</h2>
-          <button className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600" onClick={onClose} type="button">
+          <h2 className="text-xl font-black text-[var(--color-heading)]">{title}</h2>
+          <button className="rounded-full bg-[var(--color-neutral-100)] px-3 py-2 text-sm font-black text-[var(--color-secondary-text)]" onClick={onClose} type="button">
             Cerrar
           </button>
         </div>
@@ -601,9 +601,9 @@ function ListGrid({ items, empty }: { items: { title: string; detail: string }[]
   return (
     <div className="mt-4 grid gap-3 md:grid-cols-2">
       {items.map((item) => (
-        <div className="rounded-2xl bg-slate-50 p-4" key={`${item.title}-${item.detail}`}>
-          <p className="font-black text-slate-950">{item.title}</p>
-          <p className="mt-1 text-sm text-slate-500">{item.detail}</p>
+        <div className="rounded-2xl bg-[var(--color-surface)] p-4" key={`${item.title}-${item.detail}`}>
+          <p className="font-black text-[var(--color-heading)]">{item.title}</p>
+          <p className="mt-1 text-sm text-[var(--color-secondary-text)]">{item.detail}</p>
         </div>
       ))}
     </div>
@@ -614,14 +614,14 @@ function CountLines({ lines }: { lines: InventoryCountReport["lines"] }) {
   return (
     <div className="mt-4 space-y-3">
       {lines.map((line) => (
-        <div className="grid gap-2 rounded-2xl bg-slate-50 p-3 sm:grid-cols-[1fr_auto] sm:items-center" key={line.id}>
+        <div className="grid gap-2 rounded-2xl bg-[var(--color-surface)] p-3 sm:grid-cols-[1fr_auto] sm:items-center" key={line.id}>
           <div>
-            <p className="font-black text-slate-950">{line.inventoryItemName}</p>
-            <p className="text-sm text-slate-500">
+            <p className="font-black text-[var(--color-heading)]">{line.inventoryItemName}</p>
+            <p className="text-sm text-[var(--color-secondary-text)]">
               Sistema {line.expectedStock} · contado {line.countedStock}
             </p>
           </div>
-          <p className={cn("text-sm font-black", line.differenceStock === 0 ? "text-emerald-700" : line.differenceStock > 0 ? "text-blue-700" : "text-red-600")}>{line.differenceStock}</p>
+          <p className={cn("text-sm font-black", line.differenceStock === 0 ? "text-[var(--color-success-strong)]" : line.differenceStock > 0 ? "text-[var(--color-info-strong)]" : "text-[var(--color-danger)]")}>{line.differenceStock}</p>
         </div>
       ))}
     </div>

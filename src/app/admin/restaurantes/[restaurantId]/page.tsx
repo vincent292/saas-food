@@ -6,6 +6,7 @@ import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { SectionTitle } from "@/components/ui/SectionTitle";
+import { restaurantCategoryLabel } from "@/lib/restaurant-directory-options";
 import { modulesForAdminLayout } from "@/lib/modules";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
@@ -67,18 +68,22 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
         </div>
 
         <Card>
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-4">
             <div>
-              <p className="text-xs font-black uppercase text-slate-500">URL pública</p>
+              <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">URL pública</p>
               <p className="mt-1 text-lg font-black">/r/{restaurant.slug}</p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase text-slate-500">Ciudad</p>
+              <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">Ciudad</p>
               <p className="mt-1 text-lg font-black">{restaurant.city || "Sin ciudad"}</p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase text-slate-500">Estado</p>
-              <Badge className={restaurant.status === "active" ? "mt-1 bg-emerald-50 text-emerald-700" : "mt-1 bg-amber-50 text-amber-700"}>{restaurant.status}</Badge>
+              <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">Categoria publica</p>
+              <p className="mt-1 text-lg font-black">{restaurantCategoryLabel(restaurant.publicCategory) || "Sin categoria"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">Estado</p>
+              <Badge className={restaurant.status === "active" ? "mt-1 bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "mt-1 bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]"}>{restaurant.status}</Badge>
             </div>
           </div>
         </Card>
@@ -157,8 +162,8 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
     <Card>
-      <p className="text-sm font-bold text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-xl font-black text-slate-950">{value}</p>
+      <p className="text-sm font-bold text-[var(--color-secondary-text)]">{label}</p>
+      <p className="mt-1 truncate text-xl font-black text-[var(--color-heading)]">{value}</p>
     </Card>
   );
 }

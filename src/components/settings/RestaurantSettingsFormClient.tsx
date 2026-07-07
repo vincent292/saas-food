@@ -10,68 +10,12 @@ import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { SectionTitle } from "@/components/ui/SectionTitle";
+import { restaurantCategoryOptions, restaurantLocationOptions } from "@/lib/restaurant-directory-options";
+import { defaultRestaurantPalette, restaurantPalettePresets } from "@/lib/theme/design-tokens";
 import { cn } from "@/lib/utils/cn";
 import type { BusinessHour, ModuleKey, Restaurant, RestaurantSettings, SubscriptionPlan } from "@/types/restaurant.types";
 
 const days = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
-
-const defaultPalette = {
-  primaryColor: "#1d8844",
-  secondaryColor: "#f59e0b",
-  backgroundColor: "#f7faf7",
-  surfaceColor: "#ffffff",
-  textColor: "#142018",
-  mutedColor: "#68766c",
-  borderColor: "#dfe8e2",
-  navBackgroundColor: "#ffffff",
-  navTextColor: "#142018",
-};
-
-const colorPalettes = [
-  { name: "Verde limpio", colors: defaultPalette },
-  {
-    name: "Urbano",
-    colors: {
-      primaryColor: "#0f766e",
-      secondaryColor: "#f97316",
-      backgroundColor: "#f8fafc",
-      surfaceColor: "#ffffff",
-      textColor: "#111827",
-      mutedColor: "#64748b",
-      borderColor: "#e2e8f0",
-      navBackgroundColor: "#ffffff",
-      navTextColor: "#111827",
-    },
-  },
-  {
-    name: "Nocturno",
-    colors: {
-      primaryColor: "#22c55e",
-      secondaryColor: "#facc15",
-      backgroundColor: "#101714",
-      surfaceColor: "#18211d",
-      textColor: "#f8fafc",
-      mutedColor: "#b6c4bc",
-      borderColor: "#2b3a33",
-      navBackgroundColor: "#121a16",
-      navTextColor: "#f8fafc",
-    },
-  },
-  {
-    name: "Cálido",
-    colors: {
-      primaryColor: "#b45309",
-      secondaryColor: "#15803d",
-      backgroundColor: "#fff7ed",
-      surfaceColor: "#ffffff",
-      textColor: "#1c1917",
-      mutedColor: "#78716c",
-      borderColor: "#fed7aa",
-      navBackgroundColor: "#ffffff",
-      navTextColor: "#1c1917",
-    },
-  },
-];
 
 const tabs = [
   { key: "general", label: "General", icon: Store },
@@ -156,12 +100,12 @@ export function RestaurantSettingsFormClient({
       {saved ? <Banner tone="success">Configuración guardada en Supabase.</Banner> : null}
       {error ? <Banner tone="danger">{errorMessages[error] ?? `No se pudo guardar la configuración: ${error}.`}</Banner> : null}
 
-      <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-white p-2 shadow-sm">
+      <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
         {tabs.map((tab) => (
           <button
             className={cn(
               "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-black transition",
-              activeTab === tab.key ? "bg-[var(--primary)] text-white" : "text-[var(--muted)] hover:bg-[var(--primary-light)]",
+              activeTab === tab.key ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "text-[var(--muted)] hover:bg-[var(--primary-light)]",
             )}
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
@@ -181,7 +125,20 @@ export function RestaurantSettingsFormClient({
             <Input defaultValue={restaurant.name} name="name" placeholder="Nombre comercial" required />
             <Input defaultValue={restaurant.slug} name="slug" placeholder="Slug público" required />
             <Input defaultValue={restaurant.whatsapp} name="whatsapp" placeholder="WhatsApp" />
-            <Input defaultValue={restaurant.city} name="city" placeholder="Ciudad" />
+            <Select defaultValue={restaurant.city || "Cochabamba"} name="city">
+              {restaurantLocationOptions.map((location) => (
+                <option key={location} value={location}>
+                  {location}
+                </option>
+              ))}
+            </Select>
+            <Select defaultValue={restaurant.publicCategory || "hamburguesas"} name="publicCategory">
+              {restaurantCategoryOptions.map((category) => (
+                <option key={category.value} value={category.value}>
+                  {category.label}
+                </option>
+              ))}
+            </Select>
             <Select defaultValue={restaurant.status} disabled={!canManagePlan} name="status">
               <option value="active">Activo</option>
               <option value="inactive">Inactivo</option>
@@ -204,7 +161,7 @@ export function RestaurantSettingsFormClient({
             <Textarea className="md:col-span-2" defaultValue={restaurant.description} name="description" placeholder="Descripción del negocio" />
             <CompressedImageInput label="Logo" name="logoFile" />
             <CompressedImageInput label="Banner" name="bannerFile" />
-            <div className="rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700 md:col-span-2">
+            <div className="rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
               El menú público <strong>/r/{restaurant.slug}</strong> solo responde cuando el restaurante está activo.
             </div>
           </Card>
@@ -213,7 +170,7 @@ export function RestaurantSettingsFormClient({
             <SectionTitle title="Vista previa" description="Identidad actual guardada en Supabase Storage." />
             <PreviewMedia label="Logo" title={restaurant.name} url={logoIsImage ? restaurant.logoUrl : ""} fallback={restaurant.name.slice(0, 2).toUpperCase()} square />
             <PreviewMedia label="Banner" title={`${restaurant.name} banner`} url={bannerIsImage ? restaurant.bannerUrl : ""} fallback="Sin banner" />
-            <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+            <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
               <p>Menú: /r/{restaurant.slug}</p>
               <p className="mt-2">Cocina: /cocina/{restaurant.slug}</p>
               <p className="mt-2">Caja: /caja/{restaurant.slug}</p>
@@ -228,20 +185,20 @@ export function RestaurantSettingsFormClient({
             <SectionTitle title="Apariencia del menú" description="Colores, fondo y tamaño del banner público." />
             <div className="md:col-span-2" />
             <div className="grid gap-3 md:col-span-2 md:grid-cols-4">
-              {colorPalettes.map((palette) => (
-                <button className="rounded-2xl border border-slate-200 bg-white p-3 text-left text-sm font-black text-slate-800 shadow-sm transition hover:-translate-y-0.5" key={palette.name} onClick={() => setColors(palette.colors)} type="button">
+              {restaurantPalettePresets.map((palette) => (
+                <button className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-sm font-black text-[var(--color-body)] shadow-sm transition hover:-translate-y-0.5" key={palette.name} onClick={() => setColors(palette.colors)} type="button">
                   <span>{palette.name}</span>
                   <span className="mt-2 flex gap-1">
                     {Object.values(palette.colors)
                       .slice(0, 5)
                       .map((color) => (
-                        <span className="h-5 w-5 rounded-full border border-slate-200" key={color} style={{ background: color }} />
+                        <span className="h-5 w-5 rounded-full border border-[var(--border)]" key={color} style={{ background: color }} />
                       ))}
                   </span>
                 </button>
               ))}
             </div>
-            <button className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black text-slate-700 md:col-span-2" onClick={() => setColors(defaultPalette)} type="button">
+            <button className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] px-4 py-3 text-sm font-black text-[var(--color-body)] md:col-span-2" onClick={() => setColors(defaultRestaurantPalette)} type="button">
               Restablecer paleta
             </button>
             <Input name="backgroundColor" onChange={(event) => updateColor("backgroundColor", event.target.value)} type="color" value={colors.backgroundColor} />
@@ -259,7 +216,7 @@ export function RestaurantSettingsFormClient({
             <div className="md:col-span-2">
               <CompressedImageInput label="Imagen de fondo del menú" name="menuBackgroundImageFile" />
             </div>
-            <div className="md:col-span-2 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+            <div className="md:col-span-2 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
               El banner compacto deja ver antes las categorías y productos, especialmente en celular.
             </div>
           </Card>
@@ -271,14 +228,14 @@ export function RestaurantSettingsFormClient({
                 <span>{restaurant.name}</span>
                 <span>Carrito</span>
               </div>
-              <div className="mt-3 h-24 overflow-hidden rounded-2xl bg-slate-100">
+              <div className="mt-3 h-24 overflow-hidden rounded-2xl bg-[var(--color-neutral-100)]">
                 {bannerIsImage ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img alt={restaurant.name} className="h-full w-full object-cover" src={restaurant.bannerUrl} />
                 ) : null}
               </div>
               <div className="mt-3 flex items-center gap-3">
-                <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl text-sm font-black text-white" style={{ background: colors.primaryColor }}>
+                <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl text-sm font-black text-[var(--color-on-primary)]" style={{ background: colors.primaryColor }}>
                   {logoIsImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img alt={restaurant.name} className="h-full w-full object-cover" src={restaurant.logoUrl} />
@@ -325,7 +282,7 @@ export function RestaurantSettingsFormClient({
             <div className="md:col-span-2">
               <CompressedImageInput label="QR de pago" name="qrPaymentFile" />
             </div>
-            <div className="md:col-span-2 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+            <div className="md:col-span-2 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
               Este QR se muestra en el pedido público y en mesa para que el cliente pague y luego suba su comprobante.
             </div>
           </Card>
@@ -341,10 +298,10 @@ export function RestaurantSettingsFormClient({
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
           <Card>
             <SectionTitle title="Módulos" description="El plan elegido define qué herramientas puede usar el restaurante." />
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-black text-slate-950">{selectedPlan?.name ?? "Sin plan"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-600">{selectedPlan?.description ?? "Selecciona un plan activo."}</p>
-              <p className="mt-2 text-xs font-black uppercase text-emerald-700">{selectedPlan?.modules.length ?? 0} módulos incluidos</p>
+            <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4">
+              <p className="text-sm font-black text-[var(--color-heading)]">{selectedPlan?.name ?? "Sin plan"}</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">{selectedPlan?.description ?? "Selecciona un plan activo."}</p>
+              <p className="mt-2 text-xs font-black uppercase text-[var(--color-success-strong)]">{selectedPlan?.modules.length ?? 0} módulos incluidos</p>
             </div>
             <div className="mt-4 space-y-3">
               <ModuleToggle enabled={settings?.deliveryEnabled ?? true} label="Envío a domicilio" name="deliveryEnabled" />
@@ -377,13 +334,13 @@ export function RestaurantSettingsFormClient({
           <div className="space-y-6">
             <Card className="space-y-4">
               <SectionTitle title="Estado operativo" description="Visibilidad y publicación del restaurante." />
-              <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+              <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
                 {restaurant.status === "active"
                   ? "El menú público está habilitado y puede recibir pedidos."
                   : "El menú público está cerrado porque el restaurante no está activo."}
               </div>
               {!canManagePlan ? (
-                <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+                <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-success-soft)] px-3 py-1 text-xs font-black text-[var(--color-success-strong)]">
                   <ShieldCheck className="h-4 w-4" />
                   El plan y el estado general solo los cambia superadmin.
                 </div>
@@ -392,7 +349,7 @@ export function RestaurantSettingsFormClient({
 
             <Card className="space-y-3">
               <SectionTitle title="Resumen rápido" description="Atajos mentales para el equipo operativo." />
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
                 <p>Plan actual: {selectedPlan?.name ?? "Sin plan"}</p>
                 <p className="mt-2">Responsable: {restaurant.ownerEmail || "Sin responsable"}</p>
                 <p className="mt-2">Ciudad: {restaurant.city || "Sin ciudad"}</p>
@@ -411,14 +368,14 @@ export function RestaurantSettingsFormClient({
             <option value="thermal_80">Ticket térmico 80 mm</option>
             <option value="large">Hoja normal / formato grande</option>
           </Select>
-          <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+          <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
             Usa 58/80 mm para impresora térmica y hoja normal para impresión A4 o carta.
           </div>
-          <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
+          <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)]">
             Imprimir automáticamente en cocina
             <input defaultChecked={settings?.autoPrintKitchen ?? false} name="autoPrintKitchen" type="checkbox" />
           </label>
-          <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
+          <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)]">
             Mostrar logo en ticket
             <input defaultChecked={settings?.printLogo ?? true} name="printLogo" type="checkbox" />
           </label>
@@ -450,11 +407,11 @@ export function RestaurantSettingsFormClient({
               const hour = hoursByDay.get(dayOfWeek);
 
               return (
-                <div className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-[140px_1fr_1fr_120px]" key={day}>
-                  <p className="font-bold text-slate-900">{day}</p>
+                <div className="grid gap-3 rounded-2xl border border-[var(--border)] p-3 md:grid-cols-[140px_1fr_1fr_120px]" key={day}>
+                  <p className="font-bold text-[var(--color-heading)]">{day}</p>
                   <Input defaultValue={hour?.opensAt || "09:00"} name={`day_${dayOfWeek}_opensAt`} type="time" />
                   <Input defaultValue={hour?.closesAt || "22:00"} name={`day_${dayOfWeek}_closesAt`} type="time" />
-                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-[var(--color-body)]">
                     <input defaultChecked={hour?.isClosed ?? false} name={`day_${dayOfWeek}_isClosed`} type="checkbox" />
                     Cerrado
                   </label>
@@ -475,18 +432,18 @@ export function RestaurantSettingsFormClient({
             <div className="md:col-span-2">
               <PasswordInput minLength={8} name="ownerPassword" placeholder="Nueva contraseña del responsable" />
             </div>
-            <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700 md:col-span-2">
+            <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
               Si cambias el correo o la contraseña aquí, el acceso principal del restaurante se actualiza en Auth y en el panel.
             </div>
           </Card>
 
           <Card className="space-y-4">
             <SectionTitle title="Contacto actual" description="Referencia rápida del responsable asignado." />
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-black uppercase text-slate-500">Nombre</p>
-              <p className="mt-1 text-lg font-black text-slate-950">{restaurant.ownerName || "Sin responsable"}</p>
-              <p className="mt-4 text-xs font-black uppercase text-slate-500">Correo</p>
-              <p className="mt-1 break-all text-lg font-black text-slate-950">{restaurant.ownerEmail || "Sin correo"}</p>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+              <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">Nombre</p>
+              <p className="mt-1 text-lg font-black text-[var(--color-heading)]">{restaurant.ownerName || "Sin responsable"}</p>
+              <p className="mt-4 text-xs font-black uppercase text-[var(--color-secondary-text)]">Correo</p>
+              <p className="mt-1 break-all text-lg font-black text-[var(--color-heading)]">{restaurant.ownerEmail || "Sin correo"}</p>
             </div>
           </Card>
         </div>
@@ -502,8 +459,8 @@ export function RestaurantSettingsFormClient({
 function Banner({ children, tone }: { children: string; tone: "success" | "danger" }) {
   const className =
     tone === "success"
-      ? "rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"
-      : "rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700";
+      ? "rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]"
+      : "rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]";
 
   return <div className={className}>{children}</div>;
 }
@@ -523,13 +480,13 @@ function PreviewMedia({
 }) {
   return (
     <div className="space-y-2">
-      <p className="text-sm font-black text-slate-700">{label}</p>
-      <div className={cn("overflow-hidden rounded-2xl border border-slate-200 bg-slate-50", square ? "aspect-square max-w-[180px]" : "aspect-[16/9]")}>
+      <p className="text-sm font-black text-[var(--color-body)]">{label}</p>
+      <div className={cn("overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--color-surface)]", square ? "aspect-square max-w-[180px]" : "aspect-[16/9]")}>
         {url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img alt={title} className="h-full w-full object-cover" src={url} />
         ) : (
-          <div className="grid h-full w-full place-items-center p-4 text-center text-sm font-semibold text-slate-500">
+          <div className="grid h-full w-full place-items-center p-4 text-center text-sm font-semibold text-[var(--color-secondary-text)]">
             <div className="space-y-2">
               <ImageIcon className="mx-auto h-6 w-6" />
               <p>{fallback}</p>

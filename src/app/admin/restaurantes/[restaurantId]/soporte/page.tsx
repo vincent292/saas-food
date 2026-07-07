@@ -92,14 +92,14 @@ export default async function RestaurantSupportPage({
               <option value="incident">Incidencia</option>
               <option value="other">Otro</option>
             </Select>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] px-4 py-3 text-sm font-semibold text-[var(--color-secondary-text)]">
               Restaurante: {restaurant.name}
             </div>
             <Textarea className="lg:col-span-2" name="description" placeholder="Qué pasó, desde cuándo pasa, y qué intentó el equipo." />
-            <label className="space-y-2 text-sm font-semibold text-slate-700 lg:col-span-2">
+            <label className="space-y-2 text-sm font-semibold text-[var(--color-body)] lg:col-span-2">
               Screenshots
               <Input accept="image/*" multiple name="attachments" type="file" />
-              <span className="block text-xs text-slate-500">Hasta 5 imágenes de 5 MB cada una.</span>
+              <span className="block text-xs text-[var(--color-secondary-text)]">Hasta 5 imágenes de 5 MB cada una.</span>
             </label>
             <div className="lg:col-span-2">
               <Button>Enviar ticket</Button>
@@ -119,8 +119,8 @@ export default async function RestaurantSupportPage({
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
     <Card>
-      <p className="text-sm font-bold text-slate-500">{label}</p>
-      <p className="mt-1 text-2xl font-black text-slate-950">{value}</p>
+      <p className="text-sm font-bold text-[var(--color-secondary-text)]">{label}</p>
+      <p className="mt-1 text-2xl font-black text-[var(--color-heading)]">{value}</p>
     </Card>
   );
 }
@@ -128,8 +128,8 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 function Banner({ children, tone }: { children: string; tone: "success" | "danger" }) {
   const className =
     tone === "success"
-      ? "rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-700"
-      : "rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700";
+      ? "rounded-2xl border border-[var(--color-success-soft)] bg-[var(--color-success-soft)] p-4 text-sm font-semibold text-[var(--color-success-strong)]"
+      : "rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] p-4 text-sm font-semibold text-[var(--color-danger-strong)]";
 
   return <div className={className}>{children}</div>;
 }

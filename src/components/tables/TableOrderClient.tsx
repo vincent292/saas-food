@@ -113,16 +113,16 @@ export function TableOrderClient({
   }
 
   return (
-    <main className="min-h-screen bg-[var(--primary-dark)] text-white">
+    <main className="min-h-screen bg-[var(--primary-dark)] text-[var(--color-on-primary)]">
       <div className="mx-auto grid max-w-7xl gap-6 px-3 pb-28 pt-5 sm:px-6 lg:grid-cols-[1fr_360px] lg:px-8 lg:pb-8 lg:pt-8">
         <section className="min-w-0">
           <div className="mb-5">
             <h1 className="text-5xl font-black leading-none tracking-normal sm:text-6xl">Mesa {table.name.replace(/^mesa\s*/i, "")}</h1>
-            <p className="mt-3 max-w-2xl text-sm font-bold text-white/90 sm:text-base">Elige tus productos, personaliza variantes y confirma tu pedido directo al equipo.</p>
+            <p className="mt-3 max-w-2xl text-sm font-bold text-[var(--color-on-primary-muted)] sm:text-base">Elige tus productos, personaliza variantes y confirma tu pedido directo al equipo.</p>
             {orderError ? <OrderErrorMessage error={orderError} /> : null}
           </div>
 
-          <div className="sticky top-0 z-20 -mx-3 mb-3 border-y border-white/10 bg-[var(--primary-dark)]/95 px-3 py-3 backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border sm:bg-white sm:text-[var(--text)]">
+          <div className="sticky top-0 z-20 -mx-3 mb-3 border-y border-[var(--surface)]/10 bg-[var(--primary-dark)]/95 px-3 py-3 backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border sm:bg-[var(--surface)] sm:text-[var(--text)]">
             <div className="flex gap-2 overflow-x-auto pb-1">
               <CategoryButton active={selectedCategory === "all"} label="Todo" onClick={() => setSelectedCategory("all")} />
               {categories.map((category) => (
@@ -137,7 +137,7 @@ export function TableOrderClient({
             ))}
           </div>
 
-          {!filteredProducts.length ? <div className="rounded-[1.25rem] bg-white p-6 text-center text-sm font-semibold text-[var(--muted)]">No hay productos disponibles en esta categoría.</div> : null}
+          {!filteredProducts.length ? <div className="rounded-[1.25rem] bg-[var(--surface)] p-6 text-center text-sm font-semibold text-[var(--muted)]">No hay productos disponibles en esta categoría.</div> : null}
         </section>
 
         <aside className="hidden lg:block">
@@ -159,7 +159,7 @@ export function TableOrderClient({
       </div>
 
       <button
-        className="fixed inset-x-3 bottom-3 z-40 flex h-14 items-center justify-between rounded-full bg-[var(--primary)] px-5 text-sm font-black text-white shadow-2xl lg:hidden"
+        className="fixed inset-x-3 bottom-3 z-40 flex h-14 items-center justify-between rounded-full bg-[var(--primary)] px-5 text-sm font-black text-[var(--color-on-primary)] shadow-2xl lg:hidden"
         onClick={() => setDrawerOpen(true)}
         type="button"
       >
@@ -171,11 +171,11 @@ export function TableOrderClient({
       </button>
 
       {drawerOpen ? (
-        <div className="fixed inset-0 z-50 bg-slate-950/45 lg:hidden">
+        <div className="fixed inset-0 z-50 bg-[var(--color-overlay)] lg:hidden">
           <div className="absolute inset-x-0 bottom-0 max-h-[92vh] overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] p-4 text-[var(--text)] shadow-2xl">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-2xl font-black">Tu pedido</h2>
-              <button className="grid h-11 w-11 place-items-center rounded-full bg-slate-100" onClick={() => setDrawerOpen(false)} type="button">
+              <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={() => setDrawerOpen(false)} type="button">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -215,7 +215,7 @@ function CategoryButton({ active, label, onClick }: { active: boolean; label: st
     <button
       className={cn(
         "h-11 shrink-0 rounded-full px-4 text-sm font-black transition",
-        active ? "bg-[var(--primary)] text-white" : "bg-[var(--primary-light)] text-[var(--muted)] hover:text-[var(--primary-dark)]",
+        active ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "bg-[var(--primary-light)] text-[var(--muted)] hover:text-[var(--primary-dark)]",
       )}
       onClick={onClick}
       type="button"
@@ -233,14 +233,14 @@ function OrderErrorMessage({ error }: { error: string }) {
         ? "Para pago QR debes subir el comprobante antes de confirmar."
         : "No se pudo confirmar el pedido. Revisa los datos e intenta nuevamente.";
 
-  return <div className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{message}</div>;
+  return <div className="mt-4 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">{message}</div>;
 }
 
 function ProductTile({ product, config, onSelect }: { product: Product; config?: ProductConfigMap[string]; onSelect: () => void }) {
   const hasConfiguration = Boolean(config?.variants.length || config?.optionGroups.length);
 
   return (
-    <article className="grid grid-cols-[88px_1fr] gap-3 rounded-[1.25rem] border border-[var(--border)] bg-white p-3 text-[var(--text)] shadow-sm sm:block sm:p-4">
+    <article className="grid grid-cols-[88px_1fr] gap-3 rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 text-[var(--text)] shadow-sm sm:block sm:p-4">
       <div className="aspect-square overflow-hidden rounded-2xl bg-[var(--primary-light)] sm:aspect-[4/3]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img alt={product.name} className="h-full w-full object-cover" src={product.imageUrl || defaultImage} />
@@ -252,7 +252,7 @@ function ProductTile({ product, config, onSelect }: { product: Product; config?:
         </div>
         <h3 className="truncate text-lg font-black leading-5">{product.name}</h3>
         <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--muted)]">{product.description || "Listo para pedir en mesa."}</p>
-        <button className={buttonClasses("secondary", "mt-3 min-h-10 w-full bg-slate-100 font-black")} onClick={onSelect} type="button">
+        <button className={buttonClasses("secondary", "mt-3 min-h-10 w-full bg-[var(--color-neutral-100)] font-black")} onClick={onSelect} type="button">
           {hasConfiguration ? "Personalizar" : "Agregar"} {formatMoney(product.price)}
         </button>
       </div>
@@ -316,7 +316,7 @@ function ProductOptionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-end bg-slate-950/55 p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">
+    <div className="fixed inset-0 z-[60] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">
       <div className="max-h-[94vh] w-full overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[1.5rem]">
         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] p-4">
           <div>
@@ -324,7 +324,7 @@ function ProductOptionModal({
             <h2 className="text-2xl font-black">{product.name}</h2>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Precio base {formatMoney(product.price)}</p>
           </div>
-          <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-100 hover:bg-slate-200" onClick={onClose} type="button">
+          <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)] hover:bg-[var(--color-neutral-200)]" onClick={onClose} type="button">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -346,7 +346,7 @@ function ProductOptionModal({
                   <button
                     className={cn(
                       "flex min-h-14 items-center justify-between rounded-2xl border px-4 text-left transition",
-                      variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-white",
+                      variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]",
                     )}
                     key={variant.id}
                     onClick={() => setVariantId(variant.id)}
@@ -374,7 +374,7 @@ function ProductOptionModal({
                       {group.isRequired ? "Obligatorio" : "Opcional"} · elige {group.minChoices}-{group.maxChoices}
                     </p>
                   </div>
-                  <span className={cn("rounded-full px-3 py-1 text-xs font-black", selectedCount >= group.minChoices ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+                  <span className={cn("rounded-full px-3 py-1 text-xs font-black", selectedCount >= group.minChoices ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]")}>
                     {selectedCount}/{group.maxChoices}
                   </span>
                 </div>
@@ -386,14 +386,14 @@ function ProductOptionModal({
                       <button
                         className={cn(
                           "flex min-h-12 items-center justify-between rounded-2xl border px-3 text-left transition",
-                          selected ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-white",
+                          selected ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]",
                         )}
                         key={option.id}
                         onClick={() => toggleOption(group, option)}
                         type="button"
                       >
                         <span className="flex min-w-0 items-center gap-2">
-                          <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded-full border", selected ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-[var(--border)]")}>
+                          <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded-full border", selected ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]" : "border-[var(--border)]")}>
                             {selected ? <Check className="h-3.5 w-3.5" /> : null}
                           </span>
                           <span className="min-w-0">
@@ -477,11 +477,11 @@ function OrderPanel({
                 <p className="text-xs font-semibold text-[var(--muted)]">{formatMoney(item.price)} c/u</p>
               </div>
               <div className="flex items-center gap-2">
-                <button className="grid h-8 w-8 place-items-center rounded-full bg-white" onClick={() => changeQuantity(item.cartId, -1)} type="button">
+                <button className="grid h-8 w-8 place-items-center rounded-full bg-[var(--surface)]" onClick={() => changeQuantity(item.cartId, -1)} type="button">
                   <Minus className="h-4 w-4" />
                 </button>
                 <span className="w-5 text-center text-sm font-black">{item.quantity}</span>
-                <button className="grid h-8 w-8 place-items-center rounded-full bg-[var(--primary)] text-white" onClick={() => changeQuantity(item.cartId, 1)} type="button">
+                <button className="grid h-8 w-8 place-items-center rounded-full bg-[var(--primary)] text-[var(--color-on-primary)]" onClick={() => changeQuantity(item.cartId, 1)} type="button">
                   <Plus className="h-4 w-4" />
                 </button>
               </div>
@@ -512,10 +512,10 @@ function OrderPanel({
       </label>
 
       <div className="mt-3 grid rounded-2xl bg-[var(--primary-light)] p-1 sm:grid-cols-2">
-        <button className={cn("h-12 rounded-full text-sm font-black", paymentMethod === "cash" && "bg-[var(--primary)] text-white")} onClick={() => setPaymentMethod("cash")} type="button">
+        <button className={cn("h-12 rounded-full text-sm font-black", paymentMethod === "cash" && "bg-[var(--primary)] text-[var(--color-on-primary)]")} onClick={() => setPaymentMethod("cash")} type="button">
           Caja / efectivo
         </button>
-        <button className={cn("h-12 rounded-full text-sm font-black text-[var(--muted)]", paymentMethod === "qr" && "bg-[var(--primary)] text-white")} onClick={() => setPaymentMethod("qr")} type="button">
+        <button className={cn("h-12 rounded-full text-sm font-black text-[var(--muted)]", paymentMethod === "qr" && "bg-[var(--primary)] text-[var(--color-on-primary)]")} onClick={() => setPaymentMethod("qr")} type="button">
           Pago QR
         </button>
       </div>
@@ -538,7 +538,7 @@ function OrderPanel({
         </label>
       ) : null}
 
-      <p className="mt-4 rounded-2xl bg-white/60 p-3 text-sm leading-6 text-[var(--muted)]">
+      <p className="mt-4 rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">
         {paymentMethod === "cash"
           ? "Para procesar tu pedido, por favor acércate a caja y realiza el pago."
           : settings?.qrPaymentUrl

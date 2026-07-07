@@ -138,20 +138,20 @@ export function OrdersReceptionClient({
             Aquí llegan los pedidos de mesa y de afuera. Caja o recepción los aprueba, valida el comprobante y los manda a cocina.
           </p>
         </div>
-        <div className="flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-[var(--muted)] shadow-sm">
+        <div className="flex items-center gap-2 rounded-full bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--muted)] shadow-sm">
           <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin text-[var(--primary)]")} />
           {isRefreshing ? "Actualizando" : "En vivo"}
         </div>
       </section>
 
       {!hasOpenSession ? (
-        <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-800">
+        <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">
           La caja está cerrada. Puedes revisar pedidos, pero para aprobarlos y sumarlos al día primero debes abrir caja.
         </div>
       ) : null}
 
       {banner ? (
-        <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700")}>{banner.text}</div>
+        <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>{banner.text}</div>
       ) : null}
 
       <section className="grid gap-3 md:grid-cols-3">
@@ -160,7 +160,7 @@ export function OrdersReceptionClient({
         <SummaryCard count={groups.historial.length} icon={<Truck className="h-5 w-5" />} label="Cerrados recientes" />
       </section>
 
-      <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-white p-2 shadow-sm">
+      <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
         <TabButton active={activeTab === "nuevos"} count={groups.nuevos.length} label="Nuevos" onClick={() => setActiveTab("nuevos")} />
         <TabButton active={activeTab === "cocina"} count={groups.cocina.length} label="En cocina" onClick={() => setActiveTab("cocina")} />
         <TabButton active={activeTab === "historial"} count={groups.historial.length} label="Historial" onClick={() => setActiveTab("historial")} />
@@ -196,7 +196,7 @@ function SummaryCard({ label, count, icon }: { label: string; count: number; ico
 
 function TabButton({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
   return (
-    <button className={cn("h-11 shrink-0 rounded-full px-4 text-sm font-black", active ? "bg-[var(--primary)] text-white" : "text-[var(--muted)] hover:bg-[var(--primary-light)]")} onClick={onClick} type="button">
+    <button className={cn("h-11 shrink-0 rounded-full px-4 text-sm font-black", active ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "text-[var(--muted)] hover:bg-[var(--primary-light)]")} onClick={onClick} type="button">
       {label} ({count})
     </button>
   );
@@ -220,7 +220,7 @@ function ReceptionOrderCard({
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xl font-black text-[var(--text)]">Pedido {order.orderNumber}</h2>
             <OrderStatusBadge status={order.status} />
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">{orderSourceLabel(order)}</span>
+            <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">{orderSourceLabel(order)}</span>
           </div>
 
           <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
@@ -229,7 +229,7 @@ function ReceptionOrderCard({
 
           <div className="mt-4 grid gap-2">
             {order.items.map((item) => (
-              <div className="rounded-2xl bg-slate-50 p-3" key={item.id}>
+              <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={item.id}>
                 <p className="font-black text-[var(--text)]">
                   {item.quantity}x {item.productName}
                 </p>
@@ -238,8 +238,8 @@ function ReceptionOrderCard({
             ))}
           </div>
 
-          {order.notes ? <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">{order.notes}</p> : null}
-          {order.cancellationReason ? <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-semibold text-red-700">Motivo de rechazo: {order.cancellationReason}</p> : null}
+          {order.notes ? <p className="mt-3 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-semibold text-[var(--color-warning-strong)]">{order.notes}</p> : null}
+          {order.cancellationReason ? <p className="mt-3 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">Motivo de rechazo: {order.cancellationReason}</p> : null}
         </div>
 
         <div className="space-y-3">
@@ -249,7 +249,7 @@ function ReceptionOrderCard({
             <p className="mt-1 text-xs font-semibold text-[var(--muted)]">{orderStatusLabels[order.status]}</p>
             {order.paymentReceiptReference ? <p className="mt-2 text-xs font-black text-[var(--primary-dark)]">Referencia: {order.paymentReceiptReference}</p> : null}
             {order.paymentReceiptUrl ? (
-              <a className="mt-3 inline-flex rounded-full bg-white px-3 py-1 text-xs font-black text-[var(--primary)]" href={order.paymentReceiptUrl} rel="noreferrer" target="_blank">
+              <a className="mt-3 inline-flex rounded-full bg-[var(--surface)] px-3 py-1 text-xs font-black text-[var(--primary)]" href={order.paymentReceiptUrl} rel="noreferrer" target="_blank">
                 Ver comprobante
               </a>
             ) : null}

@@ -5,16 +5,16 @@ import { orderStatusLabels } from "./orderPresentation";
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
   const tone =
     status === "pending"
-      ? "bg-amber-50 text-amber-800"
+      ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]"
       : status === "accepted"
-        ? "bg-emerald-50 text-emerald-800"
+        ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]"
         : status === "preparing"
-          ? "bg-orange-50 text-orange-700"
+          ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]"
           : status === "ready"
-            ? "bg-sky-50 text-sky-700"
+            ? "bg-[var(--color-info-soft)] text-[var(--color-info-strong)]"
             : status === "delivered"
-              ? "bg-slate-100 text-slate-700"
-              : "bg-red-50 text-red-700";
+              ? "bg-[var(--color-neutral-100)] text-[var(--color-body)]"
+              : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]";
 
   return <Badge className={tone}>{orderStatusLabels[status]}</Badge>;
 }

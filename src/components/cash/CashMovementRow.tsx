@@ -24,14 +24,14 @@ export function CashMovementRow({ movement }: { movement: CashMovement }) {
   const isNeutral = movement.type === "opening" || movement.type === "closing";
 
   return (
-    <div className="grid gap-3 border-b border-slate-200 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
+    <div className="grid gap-3 border-b border-[var(--border)] py-3 sm:grid-cols-[1fr_auto] sm:items-center">
       <div className="min-w-0">
-        <p className="font-semibold text-slate-950">{movement.description}</p>
-        <p className="text-sm text-slate-500">
+        <p className="font-semibold text-[var(--color-heading)]">{movement.description}</p>
+        <p className="text-sm text-[var(--color-secondary-text)]">
           {movementLabels[movement.type]} · {paymentLabels[movement.paymentMethod]} · {formatShortTime(movement.createdAt)}
         </p>
       </div>
-      <p className={isExpense ? "text-right font-black text-red-600" : isNeutral ? "text-right font-black text-slate-500" : "text-right font-black text-slate-950"}>
+      <p className={isExpense ? "text-right font-black text-[var(--color-danger)]" : isNeutral ? "text-right font-black text-[var(--color-secondary-text)]" : "text-right font-black text-[var(--color-heading)]"}>
         {isExpense ? "-" : isNeutral ? "" : "+"}
         {formatMoney(movement.amount)}
       </p>

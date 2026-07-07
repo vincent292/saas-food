@@ -32,7 +32,7 @@ export default async function AuditPage() {
 }
 
 function SeverityBadge({ severity }: { severity: AdminAuditLog["severity"] }) {
-  const className = severity === "critical" ? "bg-red-50 text-red-700" : severity === "warning" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700";
+  const className = severity === "critical" ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]" : severity === "warning" ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]";
 
   return <Badge className={className}>{severity}</Badge>;
 }

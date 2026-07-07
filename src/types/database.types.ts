@@ -32,6 +32,7 @@ export type Database = {
         whatsapp: string | null;
         address: string | null;
         city: string | null;
+        public_category: string | null;
         owner_user_id: string | null;
         owner_name: string | null;
         owner_email: string | null;

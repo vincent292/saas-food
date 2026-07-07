@@ -93,7 +93,7 @@ export function DeliveryDispatchPanel({
   }
 
   return (
-    <div className={cn("rounded-2xl border border-[var(--border)] bg-white p-3", !compact && "mt-3")}>
+    <div className={cn("rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3", !compact && "mt-3")}>
       <div className="flex items-start gap-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[var(--primary-light)] text-[var(--primary)]">
           <Bike className="h-5 w-5" />
@@ -125,29 +125,29 @@ export function DeliveryDispatchPanel({
       </div>
 
       {result?.ok ? (
-        <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-800">
+        <div className="mt-3 rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm text-[var(--color-success-strong)]">
           <div className="flex items-center gap-2 font-black">
             <CheckCircle2 className="h-4 w-4" />
             QR listo para pedido {result.orderNumber}
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-[128px_minmax(0,1fr)]">
-            <div className="grid min-h-32 place-items-center rounded-2xl bg-white p-2">
+            <div className="grid min-h-32 place-items-center rounded-2xl bg-[var(--surface)] p-2">
               {qrDataUrl ? (
                 <Image alt={`QR de entrega ${result.orderNumber}`} className="h-28 w-28" height={112} src={qrDataUrl} unoptimized width={112} />
               ) : (
-                <QrCode className="h-8 w-8 animate-pulse text-emerald-600" />
+                <QrCode className="h-8 w-8 animate-pulse text-[var(--color-success)]" />
               )}
             </div>
-            <div className="min-w-0 rounded-2xl bg-white/70 p-3">
-              <p className="text-xs font-black uppercase tracking-[0.12em] text-emerald-700">Escaneo rapido</p>
-              <p className="mt-1 text-sm font-bold text-emerald-900">La moto escanea este QR y abre direccion, telefono, WhatsApp, Maps y estados.</p>
-              {result.deliveryPhone ? <p className="mt-2 text-xs font-black text-emerald-700">WhatsApp: {result.deliveryPhone}</p> : null}
+            <div className="min-w-0 rounded-2xl bg-[var(--color-card-soft)] p-3">
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-success-strong)]">Escaneo rapido</p>
+              <p className="mt-1 text-sm font-bold text-[var(--color-success-strong)]">La moto escanea este QR y abre direccion, telefono, WhatsApp, Maps y estados.</p>
+              {result.deliveryPhone ? <p className="mt-2 text-xs font-black text-[var(--color-success-strong)]">WhatsApp: {result.deliveryPhone}</p> : null}
             </div>
           </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {result.whatsappUrl ? (
               <a
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-3 text-xs font-black text-white"
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl bg-[var(--color-success)] px-3 text-xs font-black text-[var(--color-on-primary)]"
                 href={result.whatsappUrl}
                 rel="noreferrer"
                 target="_blank"
@@ -157,7 +157,7 @@ export function DeliveryDispatchPanel({
               </a>
             ) : null}
             <button
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl bg-white px-3 text-xs font-black text-emerald-800"
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl bg-[var(--surface)] px-3 text-xs font-black text-[var(--color-success-strong)]"
               onClick={copyLink}
               type="button"
             >
@@ -166,7 +166,7 @@ export function DeliveryDispatchPanel({
             </button>
             {qrDataUrl ? (
               <a
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl bg-white px-3 text-xs font-black text-emerald-800"
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl bg-[var(--surface)] px-3 text-xs font-black text-[var(--color-success-strong)]"
                 download={`qr-entrega-${result.orderNumber}.png`}
                 href={qrDataUrl}
               >
@@ -175,14 +175,14 @@ export function DeliveryDispatchPanel({
               </a>
             ) : null}
           </div>
-          <a className="mt-2 inline-flex items-center gap-1 text-xs font-black text-emerald-800" href={result.deliveryUrl} rel="noreferrer" target="_blank">
+          <a className="mt-2 inline-flex items-center gap-1 text-xs font-black text-[var(--color-success-strong)]" href={result.deliveryUrl} rel="noreferrer" target="_blank">
             Vista repartidor
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         </div>
       ) : null}
 
-      {result && !result.ok ? <div className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{result.error}</div> : null}
+      {result && !result.ok ? <div className="mt-3 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">{result.error}</div> : null}
     </div>
   );
 }

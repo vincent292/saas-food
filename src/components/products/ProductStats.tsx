@@ -19,7 +19,7 @@ export function ProductStats({ products, categories }: { products: Product[]; ca
       {metrics.map((metric, index) => (
         <div
           className={cn(
-            "flex min-h-16 items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-white px-4 py-3 shadow-sm",
+            "flex min-h-16 items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 shadow-sm",
             index === 0 && "border-[var(--primary)]/25 bg-[var(--primary-light)]/45",
           )}
           key={metric.label}

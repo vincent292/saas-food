@@ -40,7 +40,7 @@ export function CompressedImageInput({
   }
 
   return (
-    <label className="space-y-2 text-sm font-semibold text-slate-700">
+    <label className="space-y-2 text-sm font-semibold text-[var(--color-body)]">
       {label}
       <Input accept="image/*" name={name} onChange={(event) => handleChange(event.currentTarget.files?.[0])} ref={inputRef} type="file" />
       {message ? <span className="block text-xs font-semibold text-[var(--muted)]">{message}</span> : null}

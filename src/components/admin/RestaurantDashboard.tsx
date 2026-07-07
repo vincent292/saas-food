@@ -34,14 +34,14 @@ export async function RestaurantDashboard({ restaurantId }: { restaurantId: stri
           <SectionTitle title="Productos disponibles" description="Productos activos del restaurante." />
           <div className="mt-4 space-y-3">
             {products.slice(0, 4).map((product, index) => (
-              <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-3" key={product.id}>
+              <div className="flex items-center justify-between rounded-2xl bg-[var(--color-surface)] p-3" key={product.id}>
                 <span className="font-semibold">
                   {index + 1}. {product.name}
                 </span>
-                <span className="text-sm text-slate-500">{formatMoney(product.price)}</span>
+                <span className="text-sm text-[var(--color-secondary-text)]">{formatMoney(product.price)}</span>
               </div>
             ))}
-            {!products.length ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Aún no hay productos cargados.</p> : null}
+            {!products.length ? <p className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm text-[var(--color-secondary-text)]">Aún no hay productos cargados.</p> : null}
           </div>
         </Card>
 
@@ -49,14 +49,14 @@ export async function RestaurantDashboard({ restaurantId }: { restaurantId: stri
           <SectionTitle title="Alertas de inventario" description="Insumos bajo mínimo." />
           <div className="mt-4 space-y-3">
             {lowStock.map((item) => (
-              <div className="flex items-center gap-3 rounded-2xl bg-amber-50 p-3 text-amber-900" key={item.id}>
+              <div className="flex items-center gap-3 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-[var(--color-warning-strong)]" key={item.id}>
                 <AlertTriangle className="h-5 w-5" />
                 <span className="font-semibold">
                   {item.name}: {item.currentStock} {item.unit}
                 </span>
               </div>
             ))}
-            {!lowStock.length ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Sin alertas de inventario.</p> : null}
+            {!lowStock.length ? <p className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm text-[var(--color-secondary-text)]">Sin alertas de inventario.</p> : null}
           </div>
         </Card>
       </div>

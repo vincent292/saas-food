@@ -138,7 +138,7 @@ export function ProductManagementClient({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.5rem] border border-[var(--border)] bg-white p-5 shadow-sm">
+      <section className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Catalogo operativo</p>
@@ -167,12 +167,12 @@ export function ProductManagementClient({
         </div>
       </section>
 
-      {created ? <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">Producto creado correctamente.</div> : null}
-      {updated ? <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">Producto actualizado correctamente.</div> : null}
-      {categoryCreated ? <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">Categoria creada correctamente.</div> : null}
-      {error ? <div className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">No se pudo guardar: {error}.</div> : null}
+      {created ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">Producto creado correctamente.</div> : null}
+      {updated ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">Producto actualizado correctamente.</div> : null}
+      {categoryCreated ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">Categoria creada correctamente.</div> : null}
+      {error ? <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">No se pudo guardar: {error}.</div> : null}
 
-      <Card className="sticky top-[88px] z-10 grid gap-3 bg-white/95 p-3 backdrop-blur lg:grid-cols-[1fr_260px_220px_auto] lg:items-center">
+      <Card className="sticky top-[88px] z-10 grid gap-3 bg-[var(--color-card-elevated)] p-3 backdrop-blur lg:grid-cols-[1fr_260px_220px_auto] lg:items-center">
         <label className="relative block">
           <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
           <Input className="rounded-2xl pl-11" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto, categoria o descripcion" value={query} />
@@ -192,11 +192,11 @@ export function ProductManagementClient({
           <option value="inactive">Inactivos</option>
         </Select>
         <div className="flex justify-self-start rounded-full bg-[var(--primary-light)] p-1 lg:justify-self-end">
-          <button className={cn("inline-flex h-11 items-center gap-2 rounded-full px-4 text-sm font-black text-[var(--primary-dark)]", viewMode === "grid" && "bg-white shadow-sm")} onClick={() => setViewMode("grid")} type="button">
+          <button className={cn("inline-flex h-11 items-center gap-2 rounded-full px-4 text-sm font-black text-[var(--primary-dark)]", viewMode === "grid" && "bg-[var(--surface)] shadow-sm")} onClick={() => setViewMode("grid")} type="button">
             <Grid2X2 className="h-4 w-4" />
             Mosaico
           </button>
-          <button className={cn("inline-flex h-11 items-center gap-2 rounded-full px-4 text-sm font-black text-[var(--primary-dark)]", viewMode === "list" && "bg-white shadow-sm")} onClick={() => setViewMode("list")} type="button">
+          <button className={cn("inline-flex h-11 items-center gap-2 rounded-full px-4 text-sm font-black text-[var(--primary-dark)]", viewMode === "list" && "bg-[var(--surface)] shadow-sm")} onClick={() => setViewMode("list")} type="button">
             <LayoutList className="h-4 w-4" />
             Lista
           </button>
@@ -267,8 +267,8 @@ export function ProductManagementClient({
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-black text-[var(--text)]">{product.name}</h3>
-                      <Badge className={product.isAvailable ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}>{product.isAvailable ? "Activo" : "Inactivo"}</Badge>
-                      {product.isFeatured ? <Badge className="bg-amber-50 text-amber-700">Destacado</Badge> : null}
+                      <Badge className={product.isAvailable ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]"}>{product.isAvailable ? "Activo" : "Inactivo"}</Badge>
+                      {product.isFeatured ? <Badge className="bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]">Destacado</Badge> : null}
                     </div>
                     <p className="mt-1 text-sm text-[var(--muted)]">{categoryById.get(product.categoryId)?.name ?? "Sin categoria"}</p>
                     <p className="mt-2 text-xs font-bold text-[var(--muted)]">
@@ -307,7 +307,7 @@ export function ProductManagementClient({
               <Labeled label="Orden">
                 <Input defaultValue={categories.length + 1} min={0} name="sortOrder" type="number" />
               </Labeled>
-              <label className="flex min-h-11 items-center gap-3 rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-black text-[var(--text)]">
+              <label className="flex min-h-11 items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-black text-[var(--text)]">
                 <input defaultChecked name="isActive" type="checkbox" />
                 Activa
               </label>
@@ -412,7 +412,7 @@ export function ProductManagementClient({
               <div className="mt-3 space-y-3">
                 {optionGroups.length ? (
                   optionGroups.map((group, groupIndex) => (
-                    <div className="rounded-3xl border border-[var(--border)] bg-white p-4" key={groupIndex}>
+                    <div className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-4" key={groupIndex}>
                       <div className="grid gap-3 md:grid-cols-[1fr_120px_120px_auto] md:items-end">
                         <Labeled label="Grupo">
                           <Input onChange={(event) => updateOptionGroup(groupIndex, { name: event.target.value })} placeholder="Ej. Salsa" value={group.name} />
@@ -429,7 +429,7 @@ export function ProductManagementClient({
                       </div>
                       <div className="mt-3 space-y-2">
                         {group.options.map((option, optionIndex) => (
-                          <div className="grid gap-2 rounded-2xl bg-slate-50 p-3 md:grid-cols-[1fr_140px_120px_auto]" key={optionIndex}>
+                          <div className="grid gap-2 rounded-2xl bg-[var(--color-surface)] p-3 md:grid-cols-[1fr_140px_120px_auto]" key={optionIndex}>
                             <Input onChange={(event) => updateOption(groupIndex, optionIndex, { name: event.target.value })} placeholder="Ej. Aparte / Banada / Papas" value={option.name} />
                             <Input onChange={(event) => updateOption(groupIndex, optionIndex, { priceDelta: Number(event.target.value) })} step="0.01" type="number" value={option.priceDelta} />
                             <Input onChange={(event) => updateOption(groupIndex, optionIndex, { sortOrder: Number(event.target.value) })} type="number" value={option.sortOrder} />
@@ -446,7 +446,7 @@ export function ProductManagementClient({
                     </div>
                   ))
                 ) : (
-                  <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-[var(--muted)]">Sin grupos de opciones.</p>
+                  <p className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--muted)]">Sin grupos de opciones.</p>
                 )}
               </div>
             </div>
@@ -558,7 +558,7 @@ function CategoryTile({ label, count, imageUrl, active, onClick }: { label: stri
     <button
       className={cn(
         "min-h-20 w-[210px] shrink-0 rounded-3xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md",
-        active ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-[var(--border)] bg-white text-[var(--text)]",
+        active ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]" : "border-[var(--border)] bg-[var(--surface)] text-[var(--text)]",
       )}
       onClick={onClick}
       type="button"
@@ -567,7 +567,7 @@ function CategoryTile({ label, count, imageUrl, active, onClick }: { label: stri
         <ProductThumb imageUrl={imageUrl} name={label} small />
         <div className="min-w-0">
           <p className="truncate text-sm font-black">{label}</p>
-          <p className={cn("text-xs font-semibold", active ? "text-white/75" : "text-[var(--muted)]")}>{count} productos</p>
+          <p className={cn("text-xs font-semibold", active ? "text-[var(--color-on-primary-muted)]" : "text-[var(--muted)]")}>{count} productos</p>
         </div>
       </div>
     </button>
@@ -588,9 +588,9 @@ function PreviewBanner({ label, className, imageUrl }: { label: string; classNam
     <div className={cn("relative flex min-h-44 items-end overflow-hidden rounded-3xl bg-[var(--primary-light)] p-3", className)}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img alt={label} className="absolute inset-0 h-full w-full object-cover opacity-75" src={imageUrl || "/imagendefault.jpeg"} />
-      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent" />
-      <div className="relative w-full rounded-2xl bg-slate-950/75 p-3 text-white">
-        <p className="text-xs font-black uppercase text-white/60">Catalogo</p>
+      <div className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-strong)] via-[var(--color-image-overlay-medium)] to-[var(--color-image-overlay-none)]" />
+      <div className="relative w-full rounded-2xl bg-[var(--color-overlay)] p-3 text-[var(--color-on-primary)]">
+        <p className="text-xs font-black uppercase text-[var(--color-on-primary-muted)]">Catalogo</p>
         <p className="font-black">{label}</p>
       </div>
     </div>
@@ -599,14 +599,14 @@ function PreviewBanner({ label, className, imageUrl }: { label: string; classNam
 
 function ModalShell({ title, eyebrow, children, onClose, wide = false }: { title: string; eyebrow: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
-      <div className={cn("my-8 max-h-[92vh] w-full overflow-y-auto rounded-[2rem] bg-white p-5 shadow-2xl", wide ? "max-w-4xl" : "max-w-3xl")}>
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--color-overlay)] p-4 backdrop-blur-sm">
+      <div className={cn("my-8 max-h-[92vh] w-full overflow-y-auto rounded-[2rem] bg-[var(--surface)] p-5 shadow-2xl", wide ? "max-w-4xl" : "max-w-3xl")}>
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">{eyebrow}</p>
             <h2 className="text-2xl font-black text-[var(--text)]">{title}</h2>
           </div>
-          <button className="grid h-11 w-11 place-items-center rounded-full bg-slate-100 text-slate-700" onClick={onClose} type="button">
+          <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-body)]" onClick={onClose} type="button">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -628,7 +628,7 @@ function Labeled({ label, children, className }: { label: string; children: Reac
 function ModalActions({ onCancel }: { onCancel: () => void }) {
   return (
     <div className="grid gap-3 border-t border-[var(--border)] pt-4 sm:grid-cols-2">
-      <button className={buttonClasses("danger", "bg-red-50 text-red-700 hover:bg-red-100")} onClick={onCancel} type="button">
+      <button className={buttonClasses("danger", "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)] hover:bg-[var(--color-danger-soft)]")} onClick={onCancel} type="button">
         <X className="h-4 w-4" />
         Cancelar
       </button>

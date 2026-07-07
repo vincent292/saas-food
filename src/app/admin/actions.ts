@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteRestaurantAssets, uploadPublicImage } from "@/lib/supabase/storage";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { moduleCatalog } from "@/lib/modules";
+import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import { toSlug } from "@/lib/utils/slug";
 import type { Json } from "@/types/database.types";
 import type { ModuleKey, PlanKey } from "@/types/restaurant.types";
@@ -26,8 +27,9 @@ const createRestaurantSchema = z.object({
   whatsapp: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
-  primaryColor: z.string().default("#1d8844"),
-  secondaryColor: z.string().default("#f59e0b"),
+  publicCategory: z.string().optional(),
+  primaryColor: z.string().default(defaultRestaurantPalette.primaryColor),
+  secondaryColor: z.string().default(defaultRestaurantPalette.secondaryColor),
   planKey: z.enum(["basic", "pro", "premium"]).default("basic"),
   ownerName: z.string().optional(),
   ownerEmail: z.string().email().optional().or(z.literal("")),
@@ -45,19 +47,20 @@ const updateRestaurantConfigurationSchema = z.object({
   whatsapp: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
+  publicCategory: z.string().optional(),
   addressReference: z.string().optional(),
   latitude: z.coerce.number().optional(),
   longitude: z.coerce.number().optional(),
   mapsUrl: z.string().optional(),
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   secondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-  backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#f7faf7"),
-  surfaceColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#ffffff"),
-  textColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#142018"),
-  mutedColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#68766c"),
-  borderColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#dfe8e2"),
-  navBackgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#ffffff"),
-  navTextColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#142018"),
+  backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(defaultRestaurantPalette.backgroundColor),
+  surfaceColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(defaultRestaurantPalette.surfaceColor),
+  textColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(defaultRestaurantPalette.textColor),
+  mutedColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(defaultRestaurantPalette.mutedColor),
+  borderColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(defaultRestaurantPalette.borderColor),
+  navBackgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(defaultRestaurantPalette.navBackgroundColor),
+  navTextColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(defaultRestaurantPalette.navTextColor),
   currentMenuBackgroundImageUrl: z.string().optional(),
   publicBannerSize: z.enum(["compact", "standard", "large"]).default("compact"),
   deliveryEnabled: z.boolean(),
@@ -1340,8 +1343,9 @@ export async function createRestaurantAction(formData: FormData) {
     whatsapp: formData.get("whatsapp") || undefined,
     address: formData.get("address") || undefined,
     city: formData.get("city") || undefined,
-    primaryColor: formData.get("primaryColor") || "#1d8844",
-    secondaryColor: formData.get("secondaryColor") || "#f59e0b",
+    publicCategory: formData.get("publicCategory") || undefined,
+    primaryColor: formData.get("primaryColor") || defaultRestaurantPalette.primaryColor,
+    secondaryColor: formData.get("secondaryColor") || defaultRestaurantPalette.secondaryColor,
     planKey: formData.get("planKey") || "basic",
     ownerName: formData.get("ownerName") || undefined,
     ownerEmail: formData.get("ownerEmail") || undefined,
@@ -1382,6 +1386,7 @@ export async function createRestaurantAction(formData: FormData) {
       whatsapp: parsed.data.whatsapp,
       address: parsed.data.address,
       city: parsed.data.city,
+      public_category: parsed.data.publicCategory,
       owner_user_id: owner.id,
       owner_name: owner.name,
       owner_email: owner.email,
@@ -1452,18 +1457,19 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     address: formData.get("address") || undefined,
     addressReference: formData.get("addressReference") || undefined,
     city: formData.get("city") || undefined,
+    publicCategory: formData.get("publicCategory") || undefined,
     latitude: formData.get("latitude") || undefined,
     longitude: formData.get("longitude") || undefined,
     mapsUrl: formData.get("mapsUrl") || undefined,
-    primaryColor: formData.get("primaryColor") || "#1d8844",
-    secondaryColor: formData.get("secondaryColor") || "#f59e0b",
-    backgroundColor: formData.get("backgroundColor") || "#f7faf7",
-    surfaceColor: formData.get("surfaceColor") || "#ffffff",
-    textColor: formData.get("textColor") || "#142018",
-    mutedColor: formData.get("mutedColor") || "#68766c",
-    borderColor: formData.get("borderColor") || "#dfe8e2",
-    navBackgroundColor: formData.get("navBackgroundColor") || "#ffffff",
-    navTextColor: formData.get("navTextColor") || "#142018",
+    primaryColor: formData.get("primaryColor") || defaultRestaurantPalette.primaryColor,
+    secondaryColor: formData.get("secondaryColor") || defaultRestaurantPalette.secondaryColor,
+    backgroundColor: formData.get("backgroundColor") || defaultRestaurantPalette.backgroundColor,
+    surfaceColor: formData.get("surfaceColor") || defaultRestaurantPalette.surfaceColor,
+    textColor: formData.get("textColor") || defaultRestaurantPalette.textColor,
+    mutedColor: formData.get("mutedColor") || defaultRestaurantPalette.mutedColor,
+    borderColor: formData.get("borderColor") || defaultRestaurantPalette.borderColor,
+    navBackgroundColor: formData.get("navBackgroundColor") || defaultRestaurantPalette.navBackgroundColor,
+    navTextColor: formData.get("navTextColor") || defaultRestaurantPalette.navTextColor,
     currentMenuBackgroundImageUrl: formData.get("currentMenuBackgroundImageUrl") || undefined,
     publicBannerSize: formData.get("publicBannerSize") || "compact",
     deliveryEnabled: booleanFromForm(formData, "deliveryEnabled"),
@@ -1556,6 +1562,7 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     address: string | null;
     address_reference: string | null;
     city: string | null;
+    public_category: string | null;
     latitude: number | null;
     longitude: number | null;
     maps_url: string | null;
@@ -1581,6 +1588,7 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     address: parsed.data.address ?? null,
     address_reference: parsed.data.addressReference ?? null,
     city: parsed.data.city ?? null,
+    public_category: parsed.data.publicCategory ?? null,
     latitude: parsed.data.latitude ?? null,
     longitude: parsed.data.longitude ?? null,
     maps_url: parsed.data.mapsUrl ?? null,

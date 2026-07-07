@@ -114,7 +114,7 @@ export function POSProductGrid({
   }
 
   if (!products.length) {
-    return <Card className="text-sm text-slate-500">Aún no hay productos disponibles para vender.</Card>;
+    return <Card className="text-sm text-[var(--color-secondary-text)]">Aún no hay productos disponibles para vender.</Card>;
   }
 
   return (
@@ -136,7 +136,7 @@ export function POSProductGrid({
             </div>
           </Card>
 
-          {disabled ? <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-800">Abre caja para habilitar la venta rápida.</div> : null}
+          {disabled ? <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para habilitar la venta rápida.</div> : null}
 
           <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
             {filteredProducts.map((product) => {
@@ -162,7 +162,7 @@ export function POSProductGrid({
             })}
           </div>
 
-          {!filteredProducts.length ? <div className="rounded-[1.25rem] bg-white p-6 text-center text-sm font-semibold text-[var(--muted)]">No hay productos para este filtro.</div> : null}
+          {!filteredProducts.length ? <div className="rounded-[1.25rem] bg-[var(--surface)] p-6 text-center text-sm font-semibold text-[var(--muted)]">No hay productos para este filtro.</div> : null}
         </section>
 
         <Card className="h-fit rounded-[1.25rem] p-4 xl:sticky xl:top-4">
@@ -179,7 +179,7 @@ export function POSProductGrid({
           <div className="mt-4 space-y-2">
             {cart.length ? (
               cart.map((item) => (
-                <div className="grid grid-cols-[56px_1fr_auto] gap-3 rounded-2xl bg-slate-50 p-3" key={item.cartId}>
+                <div className="grid grid-cols-[56px_1fr_auto] gap-3 rounded-2xl bg-[var(--color-surface)] p-3" key={item.cartId}>
                   <div className="overflow-hidden rounded-xl bg-[var(--primary-light)]">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img alt={item.name} className="h-14 w-14 object-cover" src={item.imageUrl || defaultImage} />
@@ -190,18 +190,18 @@ export function POSProductGrid({
                     <p className="text-xs font-semibold text-[var(--muted)]">{formatMoney(item.price)} c/u</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="grid h-8 w-8 place-items-center rounded-full bg-white" onClick={() => changeQuantity(item.cartId, -1)} type="button">
-                      {item.quantity === 1 ? <Trash2 className="h-4 w-4 text-red-600" /> : <Minus className="h-4 w-4" />}
+                    <button className="grid h-8 w-8 place-items-center rounded-full bg-[var(--surface)]" onClick={() => changeQuantity(item.cartId, -1)} type="button">
+                      {item.quantity === 1 ? <Trash2 className="h-4 w-4 text-[var(--color-danger)]" /> : <Minus className="h-4 w-4" />}
                     </button>
                     <span className="w-5 text-center text-sm font-black">{item.quantity}</span>
-                    <button className="grid h-8 w-8 place-items-center rounded-full bg-[var(--primary)] text-white" onClick={() => changeQuantity(item.cartId, 1)} type="button">
+                    <button className="grid h-8 w-8 place-items-center rounded-full bg-[var(--primary)] text-[var(--color-on-primary)]" onClick={() => changeQuantity(item.cartId, 1)} type="button">
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
               ))
             ) : (
-              <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-[var(--muted)]">Agrega productos para iniciar la venta.</p>
+              <p className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--muted)]">Agrega productos para iniciar la venta.</p>
             )}
           </div>
 
@@ -236,7 +236,7 @@ export function POSProductGrid({
       </div>
 
       {cart.length ? (
-        <div className="fixed inset-x-3 bottom-3 z-40 rounded-2xl border border-[var(--border)] bg-white p-3 shadow-2xl xl:hidden">
+        <div className="fixed inset-x-3 bottom-3 z-40 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-2xl xl:hidden">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">{cart.length} ítems</p>
@@ -284,7 +284,7 @@ function ProductCard({
 
   return (
     <button
-      className="rounded-[1.25rem] border border-[var(--border)] bg-white p-3 text-left shadow-sm transition hover:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
+      className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 text-left shadow-sm transition hover:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
       disabled={disabled}
       onClick={onSelect}
       type="button"
@@ -301,7 +301,7 @@ function ProductCard({
         {hasConfiguration ? <span className="rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]">Configurable</span> : null}
       </div>
       {product.description ? <p className="mt-2 line-clamp-2 text-sm text-[var(--muted)]">{product.description}</p> : null}
-      <span className={buttonClasses("secondary", "mt-3 min-h-10 w-full bg-slate-100 font-black")}>{hasConfiguration ? "Personalizar" : "Agregar"}</span>
+      <span className={buttonClasses("secondary", "mt-3 min-h-10 w-full bg-[var(--color-neutral-100)] font-black")}>{hasConfiguration ? "Personalizar" : "Agregar"}</span>
     </button>
   );
 }
@@ -355,7 +355,7 @@ function ProductOptionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-end bg-slate-950/55 p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">
+    <div className="fixed inset-0 z-[60] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">
       <div className="max-h-[94vh] w-full overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[1.5rem]">
         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] p-4">
           <div>
@@ -363,7 +363,7 @@ function ProductOptionModal({
             <h2 className="text-2xl font-black">{product.name}</h2>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Precio base {formatMoney(product.price)}</p>
           </div>
-          <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-100 hover:bg-slate-200" onClick={onClose} type="button">
+          <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)] hover:bg-[var(--color-neutral-200)]" onClick={onClose} type="button">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -385,7 +385,7 @@ function ProductOptionModal({
                   <button
                     className={cn(
                       "flex min-h-14 items-center justify-between rounded-2xl border px-4 text-left transition",
-                      variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-white",
+                      variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]",
                     )}
                     key={variant.id}
                     onClick={() => setVariantId(variant.id)}
@@ -413,7 +413,7 @@ function ProductOptionModal({
                       {group.isRequired ? "Obligatorio" : "Opcional"} · elige {group.minChoices}-{group.maxChoices}
                     </p>
                   </div>
-                  <span className={cn("rounded-full px-3 py-1 text-xs font-black", selectedCount >= group.minChoices ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+                  <span className={cn("rounded-full px-3 py-1 text-xs font-black", selectedCount >= group.minChoices ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]")}>
                     {selectedCount}/{group.maxChoices}
                   </span>
                 </div>
@@ -425,14 +425,14 @@ function ProductOptionModal({
                       <button
                         className={cn(
                           "flex min-h-12 items-center justify-between rounded-2xl border px-3 text-left transition",
-                          selected ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-white",
+                          selected ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]",
                         )}
                         key={option.id}
                         onClick={() => toggleOption(group, option)}
                         type="button"
                       >
                         <span className="flex min-w-0 items-center gap-2">
-                          <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded-full border", selected ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-[var(--border)]")}>
+                          <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded-full border", selected ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]" : "border-[var(--border)]")}>
                             {selected ? <Check className="h-3.5 w-3.5" /> : null}
                           </span>
                           <span className="min-w-0">

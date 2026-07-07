@@ -50,7 +50,7 @@ export function SupportTicketList({
   if (!tickets.length) {
     return (
       <Card>
-        <p className="text-sm font-semibold text-slate-500">{emptyMessage}</p>
+        <p className="text-sm font-semibold text-[var(--color-secondary-text)]">{emptyMessage}</p>
       </Card>
     );
   }
@@ -62,12 +62,12 @@ export function SupportTicketList({
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <p className="text-lg font-black text-slate-950">{ticket.title}</p>
+                <p className="text-lg font-black text-[var(--color-heading)]">{ticket.title}</p>
                 <PriorityBadge priority={ticket.priority} />
                 <StatusBadge status={ticket.status} />
-                <Badge className="bg-slate-100 text-slate-700">{categoryLabels[ticket.category]}</Badge>
+                <Badge className="bg-[var(--color-neutral-100)] text-[var(--color-body)]">{categoryLabels[ticket.category]}</Badge>
               </div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold text-slate-500">
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold text-[var(--color-secondary-text)]">
                 {showRestaurant ? <span>{ticket.restaurantName}</span> : null}
                 <span>{formatShortDate(ticket.createdAt)} {formatShortTime(ticket.createdAt)}</span>
                 <span>{ticket.createdByName ?? ticket.createdByEmail ?? "Sin remitente"}</span>
@@ -78,14 +78,14 @@ export function SupportTicketList({
               <form action={updateSupportTicketAction} className="flex flex-wrap gap-2">
                 <input name="ticketId" type="hidden" value={ticket.id} />
                 {returnTo ? <input name="returnTo" type="hidden" value={returnTo} /> : null}
-                <select className="min-h-10 rounded-2xl border border-slate-200 px-3 text-sm font-semibold" defaultValue={ticket.status} name="status">
+                <select className="min-h-10 rounded-2xl border border-[var(--border)] px-3 text-sm font-semibold" defaultValue={ticket.status} name="status">
                   {statuses.map((status) => (
                     <option key={status} value={status}>
                       {statusLabels[status]}
                     </option>
                   ))}
                 </select>
-                <select className="min-h-10 rounded-2xl border border-slate-200 px-3 text-sm font-semibold" defaultValue={ticket.priority} name="priority">
+                <select className="min-h-10 rounded-2xl border border-[var(--border)] px-3 text-sm font-semibold" defaultValue={ticket.priority} name="priority">
                   {priorities.map((priority) => (
                     <option key={priority} value={priority}>
                       {priorityLabels[priority]}
@@ -99,31 +99,31 @@ export function SupportTicketList({
             ) : null}
           </div>
 
-          <p className="text-sm text-slate-700">{ticket.description || "Sin detalle adicional."}</p>
+          <p className="text-sm text-[var(--color-body)]">{ticket.description || "Sin detalle adicional."}</p>
 
           {ticket.attachments.length ? (
             <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm font-black text-slate-700">
+              <div className="flex items-center gap-2 text-sm font-black text-[var(--color-body)]">
                 <Paperclip className="h-4 w-4" />
                 Screenshots adjuntos ({ticket.attachments.length})
               </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {ticket.attachments.map((attachment) => (
-                  <a className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 transition hover:border-emerald-300" href={attachment.fileUrl} key={attachment.id} rel="noreferrer" target="_blank">
-                    <div className="aspect-[16/10] bg-slate-100">
+                  <a className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] transition hover:border-[var(--color-success)]" href={attachment.fileUrl} key={attachment.id} rel="noreferrer" target="_blank">
+                    <div className="aspect-[16/10] bg-[var(--color-neutral-100)]">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img alt={attachment.fileName} className="h-full w-full object-cover" src={attachment.fileUrl} />
                     </div>
                     <div className="space-y-1 p-3">
-                      <p className="truncate text-sm font-black text-slate-900">{attachment.fileName}</p>
-                      <p className="text-xs font-semibold text-slate-500">{formatBytes(attachment.fileSize)}</p>
+                      <p className="truncate text-sm font-black text-[var(--color-heading)]">{attachment.fileName}</p>
+                      <p className="text-xs font-semibold text-[var(--color-secondary-text)]">{formatBytes(attachment.fileSize)}</p>
                     </div>
                   </a>
                 ))}
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-500">
+            <div className="flex items-center gap-2 rounded-2xl bg-[var(--color-surface)] px-3 py-2 text-sm font-semibold text-[var(--color-secondary-text)]">
               <ImageIcon className="h-4 w-4" />
               Sin screenshots adjuntos.
             </div>
@@ -137,12 +137,12 @@ export function SupportTicketList({
 function PriorityBadge({ priority }: { priority: SupportTicket["priority"] }) {
   const className =
     priority === "urgent"
-      ? "bg-red-50 text-red-700"
+      ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]"
       : priority === "high"
-        ? "bg-amber-50 text-amber-700"
+        ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]"
         : priority === "medium"
-          ? "bg-slate-100 text-slate-700"
-          : "bg-slate-50 text-slate-500";
+          ? "bg-[var(--color-neutral-100)] text-[var(--color-body)]"
+          : "bg-[var(--color-surface)] text-[var(--color-secondary-text)]";
 
   return <Badge className={className}>{priorityLabels[priority]}</Badge>;
 }
@@ -150,12 +150,12 @@ function PriorityBadge({ priority }: { priority: SupportTicket["priority"] }) {
 function StatusBadge({ status }: { status: SupportTicket["status"] }) {
   const className =
     status === "resolved" || status === "closed"
-      ? "bg-emerald-50 text-emerald-700"
+      ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]"
       : status === "waiting_customer"
-        ? "bg-amber-50 text-amber-700"
+        ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]"
         : status === "in_progress"
-          ? "bg-blue-50 text-blue-700"
-          : "bg-slate-100 text-slate-700";
+          ? "bg-[var(--color-info-soft)] text-[var(--color-info-strong)]"
+          : "bg-[var(--color-neutral-100)] text-[var(--color-body)]";
 
   return <Badge className={className}>{statusLabels[status]}</Badge>;
 }

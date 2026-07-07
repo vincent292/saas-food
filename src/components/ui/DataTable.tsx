@@ -12,7 +12,7 @@ export function DataTable({ headers, rows, emptyMessage = "Sin registros." }: Da
     <Card className="overflow-hidden p-0">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[680px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-[var(--muted)]">
+          <thead className="bg-[var(--color-surface)] text-xs uppercase text-[var(--muted)]">
             <tr>
               {headers.map((header) => (
                 <th className="px-5 py-4 font-bold" key={header}>
@@ -24,7 +24,7 @@ export function DataTable({ headers, rows, emptyMessage = "Sin registros." }: Da
           <tbody className="divide-y divide-[var(--border)]">
             {rows.length ? (
               rows.map((row, rowIndex) => (
-                <tr className="bg-white" key={rowIndex}>
+                <tr className="bg-[var(--surface)]" key={rowIndex}>
                   {row.map((cell, cellIndex) => (
                     <td className="px-5 py-4 text-[var(--text)]" key={`${rowIndex}-${cellIndex}`}>
                       {cell}
@@ -33,7 +33,7 @@ export function DataTable({ headers, rows, emptyMessage = "Sin registros." }: Da
                 </tr>
               ))
             ) : (
-              <tr className="bg-white">
+              <tr className="bg-[var(--surface)]">
                 <td className="px-5 py-6 text-center text-sm font-semibold text-[var(--muted)]" colSpan={headers.length}>
                   {emptyMessage}
                 </td>

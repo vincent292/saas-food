@@ -54,17 +54,17 @@ export default async function DeliveryOrderPage({
   return (
     <main className="min-h-screen bg-[var(--background)] px-4 py-5 text-[var(--text)] sm:px-6">
       <div className="mx-auto max-w-3xl space-y-4">
-        <section className="rounded-[1.5rem] bg-slate-950 p-5 text-white shadow-xl">
+        <section className="rounded-[1.5rem] bg-[var(--color-neutral-900)] p-5 text-[var(--color-on-primary)] shadow-xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <Badge className="bg-white/10 text-white">
+              <Badge className="bg-[var(--surface)]/10 text-[var(--color-on-primary)]">
                 <Bike className="mr-1.5 h-3.5 w-3.5" />
                 Repartidor
               </Badge>
               <h1 className="mt-4 text-3xl font-black leading-tight">Pedido {order.orderNumber}</h1>
-              <p className="mt-2 text-sm font-semibold text-white/70">{order.restaurantName}</p>
+              <p className="mt-2 text-sm font-semibold text-[var(--color-on-primary-muted)]">{order.restaurantName}</p>
             </div>
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-white text-slate-950">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--surface)] text-[var(--color-heading)]">
               <Route className="h-6 w-6" />
             </span>
           </div>
@@ -77,18 +77,18 @@ export default async function DeliveryOrderPage({
         </section>
 
         {status.delivered ? (
-          <div className="rounded-2xl bg-emerald-50 p-4 text-sm font-black text-emerald-800">
+          <div className="rounded-2xl bg-[var(--color-success-soft)] p-4 text-sm font-black text-[var(--color-success-strong)]">
             Pedido marcado como entregado. El cliente ya puede verlo en su seguimiento.
           </div>
         ) : null}
 
         {status.arrived || order.linkStatus === "arrived" ? (
-          <div className="rounded-2xl bg-sky-50 p-4 text-sm font-black text-sky-800">
+          <div className="rounded-2xl bg-[var(--color-info-soft)] p-4 text-sm font-black text-[var(--color-info-strong)]">
             Repartidor marcado en la ubicacion {order.arrivedAt ? `a las ${formatShortTime(order.arrivedAt)}` : ""}.
           </div>
         ) : null}
 
-        {status.error ? <div className="rounded-2xl bg-red-50 p-4 text-sm font-black text-red-700">No se pudo actualizar el pedido: {status.error}</div> : null}
+        {status.error ? <div className="rounded-2xl bg-[var(--color-danger-soft)] p-4 text-sm font-black text-[var(--color-danger-strong)]">No se pudo actualizar el pedido: {status.error}</div> : null}
 
         <Card className="space-y-4">
           <div>
@@ -98,25 +98,25 @@ export default async function DeliveryOrderPage({
           </div>
 
           <div className="grid gap-2 sm:grid-cols-3">
-            <a className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-black text-white" href={mapUrl} rel="noreferrer" target="_blank">
+            <a className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-black text-[var(--color-on-primary)]" href={mapUrl} rel="noreferrer" target="_blank">
               <MapPinned className="h-4 w-4" />
               Abrir Maps
             </a>
             {phoneDigits ? (
-              <a className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 text-sm font-black text-slate-800" href={`tel:${phoneDigits}`}>
+              <a className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--color-neutral-100)] px-4 text-sm font-black text-[var(--color-body)]" href={`tel:${phoneDigits}`}>
                 <Phone className="h-4 w-4" />
                 Llamar
               </a>
             ) : (
-              <span className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-100 px-4 text-sm font-black text-slate-400">Sin llamada</span>
+              <span className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-[var(--color-neutral-100)] px-4 text-sm font-black text-[var(--color-placeholder)]">Sin llamada</span>
             )}
             {waUrl ? (
-              <a className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-50 px-4 text-sm font-black text-emerald-700" href={waUrl} rel="noreferrer" target="_blank">
+              <a className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--color-success-soft)] px-4 text-sm font-black text-[var(--color-success-strong)]" href={waUrl} rel="noreferrer" target="_blank">
                 <MessageCircle className="h-4 w-4" />
                 WhatsApp
               </a>
             ) : (
-              <span className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-100 px-4 text-sm font-black text-slate-400">Sin WhatsApp</span>
+              <span className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-[var(--color-neutral-100)] px-4 text-sm font-black text-[var(--color-placeholder)]">Sin WhatsApp</span>
             )}
           </div>
         </Card>
@@ -141,7 +141,7 @@ export default async function DeliveryOrderPage({
           <h2 className="text-xl font-black">Contenido del pedido</h2>
           <div className="mt-4 grid gap-2">
             {order.items.map((item) => (
-              <div className="flex justify-between gap-3 rounded-2xl bg-slate-50 p-3" key={item.id}>
+              <div className="flex justify-between gap-3 rounded-2xl bg-[var(--color-surface)] p-3" key={item.id}>
                 <div>
                   <p className="font-black">
                     {item.quantity}x {item.productName}
@@ -153,7 +153,7 @@ export default async function DeliveryOrderPage({
               </div>
             ))}
           </div>
-          {order.notes ? <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-800">{order.notes}</p> : null}
+          {order.notes ? <p className="mt-3 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">{order.notes}</p> : null}
           <div className="mt-4 space-y-2 border-t border-[var(--border)] pt-4 text-sm font-bold">
             <div className="flex justify-between">
               <span>Productos</span>
@@ -166,7 +166,7 @@ export default async function DeliveryOrderPage({
           </div>
         </Card>
 
-        <Card className="sticky bottom-3 z-10 bg-white/95 shadow-xl backdrop-blur">
+        <Card className="sticky bottom-3 z-10 bg-[var(--color-card-elevated)] shadow-xl backdrop-blur">
           {canMarkDelivered ? (
             <div className="grid gap-2 sm:grid-cols-2">
               {canMarkArrived ? (
@@ -187,7 +187,7 @@ export default async function DeliveryOrderPage({
               </form>
             </div>
           ) : (
-            <div className="rounded-2xl bg-emerald-50 p-4 text-center text-sm font-black text-emerald-800">
+            <div className="rounded-2xl bg-[var(--color-success-soft)] p-4 text-center text-sm font-black text-[var(--color-success-strong)]">
               Pedido entregado {order.deliveredAt ? `a las ${formatShortTime(order.deliveredAt)}` : ""}
             </div>
           )}
@@ -199,12 +199,12 @@ export default async function DeliveryOrderPage({
 
 function InfoPill({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
   return (
-    <div className="rounded-2xl bg-white/10 p-3">
-      <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-white/60">
+    <div className="rounded-2xl bg-[var(--surface)]/10 p-3">
+      <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-[var(--color-on-primary-muted)]">
         {icon}
         {label}
       </div>
-      <p className="mt-2 text-sm font-black text-white">{value}</p>
+      <p className="mt-2 text-sm font-black text-[var(--color-on-primary)]">{value}</p>
     </div>
   );
 }

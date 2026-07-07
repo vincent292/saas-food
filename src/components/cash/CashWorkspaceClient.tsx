@@ -170,9 +170,9 @@ function switchTab(nextTab: CashTab) {
                     : "Abre la caja primero. Sin caja abierta no se pueden aprobar pedidos ni cobrar POS."}
               </p>
             </div>
-            <div className={cn("rounded-2xl px-4 py-3 text-right", summary.session ? "bg-emerald-50" : "bg-slate-100")}>
-              <p className={cn("text-xs font-black uppercase tracking-[0.12em]", summary.session ? "text-emerald-700" : "text-slate-500")}>Efectivo esperado</p>
-              <p className={cn("text-2xl font-black", summary.session ? "text-emerald-900" : "text-slate-700")}>{formatMoney(summary.expectedCash)}</p>
+            <div className={cn("rounded-2xl px-4 py-3 text-right", summary.session ? "bg-[var(--color-success-soft)]" : "bg-[var(--color-neutral-100)]")}>
+              <p className={cn("text-xs font-black uppercase tracking-[0.12em]", summary.session ? "text-[var(--color-success-strong)]" : "text-[var(--color-secondary-text)]")}>Efectivo esperado</p>
+              <p className={cn("text-2xl font-black", summary.session ? "text-[var(--color-success-strong)]" : "text-[var(--color-body)]")}>{formatMoney(summary.expectedCash)}</p>
             </div>
           </div>
 
@@ -189,9 +189,9 @@ function switchTab(nextTab: CashTab) {
           {summary.session ? (
             <form action={closeCashSessionAction} className="mt-4 space-y-3">
               <input name="restaurantId" type="hidden" value={restaurant.id} />
-              <div className="rounded-2xl bg-slate-50 p-3">
-                <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Debe haber en efectivo</p>
-                <p className="text-2xl font-black text-slate-950">{formatMoney(summary.expectedCash)}</p>
+              <div className="rounded-2xl bg-[var(--color-surface)] p-3">
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Debe haber en efectivo</p>
+                <p className="text-2xl font-black text-[var(--color-heading)]">{formatMoney(summary.expectedCash)}</p>
               </div>
               <Input min={0} name="countedAmount" placeholder="Efectivo contado al cierre" required step="0.01" type="number" />
               <Textarea name="notes" placeholder="Notas de cierre" />
@@ -213,15 +213,15 @@ function switchTab(nextTab: CashTab) {
       </section>
 
       {banner ? (
-        <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700")}>{banner.text}</div>
+        <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>{banner.text}</div>
       ) : null}
 
-      <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-white p-2 shadow-sm">
+      <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
         {tabs.map((tab) => (
           <button
             className={cn(
               "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-black transition",
-              activeTab === tab.key ? "bg-[var(--primary)] text-white" : "text-[var(--muted)] hover:bg-[var(--primary-light)]",
+              activeTab === tab.key ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "text-[var(--muted)] hover:bg-[var(--primary-light)]",
             )}
             key={tab.key}
             onClick={() => switchTab(tab.key)}
@@ -229,7 +229,7 @@ function switchTab(nextTab: CashTab) {
           >
             <tab.icon className="h-4 w-4" />
             {tab.label}
-            {tab.count !== undefined ? <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-black", activeTab === tab.key ? "bg-white/15 text-white" : "bg-slate-100 text-slate-600")}>{tab.count}</span> : null}
+            {tab.count !== undefined ? <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-black", activeTab === tab.key ? "bg-[var(--color-on-primary-soft)] text-[var(--color-on-primary)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]")}>{tab.count}</span> : null}
           </button>
         ))}
       </div>
@@ -388,7 +388,7 @@ function DeliveryOrderCard({ order, restaurantSlug }: { order: Order; restaurant
         ) : isReady ? (
           <DeliveryDispatchPanel compact order={order} restaurantSlug={restaurantSlug} />
         ) : (
-          <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800">
+          <div className="rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-bold text-[var(--color-warning-strong)]">
             Aun esta en cocina. El QR de moto se habilita cuando el pedido este listo.
           </div>
         )}
@@ -399,7 +399,7 @@ function DeliveryOrderCard({ order, restaurantSlug }: { order: Order; restaurant
 
 function DispatchStatusPanel({ label, tone, value }: { label: string; tone: "info" | "success"; value?: string }) {
   return (
-    <div className={cn("rounded-2xl p-4 text-sm font-bold", tone === "success" ? "bg-emerald-50 text-emerald-800" : "bg-sky-50 text-sky-800")}>
+    <div className={cn("rounded-2xl p-4 text-sm font-bold", tone === "success" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-info-soft)] text-[var(--color-info-strong)]")}>
       <p className="text-lg font-black">{label}</p>
       {value ? <p className="mt-1">Actualizado a las {formatShortTime(value)}</p> : null}
     </div>
@@ -421,10 +421,10 @@ function OrderOperationalSummary({ order, title }: { order: Order; title: string
         <h3 className="text-xl font-black text-[var(--text)]">
           {title} {order.orderNumber}
         </h3>
-        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{order.status}</span>
-        {order.deliveryDispatch?.status === "arrived" ? <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">llego</span> : null}
-        {order.deliveryDispatch?.status === "delivered" ? <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">entregado por moto</span> : null}
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">{formatMoney(order.total)}</span>
+        <span className="rounded-full bg-[var(--color-success-soft)] px-3 py-1 text-xs font-black text-[var(--color-success-strong)]">{order.status}</span>
+        {order.deliveryDispatch?.status === "arrived" ? <span className="rounded-full bg-[var(--color-info-soft)] px-3 py-1 text-xs font-black text-[var(--color-info-strong)]">llego</span> : null}
+        {order.deliveryDispatch?.status === "delivered" ? <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">entregado por moto</span> : null}
+        <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">{formatMoney(order.total)}</span>
       </div>
       <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
         {order.customerName || "Cliente"} | {order.customerPhone || "Sin telefono"}
@@ -433,7 +433,7 @@ function OrderOperationalSummary({ order, title }: { order: Order; title: string
       {order.deliveryAddressDetail ? <p className="mt-2 text-sm font-bold text-[var(--text)]">Referencia: {order.deliveryAddressDetail}</p> : null}
       <div className="mt-3 grid gap-2">
         {order.items.map((item) => (
-          <div className="rounded-2xl bg-slate-50 p-3" key={item.id}>
+          <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={item.id}>
             <p className="font-black text-[var(--text)]">
               {item.quantity}x {item.productName}
             </p>
@@ -447,22 +447,22 @@ function OrderOperationalSummary({ order, title }: { order: Order; title: string
 
 function SessionMetric({ label, amount, detail, danger }: { label: string; amount: number; detail?: string; danger?: boolean }) {
   return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-      <p className="text-sm font-semibold text-slate-500">{label}</p>
-      <p className={cn("mt-1 text-2xl font-black", danger ? "text-red-600" : "text-slate-950")}>{formatMoney(amount)}</p>
-      {detail ? <p className="mt-1 text-xs font-bold text-slate-500">{detail}</p> : null}
+    <div className="rounded-2xl bg-[var(--color-surface)] p-4">
+      <p className="text-sm font-semibold text-[var(--color-secondary-text)]">{label}</p>
+      <p className={cn("mt-1 text-2xl font-black", danger ? "text-[var(--color-danger)]" : "text-[var(--color-heading)]")}>{formatMoney(amount)}</p>
+      {detail ? <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">{detail}</p> : null}
     </div>
   );
 }
 
 function CloseStep({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-      <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+    <div className="rounded-2xl bg-[var(--color-surface)] p-4">
+      <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">
         {icon}
         <span>{label}</span>
       </div>
-      <p className="mt-2 text-xl font-black text-slate-950">{value}</p>
+      <p className="mt-2 text-xl font-black text-[var(--color-heading)]">{value}</p>
     </div>
   );
 }
@@ -483,7 +483,7 @@ function CashReportCard({ report }: { report: CashSessionReport }) {
             Abrió: {report.session.openedByName ?? "Usuario registrado"} {report.session.closedByName ? `· Cerró: ${report.session.closedByName}` : ""}
           </p>
         </div>
-        <div className={cn("rounded-2xl px-4 py-3 text-right", difference === 0 ? "bg-emerald-50 text-emerald-800" : difference > 0 ? "bg-blue-50 text-blue-800" : "bg-red-50 text-red-700")}>
+        <div className={cn("rounded-2xl px-4 py-3 text-right", difference === 0 ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : difference > 0 ? "bg-[var(--color-info-soft)] text-[var(--color-info-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>
           <p className="text-xs font-black uppercase tracking-[0.12em]">Diferencia</p>
           <p className="text-2xl font-black">{formatMoney(difference)}</p>
         </div>

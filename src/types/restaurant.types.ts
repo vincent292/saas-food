@@ -46,6 +46,7 @@ export type Restaurant = {
   address: string;
   addressReference: string;
   city: string;
+  publicCategory: string;
   latitude?: number;
   longitude?: number;
   mapsUrl: string;

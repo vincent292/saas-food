@@ -16,7 +16,7 @@ export function TableCard({ table }: { table: RestaurantTable }) {
         </div>
         <Badge>{table.status.replace("_", " ")}</Badge>
       </div>
-      <div className="mt-5 flex items-center justify-between rounded-2xl bg-slate-50 p-4">
+      <div className="mt-5 flex items-center justify-between rounded-2xl bg-[var(--color-surface)] p-4">
         <span className="text-sm font-bold text-[var(--text)]">{table.code}</span>
         <QrCode className="h-5 w-5 text-[var(--primary)]" />
       </div>

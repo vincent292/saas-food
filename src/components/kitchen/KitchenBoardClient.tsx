@@ -98,7 +98,7 @@ export function KitchenBoardClient({
             <h1 className="text-3xl font-black text-[var(--text)]">{restaurant.name}</h1>
             <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Solo aparecen pedidos del dia aprobados por caja. Cocina prepara y marca listo; el despacho se maneja en Caja.</p>
           </div>
-          <div className="flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-[var(--muted)] shadow-sm">
+          <div className="flex items-center gap-2 rounded-full bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--muted)] shadow-sm">
             <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin text-[var(--primary)]")} />
             {isRefreshing ? "Actualizando" : "En vivo"}
           </div>
@@ -111,7 +111,7 @@ export function KitchenBoardClient({
           <KitchenSummary icon={<History className="h-5 w-5" />} label="Historial" value={groups.historial.length} />
         </section>
 
-        <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-white p-2 shadow-sm">
+        <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
           <KitchenTabButton active={activeTab === "cola"} count={groups.cola.length} label="En cola" onClick={() => setActiveTab("cola")} />
           <KitchenTabButton active={activeTab === "preparando"} count={groups.preparando.length} label="Preparando" onClick={() => setActiveTab("preparando")} />
           <KitchenTabButton active={activeTab === "despacho"} count={groups.despacho.length} label="Listo para despacho" onClick={() => setActiveTab("despacho")} />
@@ -152,7 +152,7 @@ function KitchenSummary({ label, value, icon }: { label: string; value: number; 
 
 function KitchenTabButton({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
   return (
-    <button className={cn("h-11 shrink-0 rounded-full px-4 text-sm font-black", active ? "bg-[var(--primary)] text-white" : "text-[var(--muted)] hover:bg-[var(--primary-light)]")} onClick={onClick} type="button">
+    <button className={cn("h-11 shrink-0 rounded-full px-4 text-sm font-black", active ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "text-[var(--muted)] hover:bg-[var(--primary-light)]")} onClick={onClick} type="button">
       {label} ({count})
     </button>
   );
@@ -171,18 +171,18 @@ function KitchenCard({
 }) {
   const elapsedMinutes = minutesSince(kitchenStartDate(order), now);
   const isReady = order.status === "ready";
-  const tone = isReady ? { label: "Listo", className: "border-emerald-200 bg-emerald-50 text-emerald-800" } : timerTone(elapsedMinutes);
+  const tone = isReady ? { label: "Listo", className: "border-[var(--color-success-soft)] bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" } : timerTone(elapsedMinutes);
   const nextStatus = order.status === "accepted" ? "preparing" : order.status === "preparing" ? "ready" : null;
   const actionLabel = order.status === "accepted" ? "Iniciar" : "Marcar preparado";
 
   return (
-    <Card className={cn("overflow-hidden rounded-[1.25rem] p-0", elapsedMinutes >= 20 && order.status !== "ready" && "border-red-200")}>
+    <Card className={cn("overflow-hidden rounded-[1.25rem] p-0", elapsedMinutes >= 20 && order.status !== "ready" && "border-[var(--color-danger-soft)]")}>
       <div className={cn("flex items-center justify-between gap-3 border-b px-4 py-3", tone.className)}>
         <div>
           <p className="text-xs font-black uppercase tracking-[0.12em]">{isReady ? "Preparado" : "Tiempo"}</p>
           <p className="text-2xl font-black">{isReady ? (order.readyAt ? formatShortTime(order.readyAt) : "Listo") : elapsedLabel(elapsedMinutes)}</p>
         </div>
-        <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-black text-slate-900">{tone.label}</span>
+        <span className="rounded-full bg-[var(--color-card-soft)] px-3 py-1 text-xs font-black text-[var(--color-heading)]">{tone.label}</span>
       </div>
 
       <div className="space-y-4 p-4">
@@ -191,9 +191,9 @@ function KitchenCard({
             <p className="text-sm font-semibold text-[var(--muted)]">Pedido {order.orderNumber}</p>
             <h2 className="text-xl font-black text-[var(--text)]">{orderSourceLabel(order)}</h2>
             <p className="mt-1 text-xs font-bold text-[var(--muted)]">{paymentMethodLabels[order.paymentMethod]}</p>
-            {order.paymentReceiptReference ? <p className="mt-1 text-xs font-black text-slate-700">Referencia: {order.paymentReceiptReference}</p> : null}
+            {order.paymentReceiptReference ? <p className="mt-1 text-xs font-black text-[var(--color-body)]">Referencia: {order.paymentReceiptReference}</p> : null}
             {order.paymentReceiptUrl ? (
-              <a className="mt-2 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700" href={order.paymentReceiptUrl} rel="noreferrer" target="_blank">
+              <a className="mt-2 inline-flex rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]" href={order.paymentReceiptUrl} rel="noreferrer" target="_blank">
                 Ver comprobante
               </a>
             ) : null}
@@ -203,7 +203,7 @@ function KitchenCard({
 
         <div className="space-y-2">
           {order.items.map((item) => (
-            <div className="rounded-2xl bg-slate-50 p-3" key={item.id}>
+            <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={item.id}>
               <p className="font-black text-[var(--text)]">
                 {item.quantity}x {item.productName}
               </p>
@@ -212,7 +212,7 @@ function KitchenCard({
           ))}
         </div>
 
-        {order.notes ? <p className="rounded-2xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">{order.notes}</p> : null}
+        {order.notes ? <p className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-semibold text-[var(--color-warning-strong)]">{order.notes}</p> : null}
 
         <div className="grid grid-cols-2 gap-2">
           <button className={buttonClasses("secondary", "min-h-10 px-3 text-xs")} onClick={() => printOrderTicket({ order, restaurantName: restaurant.name, format: defaultPrintFormat })} type="button">

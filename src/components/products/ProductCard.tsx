@@ -24,11 +24,11 @@ export function ProductCard({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img alt={product.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" src={product.imageUrl || "/imagendefault.jpeg"} />
         <div className="absolute left-3 top-3 flex flex-wrap gap-2">
-          <Badge className={product.isAvailable ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}>
+          <Badge className={product.isAvailable ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]"}>
             {product.isAvailable ? "Disponible" : "Inactivo"}
           </Badge>
           {product.isFeatured ? (
-            <Badge className="bg-amber-50 text-amber-700">
+            <Badge className="bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]">
               <Sparkles className="mr-1 h-3 w-3" />
               Destacado
             </Badge>
@@ -53,13 +53,13 @@ export function ProductCard({
         </p>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3 text-xs font-bold text-[var(--muted)]">
-          <span className="rounded-full bg-slate-50 px-3 py-1">Orden {product.sortOrder}</span>
-          <span className="rounded-full bg-slate-50 px-3 py-1">{product.trackStock ? "Controla stock" : "Sin control stock"}</span>
-          <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-3 py-1">
+          <span className="rounded-full bg-[var(--color-surface)] px-3 py-1">Orden {product.sortOrder}</span>
+          <span className="rounded-full bg-[var(--color-surface)] px-3 py-1">{product.trackStock ? "Controla stock" : "Sin control stock"}</span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface)] px-3 py-1">
             <SlidersHorizontal className="h-3 w-3" />
             {variantCount} variantes
           </span>
-          <span className="rounded-full bg-slate-50 px-3 py-1">{optionGroupCount} grupos</span>
+          <span className="rounded-full bg-[var(--color-surface)] px-3 py-1">{optionGroupCount} grupos</span>
         </div>
         {onEdit ? (
           <Button className="min-h-9 w-full" onClick={onEdit} type="button" variant="secondary">

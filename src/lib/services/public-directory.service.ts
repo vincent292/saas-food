@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { restaurantCategoryLabel, restaurantCategoryOptions } from "@/lib/restaurant-directory-options";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import type { Restaurant } from "@/types/restaurant.types";
 
@@ -34,6 +35,8 @@ type VisitRow = {
 
 export type PublicRestaurantCard = {
   restaurant: Restaurant;
+  primaryCategory: string;
+  primaryCategoryLabel: string;
   categories: string[];
   orders30d: number;
   visits7d: number;
@@ -55,6 +58,13 @@ export type PublicDishCard = {
 export type PublicDirectory = {
   restaurants: PublicRestaurantCard[];
   categories: string[];
+  locations: string[];
+  categoryCards: {
+    value: string;
+    label: string;
+    imageUrl: string;
+    count: number;
+  }[];
   mostVisited: PublicRestaurantCard[];
   mostOrderedRestaurants: PublicRestaurantCard[];
   mostOrderedDishes: PublicDishCard[];
@@ -78,6 +88,10 @@ function activePublicRestaurants(restaurants: Restaurant[]) {
   return restaurants.filter((restaurant) => restaurant.status === "active" && restaurant.activeModules?.includes("public_menu"));
 }
 
+function imageUrl(value?: string | null) {
+  return value && (value.startsWith("http") || value.startsWith("/")) ? value : "";
+}
+
 export const publicDirectoryService = {
   async recordVisit(restaurantId: string) {
     if (!hasSupabaseEnv()) {
@@ -88,9 +102,9 @@ export const publicDirectoryService = {
     await supabase.from("restaurant_public_visits").insert({ restaurant_id: restaurantId });
   },
 
-  async getDirectory({ search = "", category = "" }: { search?: string; category?: string } = {}): Promise<PublicDirectory> {
+  async getDirectory({ search = "", category = "", city = "" }: { search?: string; category?: string; city?: string } = {}): Promise<PublicDirectory> {
     if (!hasSupabaseEnv()) {
-      return { restaurants: [], categories: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [] };
+      return { restaurants: [], categories: [], locations: [], categoryCards: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [] };
     }
 
     const supabase = await createClient();
@@ -98,7 +112,7 @@ export const publicDirectoryService = {
     const restaurantIds = restaurants.map((restaurant) => restaurant.id);
 
     if (!restaurantIds.length) {
-      return { restaurants: [], categories: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [] };
+      return { restaurants: [], categories: [], locations: [], categoryCards: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [] };
     }
 
     const since7d = daysAgoIso(7);
@@ -131,9 +145,12 @@ export const publicDirectoryService = {
         .sort((left, right) => Number(right.order_count ?? 0) - Number(left.order_count ?? 0))
         .slice(0, 3)
         .map((product) => product.name);
+      const primaryCategory = restaurant.publicCategory || "";
 
       return {
         restaurant,
+        primaryCategory,
+        primaryCategoryLabel: restaurantCategoryLabel(primaryCategory) || restaurantCategories[0] || "Restaurante",
         categories: restaurantCategories,
         orders30d: orders.filter((order) => order.restaurant_id === restaurant.id).length,
         visits7d: visits.filter((visit) => visit.restaurant_id === restaurant.id).length,
@@ -143,14 +160,34 @@ export const publicDirectoryService = {
 
     const searchNeedle = normalize(search);
     const categoryNeedle = normalize(category);
+    const cityNeedle = normalize(city);
     const filteredRestaurants = cards.filter((card) => {
       const matchesSearch =
         !searchNeedle ||
         normalize(card.restaurant.name).includes(searchNeedle) ||
         normalize(card.restaurant.city).includes(searchNeedle) ||
+        normalize(card.primaryCategoryLabel).includes(searchNeedle) ||
         card.categories.some((item) => normalize(item).includes(searchNeedle));
-      const matchesCategory = !categoryNeedle || card.categories.some((item) => normalize(item) === categoryNeedle);
-      return matchesSearch && matchesCategory;
+      const matchesCategory =
+        !categoryNeedle ||
+        normalize(card.primaryCategory) === categoryNeedle ||
+        normalize(card.primaryCategoryLabel) === categoryNeedle ||
+        card.categories.some((item) => normalize(item) === categoryNeedle);
+      const matchesCity = !cityNeedle || normalize(card.restaurant.city) === cityNeedle;
+      return matchesSearch && matchesCategory && matchesCity;
+    });
+
+    const categoryCards = restaurantCategoryOptions.map((option) => {
+      const categoryRestaurants = cards.filter((card) => card.primaryCategory === option.value);
+      const firstRestaurant = categoryRestaurants[0]?.restaurant;
+      const firstProduct = products.find((product) => categoryRestaurants.some((card) => card.restaurant.id === product.restaurant_id) && product.image_url);
+
+      return {
+        value: option.value,
+        label: option.label,
+        imageUrl: imageUrl(firstRestaurant?.bannerUrl) || imageUrl(firstProduct?.image_url) || imageUrl(firstRestaurant?.logoUrl),
+        count: categoryRestaurants.length,
+      };
     });
 
     const mostOrderedDishes = products
@@ -177,7 +214,9 @@ export const publicDirectoryService = {
 
     return {
       restaurants: filteredRestaurants,
-      categories: Array.from(new Set(categories.map((item) => item.name))).sort((left, right) => left.localeCompare(right)),
+      categories: restaurantCategoryOptions.map((option) => option.label),
+      locations: Array.from(new Set(restaurants.map((restaurant) => restaurant.city).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
+      categoryCards,
       mostVisited: [...cards].sort((left, right) => right.visits7d - left.visits7d).slice(0, 6),
       mostOrderedRestaurants: [...cards].sort((left, right) => right.orders30d - left.orders30d).slice(0, 6),
       mostOrderedDishes,

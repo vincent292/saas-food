@@ -73,7 +73,7 @@ export function TableManagementClient({
           {activeTables.map((table) => {
             const url = tableUrl(origin, restaurant.slug, table.code);
             return (
-              <article className="rounded-[1.25rem] border border-[var(--border)] bg-white p-4 shadow-sm" key={table.id}>
+              <article className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm" key={table.id}>
                 <div className="grid gap-4 sm:grid-cols-[132px_1fr]">
                   <div className="overflow-hidden rounded-2xl bg-[var(--primary-light)] p-2">
                     <QrPreview label={`QR para ${table.name}`} url={url} />
@@ -102,7 +102,7 @@ export function TableManagementClient({
                 <form action={deleteTableAction} className="mt-2">
                   <input name="restaurantId" type="hidden" value={restaurant.id} />
                   <input name="tableId" type="hidden" value={table.id} />
-                  <Button className="w-full bg-red-100 text-red-800 hover:bg-red-200 focus-visible:outline-red-300" type="submit" variant="ghost">
+                  <Button className="w-full bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)] hover:bg-[var(--color-danger-soft)] focus-visible:outline-[var(--color-danger)]" type="submit" variant="ghost">
                     <Trash2 className="h-4 w-4" />
                     Eliminar
                   </Button>
@@ -133,10 +133,10 @@ export function TableManagementClient({
 function StatusBanners({ status }: { status: TableStatusMessage }) {
   return (
     <div className="space-y-2">
-      {status.created ? <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">Mesa creada.</div> : null}
-      {status.updated ? <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">Mesa actualizada.</div> : null}
-      {status.deleted ? <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">Mesa eliminada del listado activo.</div> : null}
-      {status.error ? <div className="rounded-2xl bg-red-50 p-3 text-sm font-semibold text-red-700">No se pudo guardar la mesa.</div> : null}
+      {status.created ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Mesa creada.</div> : null}
+      {status.updated ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Mesa actualizada.</div> : null}
+      {status.deleted ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Mesa eliminada del listado activo.</div> : null}
+      {status.error ? <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">No se pudo guardar la mesa.</div> : null}
     </div>
   );
 }
@@ -153,14 +153,14 @@ function TableModal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--color-overlay)] p-4 backdrop-blur-sm">
       <Card className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-[1.5rem] p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">{eyebrow}</p>
             <h2 className="text-2xl font-black text-[var(--text)]">{title}</h2>
           </div>
-          <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-100 text-[var(--text)] hover:bg-slate-200" onClick={onClose} type="button">
+          <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--text)] hover:bg-[var(--color-neutral-200)]" onClick={onClose} type="button">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -250,11 +250,11 @@ function QrPreview({ label, url }: { label: string; url: string }) {
   }, [url]);
 
   if (!dataUrl) {
-    return <div className="grid aspect-square w-full place-items-center rounded-xl bg-white text-xs font-black text-[var(--muted)]">QR</div>;
+    return <div className="grid aspect-square w-full place-items-center rounded-xl bg-[var(--surface)] text-xs font-black text-[var(--muted)]">QR</div>;
   }
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img alt={label} className="aspect-square w-full rounded-xl bg-white object-contain" src={dataUrl} />
+    <img alt={label} className="aspect-square w-full rounded-xl bg-[var(--surface)] object-contain" src={dataUrl} />
   );
 }

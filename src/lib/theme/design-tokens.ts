@@ -1,0 +1,61 @@
+export const defaultRestaurantPalette = {
+  primaryColor: "#6C3EF4",
+  secondaryColor: "#F59E0B",
+  backgroundColor: "#F7F7FB",
+  surfaceColor: "#FFFFFF",
+  textColor: "#17181D",
+  mutedColor: "#70758A",
+  borderColor: "#E7E8F0",
+  navBackgroundColor: "#FFFFFF",
+  navTextColor: "#17181D",
+  primaryDark: "#4D24D0",
+  primaryLight: "#F3EEFF",
+  successColor: "#6C3EF4",
+  dangerColor: "#EF4444",
+} as const;
+
+export const restaurantPalettePresets = [
+  { name: "Premium claro", colors: defaultRestaurantPalette },
+  {
+    name: "Urbano",
+    colors: {
+      primaryColor: "#6C3EF4",
+      secondaryColor: "#3B82F6",
+      backgroundColor: "#F8FAFC",
+      surfaceColor: "#FFFFFF",
+      textColor: "#111827",
+      mutedColor: "#64748B",
+      borderColor: "#E2E8F0",
+      navBackgroundColor: "#FFFFFF",
+      navTextColor: "#111827",
+    },
+  },
+  {
+    name: "Nocturno",
+    colors: {
+      primaryColor: "#6C3EF4",
+      secondaryColor: "#FDBA2D",
+      backgroundColor: "#0F1020",
+      surfaceColor: "#17182A",
+      textColor: "#F8FAFC",
+      mutedColor: "#B8BCD4",
+      borderColor: "#2B2D46",
+      navBackgroundColor: "#121327",
+      navTextColor: "#F8FAFC",
+    },
+  },
+  {
+    name: "Calido",
+    colors: {
+      primaryColor: "#6C3EF4",
+      secondaryColor: "#FDBA2D",
+      backgroundColor: "#FFF7ED",
+      surfaceColor: "#FFFFFF",
+      textColor: "#1C1917",
+      mutedColor: "#78716C",
+      borderColor: "#FED7AA",
+      navBackgroundColor: "#FFFFFF",
+      navTextColor: "#1C1917",
+    },
+  },
+] as const;

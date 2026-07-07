@@ -89,10 +89,10 @@ export default async function SupportPage({
               ))}
             </Select>
             <Textarea className="lg:col-span-2" name="description" placeholder="Detalle del caso" />
-            <label className="space-y-2 text-sm font-semibold text-slate-700 lg:col-span-2">
+            <label className="space-y-2 text-sm font-semibold text-[var(--color-body)] lg:col-span-2">
               Screenshots
               <Input accept="image/*" multiple name="attachments" type="file" />
-              <span className="block text-xs text-slate-500">Hasta 5 imágenes de 5 MB cada una.</span>
+              <span className="block text-xs text-[var(--color-secondary-text)]">Hasta 5 imágenes de 5 MB cada una.</span>
             </label>
             <div className="lg:col-span-2">
               <button className={buttonClasses("primary")} type="submit">
@@ -115,7 +115,7 @@ export default async function SupportPage({
             rows={accessSessions.map((session) => [
               <div key={`${session.id}-user`}>
                 <p className="font-black">{session.userName}</p>
-                <p className="text-xs text-slate-500">{session.userEmail}</p>
+                <p className="text-xs text-[var(--color-secondary-text)]">{session.userEmail}</p>
               </div>,
               session.restaurantName,
               session.role,
@@ -139,8 +139,8 @@ export default async function SupportPage({
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
     <Card>
-      <p className="text-sm font-bold text-slate-500">{label}</p>
-      <p className="mt-1 text-2xl font-black text-slate-950">{value}</p>
+      <p className="text-sm font-bold text-[var(--color-secondary-text)]">{label}</p>
+      <p className="mt-1 text-2xl font-black text-[var(--color-heading)]">{value}</p>
     </Card>
   );
 }
@@ -148,8 +148,8 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 function Banner({ children, tone }: { children: string; tone: "success" | "danger" }) {
   const className =
     tone === "success"
-      ? "rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-700"
-      : "rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700";
+      ? "rounded-2xl border border-[var(--color-success-soft)] bg-[var(--color-success-soft)] p-4 text-sm font-semibold text-[var(--color-success-strong)]"
+      : "rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] p-4 text-sm font-semibold text-[var(--color-danger-strong)]";
 
   return <div className={className}>{children}</div>;
 }

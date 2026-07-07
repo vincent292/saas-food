@@ -1,6 +1,18 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { inferRestaurantCategory } from "@/lib/restaurant-directory-options";
+import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import type { ModuleKey, PlanKey, Restaurant, RestaurantSettings } from "@/types/restaurant.types";
+
+const legacyGreenBrandColors = new Set(["#1d8844", "#146333", "#15803d", "#22c55e"]);
+
+function normalizeBrandPrimary(value?: string | null) {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || legacyGreenBrandColors.has(normalized)) {
+    return defaultRestaurantPalette.primaryColor;
+  }
+  return value ?? defaultRestaurantPalette.primaryColor;
+}
 
 function themeFromColors({
   primaryColor,
@@ -23,20 +35,22 @@ function themeFromColors({
   navBackgroundColor?: string | null;
   navTextColor?: string | null;
 }) {
+  const primary = normalizeBrandPrimary(primaryColor);
+
   return {
-    primary: primaryColor || "#1d8844",
-    primaryDark: "#146333",
-    primaryLight: "#e8f7ee",
-    background: backgroundColor || "#f7faf7",
-    surface: surfaceColor || "#ffffff",
-    text: textColor || "#142018",
-    muted: mutedColor || "#68766c",
-    border: borderColor || "#dfe8e2",
-    navBackground: navBackgroundColor || surfaceColor || "#ffffff",
-    navText: navTextColor || textColor || "#142018",
-    success: primaryColor || "#1d8844",
-    warning: secondaryColor || "#d97706",
-    danger: "#dc2626",
+    primary,
+    primaryDark: defaultRestaurantPalette.primaryDark,
+    primaryLight: defaultRestaurantPalette.primaryLight,
+    background: backgroundColor || defaultRestaurantPalette.backgroundColor,
+    surface: surfaceColor || defaultRestaurantPalette.surfaceColor,
+    text: textColor || defaultRestaurantPalette.textColor,
+    muted: mutedColor || defaultRestaurantPalette.mutedColor,
+    border: borderColor || defaultRestaurantPalette.borderColor,
+    navBackground: navBackgroundColor || surfaceColor || defaultRestaurantPalette.surfaceColor,
+    navText: navTextColor || textColor || defaultRestaurantPalette.textColor,
+    success: defaultRestaurantPalette.successColor,
+    warning: secondaryColor || defaultRestaurantPalette.secondaryColor,
+    danger: defaultRestaurantPalette.dangerColor,
   };
 }
 
@@ -68,6 +82,7 @@ function mapRestaurant(row: {
   address: string | null;
   address_reference?: string | null;
   city: string | null;
+  public_category?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   maps_url?: string | null;
@@ -93,11 +108,12 @@ function mapRestaurant(row: {
     logoUrl: row.logo_url || initials,
     bannerUrl: row.banner_url || "",
     primaryColor: row.primary_color,
-    secondaryColor: row.secondary_color ?? "#f59e0b",
+    secondaryColor: row.secondary_color ?? defaultRestaurantPalette.secondaryColor,
     whatsapp: row.whatsapp ?? "",
     address: row.address ?? "",
     addressReference: row.address_reference ?? "",
     city: row.city ?? "",
+    publicCategory: row.public_category ?? inferRestaurantCategory(`${row.name} ${row.description ?? ""}`),
     latitude: row.latitude === null || row.latitude === undefined ? undefined : Number(row.latitude),
     longitude: row.longitude === null || row.longitude === undefined ? undefined : Number(row.longitude),
     mapsUrl: row.maps_url ?? "",

@@ -61,13 +61,13 @@ function MetricList({ title, values, money = false }: { title: string; values: R
       <div className="mt-4 space-y-3">
         {entries.length ? (
           entries.map(([key, value]) => (
-            <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-3 py-2" key={key}>
-              <span className="text-sm font-bold text-slate-700">{key}</span>
+            <div className="flex items-center justify-between gap-3 rounded-2xl bg-[var(--color-surface)] px-3 py-2" key={key}>
+              <span className="text-sm font-bold text-[var(--color-body)]">{key}</span>
               <span className="text-sm font-black">{money ? formatMoney(value) : value}</span>
             </div>
           ))
         ) : (
-          <p className="rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-500">Sin datos.</p>
+          <p className="rounded-2xl bg-[var(--color-surface)] p-3 text-sm font-semibold text-[var(--color-secondary-text)]">Sin datos.</p>
         )}
       </div>
     </Card>

@@ -28,7 +28,7 @@ export default async function PublicTrackingLookupPage({
         <SectionTitle title="Rastrear pedido" description="Ingresa tu número de pedido y WhatsApp para ver el avance en tiempo real." />
 
         {error ? (
-          <div className="mt-5 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+          <div className="mt-5 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">
             {error === "not-found" ? "No encontramos un pedido con esos datos." : "Revisa el número de pedido y WhatsApp."}
           </div>
         ) : null}

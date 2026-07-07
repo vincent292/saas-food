@@ -18,7 +18,7 @@ export function PasswordInput({ className, ...props }: InputHTMLAttributes<HTMLI
       />
       <button
         aria-label={visible ? "Ocultar contraseña" : "Mostrar contraseña"}
-        className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+        className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[var(--color-secondary-text)] transition hover:bg-[var(--color-neutral-100)] hover:text-[var(--color-body)]"
         onClick={() => setVisible((current) => !current)}
         type="button"
       >

@@ -12,7 +12,7 @@ export function CartItem({ name, price, quantity }: { name: string; price: numbe
           <QuantitySelector quantity={quantity} />
         </div>
       </div>
-      <button className="grid h-10 w-10 place-items-center rounded-full text-[var(--muted)] hover:bg-red-50 hover:text-red-600" title="Eliminar" type="button">
+      <button className="grid h-10 w-10 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]" title="Eliminar" type="button">
         <Trash2 className="h-4 w-4" />
       </button>
     </div>

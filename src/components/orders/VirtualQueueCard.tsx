@@ -15,10 +15,10 @@ const queueStep: Record<OrderStatus, number> = {
 };
 
 const demandStyles: Record<OrderQueueState["demandLevel"], string> = {
-  calm: "bg-emerald-50 text-emerald-700 ring-emerald-100",
-  normal: "bg-slate-100 text-slate-700 ring-slate-200",
-  busy: "bg-amber-50 text-amber-800 ring-amber-100",
-  event: "bg-orange-50 text-orange-800 ring-orange-100",
+  calm: "bg-[var(--color-success-soft)] text-[var(--color-success-strong)] ring-[var(--color-success-soft)]",
+  normal: "bg-[var(--color-neutral-100)] text-[var(--color-body)] ring-[var(--border)]",
+  busy: "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)] ring-[var(--color-warning-soft)]",
+  event: "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)] ring-[var(--color-warning-soft)]",
 };
 
 const confidenceLabel: Record<OrderQueueState["confidence"], string> = {
@@ -124,17 +124,17 @@ function QueueLane({ queue }: { queue: OrderQueueState }) {
   const dots = Array.from({ length: visibleAhead + 1 });
 
   return (
-    <div className="relative min-h-20 overflow-hidden rounded-[1.25rem] bg-slate-950 px-4 py-5 text-white">
-      <div className="absolute inset-x-0 top-0 h-px bg-white/25" />
+    <div className="relative min-h-20 overflow-hidden rounded-[1.25rem] bg-[var(--color-neutral-900)] px-4 py-5 text-[var(--color-on-primary)]">
+      <div className="absolute inset-x-0 top-0 h-px bg-[var(--surface)]/25" />
       <div className="absolute inset-0 virtual-queue-sheen opacity-70" />
       <div className="relative flex items-center gap-3">
-        <div className="h-1 flex-1 rounded-full bg-white/15">
+        <div className="h-1 flex-1 rounded-full bg-[var(--color-on-primary-soft)]">
           <div
             className="h-1 rounded-full bg-[var(--primary)] transition-all duration-700"
             style={{ width: `${Math.max(22, Math.min(100, ((visibleAhead + 1) / 5) * 100))}%` }}
           />
         </div>
-        <span className="text-xs font-black uppercase tracking-[0.16em] text-white/70">En vivo</span>
+        <span className="text-xs font-black uppercase tracking-[0.16em] text-[var(--color-on-primary-muted)]">En vivo</span>
       </div>
 
       <div className="relative mt-5 flex items-center gap-2">
@@ -146,8 +146,8 @@ function QueueLane({ queue }: { queue: OrderQueueState }) {
               className={cn(
                 "grid h-10 w-10 shrink-0 place-items-center rounded-full border text-xs font-black shadow-lg transition",
                 isMine
-                  ? "virtual-queue-breathe border-[var(--primary)] bg-[var(--primary)] text-white shadow-[0_0_24px_rgba(29,136,68,0.5)]"
-                  : "border-white/10 bg-white/15 text-white/60",
+                  ? "virtual-queue-breathe border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)] shadow-[var(--shadow-glow)]"
+                  : "border-[var(--surface)]/10 bg-[var(--color-on-primary-soft)] text-[var(--color-on-primary-muted)]",
               )}
               key={index}
             >
@@ -155,8 +155,8 @@ function QueueLane({ queue }: { queue: OrderQueueState }) {
             </span>
           );
         })}
-        {hiddenAhead ? <span className="rounded-full bg-white/10 px-3 py-2 text-xs font-black text-white/70">+{hiddenAhead}</span> : null}
-        <span className="ml-auto grid h-10 w-10 place-items-center rounded-full bg-white text-slate-950 shadow-lg">
+        {hiddenAhead ? <span className="rounded-full bg-[var(--surface)]/10 px-3 py-2 text-xs font-black text-[var(--color-on-primary-muted)]">+{hiddenAhead}</span> : null}
+        <span className="ml-auto grid h-10 w-10 place-items-center rounded-full bg-[var(--surface)] text-[var(--color-heading)] shadow-lg">
           <ChefHat className="h-5 w-5" />
         </span>
       </div>
@@ -182,13 +182,13 @@ function QueueProgress({ status }: { status: OrderStatus }) {
           <div
             className={cn(
               "min-h-20 rounded-2xl border p-2 text-center transition sm:p-3",
-              done && "border-[var(--primary)] bg-[var(--primary)] text-white",
+              done && "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]",
               active && "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)] ring-2 ring-[var(--primary)]/15",
-              !done && !active && "border-slate-100 bg-slate-50 text-slate-400",
+              !done && !active && "border-[var(--color-neutral-100)] bg-[var(--color-surface)] text-[var(--color-placeholder)]",
             )}
             key={step.label}
           >
-            <step.icon className={cn("mx-auto h-5 w-5", done ? "text-white" : active ? "text-[var(--primary)]" : "text-slate-400")} />
+            <step.icon className={cn("mx-auto h-5 w-5", done ? "text-[var(--color-on-primary)]" : active ? "text-[var(--primary)]" : "text-[var(--color-placeholder)]")} />
             <p className="mt-2 text-[0.68rem] font-black leading-tight sm:text-xs">{step.label}</p>
           </div>
         );
@@ -229,8 +229,8 @@ export function VirtualQueueCard({ order, queue }: { order: Order; queue: OrderQ
           <QueueProgress status={order.status} />
         </section>
 
-        <aside className="grid gap-3 border-t border-[var(--border)] bg-slate-50 p-5 sm:grid-cols-3 lg:grid-cols-1 lg:border-l lg:border-t-0">
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
+        <aside className="grid gap-3 border-t border-[var(--border)] bg-[var(--color-surface)] p-5 sm:grid-cols-3 lg:grid-cols-1 lg:border-l lg:border-t-0">
+          <div className="rounded-2xl bg-[var(--surface)] p-4 shadow-sm">
             <div className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
               <UsersRound className="h-4 w-4 text-[var(--primary)]" />
               Fila actual
@@ -239,7 +239,7 @@ export function VirtualQueueCard({ order, queue }: { order: Order; queue: OrderQ
             <p className="text-xs font-semibold text-[var(--muted)]">pedidos activos</p>
           </div>
 
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
+          <div className="rounded-2xl bg-[var(--surface)] p-4 shadow-sm">
             <div className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
               <ChefHat className="h-4 w-4 text-[var(--primary)]" />
               En cocina
@@ -248,7 +248,7 @@ export function VirtualQueueCard({ order, queue }: { order: Order; queue: OrderQ
             <p className="text-xs font-semibold text-[var(--muted)]">en preparacion</p>
           </div>
 
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
+          <div className="rounded-2xl bg-[var(--surface)] p-4 shadow-sm">
             <div className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
               <Timer className="h-4 w-4 text-[var(--primary)]" />
               Precision
@@ -259,7 +259,7 @@ export function VirtualQueueCard({ order, queue }: { order: Order; queue: OrderQ
             </p>
           </div>
 
-          <div className="flex items-center justify-center gap-2 rounded-2xl bg-white/70 p-3 text-xs font-black text-[var(--muted)] sm:col-span-3 lg:col-span-1">
+          <div className="flex items-center justify-center gap-2 rounded-2xl bg-[var(--color-card-soft)] p-3 text-xs font-black text-[var(--muted)] sm:col-span-3 lg:col-span-1">
             <Clock3 className="h-4 w-4" />
             Actualiza en tiempo real
           </div>

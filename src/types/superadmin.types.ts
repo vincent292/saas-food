@@ -90,6 +90,7 @@ export type RestaurantOperationSummary = {
   status: RestaurantStatus;
   ownerEmail: string;
   city: string;
+  publicCategory: string;
   planKey?: PlanKey;
   activeModules: number;
   orders30d: number;

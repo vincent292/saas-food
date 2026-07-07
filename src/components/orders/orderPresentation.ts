@@ -52,27 +52,27 @@ export function timerTone(minutes: number) {
   if (minutes >= 30) {
     return {
       label: "Critico",
-      className: "border-red-700 bg-red-700 text-white",
+      className: "border-[var(--color-danger-strong)] bg-[var(--color-danger-strong)] text-[var(--color-on-primary)]",
     };
   }
 
   if (minutes >= 20) {
     return {
       label: "Urgente",
-      className: "border-red-200 bg-red-50 text-red-800",
+      className: "border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]",
     };
   }
 
   if (minutes >= 15) {
     return {
       label: "Demorado",
-      className: "border-amber-200 bg-amber-50 text-amber-800",
+      className: "border-[var(--color-warning-soft)] bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]",
     };
   }
 
   return {
     label: "A tiempo",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    className: "border-[var(--color-success-soft)] bg-[var(--color-success-soft)] text-[var(--color-success-strong)]",
   };
 }
 

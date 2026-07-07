@@ -48,7 +48,7 @@ export function SearchableSelect({
       <div className="relative">
         <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
         <input
-          className="min-h-11 w-full rounded-2xl border border-[var(--border)] bg-white px-11 text-sm outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-4 focus:ring-[var(--primary-light)]"
+          className="min-h-11 w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-11 text-sm outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-4 focus:ring-[var(--primary-light)]"
           onBlur={() => window.setTimeout(() => setOpen(false), 150)}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -61,7 +61,7 @@ export function SearchableSelect({
         />
         {query ? (
           <button
-            className="absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-slate-100 text-slate-500"
+            className="absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]"
             onClick={() => {
               setQuery("");
               setSelected(null);
@@ -74,7 +74,7 @@ export function SearchableSelect({
         ) : null}
       </div>
       {open ? (
-        <div className="absolute z-30 mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-[var(--border)] bg-white p-2 shadow-xl">
+        <div className="absolute z-30 mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl">
           {filtered.length ? (
             filtered.map((option) => (
               <button

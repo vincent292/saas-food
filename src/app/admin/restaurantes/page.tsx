@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/DataTable";
 import { SectionTitle } from "@/components/ui/SectionTitle";
+import { restaurantCategoryLabel } from "@/lib/restaurant-directory-options";
 import { superadminService } from "@/lib/services/superadmin.service";
 import { formatShortDate } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
@@ -33,16 +34,16 @@ export default async function RestaurantsPage() {
           rows={restaurants.map((restaurant) => [
             <div key={`${restaurant.id}-name`}>
               <p className="font-black">{restaurant.name}</p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-[var(--color-secondary-text)]">
                 /r/{restaurant.slug}
-                {restaurant.city ? ` · ${restaurant.city}` : ""}
+                {restaurant.city ? ` · ${restaurant.city}` : ""}{restaurant.publicCategory ? ` · ${restaurantCategoryLabel(restaurant.publicCategory)}` : ""}
               </p>
             </div>,
             restaurant.ownerEmail || "Sin responsable",
             restaurant.planKey ?? "sin plan",
             <div key={`${restaurant.id}-usage`}>
               <p className="font-bold">{restaurant.orders30d} pedidos</p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-[var(--color-secondary-text)]">
                 {formatMoney(restaurant.revenue30d)} · {restaurant.lastOrderAt ? formatShortDate(restaurant.lastOrderAt) : "sin pedidos"}
               </p>
             </div>,
@@ -58,7 +59,7 @@ export default async function RestaurantsPage() {
 
 function StatusBadge({ status }: { status: RestaurantStatus }) {
   const label = status === "active" ? "Activo" : status === "suspended" ? "Suspendido" : "Inactivo";
-  const className = status === "active" ? "bg-emerald-50 text-emerald-700" : status === "suspended" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700";
+  const className = status === "active" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : status === "suspended" ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]";
 
   return <Badge className={className}>{label}</Badge>;
 }

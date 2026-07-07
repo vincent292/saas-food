@@ -22,31 +22,31 @@ export default async function AccessBlockedPage({
   const returnTo = params.returnTo?.startsWith("/admin") ? params.returnTo : params.restaurantId ? `/admin/restaurantes/${params.restaurantId}/dashboard` : "/admin";
 
   return (
-    <main className="grid min-h-screen place-items-center bg-slate-50 px-4">
+    <main className="grid min-h-screen place-items-center bg-[var(--color-surface)] px-4">
       <Card className="w-full max-w-xl">
-        <div className="grid h-14 w-14 place-items-center rounded-2xl bg-red-50 text-red-700">
+        <div className="grid h-14 w-14 place-items-center rounded-2xl bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]">
           <LockKeyhole className="h-6 w-6" />
         </div>
-        <h1 className="mt-5 text-2xl font-black text-slate-950">Acceso bloqueado por otra sucursal activa</h1>
-        <p className="mt-2 text-sm font-semibold text-slate-600">
+        <h1 className="mt-5 text-2xl font-black text-[var(--color-heading)]">Acceso bloqueado por otra sucursal activa</h1>
+        <p className="mt-2 text-sm font-semibold text-[var(--color-secondary-text)]">
           Tu usuario ya está trabajando en {params.activeRestaurantName ?? "otro restaurante"}. Para evitar cajas o paneles abiertos en varias sucursales, libera la sesión activa antes de continuar.
         </p>
 
-        <div className="mt-5 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+        <div className="mt-5 grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm">
           <div className="flex justify-between gap-3">
-            <span className="font-bold text-slate-500">Quieres entrar a</span>
+            <span className="font-bold text-[var(--color-secondary-text)]">Quieres entrar a</span>
             <span className="font-black">{params.restaurantName ?? "Restaurante"}</span>
           </div>
           <div className="flex justify-between gap-3">
-            <span className="font-bold text-slate-500">Sesión activa</span>
+            <span className="font-bold text-[var(--color-secondary-text)]">Sesión activa</span>
             <span className="font-black">{params.activeRestaurantName ?? "No identificada"}</span>
           </div>
           <div className="flex justify-between gap-3">
-            <span className="font-bold text-slate-500">IP registrada</span>
+            <span className="font-bold text-[var(--color-secondary-text)]">IP registrada</span>
             <span className="font-black">{params.activeIpAddress ?? "Sin IP"}</span>
           </div>
           <div className="flex justify-between gap-3">
-            <span className="font-bold text-slate-500">Última actividad</span>
+            <span className="font-bold text-[var(--color-secondary-text)]">Última actividad</span>
             <span className="font-black">
               {params.activeLastSeenAt ? `${formatShortDate(params.activeLastSeenAt)} ${formatShortTime(params.activeLastSeenAt)}` : "Sin fecha"}
             </span>

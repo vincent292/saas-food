@@ -85,7 +85,7 @@ export default async function TrackingPage({
 
         <Card className="mt-6">
           {order.status === "cancelled" ? (
-            <div className="rounded-3xl bg-red-50 p-5 text-center text-red-700">
+            <div className="rounded-3xl bg-[var(--color-danger-soft)] p-5 text-center text-[var(--color-danger-strong)]">
               <XCircle className="mx-auto h-10 w-10" />
               <p className="mt-3 text-lg font-black">Pedido rechazado</p>
               <p className="mt-2 text-sm font-semibold">{order.cancellationReason || "El equipo no pudo aprobar tu pedido."}</p>
@@ -99,15 +99,15 @@ export default async function TrackingPage({
                   <div
                     className={cn(
                       "rounded-3xl border p-4 text-center transition",
-                      done && "border-[var(--primary)] bg-[var(--primary)] text-white",
+                      done && "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]",
                       active && "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)] ring-2 ring-[var(--primary)]/15",
-                      !done && !active && "border-transparent bg-slate-50 text-[var(--muted)]",
+                      !done && !active && "border-transparent bg-[var(--color-surface)] text-[var(--muted)]",
                     )}
                     key={step.label}
                   >
-                    <step.icon className={cn("mx-auto h-8 w-8", done ? "text-white" : active ? "text-[var(--primary)]" : "text-slate-400")} />
+                    <step.icon className={cn("mx-auto h-8 w-8", done ? "text-[var(--color-on-primary)]" : active ? "text-[var(--primary)]" : "text-[var(--color-placeholder)]")} />
                     <p className="mt-3 text-sm font-black">{step.label}</p>
-                    <p className={cn("mt-1 text-xs font-semibold", done ? "text-white/80" : "text-[var(--muted)]")}>{active ? "Ahora" : `Paso ${index + 1}`}</p>
+                    <p className={cn("mt-1 text-xs font-semibold", done ? "text-[var(--color-on-primary-muted)]" : "text-[var(--muted)]")}>{active ? "Ahora" : `Paso ${index + 1}`}</p>
                   </div>
                 );
               })}
@@ -116,7 +116,7 @@ export default async function TrackingPage({
         </Card>
 
         {deliveryArrived ? (
-          <div className="mt-6 rounded-2xl bg-sky-50 p-4 text-sm font-black text-sky-800">
+          <div className="mt-6 rounded-2xl bg-[var(--color-info-soft)] p-4 text-sm font-black text-[var(--color-info-strong)]">
             Tu repartidor ya llego a la ubicacion. Revisa tu telefono o sal a recibir el pedido.
           </div>
         ) : null}

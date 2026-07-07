@@ -20,7 +20,7 @@ export function KitchenOrderCard({ order, restaurantSlug }: { order: Order; rest
       </div>
       <div className="space-y-2">
         {order.items.map((item) => (
-          <div className="rounded-2xl bg-slate-50 p-3" key={item.id}>
+          <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={item.id}>
             <p className="font-bold text-[var(--text)]">
               {item.quantity}x {item.productName}
             </p>
@@ -28,7 +28,7 @@ export function KitchenOrderCard({ order, restaurantSlug }: { order: Order; rest
           </div>
         ))}
       </div>
-      {order.notes ? <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{order.notes}</p> : null}
+      {order.notes ? <p className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-strong)]">{order.notes}</p> : null}
       <div className="flex items-center gap-2 text-xs font-semibold text-[var(--muted)]">
         <Clock className="h-4 w-4" />
         Ingresó {formatShortTime(order.createdAt)}

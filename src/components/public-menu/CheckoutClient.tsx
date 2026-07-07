@@ -76,9 +76,9 @@ export function CheckoutClient({
     <main className="mx-auto grid max-w-7xl gap-6 px-4 pb-28 pt-8 sm:px-6 lg:grid-cols-[1fr_360px] lg:px-8">
       <section className="space-y-6">
         <SectionTitle title="Checkout" description="Datos del cliente, entrega, pago y resumen del pedido." />
-        {error ? <div className="rounded-2xl bg-red-50 p-3 text-sm font-semibold text-red-700">{errorMessage}</div> : null}
+        {error ? <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">{errorMessage}</div> : null}
         {belowMinimum ? (
-          <div className="rounded-2xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+          <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-semibold text-[var(--color-warning-strong)]">
             Pedido mínimo: {formatMoney(minOrderAmount, settings?.currency)}.
           </div>
         ) : null}

@@ -39,7 +39,7 @@ export default async function RestorationPage() {
                 <input name="returnTo" type="hidden" value="/admin/restauracion" />
                 <input
                   aria-label={`Confirmar slug ${restaurant.slug}`}
-                  className="min-h-10 rounded-2xl border border-red-200 px-3 text-sm outline-none"
+                  className="min-h-10 rounded-2xl border border-[var(--color-danger-soft)] px-3 text-sm outline-none"
                   name="confirmationSlug"
                   placeholder={`Escribe ${restaurant.slug}`}
                 />

@@ -20,13 +20,12 @@ export default async function RestaurantPublicPage({
     notFound();
   }
 
-  await publicDirectoryService.recordVisit(restaurant.id);
-
   const [settings, categories, products, configuration] = await Promise.all([
     restaurantService.getSettings(restaurant.id),
     categoryService.listByRestaurant(restaurant.id),
     productService.listAvailableByRestaurant(restaurant.id),
     productService.listConfigurationsByRestaurant(restaurant.id),
+    publicDirectoryService.recordVisit(restaurant.id).catch(() => null),
   ]);
 
   return (

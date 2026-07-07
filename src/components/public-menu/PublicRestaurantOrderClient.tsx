@@ -46,6 +46,7 @@ export function PublicRestaurantOrderClient({
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerClosing, setDrawerClosing] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "qr">("cash");
   const [requiresInvoice, setRequiresInvoice] = useState(false);
   const [fulfillmentMode, setFulfillmentMode] = useState<"now" | "scheduled">("now");
@@ -70,6 +71,7 @@ export function PublicRestaurantOrderClient({
     }
     return products.filter((product) => product.categoryId === selectedCategory);
   }, [products, selectedCategory]);
+  const selectedCategoryName = selectedCategory === "all" ? "Todo el menu" : (categories.find((category) => category.id === selectedCategory)?.name ?? "Categoria");
 
   const cartQuantity = cart.reduce((total, item) => total + item.quantity, 0);
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -114,6 +116,19 @@ export function PublicRestaurantOrderClient({
     );
   }
 
+  function openDrawer() {
+    setDrawerClosing(false);
+    setDrawerOpen(true);
+  }
+
+  function requestCloseDrawer() {
+    setDrawerClosing(true);
+    window.setTimeout(() => {
+      setDrawerOpen(false);
+      setDrawerClosing(false);
+    }, 210);
+  }
+
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--text)]" style={publicBackgroundStyle}>
       <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--color-card-elevated)]/95 text-[var(--text)] shadow-[var(--shadow-card)] backdrop-blur-xl">
@@ -138,7 +153,7 @@ export function PublicRestaurantOrderClient({
             <Link className="hidden rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:inline-flex" href={`/r/${restaurant.slug}/seguimiento`}>
               Rastrear pedido
             </Link>
-            <button className="relative inline-flex h-11 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)]" onClick={() => setDrawerOpen(true)} type="button">
+            <button className="relative inline-flex h-11 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)]" onClick={openDrawer} type="button">
               <ShoppingCart className="h-5 w-5" />
               <span className="hidden text-sm font-black md:inline">Tu pedido</span>
               {cartQuantity ? <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--primary)] text-[10px] font-black text-[var(--color-on-primary)]">{cartQuantity}</span> : null}
@@ -214,13 +229,28 @@ export function PublicRestaurantOrderClient({
           </div>
 
           <div className="sticky top-[73px] z-20 -mx-3 mb-4 border-y border-[var(--border)] bg-[var(--color-card-elevated)] px-3 py-3 shadow-sm backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border" id="catalogo">
-            <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className="flex snap-x gap-2 overflow-x-auto pb-1">
               <CategoryButton active={selectedCategory === "all"} label="Todo" onClick={() => setSelectedCategory("all")} />
               {categories.map((category) => (
                 <CategoryButton active={selectedCategory === category.id} key={category.id} label={category.name} onClick={() => setSelectedCategory(category.id)} />
               ))}
             </div>
           </div>
+
+          {selectedCategory !== "all" ? (
+            <div className="public-sheet-enter mb-4 rounded-[1.5rem] border border-[var(--border)] bg-[linear-gradient(135deg,var(--primary)_0%,var(--primary-dark)_100%)] p-4 text-[var(--color-on-primary)] shadow-[var(--shadow-card)]">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">Categoria activa</p>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="truncate text-2xl font-black">{selectedCategoryName}</h2>
+                  <p className="mt-1 text-sm font-semibold text-[var(--color-on-primary-muted)]">{filteredProducts.length} productos disponibles</p>
+                </div>
+                <button className="shrink-0 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-black text-[var(--primary)]" onClick={() => setSelectedCategory("all")} type="button">
+                  Ver todo
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {filteredProducts.map((product) => (
@@ -232,7 +262,7 @@ export function PublicRestaurantOrderClient({
         </section>
       </div>
 
-      <button className="fixed bottom-3 left-14 right-3 z-40 flex min-h-14 items-center justify-between gap-3 rounded-2xl bg-[var(--primary)] px-4 py-3 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl ring-1 ring-[var(--color-on-primary-border-strong)] sm:left-4 lg:hidden" onClick={() => setDrawerOpen(true)} type="button">
+      <button className="fixed bottom-3 left-14 right-3 z-40 flex min-h-14 items-center justify-between gap-3 rounded-2xl bg-[var(--primary)] px-4 py-3 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl ring-1 ring-[var(--color-on-primary-border-strong)] sm:left-4 lg:hidden" onClick={openDrawer} type="button">
         <span className="inline-flex min-w-0 items-center gap-3">
           <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-[var(--primary)] shadow-sm">
             <ShoppingCart className="h-5 w-5" />
@@ -247,11 +277,11 @@ export function PublicRestaurantOrderClient({
       </button>
 
       {drawerOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden bg-[var(--color-overlay)] px-2 pb-2 pt-16 backdrop-blur-sm sm:items-center sm:p-4">
-          <div className="max-h-[min(92dvh,760px)] w-full max-w-[min(100%,560px)] overflow-hidden rounded-[1.35rem] bg-[var(--surface)] text-[var(--text)] shadow-2xl" data-order-sheet>
+        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden bg-[var(--color-overlay)] px-2 pb-2 pt-16 backdrop-blur-sm sm:items-center sm:p-4" onClick={requestCloseDrawer}>
+          <div className={cn("max-h-[min(92dvh,760px)] w-full max-w-[min(100%,560px)] overflow-hidden rounded-t-[1.5rem] bg-[var(--surface)] text-[var(--text)] shadow-2xl sm:rounded-[1.35rem]", drawerClosing ? "public-sheet-exit" : "public-sheet-enter")} data-order-sheet onClick={(event) => event.stopPropagation()}>
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
               <h2 className="min-w-0 truncate text-xl font-black sm:text-2xl">Tu pedido</h2>
-              <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={() => setDrawerOpen(false)} type="button">
+              <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={requestCloseDrawer} type="button">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -301,7 +331,7 @@ function OrderErrorMessage({ error }: { error: string }) {
 
 function CategoryButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
-    <button className={cn("h-11 shrink-0 rounded-full px-4 text-sm font-black transition", active ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "bg-[var(--primary-light)] text-[var(--muted)] hover:text-[var(--primary-dark)]")} onClick={onClick} type="button">
+    <button className={cn("h-11 shrink-0 snap-start rounded-full px-4 text-sm font-black transition", active ? "bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]" : "bg-[var(--primary-light)] text-[var(--muted)] hover:text-[var(--primary-dark)]")} onClick={onClick} type="button">
       {label}
     </button>
   );
@@ -363,6 +393,7 @@ function ProductOptionModal({
     }
     return initial;
   });
+  const [isClosing, setIsClosing] = useState(false);
 
   const selectedVariant = variants.find((variant) => variant.id === variantId) ?? null;
   const flatOptions = optionGroups.flatMap((group) => group.options);
@@ -390,16 +421,21 @@ function ProductOptionModal({
     });
   }
 
+  function requestClose() {
+    setIsClosing(true);
+    window.setTimeout(onClose, 210);
+  }
+
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">
-      <div className="max-h-[94vh] w-full overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[1.5rem]">
+    <div className="fixed inset-0 z-[60] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4" onClick={requestClose}>
+      <div className={cn("max-h-[94vh] w-full overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[1.5rem]", isClosing ? "public-sheet-exit" : "public-sheet-enter")} onClick={(event) => event.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] p-4">
           <div>
             <p className="text-xs font-black uppercase text-[var(--primary)]">Personalizar</p>
             <h2 className="text-2xl font-black">{product.name}</h2>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Precio base {formatMoney(product.price)}</p>
           </div>
-          <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)] hover:bg-[var(--color-neutral-200)]" onClick={onClose} type="button">
+          <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)] hover:bg-[var(--color-neutral-200)]" onClick={requestClose} type="button">
             <X className="h-5 w-5" />
           </button>
         </div>

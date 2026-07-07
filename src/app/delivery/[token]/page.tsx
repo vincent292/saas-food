@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { Bike, CheckCircle2, Clock3, MapPinned, MessageCircle, Phone, ReceiptText, Route, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import { markDeliveryArrivedAction, markDeliveryDeliveredAction } from "@/app/delivery/actions";
+import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -52,9 +53,12 @@ export default async function DeliveryOrderPage({
   const waUrl = whatsappHref(order.customerPhone, order.orderNumber);
 
   return (
-    <main className="min-h-screen bg-[var(--background)] px-4 py-5 text-[var(--text)] sm:px-6">
+    <main className="public-brand-theme min-h-screen bg-[var(--background)] px-4 py-5 text-[var(--text)] sm:px-6">
       <div className="mx-auto max-w-3xl space-y-4">
-        <section className="rounded-[1.5rem] bg-[var(--color-neutral-900)] p-5 text-[var(--color-on-primary)] shadow-xl">
+        <div className="flex justify-end">
+          <PublicThemeToggle />
+        </div>
+        <section className="rounded-[1.5rem] bg-[linear-gradient(145deg,var(--primary)_0%,var(--primary-dark)_100%)] p-5 text-[var(--color-on-primary)] shadow-xl">
           <div className="flex items-start justify-between gap-4">
             <div>
               <Badge className="bg-[var(--surface)]/10 text-[var(--color-on-primary)]">
@@ -64,7 +68,7 @@ export default async function DeliveryOrderPage({
               <h1 className="mt-4 text-3xl font-black leading-tight">Pedido {order.orderNumber}</h1>
               <p className="mt-2 text-sm font-semibold text-[var(--color-on-primary-muted)]">{order.restaurantName}</p>
             </div>
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--surface)] text-[var(--color-heading)]">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]">
               <Route className="h-6 w-6" />
             </span>
           </div>
@@ -98,7 +102,7 @@ export default async function DeliveryOrderPage({
           </div>
 
           <div className="grid gap-2 sm:grid-cols-3">
-            <a className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-black text-[var(--color-on-primary)]" href={mapUrl} rel="noreferrer" target="_blank">
+            <a className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-4 text-sm font-black text-[var(--primary)] shadow-[var(--shadow-glow)]" href={mapUrl} rel="noreferrer" target="_blank">
               <MapPinned className="h-4 w-4" />
               Abrir Maps
             </a>

@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
   ArrowRight,
   Beef,
@@ -26,6 +26,7 @@ import {
   Utensils,
 } from "lucide-react";
 import { HomeHeroVisual } from "@/components/home/HomeHeroVisual";
+import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { publicDirectoryService, type PublicDishCard, type PublicRestaurantCard } from "@/lib/services/public-directory.service";
@@ -33,56 +34,6 @@ import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
 
 const defaultImage = "/imagendefault.jpeg";
-const homeTheme = {
-  "--primary": "#12355B",
-  "--primary-dark": "#0B2745",
-  "--primary-light": "#EAF2F8",
-  "--accent": "#C7F000",
-  "--accent-soft": "#F6FFD5",
-  "--accent-ring": "rgb(199 240 0 / 0.32)",
-  "--background": "#FFFFFF",
-  "--surface": "#FFFFFF",
-  "--text": "#1C1C1C",
-  "--muted": "#6B7280",
-  "--border": "#E5E7EB",
-  "--foreground": "#1C1C1C",
-  "--color-background": "#FFFFFF",
-  "--color-surface": "#F8FAFC",
-  "--color-card": "#FFFFFF",
-  "--color-input": "#F8FAFC",
-  "--color-hover": "#EAF2F8",
-  "--color-focus": "#C7F000",
-  "--color-heading": "#1C1C1C",
-  "--color-body": "#1C1C1C",
-  "--color-secondary-text": "#6B7280",
-  "--color-placeholder": "#94A3B8",
-  "--color-disabled": "#CBD5E1",
-  "--color-success": "#22C55E",
-  "--color-success-soft": "#ECFDF5",
-  "--color-success-strong": "#15803D",
-  "--color-warning": "#F59E0B",
-  "--color-warning-soft": "#FFFBEB",
-  "--color-warning-strong": "#B45309",
-  "--color-danger": "#EF4444",
-  "--color-danger-soft": "#FEF2F2",
-  "--color-danger-strong": "#B91C1C",
-  "--color-on-primary": "#FFFFFF",
-  "--color-on-primary-muted": "rgb(255 255 255 / 0.82)",
-  "--color-on-primary-soft": "rgb(199 240 0 / 0.14)",
-  "--color-on-primary-border": "rgb(199 240 0 / 0.28)",
-  "--color-on-primary-border-strong": "rgb(199 240 0 / 0.44)",
-  "--color-image-overlay-strong": "rgb(18 53 91 / 0.78)",
-  "--color-image-overlay-medium": "rgb(18 53 91 / 0.28)",
-  "--color-image-overlay-none": "rgb(18 53 91 / 0)",
-  "--shadow-card": "0 18px 45px rgb(18 53 91 / 0.08)",
-  "--shadow-primary": "0 16px 36px rgb(18 53 91 / 0.22)",
-  "--shadow-panel": "0 24px 60px rgb(18 53 91 / 0.12)",
-  "--shadow-focus": "0 0 0 4px rgb(199 240 0 / 0.26)",
-  "--shadow-glow": "0 0 28px rgb(199 240 0 / 0.28)",
-  "--success": "#22C55E",
-  "--warning": "#F59E0B",
-  "--danger": "#EF4444",
-} as CSSProperties;
 
 export default async function Home({
   searchParams,
@@ -97,9 +48,18 @@ export default async function Home({
   const heroRestaurantImage = heroRestaurants.find((card) => isImageSrc(card.restaurant.logoUrl))?.restaurant.logoUrl;
   const heroImage = heroDishImage || heroRestaurantImage || defaultImage;
   const heroRestaurantName = heroRestaurants[0]?.restaurant.name || "Restaurantes activos";
+  const normalizedSearch = q.trim().toLowerCase();
+  const quickRestaurants = normalizedSearch
+    ? directory.restaurants
+        .filter((card) => `${card.restaurant.name} ${card.restaurant.city ?? ""} ${card.categories.join(" ")}`.toLowerCase().includes(normalizedSearch))
+        .slice(0, 4)
+    : [];
+  const quickCategories = normalizedSearch
+    ? directory.categoryCards.filter((category) => `${category.label} ${category.value}`.toLowerCase().includes(normalizedSearch)).slice(0, 4)
+    : [];
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#FFFFFF_0%,#F8FAFC_48%,#FFFFFF_100%)] text-[var(--color-heading)]" style={homeTheme}>
+    <main className="public-brand-theme min-h-screen bg-[linear-gradient(180deg,var(--background)_0%,var(--color-surface)_48%,var(--background)_100%)] text-[var(--color-heading)]">
       <header className="sticky top-0 z-40 border-b border-[var(--color-on-primary-border)] bg-[linear-gradient(90deg,#082441_0%,#12355B_62%,#082441_100%)] text-[var(--color-on-primary)] shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center gap-3 rounded-full font-black outline-none transition focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/">
@@ -122,10 +82,13 @@ export default async function Home({
               Platos
             </Link>
           </nav>
-          <Link className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--surface)] px-4 text-sm font-black text-[var(--primary)] shadow-sm transition hover:bg-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] active:scale-[0.98]" href="/admin/login">
-            <LogIn className="h-4 w-4" />
-            Admin
-          </Link>
+          <div className="flex items-center gap-2">
+            <PublicThemeToggle compact />
+            <Link className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--surface)] px-4 text-sm font-black text-[var(--primary)] shadow-sm transition hover:bg-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] active:scale-[0.98]" href="/admin/login">
+              <LogIn className="h-4 w-4" />
+              Admin
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -145,7 +108,7 @@ export default async function Home({
                 Explora restaurantes activos, mira los mas visitados de la semana y entra directo al menu para pedir delivery o recojo.
               </p>
 
-              <form className="mt-6 grid gap-2 rounded-[1.35rem] border border-[var(--border)] bg-[var(--color-surface)] p-2 text-[var(--color-heading)] shadow-sm lg:grid-cols-[minmax(0,1fr)_190px_170px_auto]" action="/">
+              <form className="mt-6 grid gap-2 rounded-[1.35rem] border border-[var(--border)] bg-[var(--color-surface)] p-2 text-[var(--color-heading)] shadow-sm lg:grid-cols-[minmax(0,1fr)_190px_auto]" action="/">
                 <label className="flex min-h-12 items-center gap-3 rounded-2xl bg-[var(--surface)] px-3 ring-1 ring-[var(--border)]">
                   <Search className="h-5 w-5 shrink-0 text-[var(--color-placeholder)]" />
                   <input
@@ -155,14 +118,6 @@ export default async function Home({
                     placeholder="Buscar restaurante, ciudad o categoria"
                   />
                 </label>
-                <select className="min-h-12 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[var(--accent-ring)]" defaultValue={categoria} name="categoria">
-                  <option value="">Todas las categorias</option>
-                  {directory.categoryCards.map((category) => (
-                    <option key={category.value} value={category.value}>
-                      {category.label}
-                    </option>
-                  ))}
-                </select>
                 <select className="min-h-12 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[var(--accent-ring)]" defaultValue={ubicacion} name="ubicacion">
                   <option value="">Todas las ciudades</option>
                   {directory.locations.map((location) => (
@@ -175,6 +130,20 @@ export default async function Home({
                   Buscar
                 </button>
               </form>
+              {normalizedSearch ? (
+                <div className="mt-3 grid gap-2 rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[var(--shadow-card)] sm:grid-cols-2">
+                  {[...quickRestaurants.map((card) => ({ kind: "restaurant" as const, label: card.restaurant.name, detail: card.restaurant.city || card.categories[0] || "Menu online", href: `/r/${card.restaurant.slug}` })), ...quickCategories.map((category) => ({ kind: "category" as const, label: category.label, detail: `${category.count || "Nuevos"} restaurantes`, href: `/?${new URLSearchParams({ ...(q ? { q } : {}), ...(ubicacion ? { ubicacion } : {}), categoria: category.value }).toString()}` }))].map((result) => (
+                    <Link className="flex items-center justify-between gap-3 rounded-2xl bg-[var(--color-surface)] px-3 py-2 text-sm font-black text-[var(--primary)] ring-1 ring-[var(--border)] transition hover:bg-[var(--accent-soft)]" href={result.href} key={`${result.kind}-${result.href}`}>
+                      <span className="min-w-0">
+                        <span className="block truncate">{result.label}</span>
+                        <span className="block truncate text-xs font-semibold text-[var(--color-secondary-text)]">{result.detail}</span>
+                      </span>
+                      <ArrowRight className="h-4 w-4 shrink-0" />
+                    </Link>
+                  ))}
+                  {!quickRestaurants.length && !quickCategories.length ? <p className="text-sm font-semibold text-[var(--color-secondary-text)] sm:col-span-2">No encontramos coincidencias rapidas. Prueba con otro nombre.</p> : null}
+                </div>
+              ) : null}
             </div>
 
             <HomeHeroVisual imageSrc={heroImage} restaurantName={heroRestaurantName} />
@@ -197,7 +166,8 @@ export default async function Home({
               Ver todas
             </Link>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+          <div className="public-scrollbar -mx-4 mt-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
+            <div className="flex snap-x gap-3 pr-3">
             {directory.categoryCards.map((category) => {
               const params = new URLSearchParams();
               if (q) params.set("q", q);
@@ -205,6 +175,7 @@ export default async function Home({
               params.set("categoria", category.value);
               return <CategoryImageCard active={categoria === category.value} category={category} href={`/?${params.toString()}`} key={category.value} />;
             })}
+            </div>
           </div>
         </section>
 
@@ -294,17 +265,33 @@ function CategoryImageCard({
   return (
     <Link
       className={cn(
-        "group flex min-h-24 flex-col items-center justify-center gap-2 rounded-[1.15rem] border bg-[var(--surface)] p-3 text-center shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
+        "group flex min-h-24 w-28 shrink-0 flex-col items-center justify-center gap-2 rounded-[1.15rem] border bg-[var(--surface)] p-3 text-center shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
         active ? "border-[var(--accent)] bg-[var(--accent-soft)] ring-4 ring-[var(--accent-ring)]" : "border-[var(--border)]",
       )}
       href={href}
     >
-      <div className={cn("grid h-14 w-14 place-items-center rounded-2xl bg-[var(--primary-light)] text-[var(--primary)] ring-1 ring-[var(--border)] transition group-hover:bg-[var(--accent)] group-hover:shadow-[var(--shadow-glow)]", active && "bg-[var(--accent)] shadow-[var(--shadow-glow)]")}>
+      <div className={cn("grid h-14 w-14 place-items-center rounded-2xl ring-1 ring-[var(--border)] transition group-hover:shadow-[var(--shadow-glow)]", categoryIconTone(category.value, category.label), active && "bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]")}>
         <CategoryIcon label={category.label} value={category.value} />
       </div>
       <span className="block w-full truncate text-[11px] font-black text-[var(--primary)]">{category.label}</span>
     </Link>
   );
+}
+
+function categoryIconTone(value: string, label: string) {
+  const text = `${value} ${label}`.toLowerCase();
+
+  if (text.includes("hamb") || text.includes("burger") || text.includes("carne")) return "bg-amber-100 text-amber-700";
+  if (text.includes("pizza")) return "bg-orange-100 text-orange-700";
+  if (text.includes("sushi") || text.includes("japon")) return "bg-rose-100 text-rose-700";
+  if (text.includes("beb") || text.includes("refresco") || text.includes("drink")) return "bg-sky-100 text-sky-700";
+  if (text.includes("post") || text.includes("dulce") || text.includes("helad")) return "bg-pink-100 text-pink-700";
+  if (text.includes("ensal") || text.includes("salud") || text.includes("vegan")) return "bg-emerald-100 text-emerald-700";
+  if (text.includes("pollo")) return "bg-yellow-100 text-yellow-700";
+  if (text.includes("cafe") || text.includes("coffee")) return "bg-stone-100 text-stone-700";
+  if (text.includes("sand") || text.includes("combo")) return "bg-cyan-100 text-cyan-700";
+
+  return "bg-lime-100 text-[var(--primary)]";
 }
 
 function CategoryIcon({ value, label }: { value: string; label: string }) {

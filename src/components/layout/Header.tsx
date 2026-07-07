@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ShoppingCart, Store } from "lucide-react";
+import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import type { Restaurant } from "@/types/restaurant.types";
@@ -9,10 +10,10 @@ export function Header({ restaurant, cartCount = 0, showCart = true }: { restaur
   const hasLogoImage = restaurant.logoUrl.startsWith("http");
 
   return (
-    <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--color-card-glass)] backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--color-card-elevated)] shadow-[var(--shadow-card)] backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
         <Link className="flex items-center gap-3" href={`/r/${restaurant.slug}`}>
-          <span className="relative grid h-11 w-11 overflow-hidden rounded-2xl bg-[var(--primary)] text-sm font-black text-[var(--color-on-primary)]">
+          <span className="relative grid h-11 w-11 overflow-hidden rounded-2xl bg-[var(--primary)] text-sm font-black text-[var(--color-on-primary)] ring-1 ring-[var(--border)]">
             {hasLogoImage ? <Image alt={restaurant.name} className="object-cover" fill sizes="44px" src={restaurant.logoUrl} /> : <span className="grid place-items-center">{restaurant.logoUrl}</span>}
           </span>
           <span>
@@ -24,7 +25,8 @@ export function Header({ restaurant, cartCount = 0, showCart = true }: { restaur
           </span>
         </Link>
         <div className="flex items-center gap-2">
-          <Badge className="hidden sm:inline-flex">Abierto hoy</Badge>
+          <PublicThemeToggle compact />
+          <Badge className="hidden bg-[var(--accent)] text-[var(--primary)] sm:inline-flex">Abierto hoy</Badge>
           {showCart ? (
             <Link className={buttonClasses("secondary", "relative h-11 w-11 px-0")} href={`/r/${restaurant.slug}/checkout`} title="Carrito">
               <ShoppingCart className="h-5 w-5" />

@@ -1,7 +1,31 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { ArrowRight, Flame, Headphones, LogIn, Search, ShieldCheck, Sparkles, Star, Store, TrendingUp, Truck, Utensils } from "lucide-react";
+import {
+  ArrowRight,
+  Beef,
+  Coffee,
+  CupSoda,
+  Drumstick,
+  Flame,
+  Headphones,
+  IceCreamBowl,
+  LeafyGreen,
+  LogIn,
+  Pizza,
+  Salad,
+  Sandwich,
+  Search,
+  ShieldCheck,
+  Soup,
+  Sparkles,
+  Star,
+  Store,
+  TrendingUp,
+  Truck,
+  Utensils,
+} from "lucide-react";
+import { HomeHeroVisual } from "@/components/home/HomeHeroVisual";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { publicDirectoryService, type PublicDishCard, type PublicRestaurantCard } from "@/lib/services/public-directory.service";
@@ -72,6 +96,7 @@ export default async function Home({
   const heroDishImage = directory.mostOrderedDishes.find((dish) => dish.imageUrl)?.imageUrl;
   const heroRestaurantImage = heroRestaurants.find((card) => isImageSrc(card.restaurant.logoUrl))?.restaurant.logoUrl;
   const heroImage = heroDishImage || heroRestaurantImage || defaultImage;
+  const heroRestaurantName = heroRestaurants[0]?.restaurant.name || "Restaurantes activos";
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#FFFFFF_0%,#F8FAFC_48%,#FFFFFF_100%)] text-[var(--color-heading)]" style={homeTheme}>
@@ -104,19 +129,19 @@ export default async function Home({
         </div>
       </header>
 
-      <section className="bg-[linear-gradient(180deg,#12355B_0%,#12355B_58%,#FFFFFF_58%,#FFFFFF_100%)] px-4 pb-6 pt-5 text-[var(--color-heading)] sm:px-6 lg:px-8">
+      <section className="bg-[var(--primary)] px-4 pb-6 pt-5 text-[var(--color-heading)] sm:px-6 lg:bg-[var(--surface)] lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <div className="relative overflow-hidden rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--shadow-panel)] sm:p-6 lg:grid lg:grid-cols-[minmax(0,1fr)_430px] lg:gap-8 lg:p-8">
+          <div className="relative overflow-hidden rounded-[2rem] border border-[var(--color-on-primary-border)] bg-[var(--primary)] p-4 shadow-[var(--shadow-panel)] sm:p-6 lg:grid lg:grid-cols-[minmax(0,1fr)_430px] lg:gap-8 lg:border-[var(--border)] lg:bg-[var(--surface)] lg:p-8">
             <div className="pointer-events-none absolute right-10 top-8 hidden h-24 w-24 rounded-full bg-[var(--accent)] opacity-20 blur-2xl lg:block" />
             <div className="relative z-10">
               <span className="inline-flex items-center gap-2 rounded-full bg-[var(--accent-soft)] px-4 py-2 text-sm font-black text-[var(--primary)] ring-1 ring-[var(--accent-ring)]">
                 <Sparkles className="h-4 w-4" />
                 Restaurantes vinculados
               </span>
-              <h1 className="mt-5 max-w-3xl text-4xl font-black leading-tight text-[var(--primary)] sm:text-6xl">
+              <h1 className="mt-5 max-w-3xl text-4xl font-black leading-tight text-white lg:text-[var(--primary)] sm:text-6xl">
                 Comida deliciosa, <span className="text-[#BCE600]">lista para pedir</span>
               </h1>
-              <p className="mt-4 max-w-2xl text-base font-semibold leading-7 text-[var(--color-secondary-text)]">
+              <p className="mt-4 max-w-2xl text-base font-semibold leading-7 text-white/78 lg:text-[var(--color-secondary-text)]">
                 Explora restaurantes activos, mira los mas visitados de la semana y entra directo al menu para pedir delivery o recojo.
               </p>
 
@@ -152,24 +177,7 @@ export default async function Home({
               </form>
             </div>
 
-            <div className="relative mt-6 min-h-[280px] overflow-hidden rounded-[1.75rem] bg-[var(--primary)] lg:mt-0">
-              <div className="absolute right-5 top-5 z-10 grid h-12 w-12 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]">
-                <ArrowRight className="h-5 w-5 rotate-45" />
-              </div>
-              <div className="absolute left-5 top-5 z-10 grid grid-cols-4 gap-1.5 opacity-70">
-                {Array.from({ length: 16 }).map((_, index) => (
-                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" key={index} />
-                ))}
-              </div>
-              <Image alt="Comida destacada" className="h-full w-full object-cover opacity-95" fill priority sizes="(min-width:1024px) 430px, 100vw" src={heroImage} />
-              <div className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-strong)] via-transparent to-transparent" />
-              <div className="absolute bottom-4 left-4 right-4 rounded-[1.25rem] bg-white/92 p-4 backdrop-blur">
-                <p className="text-sm font-black text-[var(--primary)]">Listo para ordenar</p>
-                <p className="mt-1 line-clamp-1 text-xs font-semibold text-[var(--color-secondary-text)]">
-                  {heroRestaurants[0]?.restaurant.name || "Restaurantes activos"} en un solo directorio.
-                </p>
-              </div>
-            </div>
+            <HomeHeroVisual imageSrc={heroImage} restaurantName={heroRestaurantName} />
           </div>
 
           <div className="mt-4 grid gap-3 rounded-[1.5rem] border border-[var(--border)] bg-white/95 p-3 shadow-[var(--shadow-card)] sm:grid-cols-2 lg:grid-cols-4">
@@ -286,17 +294,36 @@ function CategoryImageCard({
   return (
     <Link
       className={cn(
-        "group flex min-h-28 flex-col items-center justify-center gap-2 rounded-[1.15rem] border bg-[var(--surface)] p-3 text-center shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
+        "group flex min-h-24 flex-col items-center justify-center gap-2 rounded-[1.15rem] border bg-[var(--surface)] p-3 text-center shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
         active ? "border-[var(--accent)] bg-[var(--accent-soft)] ring-4 ring-[var(--accent-ring)]" : "border-[var(--border)]",
       )}
       href={href}
     >
-      <div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-[var(--primary-light)] ring-1 ring-[var(--border)]">
-        <Image alt={category.label} className="object-cover transition duration-300 group-hover:scale-110" fill sizes="56px" src={category.imageUrl || defaultImage} />
+      <div className={cn("grid h-14 w-14 place-items-center rounded-2xl bg-[var(--primary-light)] text-[var(--primary)] ring-1 ring-[var(--border)] transition group-hover:bg-[var(--accent)] group-hover:shadow-[var(--shadow-glow)]", active && "bg-[var(--accent)] shadow-[var(--shadow-glow)]")}>
+        <CategoryIcon label={category.label} value={category.value} />
       </div>
-      <span className="block w-full truncate text-xs font-black text-[var(--primary)]">{category.label}</span>
+      <span className="block w-full truncate text-[11px] font-black text-[var(--primary)]">{category.label}</span>
     </Link>
   );
+}
+
+function CategoryIcon({ value, label }: { value: string; label: string }) {
+  const text = `${value} ${label}`.toLowerCase();
+  const className = "h-7 w-7";
+
+  if (text.includes("hamb") || text.includes("burger") || text.includes("carne")) return <Beef className={className} />;
+  if (text.includes("pizza")) return <Pizza className={className} />;
+  if (text.includes("sushi") || text.includes("japon")) return <Soup className={className} />;
+  if (text.includes("beb") || text.includes("refresco") || text.includes("drink")) return <CupSoda className={className} />;
+  if (text.includes("post") || text.includes("dulce") || text.includes("helad")) return <IceCreamBowl className={className} />;
+  if (text.includes("ensal")) return <Salad className={className} />;
+  if (text.includes("salud") || text.includes("vegan")) return <LeafyGreen className={className} />;
+  if (text.includes("pollo")) return <Drumstick className={className} />;
+  if (text.includes("cafe") || text.includes("coffee")) return <Coffee className={className} />;
+  if (text.includes("sand") || text.includes("combo")) return <Sandwich className={className} />;
+  if (text.includes("sopa")) return <Soup className={className} />;
+
+  return <Utensils className={className} />;
 }
 
 function isImageSrc(value?: string | null) {

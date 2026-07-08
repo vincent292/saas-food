@@ -8,23 +8,18 @@ import {
   CupSoda,
   Drumstick,
   Flame,
-  Headphones,
   IceCreamBowl,
   LeafyGreen,
   LogIn,
   Pizza,
   Salad,
   Sandwich,
-  ShieldCheck,
   Soup,
-  Sparkles,
   Star,
   Store,
   TrendingUp,
-  Truck,
   Utensils,
 } from "lucide-react";
-import { HomeHeroVisual } from "@/components/home/HomeHeroVisual";
 import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { buttonClasses } from "@/components/ui/Button";
@@ -47,14 +42,13 @@ export default async function Home({
   const [baseDirectory, directory] = await Promise.all([baseDirectoryPromise, directoryPromise]);
   const heroRestaurants = baseDirectory.mostVisited.length ? baseDirectory.mostVisited : baseDirectory.restaurants.slice(0, 6);
   const selectedCategoryLabel = baseDirectory.categoryCards.find((category) => category.value === categoria)?.label ?? categoria;
-  const heroDishImage = baseDirectory.dishSuggestions.find((dish) => dish.imageUrl)?.imageUrl;
-  const heroRestaurantImage = heroRestaurants.find((card) => isImageSrc(card.restaurant.logoUrl))?.restaurant.logoUrl;
-  const heroImage = heroDishImage || heroRestaurantImage || defaultImage;
-  const heroRestaurantName = heroRestaurants[0]?.restaurant.name || "Restaurantes activos";
+  const featuredRestaurant = heroRestaurants[0];
+  const featuredDish = baseDirectory.mostOrderedDishes[0] ?? baseDirectory.dishSuggestions[0];
+  const featuredCategory = baseDirectory.categoryCards[0];
 
   return (
     <main className="public-brand-theme min-h-screen bg-[linear-gradient(180deg,var(--background)_0%,var(--color-surface)_48%,var(--background)_100%)] text-[var(--color-heading)]">
-      <header className="sticky top-0 z-40 border-b border-[var(--color-on-primary-border)] bg-[linear-gradient(90deg,#082441_0%,#12355B_62%,#082441_100%)] text-[var(--color-on-primary)] shadow-sm">
+      <header className="public-site-header sticky top-0 z-40 border-b border-[var(--color-on-primary-border)] bg-[linear-gradient(90deg,#082441_0%,#12355B_62%,#082441_100%)] text-[var(--color-on-primary)] shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center gap-3 rounded-full font-black outline-none transition focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]">
@@ -86,22 +80,16 @@ export default async function Home({
         </div>
       </header>
 
-      <section className="bg-[linear-gradient(180deg,#082441_0%,#12355B_58%,#F8FAFC_58%,#FFFFFF_100%)] px-4 pb-6 pt-5 text-[var(--color-heading)] sm:px-6 lg:px-8">
+      <section className="bg-[linear-gradient(180deg,#082441_0%,#12355B_68%,#F8FAFC_68%,#FFFFFF_100%)] px-4 pb-6 pt-4 text-[var(--color-heading)] sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <div className="relative overflow-visible rounded-[2rem] border border-white/20 bg-white p-4 shadow-[0_26px_80px_rgb(8_36_65_/_0.18)] sm:p-6 lg:grid lg:grid-cols-[minmax(0,1fr)_430px] lg:gap-8 lg:p-8">
-            <div className="relative z-20">
-              <span className="inline-flex items-center gap-2 rounded-full bg-[var(--accent-soft)] px-4 py-2 text-xs font-black text-[var(--primary)] ring-1 ring-[var(--accent-ring)]">
-                <Sparkles className="h-4 w-4" />
-                Listo para ordenar
-              </span>
-              <h1 className="mt-5 max-w-3xl text-4xl font-black leading-[0.98] text-[var(--primary)] sm:text-6xl">
-                Pide lo que quieras, <span className="text-[#78A900]">donde quieras</span>
-              </h1>
-              <p className="mt-4 max-w-2xl text-base font-semibold leading-7 text-[var(--color-secondary-text)]">
-                Busca un plato, una categoria o tu restaurante favorito. Entra al menu y arma tu pedido en pocos toques.
-              </p>
-
-              <div className="mt-6">
+          <div className="relative overflow-hidden rounded-[2rem] border border-white/14 bg-[linear-gradient(135deg,#082441_0%,#12355B_60%,#071E36_100%)] p-4 text-white shadow-[0_28px_90px_rgb(8_36_65_/_0.28)] sm:p-5 lg:grid lg:grid-cols-[minmax(0,1fr)_390px] lg:gap-5 lg:p-6">
+            <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[var(--accent)]/18 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-32 left-1/4 h-72 w-72 rounded-full bg-sky-300/10 blur-3xl" />
+            <div className="relative z-10 min-w-0">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--accent)]">Delivery online</p>
+              <h1 className="mt-2 max-w-2xl text-3xl font-black leading-tight sm:text-4xl lg:text-5xl">Pide lo que quieras, donde quieras</h1>
+              <p className="mt-2 max-w-xl text-sm font-semibold text-white/76 sm:text-base">Busca restaurantes, platos o categorias y abre resultados en tiempo real.</p>
+              <div className="mt-5 max-w-3xl">
                 <HomeSearchAutocomplete
                   categories={baseDirectory.categoryCards}
                   dishes={baseDirectory.dishSuggestions}
@@ -113,14 +101,38 @@ export default async function Home({
               </div>
             </div>
 
-            <HomeHeroVisual imageSrc={heroImage} restaurantName={heroRestaurantName} />
-          </div>
+            <div className="relative z-10 mt-5 grid grid-cols-2 gap-3 lg:mt-0">
+              <Link className="group overflow-hidden rounded-[1.45rem] bg-white p-2 text-[var(--primary)] shadow-[0_18px_45px_rgb(2_10_18_/_0.18)] ring-1 ring-white/60 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={featuredRestaurant ? `/r/${featuredRestaurant.restaurant.slug}` : "#restaurantes"}>
+                <span className="relative block h-28 overflow-hidden rounded-[1.1rem] bg-[var(--primary-light)]">
+                  <Image alt={featuredRestaurant?.restaurant.name ?? "Restaurantes"} className="object-cover transition duration-300 group-hover:scale-105" fill sizes="(min-width:1024px) 190px, 45vw" src={featuredRestaurant && isImageSrc(featuredRestaurant.restaurant.logoUrl || featuredRestaurant.restaurant.bannerUrl) ? (featuredRestaurant.restaurant.logoUrl || featuredRestaurant.restaurant.bannerUrl || defaultImage) : defaultImage} />
+                </span>
+                <span className="mt-3 flex items-center justify-between gap-2 px-1 pb-1 text-sm font-black">
+                  Restaurantes
+                  <ArrowRight className="h-4 w-4" />
+                </span>
+              </Link>
 
-          <div className="mt-4 grid gap-3 rounded-[1.5rem] border border-[var(--border)] bg-white/95 p-3 shadow-[var(--shadow-card)] sm:grid-cols-2 lg:grid-cols-4">
-            <FeaturePill icon={<Truck className="h-5 w-5" />} label="Envio rapido" text="En minutos" />
-            <FeaturePill icon={<ShieldCheck className="h-5 w-5" />} label="Pago seguro" text="100% protegido" />
-            <FeaturePill icon={<Utensils className="h-5 w-5" />} label="Los mejores" text="Restaurantes" />
-            <FeaturePill icon={<Headphones className="h-5 w-5" />} label="Soporte" text="Siempre contigo" />
+              <Link className="group overflow-hidden rounded-[1.45rem] bg-white p-2 text-[var(--primary)] shadow-[0_18px_45px_rgb(2_10_18_/_0.18)] ring-1 ring-white/60 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={featuredDish ? `/r/${featuredDish.restaurantSlug}` : "#platos"}>
+                <span className="relative block h-28 overflow-hidden rounded-[1.1rem] bg-[var(--primary-light)]">
+                  <Image alt={featuredDish?.name ?? "Platos populares"} className="object-cover transition duration-300 group-hover:scale-105" fill sizes="(min-width:1024px) 190px, 45vw" src={featuredDish?.imageUrl || defaultImage} />
+                </span>
+                <span className="mt-3 flex items-center justify-between gap-2 px-1 pb-1 text-sm font-black">
+                  Platos populares
+                  <Flame className="h-4 w-4" />
+                </span>
+              </Link>
+
+              <Link className="col-span-2 flex items-center gap-3 rounded-[1.35rem] bg-white/12 p-3 text-white ring-1 ring-white/16 transition hover:bg-white/16 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={featuredCategory ? `/?categoria=${encodeURIComponent(featuredCategory.value)}#restaurantes` : "#explorar"}>
+                <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-2xl bg-[var(--accent)] text-[var(--primary)]">
+                  {featuredCategory?.imageUrl ? <Image alt={featuredCategory.label} className="h-full w-full object-cover" height={48} src={featuredCategory.imageUrl} width={48} /> : <Utensils className="h-5 w-5" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-black">Categorias para explorar</span>
+                  <span className="block truncate text-xs font-semibold text-white/68">{featuredCategory?.label ?? "Encuentra algo rico"}</span>
+                </span>
+                <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-[var(--accent)]" />
+              </Link>
+            </div>
           </div>
         </div>
       </section>
@@ -204,18 +216,6 @@ function SectionHeader({ eyebrow, title }: { eyebrow: string; title: string }) {
     <div>
       <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">{eyebrow}</p>
       <h2 className="mt-1 text-3xl font-black">{title}</h2>
-    </div>
-  );
-}
-
-function FeaturePill({ icon, label, text }: { icon: ReactNode; label: string; text: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-[1.15rem] bg-[var(--surface)] p-3 ring-1 ring-[var(--border)]">
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[var(--primary-light)] text-[var(--primary)]">{icon}</span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-black text-[var(--primary)]">{label}</span>
-        <span className="block truncate text-xs font-semibold text-[var(--color-secondary-text)]">{text}</span>
-      </span>
     </div>
   );
 }

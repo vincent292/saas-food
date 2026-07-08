@@ -55,19 +55,22 @@ export type PublicDishCard = {
   orderCount: number;
 };
 
+export type PublicCategoryCard = {
+  value: string;
+  label: string;
+  imageUrl: string;
+  count: number;
+};
+
 export type PublicDirectory = {
   restaurants: PublicRestaurantCard[];
   categories: string[];
   locations: string[];
-  categoryCards: {
-    value: string;
-    label: string;
-    imageUrl: string;
-    count: number;
-  }[];
+  categoryCards: PublicCategoryCard[];
   mostVisited: PublicRestaurantCard[];
   mostOrderedRestaurants: PublicRestaurantCard[];
   mostOrderedDishes: PublicDishCard[];
+  dishSuggestions: PublicDishCard[];
 };
 
 function daysAgoIso(days: number) {
@@ -104,7 +107,7 @@ export const publicDirectoryService = {
 
   async getDirectory({ search = "", category = "", city = "" }: { search?: string; category?: string; city?: string } = {}): Promise<PublicDirectory> {
     if (!hasSupabaseEnv()) {
-      return { restaurants: [], categories: [], locations: [], categoryCards: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [] };
+      return { restaurants: [], categories: [], locations: [], categoryCards: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [], dishSuggestions: [] };
     }
 
     const supabase = await createClient();
@@ -112,7 +115,7 @@ export const publicDirectoryService = {
     const restaurantIds = restaurants.map((restaurant) => restaurant.id);
 
     if (!restaurantIds.length) {
-      return { restaurants: [], categories: [], locations: [], categoryCards: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [] };
+      return { restaurants: [], categories: [], locations: [], categoryCards: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [], dishSuggestions: [] };
     }
 
     const since7d = daysAgoIso(7);
@@ -190,10 +193,9 @@ export const publicDirectoryService = {
       };
     });
 
-    const mostOrderedDishes = products
-      .filter((product) => Number(product.order_count ?? 0) > 0)
+    const dishSuggestions = products
       .sort((left, right) => Number(right.order_count ?? 0) - Number(left.order_count ?? 0))
-      .slice(0, 12)
+      .slice(0, 48)
       .map((product) => {
         const restaurant = restaurantById.get(product.restaurant_id);
         return restaurant
@@ -211,6 +213,7 @@ export const publicDirectoryService = {
           : null;
       })
       .filter((product): product is PublicDishCard => Boolean(product));
+    const mostOrderedDishes = dishSuggestions.filter((product) => product.orderCount > 0).slice(0, 12);
 
     return {
       restaurants: filteredRestaurants,
@@ -220,6 +223,7 @@ export const publicDirectoryService = {
       mostVisited: [...cards].sort((left, right) => right.visits7d - left.visits7d).slice(0, 6),
       mostOrderedRestaurants: [...cards].sort((left, right) => right.orders30d - left.orders30d).slice(0, 6),
       mostOrderedDishes,
+      dishSuggestions,
     };
   },
 };

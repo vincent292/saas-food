@@ -15,7 +15,6 @@ import {
   Pizza,
   Salad,
   Sandwich,
-  Search,
   ShieldCheck,
   Soup,
   Sparkles,
@@ -26,6 +25,7 @@ import {
   Utensils,
 } from "lucide-react";
 import { HomeHeroVisual } from "@/components/home/HomeHeroVisual";
+import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -41,22 +41,16 @@ export default async function Home({
   searchParams: Promise<{ q?: string; categoria?: string; ubicacion?: string }>;
 }) {
   const { q = "", categoria = "", ubicacion = "" } = await searchParams;
-  const directory = await publicDirectoryService.getDirectory({ search: q, category: categoria, city: ubicacion });
-  const heroRestaurants = directory.mostVisited.length ? directory.mostVisited : directory.restaurants.slice(0, 6);
-  const selectedCategoryLabel = directory.categoryCards.find((category) => category.value === categoria)?.label ?? categoria;
-  const heroDishImage = directory.mostOrderedDishes.find((dish) => dish.imageUrl)?.imageUrl;
+  const hasActiveFilter = Boolean(q || categoria || ubicacion);
+  const baseDirectoryPromise = publicDirectoryService.getDirectory();
+  const directoryPromise = hasActiveFilter ? publicDirectoryService.getDirectory({ search: q, category: categoria, city: ubicacion }) : baseDirectoryPromise;
+  const [baseDirectory, directory] = await Promise.all([baseDirectoryPromise, directoryPromise]);
+  const heroRestaurants = baseDirectory.mostVisited.length ? baseDirectory.mostVisited : baseDirectory.restaurants.slice(0, 6);
+  const selectedCategoryLabel = baseDirectory.categoryCards.find((category) => category.value === categoria)?.label ?? categoria;
+  const heroDishImage = baseDirectory.dishSuggestions.find((dish) => dish.imageUrl)?.imageUrl;
   const heroRestaurantImage = heroRestaurants.find((card) => isImageSrc(card.restaurant.logoUrl))?.restaurant.logoUrl;
   const heroImage = heroDishImage || heroRestaurantImage || defaultImage;
   const heroRestaurantName = heroRestaurants[0]?.restaurant.name || "Restaurantes activos";
-  const normalizedSearch = q.trim().toLowerCase();
-  const quickRestaurants = normalizedSearch
-    ? directory.restaurants
-        .filter((card) => `${card.restaurant.name} ${card.restaurant.city ?? ""} ${card.categories.join(" ")}`.toLowerCase().includes(normalizedSearch))
-        .slice(0, 4)
-    : [];
-  const quickCategories = normalizedSearch
-    ? directory.categoryCards.filter((category) => `${category.label} ${category.value}`.toLowerCase().includes(normalizedSearch)).slice(0, 4)
-    : [];
 
   return (
     <main className="public-brand-theme min-h-screen bg-[linear-gradient(180deg,var(--background)_0%,var(--color-surface)_48%,var(--background)_100%)] text-[var(--color-heading)]">
@@ -92,58 +86,31 @@ export default async function Home({
         </div>
       </header>
 
-      <section className="bg-[var(--primary)] px-4 pb-6 pt-5 text-[var(--color-heading)] sm:px-6 lg:bg-[var(--surface)] lg:px-8">
+      <section className="bg-[linear-gradient(180deg,#082441_0%,#12355B_58%,#F8FAFC_58%,#FFFFFF_100%)] px-4 pb-6 pt-5 text-[var(--color-heading)] sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <div className="relative overflow-hidden rounded-[2rem] border border-[var(--color-on-primary-border)] bg-[var(--primary)] p-4 shadow-[var(--shadow-panel)] sm:p-6 lg:grid lg:grid-cols-[minmax(0,1fr)_430px] lg:gap-8 lg:border-[var(--border)] lg:bg-[var(--surface)] lg:p-8">
-            <div className="pointer-events-none absolute right-10 top-8 hidden h-24 w-24 rounded-full bg-[var(--accent)] opacity-20 blur-2xl lg:block" />
-            <div className="relative z-10">
-              <span className="inline-flex items-center gap-2 rounded-full bg-[var(--accent-soft)] px-4 py-2 text-sm font-black text-[var(--primary)] ring-1 ring-[var(--accent-ring)]">
+          <div className="relative overflow-visible rounded-[2rem] border border-white/20 bg-white p-4 shadow-[0_26px_80px_rgb(8_36_65_/_0.18)] sm:p-6 lg:grid lg:grid-cols-[minmax(0,1fr)_430px] lg:gap-8 lg:p-8">
+            <div className="relative z-20">
+              <span className="inline-flex items-center gap-2 rounded-full bg-[var(--accent-soft)] px-4 py-2 text-xs font-black text-[var(--primary)] ring-1 ring-[var(--accent-ring)]">
                 <Sparkles className="h-4 w-4" />
-                Restaurantes vinculados
+                Listo para ordenar
               </span>
-              <h1 className="mt-5 max-w-3xl text-4xl font-black leading-tight text-white lg:text-[var(--primary)] sm:text-6xl">
-                Comida deliciosa, <span className="text-[#BCE600]">lista para pedir</span>
+              <h1 className="mt-5 max-w-3xl text-4xl font-black leading-[0.98] text-[var(--primary)] sm:text-6xl">
+                Pide lo que quieras, <span className="text-[#78A900]">donde quieras</span>
               </h1>
-              <p className="mt-4 max-w-2xl text-base font-semibold leading-7 text-white/78 lg:text-[var(--color-secondary-text)]">
-                Explora restaurantes activos, mira los mas visitados de la semana y entra directo al menu para pedir delivery o recojo.
+              <p className="mt-4 max-w-2xl text-base font-semibold leading-7 text-[var(--color-secondary-text)]">
+                Busca un plato, una categoria o tu restaurante favorito. Entra al menu y arma tu pedido en pocos toques.
               </p>
 
-              <form className="mt-6 grid gap-2 rounded-[1.35rem] border border-[var(--border)] bg-[var(--color-surface)] p-2 text-[var(--color-heading)] shadow-sm lg:grid-cols-[minmax(0,1fr)_190px_auto]" action="/">
-                <label className="flex min-h-12 items-center gap-3 rounded-2xl bg-[var(--surface)] px-3 ring-1 ring-[var(--border)]">
-                  <Search className="h-5 w-5 shrink-0 text-[var(--color-placeholder)]" />
-                  <input
-                    className="h-11 min-w-0 flex-1 bg-transparent text-sm font-bold outline-none placeholder:text-[var(--color-placeholder)] focus-visible:ring-0"
-                    defaultValue={q}
-                    name="q"
-                    placeholder="Buscar restaurante, ciudad o categoria"
-                  />
-                </label>
-                <select className="min-h-12 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[var(--accent-ring)]" defaultValue={ubicacion} name="ubicacion">
-                  <option value="">Todas las ciudades</option>
-                  {directory.locations.map((location) => (
-                    <option key={location} value={location}>
-                      {location}
-                    </option>
-                  ))}
-                </select>
-                <button className="min-h-12 rounded-full bg-[var(--accent)] px-6 text-sm font-black text-[var(--primary)] shadow-[var(--shadow-glow)] transition hover:bg-[#d9ff22] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] active:scale-[0.98] disabled:pointer-events-none disabled:bg-[var(--color-disabled)] disabled:text-[var(--surface)]" type="submit">
-                  Buscar
-                </button>
-              </form>
-              {normalizedSearch ? (
-                <div className="mt-3 grid gap-2 rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[var(--shadow-card)] sm:grid-cols-2">
-                  {[...quickRestaurants.map((card) => ({ kind: "restaurant" as const, label: card.restaurant.name, detail: card.restaurant.city || card.categories[0] || "Menu online", href: `/r/${card.restaurant.slug}` })), ...quickCategories.map((category) => ({ kind: "category" as const, label: category.label, detail: `${category.count || "Nuevos"} restaurantes`, href: `/?${new URLSearchParams({ ...(q ? { q } : {}), ...(ubicacion ? { ubicacion } : {}), categoria: category.value }).toString()}` }))].map((result) => (
-                    <Link className="flex items-center justify-between gap-3 rounded-2xl bg-[var(--color-surface)] px-3 py-2 text-sm font-black text-[var(--primary)] ring-1 ring-[var(--border)] transition hover:bg-[var(--accent-soft)]" href={result.href} key={`${result.kind}-${result.href}`}>
-                      <span className="min-w-0">
-                        <span className="block truncate">{result.label}</span>
-                        <span className="block truncate text-xs font-semibold text-[var(--color-secondary-text)]">{result.detail}</span>
-                      </span>
-                      <ArrowRight className="h-4 w-4 shrink-0" />
-                    </Link>
-                  ))}
-                  {!quickRestaurants.length && !quickCategories.length ? <p className="text-sm font-semibold text-[var(--color-secondary-text)] sm:col-span-2">No encontramos coincidencias rapidas. Prueba con otro nombre.</p> : null}
-                </div>
-              ) : null}
+              <div className="mt-6">
+                <HomeSearchAutocomplete
+                  categories={baseDirectory.categoryCards}
+                  dishes={baseDirectory.dishSuggestions}
+                  initialLocation={ubicacion}
+                  initialQuery={q}
+                  locations={baseDirectory.locations}
+                  restaurants={baseDirectory.restaurants}
+                />
+              </div>
             </div>
 
             <HomeHeroVisual imageSrc={heroImage} restaurantName={heroRestaurantName} />

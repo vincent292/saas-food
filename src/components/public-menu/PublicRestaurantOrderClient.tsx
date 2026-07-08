@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, Clock3, Minus, Plus, Search, ShoppingCart, Star, X } from "lucide-react";
+import { ArrowRight, Check, Clock3, Flame, Heart, MapPin, Minus, Plus, Search, Share2, ShoppingCart, Star, X } from "lucide-react";
 import Link from "next/link";
 import { type CSSProperties, useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
@@ -27,6 +27,14 @@ type CartItem = {
 
 const defaultImage = "/imagendefault.jpeg";
 
+function normalize(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 export function PublicRestaurantOrderClient({
   restaurant,
   categories,
@@ -43,6 +51,7 @@ export function PublicRestaurantOrderClient({
   orderError?: string;
 }) {
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [productQuery, setProductQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -66,21 +75,26 @@ export function PublicRestaurantOrderClient({
   }, [configuration.optionGroups, configuration.variants, products]);
 
   const filteredProducts = useMemo(() => {
-    if (selectedCategory === "all") {
-      return products;
-    }
-    return products.filter((product) => product.categoryId === selectedCategory);
-  }, [products, selectedCategory]);
+    const queryNeedle = normalize(productQuery);
+    return products.filter((product) => {
+      const matchesCategory = selectedCategory === "all" || product.categoryId === selectedCategory;
+      const matchesSearch = !queryNeedle || normalize(`${product.name} ${product.description}`).includes(queryNeedle);
+      return matchesCategory && matchesSearch;
+    });
+  }, [productQuery, products, selectedCategory]);
   const selectedCategoryName = selectedCategory === "all" ? "Todo el menu" : (categories.find((category) => category.id === selectedCategory)?.name ?? "Categoria");
 
   const cartQuantity = cart.reduce((total, item) => total + item.quantity, 0);
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const notes = `Pedido desde menú público${requiresInvoice ? " - Requiere factura" : ""}`;
+  const notes = `Pedido desde menu publico${requiresInvoice ? " - Requiere factura" : ""}`;
   const cartJson = JSON.stringify(cart.map(({ productId, name, price, quantity, notes: itemNotes }) => ({ productId, name, price, quantity, notes: itemNotes })));
   const hasLogoImage = restaurant.logoUrl.startsWith("http") || restaurant.logoUrl.startsWith("/");
   const logoText = restaurant.logoUrl || restaurant.name.slice(0, 1).toUpperCase();
   const heroImage = restaurant.bannerUrl || products.find((product) => product.isFeatured && product.imageUrl)?.imageUrl || products.find((product) => product.imageUrl)?.imageUrl || defaultImage;
-  const topOrderedProducts = useMemo(() => products.filter((product) => product.isAutoFeatured).slice(0, 3), [products]);
+  const topOrderedProducts = useMemo(() => {
+    const featured = products.filter((product) => product.isAutoFeatured || product.isFeatured);
+    return (featured.length ? featured : products).slice(0, 3);
+  }, [products]);
   const bannerHeightClass = restaurant.publicBannerSize === "large" ? "min-h-[300px] sm:min-h-[380px]" : restaurant.publicBannerSize === "standard" ? "min-h-[240px] sm:min-h-[320px]" : "min-h-[190px] sm:min-h-[260px]";
   const publicBackgroundStyle: CSSProperties = restaurant.menuBackgroundImageUrl
     ? {
@@ -130,19 +144,25 @@ export function PublicRestaurantOrderClient({
   }
 
   return (
-    <main className="min-h-screen bg-[var(--background)] text-[var(--text)]" style={publicBackgroundStyle}>
-      <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--color-card-elevated)]/95 text-[var(--text)] shadow-[var(--shadow-card)] backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-3 py-2.5 sm:px-6 lg:px-8">
+    <main className="min-h-screen bg-[linear-gradient(180deg,var(--color-surface)_0%,#FFFFFF_44%,var(--color-surface)_100%)] text-[var(--text)]" style={publicBackgroundStyle}>
+      <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-white/92 text-[var(--text)] shadow-[0_12px_34px_rgb(18_53_91_/_0.08)] backdrop-blur-xl">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-3 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center" href={`/r/${restaurant.slug}`}>
-            <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-[1.1rem] border border-[var(--border)] bg-[var(--surface)] p-1 text-base font-black text-[var(--color-on-primary)] shadow-sm">
+            <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] p-1 text-base font-black text-[var(--color-on-primary)] shadow-sm">
               {hasLogoImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img alt={restaurant.name} className="h-full w-full rounded-[0.85rem] object-cover" src={restaurant.logoUrl} />
+                <img alt={restaurant.name} className="h-full w-full rounded-full object-cover" src={restaurant.logoUrl} />
               ) : (
-                <span className="grid h-full w-full place-items-center rounded-[0.85rem] bg-[var(--primary)] px-2 text-center leading-none">{logoText}</span>
+                <span className="grid h-full w-full place-items-center rounded-full bg-[var(--primary)] px-2 text-center leading-none">{logoText}</span>
               )}
             </span>
-            <span className="ml-3 max-w-[42vw] truncate text-sm font-black uppercase tracking-[0.02em] text-[var(--text)] sm:max-w-[260px] sm:text-base">{restaurant.name}</span>
+            <span className="ml-3 min-w-0">
+              <span className="block truncate text-sm font-black text-[var(--text)] sm:max-w-[260px] sm:text-base">{restaurant.name}</span>
+              <span className="mt-0.5 flex max-w-[46vw] items-center gap-1 truncate text-xs font-semibold text-[var(--muted)] sm:max-w-[320px]">
+                <MapPin className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
+                {restaurant.city || restaurant.address || "Menu online"}
+              </span>
+            </span>
           </Link>
 
           <div className="flex shrink-0 items-center justify-end gap-2">
@@ -164,24 +184,54 @@ export function PublicRestaurantOrderClient({
 
       <div className="mx-auto max-w-6xl px-3 pb-28 pt-5 sm:px-6 lg:px-8 lg:pb-8">
         <section className="min-w-0">
-          <div className="relative mb-5 overflow-hidden rounded-tl-[1.75rem] rounded-br-[2.5rem] border border-[var(--border)] bg-[var(--surface)] shadow-sm">
+          <div className="relative mb-5 overflow-hidden rounded-[2rem] bg-[var(--primary)] shadow-[0_28px_70px_rgb(8_36_65_/_0.22)]">
             <div className={cn("relative", bannerHeightClass)}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img alt={restaurant.name} className="absolute inset-0 h-full w-full object-cover" src={heroImage} />
-              <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/25 to-[var(--color-image-overlay-none)]" />
-              <div className={cn("relative z-10 flex max-w-xl flex-col justify-end p-5 pb-20 text-[var(--color-on-primary)] sm:p-8 sm:pb-8", bannerHeightClass)}>
-                <span className="mb-3 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--color-card-glass)] px-3 py-1 text-xs font-black text-[var(--primary)]">
+              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(8_36_65_/_0.16)_0%,rgb(8_36_65_/_0.34)_42%,rgb(8_36_65_/_0.88)_100%)]" />
+              <div className="absolute left-4 right-4 top-4 z-20 flex items-center justify-between gap-3">
+                <Link className="grid h-12 w-12 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" href="/">
+                  <ArrowRight className="h-5 w-5 rotate-180" />
+                </Link>
+                <div className="flex items-center gap-2">
+                  <button className="grid h-12 w-12 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" type="button">
+                    <Share2 className="h-5 w-5" />
+                  </button>
+                  <button className="grid h-12 w-12 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" type="button">
+                    <Heart className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              <div className={cn("relative z-10 flex max-w-2xl flex-col justify-end p-5 pb-7 text-[var(--color-on-primary)] sm:p-8", bannerHeightClass)}>
+                <span className="mb-3 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--accent)] px-3 py-1.5 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
                   <Star className="h-3.5 w-3.5 fill-current" />
-                  Menú online
+                  4.8
                 </span>
                 <h1 className="text-4xl font-black leading-none sm:text-6xl">{restaurant.name}</h1>
-                <p className="mt-3 max-w-md text-sm font-semibold leading-6 text-[var(--color-on-primary-muted)] sm:text-base">
+                <p className="mt-3 max-w-md text-sm font-semibold leading-6 text-white/86 sm:text-base">
                   {restaurant.description || "Elige tus productos, confirma tu pedido y el equipo lo recibe al instante."}
                 </p>
-                <button className="mt-5 inline-flex min-h-11 w-fit items-center gap-2 rounded-full bg-[var(--primary)] px-5 text-sm font-black text-[var(--color-on-primary)] shadow-lg" onClick={() => document.getElementById("catalogo")?.scrollIntoView({ behavior: "smooth" })} type="button">
-                  Pedir ahora
-                  <ArrowRight className="h-4 w-4" />
-                </button>
+                <div className="mt-4 flex flex-wrap items-center gap-3 text-sm font-black text-white">
+                  <span className="inline-flex items-center gap-1">
+                    <Clock3 className="h-4 w-4" />
+                    25-35 min
+                  </span>
+                  <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
+                  <span>{settings?.deliveryFee ? `${formatMoney(settings.deliveryFee)} envio` : "Delivery disponible"}</span>
+                  <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
+                  <span>{products.length} platos</span>
+                </div>
+              </div>
+              <div className="absolute bottom-5 right-5 z-20 hidden max-w-xs rounded-[1.35rem] bg-[var(--primary)]/92 p-4 text-white shadow-xl ring-1 ring-white/15 backdrop-blur sm:block">
+                <div className="flex items-center gap-3">
+                  <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)]">
+                    <Flame className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-black">Ofertas y favoritos</p>
+                    <p className="mt-1 text-xs font-semibold text-white/76">Agrega platos al pedido y confirma en minutos.</p>
+                  </div>
+                </div>
               </div>
               <div className="absolute bottom-4 left-4 z-20 grid h-20 w-20 place-items-center overflow-hidden rounded-[1.35rem] border-4 border-[var(--surface)] bg-[var(--surface)] p-1 text-xl font-black text-[var(--color-on-primary)] shadow-xl sm:hidden">
                 {hasLogoImage ? (
@@ -195,21 +245,24 @@ export function PublicRestaurantOrderClient({
           </div>
 
           {topOrderedProducts.length ? (
-            <div className="mb-4 rounded-[1.5rem] border border-[var(--border)] bg-[var(--color-card-elevated)] p-4 shadow-sm">
+            <div className="mb-4 rounded-[1.65rem] border border-[var(--border)] bg-white p-4 shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black uppercase text-[var(--primary)]">Mas pedido</p>
-                  <h2 className="text-xl font-black">Productos estrella por demanda</h2>
+                  <p className="text-xs font-black uppercase text-[var(--primary)]">Favoritos</p>
+                  <h2 className="text-xl font-black">Top picks para ti</h2>
                 </div>
               </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
                 {topOrderedProducts.map((product) => (
-                  <button className="grid grid-cols-[64px_1fr] gap-3 rounded-2xl bg-[var(--primary-light)] p-2 text-left" key={product.id} onClick={() => setSelectedProduct(product)} type="button">
+                  <button className="grid grid-cols-[78px_1fr_auto] items-center gap-3 rounded-[1.25rem] bg-[var(--color-surface)] p-2 text-left shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)]" key={product.id} onClick={() => setSelectedProduct(product)} type="button">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img alt={product.name} className="h-16 w-16 rounded-2xl object-cover" src={product.imageUrl || defaultImage} />
+                    <img alt={product.name} className="h-20 w-[78px] rounded-[1.1rem] object-cover" src={product.imageUrl || defaultImage} />
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-black">{product.name}</span>
-                      <span className="block text-xs font-bold text-[var(--muted)]">{product.orderCount} pedidos</span>
+                      <span className="block text-xs font-bold text-[var(--muted)]">{product.orderCount ? `${product.orderCount} pedidos` : "Nuevo"}</span>
+                    </span>
+                    <span className="grid h-10 w-10 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)]">
+                      <Plus className="h-5 w-5" />
                     </span>
                   </button>
                 ))}
@@ -218,10 +271,20 @@ export function PublicRestaurantOrderClient({
           ) : null}
 
           <div className="mb-4 grid gap-3 md:grid-cols-[1fr_auto]">
-            <div className="flex min-h-12 items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 shadow-sm">
+            <label className="flex min-h-14 items-center gap-3 rounded-[1.35rem] border border-[var(--border)] bg-white px-4 shadow-[0_18px_48px_rgb(18_53_91_/_0.08)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[var(--accent-ring)]">
               <Search className="h-5 w-5 text-[var(--muted)]" />
-              <span className="text-sm font-semibold text-[var(--muted)]">Busca por categoría y elige tus favoritos</span>
-            </div>
+              <input
+                className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none placeholder:text-[var(--color-placeholder)]"
+                onChange={(event) => setProductQuery(event.target.value)}
+                placeholder="Busca platos, combos o favoritos"
+                value={productQuery}
+              />
+              {productQuery ? (
+                <button className="grid h-9 w-9 place-items-center rounded-full bg-[var(--primary)] text-white" onClick={() => setProductQuery("")} type="button">
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </label>
             <Link className="inline-flex rounded-full bg-[var(--primary-light)] px-4 py-2 text-sm font-black text-[var(--primary)] sm:hidden" href={`/r/${restaurant.slug}/seguimiento`}>
               Rastrear pedido
             </Link>
@@ -252,35 +315,41 @@ export function PublicRestaurantOrderClient({
             </div>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-2">
             {filteredProducts.map((product) => (
               <ProductTile config={configByProduct[product.id]} key={product.id} onSelect={() => setSelectedProduct(product)} product={product} />
             ))}
           </div>
 
-          {!filteredProducts.length ? <div className="rounded-[1.25rem] bg-[var(--surface)] p-6 text-center text-sm font-semibold text-[var(--muted)]">No hay productos disponibles en esta categoría.</div> : null}
+          {!filteredProducts.length ? <div className="rounded-[1.25rem] bg-[var(--surface)] p-6 text-center text-sm font-semibold text-[var(--muted)]">No hay productos disponibles en esta categoria.</div> : null}
         </section>
       </div>
 
-      <button className="fixed bottom-3 left-14 right-3 z-40 flex min-h-14 items-center justify-between gap-3 rounded-2xl bg-[var(--primary)] px-4 py-3 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl ring-1 ring-[var(--color-on-primary-border-strong)] sm:left-4 lg:hidden" onClick={openDrawer} type="button">
+      <button className="fixed bottom-3 left-3 right-3 z-40 flex min-h-16 items-center justify-between gap-3 rounded-[1.25rem] bg-[var(--primary)] px-4 py-3 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl ring-1 ring-[var(--color-on-primary-border-strong)] lg:hidden" onClick={openDrawer} type="button">
         <span className="inline-flex min-w-0 items-center gap-3">
           <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-[var(--primary)] shadow-sm">
             <ShoppingCart className="h-5 w-5" />
             {cartQuantity ? <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--color-success-strong)] text-[10px] text-[var(--color-on-primary)]">{cartQuantity}</span> : null}
           </span>
           <span className="min-w-0">
-            <span className="block truncate">Tu pedido</span>
+            <span className="block truncate">{cartQuantity ? "Ver pedido" : "Tu pedido"}</span>
             <span className="block text-xs font-semibold text-[var(--color-on-primary-muted)]">{cartQuantity ? `${cartQuantity} producto${cartQuantity === 1 ? "" : "s"}` : "Carrito vacio"}</span>
           </span>
         </span>
-        <span className="shrink-0 text-base">{formatMoney(total)}</span>
+        <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-base text-[var(--primary)]">
+          {formatMoney(total)}
+          <ArrowRight className="h-4 w-4" />
+        </span>
       </button>
 
       {drawerOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden bg-[var(--color-overlay)] px-2 pb-2 pt-16 backdrop-blur-sm sm:items-center sm:p-4" onClick={requestCloseDrawer}>
-          <div className={cn("max-h-[min(92dvh,760px)] w-full max-w-[min(100%,560px)] overflow-hidden rounded-t-[1.5rem] bg-[var(--surface)] text-[var(--text)] shadow-2xl sm:rounded-[1.35rem]", drawerClosing ? "public-sheet-exit" : "public-sheet-enter")} data-order-sheet onClick={(event) => event.stopPropagation()}>
-            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-              <h2 className="min-w-0 truncate text-xl font-black sm:text-2xl">Tu pedido</h2>
+          <div className={cn("max-h-[min(92dvh,820px)] w-full max-w-[min(100%,620px)] overflow-hidden rounded-t-[2rem] bg-[var(--surface)] text-[var(--text)] shadow-2xl sm:rounded-[2rem]", drawerClosing ? "public-sheet-exit" : "public-sheet-enter")} data-order-sheet onClick={(event) => event.stopPropagation()}>
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--border)] bg-white/95 px-4 py-4 backdrop-blur">
+              <div>
+                <h2 className="min-w-0 truncate text-xl font-black sm:text-2xl">Tu pedido</h2>
+                <p className="text-sm font-semibold text-[var(--muted)]">{cartQuantity} item{cartQuantity === 1 ? "" : "s"}</p>
+              </div>
               <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={requestCloseDrawer} type="button">
                 <X className="h-5 w-5" />
               </button>
@@ -341,34 +410,31 @@ function ProductTile({ product, config, onSelect }: { product: Product; config?:
   const hasConfiguration = Boolean(config?.variants.length || config?.optionGroups.length);
 
   return (
-    <article className="grid grid-cols-[88px_minmax(0,1fr)] gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 text-[var(--text)] shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:block sm:overflow-hidden sm:p-0">
-      <div className="h-24 overflow-hidden rounded-2xl bg-[var(--primary-light)] sm:h-auto sm:aspect-[4/3] sm:rounded-none">
+    <button className="grid grid-cols-[108px_minmax(0,1fr)_46px] items-center gap-3 rounded-[1.35rem] border border-[var(--border)] bg-white p-2 text-left text-[var(--text)] shadow-[0_18px_48px_rgb(18_53_91_/_0.08)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] hover:shadow-[0_22px_56px_rgb(18_53_91_/_0.12)] sm:grid-cols-[132px_minmax(0,1fr)_52px]" onClick={onSelect} type="button">
+      <span className="relative h-28 overflow-hidden rounded-[1.2rem] bg-[var(--primary-light)] sm:h-32">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img alt={product.name} className="h-full w-full object-cover" src={product.imageUrl || defaultImage} />
-      </div>
-      <div className="grid min-w-0 content-between gap-2 sm:p-4 sm:pt-3">
-        <div className="min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <p className="pt-1 text-[10px] font-black uppercase text-[var(--primary)]">Producto</p>
-            <div className="flex max-w-[64%] shrink-0 flex-wrap justify-end gap-1">
-            {product.isFeatured ? <span className="rounded-full bg-[var(--color-warning-soft)] px-2 py-1 text-[10px] font-black text-[var(--color-warning-strong)]">Estrella</span> : null}
-            {product.isAutoFeatured ? <span className="rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]">Mas pedido</span> : null}
-            {hasConfiguration ? <span className="rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]">Configurable</span> : null}
-            </div>
-          </div>
-          <h3 className="mt-1 line-clamp-2 text-lg font-black leading-5">{product.name}</h3>
-          <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--muted)]">{product.description || "Listo para pedir."}</p>
-        </div>
-        <div className="flex items-end justify-between gap-2">
-          <span className="text-base font-black text-[var(--primary)]">{formatMoney(product.price)}</span>
-          <button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-full bg-[var(--primary)] px-3 text-sm font-black text-[var(--color-on-primary)] shadow-sm transition hover:bg-[var(--primary-dark)]" onClick={onSelect} type="button">
-            <span className="hidden min-[390px]:inline">{hasConfiguration ? "Personalizar" : "Agregar"}</span>
-            <span className="min-[390px]:hidden">{hasConfiguration ? "Editar" : "Sumar"}</span>
-            <Plus className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-    </article>
+        {product.isAutoFeatured || product.isFeatured ? <span className="absolute left-2 top-2 rounded-full bg-[var(--accent)] px-2 py-1 text-[10px] font-black text-[var(--primary)]">Top</span> : null}
+      </span>
+      <span className="min-w-0 py-1">
+        <span className="flex flex-wrap items-center gap-1.5">
+          {hasConfiguration ? <span className="rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]">Personalizable</span> : null}
+          {product.isPromotion ? <span className="rounded-full bg-[var(--color-warning-soft)] px-2 py-1 text-[10px] font-black text-[var(--color-warning-strong)]">Promo</span> : null}
+        </span>
+        <span className="mt-1 block line-clamp-2 text-lg font-black leading-5">{product.name}</span>
+        <span className="mt-1 block line-clamp-2 text-sm leading-5 text-[var(--muted)]">{product.description || "Listo para pedir."}</span>
+        <span className="mt-3 flex items-center gap-3 text-sm font-black">
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--primary-light)] px-2 py-1 text-[var(--primary)]">
+            <Star className="h-3.5 w-3.5 fill-current" />
+            4.{Math.min(9, Math.max(3, product.orderCount || 6))}
+          </span>
+          <span className="text-base text-[var(--primary)]">{formatMoney(product.price)}</span>
+        </span>
+      </span>
+      <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] sm:h-12 sm:w-12">
+        <Plus className="h-6 w-6" />
+      </span>
+    </button>
   );
 }
 
@@ -428,19 +494,52 @@ function ProductOptionModal({
 
   return (
     <div className="fixed inset-0 z-[60] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4" onClick={requestClose}>
-      <div className={cn("max-h-[94vh] w-full overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[1.5rem]", isClosing ? "public-sheet-exit" : "public-sheet-enter")} onClick={(event) => event.stopPropagation()}>
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] p-4">
-          <div>
-            <p className="text-xs font-black uppercase text-[var(--primary)]">Personalizar</p>
-            <h2 className="text-2xl font-black">{product.name}</h2>
-            <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Precio base {formatMoney(product.price)}</p>
+      <div className={cn("max-h-[94vh] w-full overflow-y-auto rounded-t-[2rem] bg-[var(--surface)] shadow-2xl sm:max-w-3xl sm:rounded-[2rem]", isClosing ? "public-sheet-exit" : "public-sheet-enter")} onClick={(event) => event.stopPropagation()}>
+        <div className="relative h-72 overflow-hidden bg-[var(--primary)] sm:h-80">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img alt={product.name} className="h-full w-full object-cover" src={product.imageUrl || defaultImage} />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/42 to-transparent" />
+          <div className="absolute left-4 right-4 top-4 flex items-center justify-between">
+            <button className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" onClick={requestClose} type="button">
+              <ArrowRight className="h-5 w-5 rotate-180" />
+            </button>
+            <div className="flex items-center gap-2">
+              <button className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" type="button">
+                <Heart className="h-5 w-5" />
+              </button>
+              <button className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" type="button">
+                <Share2 className="h-5 w-5" />
+              </button>
+            </div>
           </div>
-          <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)] hover:bg-[var(--color-neutral-200)]" onClick={requestClose} type="button">
-            <X className="h-5 w-5" />
-          </button>
         </div>
 
-        <div className="grid gap-5 p-4">
+        <div className="-mt-8 grid gap-5 rounded-t-[2rem] bg-[var(--surface)] p-4 sm:p-6">
+          <div className="relative z-10 flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase text-[var(--primary)]">Personalizar</p>
+              <h2 className="mt-1 text-3xl font-black leading-tight">{product.name}</h2>
+              <p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-[var(--muted)]">{product.description || "Elige las opciones y agrega este plato a tu pedido."}</p>
+            </div>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-2xl bg-[var(--primary-light)] px-3 py-2 text-sm font-black text-[var(--primary)]">
+              <Star className="h-4 w-4 fill-current" />
+              4.6
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 border-y border-[var(--border)] py-3 text-center text-xs font-bold text-[var(--muted)]">
+            <span>
+              <strong className="block text-sm text-[var(--text)]">Medio</strong>
+              Picante
+            </span>
+            <span>
+              <strong className="block text-sm text-[var(--text)]">25-35 min</strong>
+              Entrega
+            </span>
+            <span>
+              <strong className="block text-sm text-[var(--text)]">{formatMoney(product.price)}</strong>
+              Base
+            </span>
+          </div>
           {variants.length ? (
             <section>
               <h3 className="text-sm font-black">Variante</h3>
@@ -497,13 +596,14 @@ function ProductOptionModal({
           })}
         </div>
 
-        <div className="sticky bottom-0 grid gap-3 border-t border-[var(--border)] bg-[var(--surface)] p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="sticky bottom-0 grid gap-3 border-t border-[var(--border)] bg-white/95 p-4 backdrop-blur sm:grid-cols-[1fr_auto] sm:items-center">
           <div>
             <p className="text-xs font-black uppercase text-[var(--muted)]">Total producto</p>
             <p className="text-2xl font-black text-[var(--primary)]">{formatMoney(total)}</p>
           </div>
-          <Button className="min-h-12 px-8" disabled={!canAdd} onClick={() => onAdd(product, selectedVariant, chosenOptions)} type="button">
+          <Button className="min-h-14 rounded-[1.1rem] bg-[var(--accent)] px-8 text-[var(--primary)] shadow-[var(--shadow-glow)] hover:bg-[#d9ff22]" disabled={!canAdd} onClick={() => onAdd(product, selectedVariant, chosenOptions)} type="button">
             Agregar al pedido
+            <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -567,7 +667,7 @@ function PublicOrderPanel({
           Recojo
         </button>
         <button className={cn("min-h-11 rounded-full px-2 text-xs font-black text-[var(--muted)] disabled:opacity-40 min-[380px]:text-sm", orderType === "delivery" && "bg-[var(--primary)] text-[var(--color-on-primary)]")} disabled={!deliveryEnabled} onClick={() => setOrderType("delivery")} type="button">
-          Envío a domicilio
+          Envio a domicilio
         </button>
       </div>
 
@@ -590,31 +690,44 @@ function PublicOrderPanel({
       <div className="mt-3 space-y-2">
         {cart.length ? (
           cart.map((item) => (
-            <div className="grid grid-cols-[1fr_auto] gap-3 rounded-2xl bg-[var(--primary-light)]/45 p-3" key={item.cartId}>
+            <div className="grid grid-cols-[78px_minmax(0,1fr)] gap-3 rounded-[1.35rem] bg-white p-3 shadow-sm ring-1 ring-[var(--border)]" key={item.cartId}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img alt={item.name} className="h-20 w-[78px] rounded-[1.1rem] object-cover" src={item.imageUrl || defaultImage} />
               <div className="min-w-0">
-                <p className="truncate text-sm font-black">{item.name}</p>
-                {item.notes ? <p className="line-clamp-2 text-xs font-semibold text-[var(--muted)]">{item.notes}</p> : null}
-                <p className="text-xs font-semibold text-[var(--muted)]">{formatMoney(item.price)} c/u</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button className="grid h-8 w-8 place-items-center rounded-full bg-[var(--surface)]" onClick={() => changeQuantity(item.cartId, -1)} type="button">
-                  <Minus className="h-4 w-4" />
-                </button>
-                <span className="w-5 text-center text-sm font-black">{item.quantity}</span>
-                <button className="grid h-8 w-8 place-items-center rounded-full bg-[var(--primary)] text-[var(--color-on-primary)]" onClick={() => changeQuantity(item.cartId, 1)} type="button">
-                  <Plus className="h-4 w-4" />
-                </button>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-black">{item.name}</p>
+                    {item.notes ? <p className="line-clamp-2 text-xs font-semibold text-[var(--muted)]">{item.notes}</p> : null}
+                    <p className="text-xs font-semibold text-[var(--muted)]">{formatMoney(item.price)} c/u</p>
+                  </div>
+                  <strong className="shrink-0 text-sm">{formatMoney(item.price * item.quantity)}</strong>
+                </div>
+                <div className="mt-3 inline-flex overflow-hidden rounded-full border border-[var(--border)] bg-white">
+                  <button className="grid h-9 w-10 place-items-center" onClick={() => changeQuantity(item.cartId, -1)} type="button">
+                    <Minus className="h-4 w-4" />
+                  </button>
+                  <span className="grid h-9 w-10 place-items-center border-x border-[var(--border)] text-sm font-black">{item.quantity}</span>
+                  <button className="grid h-9 w-10 place-items-center" onClick={() => changeQuantity(item.cartId, 1)} type="button">
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))
         ) : (
-          <p className="text-sm font-semibold text-[var(--muted)]">No agregaste productos todavía.</p>
+          <p className="text-sm font-semibold text-[var(--muted)]">No agregaste productos todavia.</p>
         )}
       </div>
 
-      <div className="mt-3 flex items-center justify-between border-t border-[var(--border)] pt-3 text-base">
-        <span>Total</span>
-        <strong>{formatMoney(total)}</strong>
+      <div className="mt-3 rounded-[1.25rem] bg-[var(--color-surface)] p-4 text-base ring-1 ring-[var(--border)]">
+        <div className="flex items-center justify-between">
+          <span className="font-semibold text-[var(--muted)]">Subtotal</span>
+          <strong>{formatMoney(total)}</strong>
+        </div>
+        <div className="mt-3 flex items-center justify-between border-t border-dashed border-[var(--border)] pt-3">
+          <span className="font-black">Total a pagar</span>
+          <strong className="text-2xl text-[var(--primary)]">{formatMoney(total)}</strong>
+        </div>
       </div>
 
       <label className="mt-3 block text-sm font-black">
@@ -631,7 +744,7 @@ function PublicOrderPanel({
       </label>
       {orderType === "delivery" ? (
         <label className="mt-3 block text-sm font-black">
-          Dirección de entrega
+          Direccion de entrega
           <Input className="mt-2" name="customerAddress" required />
         </label>
       ) : null}
@@ -660,7 +773,7 @@ function PublicOrderPanel({
       ) : null}
 
       <label className="mt-4 flex items-center justify-between text-sm font-black">
-        ¿Requiere factura?
+        Requiere factura
         <input checked={requiresInvoice} onChange={(event) => setRequiresInvoice(event.target.checked)} type="checkbox" />
       </label>
 
@@ -715,28 +828,32 @@ function PublicOrderPanel({
 
       <p className="mt-4 rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">
         {paymentMethod === "cash"
-          ? "El equipo confirmará tu pedido y coordinará el pago."
+          ? "El equipo confirmara tu pedido y coordinara el pago."
           : settings?.qrPaymentUrl
-            ? "Seleccionaste pago QR. El equipo confirmará el pago antes de preparar el pedido."
-            : "Seleccionaste pago QR. El equipo te indicará el QR disponible para completar el pago."}
+            ? "Seleccionaste pago QR. El equipo confirmara el pago antes de preparar el pedido."
+            : "Seleccionaste pago QR. El equipo te indicara el QR disponible para completar el pago."}
       </p>
 
       <div className="mt-4">
-      <Button className={cn("min-h-12 w-full overflow-hidden transition-all", isSubmitting && "justify-center bg-[var(--color-success)]")} disabled={!cart.length || isSubmitting} type="submit">
-        {isSubmitting ? (
-          <span className="inline-flex items-center gap-3">
-            <span className="relative grid h-8 w-8 place-items-center rounded-full border-2 border-[var(--surface)]/40">
-              <span className="order-ring absolute inset-0 rounded-full border-2 border-transparent border-t-white" />
-              <ShoppingCart className="cart-roll-forward h-4 w-4" />
+        <Button className={cn("min-h-14 w-full overflow-hidden rounded-[1.25rem] bg-[var(--accent)] text-base text-[var(--primary)] shadow-[var(--shadow-glow)] transition-all hover:bg-[#d9ff22]", isSubmitting && "justify-center bg-[var(--color-success)] text-white")} disabled={!cart.length || isSubmitting} type="submit">
+          {isSubmitting ? (
+            <span className="inline-flex items-center gap-3">
+              <span className="relative grid h-8 w-8 place-items-center rounded-full border-2 border-[var(--surface)]/40">
+                <span className="order-ring absolute inset-0 rounded-full border-2 border-transparent border-t-white" />
+                <ShoppingCart className="cart-roll-forward h-4 w-4" />
+              </span>
+              <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--surface)] text-[var(--color-success-strong)]">
+                <Check className="h-4 w-4" />
+              </span>
             </span>
-            <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--surface)] text-[var(--color-success-strong)]">
-              <Check className="h-4 w-4" />
-            </span>
-          </span>
-        ) : (
-          "Confirmar pedido"
-        )}
-      </Button>
+          ) : (
+            <>
+              Confirmar pedido
+              <span>{formatMoney(total)}</span>
+              <ArrowRight className="h-5 w-5" />
+            </>
+          )}
+        </Button>
       </div>
     </form>
   );

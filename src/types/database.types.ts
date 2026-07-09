@@ -71,6 +71,7 @@ export type Database = {
         free_delivery_from: number | null;
         min_order_amount: number;
         currency: string;
+        invoice_enabled: boolean;
         qr_payment_url: string | null;
         qr_account_name: string | null;
         qr_account_document: string | null;

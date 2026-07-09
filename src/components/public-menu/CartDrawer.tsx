@@ -5,6 +5,7 @@ import { ShoppingBag } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Drawer } from "@/components/ui/Drawer";
 import { buttonClasses } from "@/components/ui/Button";
+import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { formatMoney } from "@/lib/utils/money";
 import { readCart, type CartProduct } from "@/lib/utils/cart";
 
@@ -49,7 +50,11 @@ export function CartDrawer({ restaurantSlug }: { restaurantSlug: string }) {
             </div>
           ))
         ) : (
-          <p className="rounded-2xl bg-[var(--primary-light)] p-4 text-sm font-semibold text-[var(--primary-dark)]">Agrega productos para iniciar un pedido.</p>
+          <div className="rounded-[1.5rem] bg-[var(--primary-light)] p-5 text-center text-sm font-semibold text-[var(--primary-dark)]">
+              <IllustrationAsset className="mx-auto max-w-[180px]" name="emptyCart" sizes="180px" />
+              <p className="mt-3 font-black text-[var(--primary)]">Tu carrito esta vacio</p>
+              <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Agrega productos para iniciar un pedido.</p>
+            </div>
         )}
       </div>
       <div className="mt-5 flex items-center justify-between text-lg font-black">

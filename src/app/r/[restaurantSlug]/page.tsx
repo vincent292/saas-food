@@ -5,6 +5,7 @@ import { categoryService } from "@/lib/services/category.service";
 import { productService } from "@/lib/services/product.service";
 import { publicDirectoryService } from "@/lib/services/public-directory.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
+import { settingsService } from "@/lib/services/settings.service";
 
 export default async function RestaurantPublicPage({
   params,
@@ -20,8 +21,9 @@ export default async function RestaurantPublicPage({
     notFound();
   }
 
-  const [settings, categories, products, configuration] = await Promise.all([
+  const [settings, businessHours, categories, products, configuration] = await Promise.all([
     restaurantService.getSettings(restaurant.id),
+    settingsService.listBusinessHours(restaurant.id),
     categoryService.listByRestaurant(restaurant.id),
     productService.listAvailableByRestaurant(restaurant.id),
     productService.listConfigurationsByRestaurant(restaurant.id),
@@ -30,7 +32,7 @@ export default async function RestaurantPublicPage({
 
   return (
     <RestaurantThemeProvider theme={restaurant.theme}>
-      <PublicRestaurantOrderClient categories={categories} configuration={configuration} orderError={error} products={products} restaurant={restaurant} settings={settings} />
+      <PublicRestaurantOrderClient businessHours={businessHours} categories={categories} configuration={configuration} orderError={error} products={products} restaurant={restaurant} settings={settings} />
     </RestaurantThemeProvider>
   );
 }

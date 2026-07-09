@@ -145,6 +145,7 @@ function mapSettings(row: {
   free_delivery_from: number | null;
   min_order_amount: number;
   currency: string;
+  invoice_enabled?: boolean | null;
   qr_payment_url: string | null;
   qr_account_name?: string | null;
   qr_account_document?: string | null;
@@ -167,6 +168,7 @@ function mapSettings(row: {
     freeDeliveryFrom: Number(row.free_delivery_from ?? 0),
     minOrderAmount: Number(row.min_order_amount),
     currency: row.currency,
+    invoiceEnabled: row.invoice_enabled ?? false,
     qrPaymentUrl: row.qr_payment_url ?? "",
     qrAccountName: row.qr_account_name ?? "",
     qrAccountDocument: row.qr_account_document ?? "",

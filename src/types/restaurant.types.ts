@@ -69,6 +69,7 @@ export type RestaurantSettings = {
   freeDeliveryFrom: number;
   minOrderAmount: number;
   currency: string;
+  invoiceEnabled: boolean;
   qrPaymentUrl: string;
   qrAccountName: string;
   qrAccountDocument: string;

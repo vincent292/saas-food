@@ -267,6 +267,9 @@ export function RestaurantSettingsFormClient({
               <option value="BOB">BOB</option>
               <option value="USD">USD</option>
             </Select>
+            <div className="md:col-span-2">
+              <ModuleToggle enabled={settings?.invoiceEnabled ?? false} label="Mostrar solicitud de factura en pedidos publicos" name="invoiceEnabled" />
+            </div>
             <Input defaultValue={settings?.qrAccountName} name="qrAccountName" placeholder="Titular de cuenta QR" />
             <Input defaultValue={settings?.qrAccountDocument} name="qrAccountDocument" placeholder="CI / NIT del titular" />
             <Input defaultValue={settings?.qrBankName} name="qrBankName" placeholder="Banco" />

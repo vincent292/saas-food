@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
-import type { Order, OrderDeliveryDispatch, OrderItem, OrderQueueState, OrderStatus } from "@/types/order.types";
+import type { Order, OrderDeliveryDispatch, OrderItem, OrderQueueState, OrderStatus, OrderTrackingStatus } from "@/types/order.types";
 
 type OrderRow = {
   id: string;
@@ -88,6 +89,28 @@ type PublicQueuePayload = {
   kitchen_capacity?: number;
   base_prep_minutes?: number;
   history_sample_size?: number;
+  updated_at?: string;
+};
+
+type OrderTrackingStatusRow = {
+  id: string;
+  restaurant_id: string;
+  order_type: Order["orderType"];
+  status: OrderStatus;
+  accepted_at: string | null;
+  preparing_at: string | null;
+  ready_at: string | null;
+  delivered_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+  updated_at: string;
+};
+
+type DeliveryTrackingStatusRow = {
+  status: OrderDeliveryDispatch["status"];
+  opened_at: string | null;
+  arrived_at: string | null;
+  delivered_at: string | null;
   updated_at?: string;
 };
 
@@ -201,6 +224,54 @@ function mapQueueState(payload: PublicQueuePayload): OrderQueueState | null {
   };
 }
 
+function mapTrackingStatus(row: OrderTrackingStatusRow, deliveryDispatch?: DeliveryTrackingStatusRow | null): OrderTrackingStatus {
+  return {
+    id: row.id,
+    restaurantId: row.restaurant_id,
+    orderType: row.order_type,
+    status: row.status,
+    acceptedAt: row.accepted_at ?? undefined,
+    preparingAt: row.preparing_at ?? undefined,
+    readyAt: row.ready_at ?? undefined,
+    deliveredAt: row.delivered_at ?? undefined,
+    cancelledAt: row.cancelled_at ?? undefined,
+    cancellationReason: row.cancellation_reason ?? undefined,
+    updatedAt: deliveryDispatch?.updated_at && deliveryDispatch.updated_at > row.updated_at ? deliveryDispatch.updated_at : row.updated_at,
+    deliveryDispatch: deliveryDispatch?.status
+      ? {
+          status: deliveryDispatch.status,
+          openedAt: deliveryDispatch.opened_at ?? undefined,
+          arrivedAt: deliveryDispatch.arrived_at ?? undefined,
+          deliveredAt: deliveryDispatch.delivered_at ?? undefined,
+        }
+      : undefined,
+  };
+}
+
+function mapOrderToTrackingStatus(order: Order): OrderTrackingStatus {
+  return {
+    id: order.id,
+    restaurantId: order.restaurantId,
+    orderType: order.orderType,
+    status: order.status,
+    acceptedAt: order.acceptedAt,
+    preparingAt: order.preparingAt,
+    readyAt: order.readyAt,
+    deliveredAt: order.deliveredAt,
+    cancelledAt: order.cancelledAt,
+    cancellationReason: order.cancellationReason,
+    updatedAt: order.deliveryDispatch?.deliveredAt ?? order.deliveredAt ?? order.cancelledAt ?? order.readyAt ?? order.preparingAt ?? order.acceptedAt ?? order.createdAt,
+    deliveryDispatch: order.deliveryDispatch
+      ? {
+          status: order.deliveryDispatch.status,
+          openedAt: order.deliveryDispatch.openedAt,
+          arrivedAt: order.deliveryDispatch.arrivedAt,
+          deliveredAt: order.deliveryDispatch.deliveredAt,
+        }
+      : undefined,
+  };
+}
+
 export const orderService = {
   async listByRestaurant(restaurantId: string) {
     if (!hasSupabaseEnv()) {
@@ -278,6 +349,65 @@ export const orderService = {
     }
 
     return mapOrder(payload, (payload.items ?? []).map(mapItem), mapPublicDelivery(payload));
+  },
+
+  async getStatusById(restaurantId: string, orderId: string) {
+    if (!hasSupabaseEnv()) {
+      return null;
+    }
+
+    const supabase = await createClient();
+    const { data: order, error } = await supabase
+      .from("orders")
+      .select("id,restaurant_id,order_type,status,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,updated_at")
+      .eq("restaurant_id", restaurantId)
+      .eq("id", orderId)
+      .maybeSingle();
+
+    if (error || !order) {
+      return null;
+    }
+
+    const { data: deliveryLink } = await supabase
+      .from("order_delivery_links")
+      .select("status,opened_at,arrived_at,delivered_at,updated_at")
+      .eq("order_id", order.id)
+      .maybeSingle();
+
+    return mapTrackingStatus(order as OrderTrackingStatusRow, deliveryLink as DeliveryTrackingStatusRow | null);
+  },
+
+  async getPublicStatusByTracking(restaurantId: string, orderId: string, token: string) {
+    if (!hasSupabaseEnv() || !token) {
+      return null;
+    }
+
+    const admin = createAdminClient();
+
+    if (!admin) {
+      const order = await this.getPublicByTracking(restaurantId, orderId, token);
+      return order ? mapOrderToTrackingStatus(order) : null;
+    }
+
+    const { data: order, error } = await admin
+      .from("orders")
+      .select("id,restaurant_id,order_type,status,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,updated_at")
+      .eq("restaurant_id", restaurantId)
+      .eq("id", orderId)
+      .eq("tracking_token", token)
+      .maybeSingle();
+
+    if (error || !order) {
+      return null;
+    }
+
+    const { data: deliveryLink } = await admin
+      .from("order_delivery_links")
+      .select("status,opened_at,arrived_at,delivered_at,updated_at")
+      .eq("order_id", order.id)
+      .maybeSingle();
+
+    return mapTrackingStatus(order as OrderTrackingStatusRow, deliveryLink as DeliveryTrackingStatusRow | null);
   },
 
   async getPublicQueueState(restaurantId: string, orderId: string, token: string) {

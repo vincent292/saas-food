@@ -5,6 +5,8 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { uploadPublicImage } from "@/lib/supabase/storage";
+import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTimeWithinBusinessHours, localDateTimeInputToIso } from "@/lib/utils/business-hours";
+import type { BusinessHour } from "@/types/restaurant.types";
 
 const cartItemSchema = z.object({
   productId: z.string().min(1),
@@ -55,12 +57,14 @@ type PublicOrderSettings = {
   delivery_fee: number;
   free_delivery_from: number | null;
   min_order_amount: number;
+  invoice_enabled: boolean;
+  qr_payment_url: string | null;
 };
 
 async function getOrCreatePublicOrderSettings(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {
   const { data: settings } = await supabase
     .from("restaurant_settings")
-    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount")
+    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
     .eq("restaurant_id", restaurantId)
     .maybeSingle();
 
@@ -86,14 +90,30 @@ async function getOrCreatePublicOrderSettings(supabase: Awaited<ReturnType<typeo
         kitchen_enabled: true,
         delivery_fee: 0,
         min_order_amount: 0,
+        invoice_enabled: false,
         currency: "BOB",
       },
       { onConflict: "restaurant_id" },
     )
-    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount")
+    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
     .maybeSingle();
 
   return (createdSettings as PublicOrderSettings | null) ?? null;
+}
+
+async function listPublicBusinessHours(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {
+  const { data } = await supabase
+    .from("business_hours")
+    .select("day_of_week,opens_at,closes_at,is_closed")
+    .eq("restaurant_id", restaurantId)
+    .order("day_of_week");
+
+  return (data ?? []).map((hour) => ({
+    dayOfWeek: hour.day_of_week,
+    opensAt: hour.opens_at ?? "",
+    closesAt: hour.closes_at ?? "",
+    isClosed: hour.is_closed,
+  })) satisfies BusinessHour[];
 }
 
 export async function createPublicOrderAction(formData: FormData) {
@@ -148,6 +168,11 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=settings`);
   }
 
+  const businessHours = await listPublicBusinessHours(supabase, parsed.data.restaurantId);
+  const requestedFulfillmentAt = parsed.data.requestedFulfillmentAt?.trim();
+  const isPublicFulfillmentOrder = parsed.data.orderType === "delivery" || parsed.data.orderType === "pickup";
+  const nowInput = formatLocalDateTimeInput(new Date(), DEFAULT_RESTAURANT_TIME_ZONE);
+
   const orderTypeEnabled =
     (parsed.data.orderType === "delivery" && settings.delivery_enabled) ||
     (parsed.data.orderType === "pickup" && settings.pickup_enabled) ||
@@ -165,13 +190,37 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${failPath}?error=invoice`);
   }
 
+  if (parsed.data.invoiceRequired && !settings.invoice_enabled) {
+    redirect(`${failPath}?error=invoice-disabled`);
+  }
+
   if (subtotal < Number(settings.min_order_amount)) {
     redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=minimum`);
   }
 
   const paymentReceiptFile = formData.get("paymentReceiptFile") as File | null;
+  if (parsed.data.paymentMethod === "qr" && !settings.qr_payment_url) {
+    redirect(`${failPath}?error=qr-unavailable`);
+  }
+
   if (parsed.data.paymentMethod === "qr" && (!paymentReceiptFile || paymentReceiptFile.size === 0)) {
     redirect(`${failPath}?error=receipt-required`);
+  }
+
+  if (isPublicFulfillmentOrder) {
+    if (!requestedFulfillmentAt && !isLocalDateTimeWithinBusinessHours(nowInput, businessHours)) {
+      redirect(`${failPath}?error=outside-hours`);
+    }
+
+    if (requestedFulfillmentAt) {
+      if (requestedFulfillmentAt < nowInput) {
+        redirect(`${failPath}?error=schedule-past`);
+      }
+
+      if (!isLocalDateTimeWithinBusinessHours(requestedFulfillmentAt, businessHours)) {
+        redirect(`${failPath}?error=outside-hours`);
+      }
+    }
   }
 
   const paymentReceiptUrl =
@@ -199,7 +248,7 @@ export async function createPublicOrderAction(formData: FormData) {
       customer_address: parsed.data.customerAddress,
       delivery_address_detail: parsed.data.deliveryAddressDetail ?? null,
       delivery_maps_url: parsed.data.deliveryMapsUrl ?? null,
-      requested_fulfillment_at: parsed.data.requestedFulfillmentAt ? new Date(parsed.data.requestedFulfillmentAt).toISOString() : null,
+      requested_fulfillment_at: requestedFulfillmentAt ? localDateTimeInputToIso(requestedFulfillmentAt, DEFAULT_RESTAURANT_TIME_ZONE) : null,
       invoice_required: parsed.data.invoiceRequired,
       invoice_document_type: parsed.data.invoiceRequired ? parsed.data.invoiceDocumentType : null,
       invoice_document_number: parsed.data.invoiceRequired ? parsed.data.invoiceDocumentNumber : null,

@@ -94,3 +94,18 @@ export type OrderQueueState = {
   historySampleSize: number;
   updatedAt: string;
 };
+
+export type OrderTrackingStatus = {
+  id: string;
+  restaurantId: string;
+  orderType: OrderType;
+  status: OrderStatus;
+  acceptedAt?: string;
+  preparingAt?: string;
+  readyAt?: string;
+  deliveredAt?: string;
+  cancelledAt?: string;
+  cancellationReason?: string;
+  updatedAt: string;
+  deliveryDispatch?: Pick<OrderDeliveryDispatch, "status" | "openedAt" | "arrivedAt" | "deliveredAt">;
+};

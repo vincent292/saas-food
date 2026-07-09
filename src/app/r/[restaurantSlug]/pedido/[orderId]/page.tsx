@@ -1,26 +1,11 @@
 import { notFound } from "next/navigation";
-import { CheckCircle2, ChefHat, MapPinned, PackageCheck, Truck, XCircle } from "lucide-react";
 import { RestaurantLayout } from "@/components/layout/RestaurantLayout";
-import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { OrderTrackingLiveRefresh } from "@/components/orders/OrderTrackingLiveRefresh";
-import { VirtualQueueCard } from "@/components/orders/VirtualQueueCard";
 import { ClearCartOnOrderSuccess } from "@/components/public-menu/ClearCartOnOrderSuccess";
 import { Card } from "@/components/ui/Card";
-import { SectionTitle } from "@/components/ui/SectionTitle";
 import { orderService } from "@/lib/services/order.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
-import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
-import type { OrderStatus } from "@/types/order.types";
-
-const statusStep: Record<OrderStatus, number> = {
-  pending: 0,
-  accepted: 1,
-  preparing: 1,
-  ready: 2,
-  delivered: 3,
-  cancelled: -1,
-};
 
 export default async function TrackingPage({
   params,
@@ -45,83 +30,11 @@ export default async function TrackingPage({
     notFound();
   }
 
-  const deliveryArrived = order.orderType === "delivery" && order.deliveryDispatch?.status === "arrived";
-  const currentStep =
-    order.status === "cancelled"
-      ? -1
-      : order.orderType === "delivery"
-        ? order.status === "delivered"
-          ? 4
-          : deliveryArrived
-            ? 3
-            : order.status === "ready"
-              ? 2
-              : order.status === "accepted" || order.status === "preparing"
-                ? 1
-                : 0
-        : statusStep[order.status];
-  const steps =
-    order.orderType === "delivery"
-      ? [
-          { label: "Pedido recibido", icon: CheckCircle2 },
-          { label: "En preparacion", icon: ChefHat },
-          { label: "En camino", icon: Truck },
-          { label: "Llego a tu ubicacion", icon: MapPinned },
-          { label: "Entregado", icon: PackageCheck },
-        ]
-      : [
-          { label: "Pedido recibido", icon: CheckCircle2 },
-          { label: "En preparacion", icon: ChefHat },
-          { label: "Listo para recoger", icon: Truck },
-          { label: "Entregado", icon: PackageCheck },
-        ];
-
   return (
     <RestaurantLayout restaurant={restaurant} showCart={false} showMobileNav={false}>
-      <OrderTrackingLiveRefresh orderId={order.id} restaurantId={restaurant.id} />
       <ClearCartOnOrderSuccess enabled={Boolean(token)} />
       <main className="mx-auto max-w-4xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
-        <SectionTitle title="Seguimiento del pedido" description={`Pedido ${order.orderNumber}`} action={<OrderStatusBadge status={order.status} />} />
-
-        <Card className="mt-6">
-          {order.status === "cancelled" ? (
-            <div className="rounded-3xl bg-[var(--color-danger-soft)] p-5 text-center text-[var(--color-danger-strong)]">
-              <XCircle className="mx-auto h-10 w-10" />
-              <p className="mt-3 text-lg font-black">Pedido rechazado</p>
-              <p className="mt-2 text-sm font-semibold">{order.cancellationReason || "El equipo no pudo aprobar tu pedido."}</p>
-            </div>
-          ) : (
-            <div className={cn("grid gap-4", order.orderType === "delivery" ? "md:grid-cols-5" : "md:grid-cols-4")}>
-              {steps.map((step, index) => {
-                const done = currentStep > index;
-                const active = currentStep === index;
-                return (
-                  <div
-                    className={cn(
-                      "rounded-3xl border p-4 text-center transition",
-                      done && "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]",
-                      active && "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)] ring-2 ring-[var(--primary)]/15",
-                      !done && !active && "border-transparent bg-[var(--color-surface)] text-[var(--muted)]",
-                    )}
-                    key={step.label}
-                  >
-                    <step.icon className={cn("mx-auto h-8 w-8", done ? "text-[var(--color-on-primary)]" : active ? "text-[var(--primary)]" : "text-[var(--color-placeholder)]")} />
-                    <p className="mt-3 text-sm font-black">{step.label}</p>
-                    <p className={cn("mt-1 text-xs font-semibold", done ? "text-[var(--color-on-primary-muted)]" : "text-[var(--muted)]")}>{active ? "Ahora" : `Paso ${index + 1}`}</p>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-
-        {deliveryArrived ? (
-          <div className="mt-6 rounded-2xl bg-[var(--color-info-soft)] p-4 text-sm font-black text-[var(--color-info-strong)]">
-            Tu repartidor ya llego a la ubicacion. Revisa tu telefono o sal a recibir el pedido.
-          </div>
-        ) : null}
-
-        <VirtualQueueCard order={order} queue={queueState} />
+        <OrderTrackingLiveRefresh initialOrder={order} initialQueue={queueState} restaurantSlug={restaurantSlug} token={token} />
 
         <Card className="mt-6">
           <h2 className="text-xl font-black">Resumen</h2>

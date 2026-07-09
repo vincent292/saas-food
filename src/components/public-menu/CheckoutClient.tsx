@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { readCart, type CartProduct } from "@/lib/utils/cart";
@@ -76,6 +77,16 @@ export function CheckoutClient({
     <main className="mx-auto grid max-w-7xl gap-6 px-4 pb-28 pt-8 sm:px-6 lg:grid-cols-[1fr_360px] lg:px-8">
       <section className="space-y-6">
         <SectionTitle title="Checkout" description="Datos del cliente, entrega, pago y resumen del pedido." />
+        <Card className="overflow-hidden bg-[linear-gradient(135deg,var(--surface)_0%,var(--primary-light)_100%)] p-4 sm:p-5">
+          <div className="flex items-center gap-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">Sin registro obligatorio</p>
+              <h2 className="mt-1 text-xl font-black text-[var(--text)]">Confirma como invitado</h2>
+              <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Solo pedimos los datos necesarios para preparar y coordinar tu pedido.</p>
+            </div>
+            <IllustrationAsset className="hidden max-w-[150px] sm:block" name="orderSuccess" priority sizes="150px" />
+          </div>
+        </Card>
         {error ? <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">{errorMessage}</div> : null}
         {belowMinimum ? (
           <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-semibold text-[var(--color-warning-strong)]">
@@ -157,7 +168,11 @@ export function CheckoutClient({
                 </div>
               ))
             ) : (
-              <p className="rounded-2xl bg-[var(--primary-light)] p-4 text-sm font-semibold text-[var(--primary-dark)]">Tu carrito esta vacio.</p>
+              <div className="rounded-[1.5rem] bg-[var(--primary-light)] p-5 text-center text-sm font-semibold text-[var(--primary-dark)]">
+                <IllustrationAsset className="mx-auto max-w-[180px]" name="emptyCart" sizes="180px" />
+                <p className="mt-3 font-black text-[var(--primary)]">Tu carrito esta vacio</p>
+                <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Vuelve al menu y agrega tus platos favoritos.</p>
+              </div>
             )}
           </div>
         </Card>

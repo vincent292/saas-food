@@ -24,6 +24,7 @@ import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { publicDirectoryService, type PublicDishCard, type PublicRestaurantCard } from "@/lib/services/public-directory.service";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
@@ -98,6 +99,13 @@ export default async function Home({
                   locations={baseDirectory.locations}
                   restaurants={baseDirectory.restaurants}
                 />
+              </div>
+              <div className="mt-4 flex max-w-3xl items-center gap-3 rounded-[1.35rem] border border-white/14 bg-white/10 p-3 text-white shadow-sm backdrop-blur">
+                <IllustrationAsset className="hidden max-w-[86px] shrink-0 sm:block" name="deliveryScooter" priority sizes="86px" />
+                <div className="min-w-0">
+                  <p className="text-sm font-black">Pedidos web sin cuenta obligatoria</p>
+                  <p className="mt-1 text-xs font-semibold text-white/70">El cliente puede explorar, armar su pedido y confirmar como invitado.</p>
+                </div>
               </div>
             </div>
 

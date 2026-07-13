@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Minus, Plus, Search, ShoppingCart, Trash2, X } from "lucide-react";
+import { Check, Maximize2, Minimize2, Minus, Plus, Search, ShoppingCart, Trash2, X } from "lucide-react";
 import { useDeferredValue, useMemo, useState } from "react";
 import { createPosSaleAction } from "@/app/admin/actions";
 import { Button, buttonClasses } from "@/components/ui/Button";
@@ -45,6 +45,7 @@ export function POSProductGrid({
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<PosCartItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState("cash");
+  const [expanded, setExpanded] = useState(false);
   const deferredQuery = useDeferredValue(query);
 
   const configByProduct = useMemo<ProductConfigMap>(() => {
@@ -119,26 +120,33 @@ export function POSProductGrid({
 
   return (
     <>
-      <div className={cn("grid gap-4 xl:grid-cols-[1fr_360px]", cart.length ? "pb-24 xl:pb-0" : "")}>
+      <div className={cn(expanded && "fixed inset-0 z-[65] overflow-y-auto bg-[var(--background)] p-3 sm:p-5 xl:p-6")}>
+      <div className={cn("grid gap-4", expanded ? "xl:grid-cols-[minmax(0,1fr)_420px]" : "xl:grid-cols-[1fr_360px]", cart.length ? "pb-24 xl:pb-0" : "")}>
         <section className="min-w-0 space-y-4">
           <Card className="rounded-[1.25rem] p-3">
-            <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
                 <Input className="pl-11" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto de caja" value={query} />
               </label>
-              <div className="flex gap-2 overflow-x-auto">
-                <CategoryButton active={categoryId === "all"} label="Todo" onClick={() => setCategoryId("all")} />
-                {categories.map((category) => (
-                  <CategoryButton active={categoryId === category.id} key={category.id} label={category.name} onClick={() => setCategoryId(category.id)} />
-                ))}
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
+                  <CategoryButton active={categoryId === "all"} label="Todo" onClick={() => setCategoryId("all")} />
+                  {categories.map((category) => (
+                    <CategoryButton active={categoryId === category.id} key={category.id} label={category.name} onClick={() => setCategoryId(category.id)} />
+                  ))}
+                </div>
+                <button className={buttonClasses("secondary", "min-h-10 shrink-0 px-3 text-xs font-black")} onClick={() => setExpanded((current) => !current)} type="button">
+                  {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                  {expanded ? "Salir" : "Modo grande"}
+                </button>
               </div>
             </div>
           </Card>
 
           {disabled ? <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para habilitar la venta rápida.</div> : null}
 
-          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+          <div className={cn("grid gap-3 sm:grid-cols-2", expanded ? "lg:grid-cols-3 2xl:grid-cols-4" : "2xl:grid-cols-3")}>
             {filteredProducts.map((product) => {
               const productConfig = configByProduct[product.id];
               const hasConfiguration = Boolean(productConfig?.variants.length || productConfig?.optionGroups.length);
@@ -165,7 +173,7 @@ export function POSProductGrid({
           {!filteredProducts.length ? <div className="rounded-[1.25rem] bg-[var(--surface)] p-6 text-center text-sm font-semibold text-[var(--muted)]">No hay productos para este filtro.</div> : null}
         </section>
 
-        <Card className="h-fit rounded-[1.25rem] p-4 xl:sticky xl:top-4">
+        <Card className={cn("h-fit rounded-[1.25rem] p-4 xl:sticky", expanded ? "xl:top-6" : "xl:top-4")}>
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta rápida</p>
@@ -236,7 +244,7 @@ export function POSProductGrid({
       </div>
 
       {cart.length ? (
-        <div className="fixed inset-x-3 bottom-3 z-40 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-2xl xl:hidden">
+        <div className={cn("fixed inset-x-3 bottom-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-2xl xl:hidden", expanded ? "z-[80]" : "z-40")}>
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">{cart.length} ítems</p>
@@ -248,6 +256,7 @@ export function POSProductGrid({
           </div>
         </div>
       ) : null}
+      </div>
 
       {selectedProduct ? (
         <ProductOptionModal
@@ -355,7 +364,7 @@ function ProductOptionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">
+    <div className="fixed inset-0 z-[90] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">
       <div className="max-h-[94vh] w-full overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[1.5rem]">
         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] p-4">
           <div>

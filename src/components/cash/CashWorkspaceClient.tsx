@@ -4,7 +4,7 @@ import { Banknote, Bike, Calculator, CreditCard, FileText, History, PackageSearc
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction } from "@/app/admin/actions";
+import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, updateOrderStatusAction } from "@/app/admin/actions";
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
@@ -131,9 +131,10 @@ export function CashWorkspaceClient({
     [todaysOrders],
   );
   const pickupOrders = useMemo(
-    () => todaysOrders.filter((order) => order.orderType === "pickup" && ["pending", "accepted", "preparing", "ready"].includes(order.status)),
+    () => todaysOrders.filter((order) => order.orderType === "pickup" && ["pending", "accepted", "preparing", "ready", "delivered"].includes(order.status)),
     [todaysOrders],
   );
+  const ordersById = useMemo(() => new Map(todaysOrders.map((order) => [order.id, order])), [todaysOrders]);
   const latestReport = reports[0];
   const banner = statusMessage(status);
   const tabs: { key: CashTab; label: string; icon: LucideIcon; count?: number }[] = [
@@ -291,7 +292,7 @@ function switchTab(nextTab: CashTab) {
                 order.status === "pending" ? (
                   <PendingOrderReviewCard context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
-                  <PickupOrderCard key={order.id} order={order} />
+                  <PickupOrderCard key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ),
               )}
             </div>
@@ -305,7 +306,11 @@ function switchTab(nextTab: CashTab) {
         <Card>
           <SectionTitle title="Movimientos" description="Cobros, egresos, ingresos, apertura y cierre del turno actual." />
           <div className="mt-4">
-            {movements.length ? movements.map((movement) => <CashMovementRow key={movement.id} movement={movement} />) : <EmptyState title="Sin movimientos" description="Los movimientos del turno aparecerán aquí." />}
+            {movements.length ? (
+              movements.map((movement) => <CashMovementRow key={movement.id} movement={movement} order={movement.orderId ? ordersById.get(movement.orderId) : undefined} />)
+            ) : (
+              <EmptyState title="Sin movimientos" description="Los movimientos del turno aparecerán aquí." />
+            )}
           </div>
         </Card>
       ) : null}
@@ -406,10 +411,31 @@ function DispatchStatusPanel({ label, tone, value }: { label: string; tone: "inf
   );
 }
 
-function PickupOrderCard({ order }: { order: Order }) {
+function PickupOrderCard({ order, restaurantSlug }: { order: Order; restaurantSlug: string }) {
   return (
     <Card className="rounded-[1.25rem] p-4">
-      <OrderOperationalSummary order={order} title="Recojo" />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start">
+        <OrderOperationalSummary order={order} title="Recojo" />
+        {order.status === "ready" ? (
+          <form action={updateOrderStatusAction} className="rounded-2xl border border-[var(--border)] p-3">
+            <input name="restaurantId" type="hidden" value={order.restaurantId} />
+            <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
+            <input name="orderId" type="hidden" value={order.id} />
+            <input name="source" type="hidden" value="caja" />
+            <input name="tab" type="hidden" value="recojo" />
+            <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">Confirma cuando el cliente ya retiro el pedido del local.</p>
+            <Button className="w-full" name="status" type="submit" value="delivered">
+              Marcar retirado
+            </Button>
+          </form>
+        ) : order.status === "delivered" ? (
+          <DispatchStatusPanel label="Retirado" tone="success" value={order.deliveredAt} />
+        ) : (
+          <div className="rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-bold text-[var(--color-warning-strong)]">
+            Aun no esta listo para entregar al cliente.
+          </div>
+        )}
+      </div>
     </Card>
   );
 }

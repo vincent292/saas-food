@@ -188,7 +188,8 @@ const updateOrderStatusSchema = z.object({
   restaurantSlug: z.string().optional(),
   orderId: z.string().uuid(),
   status: z.enum(["pending", "accepted", "preparing", "ready", "delivered", "cancelled"]),
-  source: z.enum(["admin", "kitchen"]).default("admin"),
+  source: z.enum(["admin", "kitchen", "pedidos", "caja"]).default("admin"),
+  tab: z.enum(["delivery", "recojo", "pedidos"]).optional(),
 });
 
 const createDeliveryLinkSchema = z.object({
@@ -2094,6 +2095,7 @@ export async function updateOrderStatusAction(formData: FormData) {
     orderId: formData.get("orderId"),
     status: formData.get("status"),
     source: formData.get("source") || "admin",
+    tab: formData.get("tab") || undefined,
   });
 
   if (!parsed.success) {
@@ -2168,6 +2170,14 @@ export async function updateOrderStatusAction(formData: FormData) {
 
   if (parsed.data.source === "kitchen" && parsed.data.restaurantSlug) {
     redirect(`/cocina/${parsed.data.restaurantSlug}`);
+  }
+
+  if (parsed.data.source === "pedidos") {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?updated=1&tab=cocina`);
+  }
+
+  if (parsed.data.source === "caja") {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=${parsed.data.tab ?? "pedidos"}&updated=1`);
   }
 
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?updated=1`);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChefHat, ClipboardCheck, PackageCheck, Truck, XCircle } from "lucide-react";
+import { CheckCircle2, ChefHat, ClipboardCheck, Clock3, PackageCheck, ShoppingBag, Store, Truck, XCircle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { SectionTitle } from "@/components/ui/SectionTitle";
@@ -20,6 +20,15 @@ const trackingLabels: Record<OrderStatus, string> = {
   preparing: "Preparando",
   ready: "Listo",
   delivered: "Entregado",
+  cancelled: "Cancelado",
+};
+
+const pickupLabels: Record<OrderStatus, string> = {
+  pending: "Recibido",
+  accepted: "Confirmado",
+  preparing: "Preparando",
+  ready: "Listo para recoger",
+  delivered: "Retirado",
   cancelled: "Cancelado",
 };
 
@@ -50,11 +59,71 @@ function isTerminalStatus(status: OrderStatus) {
 }
 
 function trackingLabel(order: Order) {
+  if (order.orderType === "pickup") {
+    return pickupLabels[order.status];
+  }
+
   if (order.orderType === "delivery" && order.status === "ready" && hasDeliveryDispatch(order)) {
     return "Salio para entrega";
   }
 
   return trackingLabels[order.status];
+}
+
+function trackingHeroCopy(order: Order) {
+  if (order.orderType === "pickup") {
+    if (order.status === "ready") {
+      return {
+        title: "Listo para recoger",
+        description: "Tu pedido ya esta listo. Puedes pasar por el local y pedirlo con tu numero de pedido.",
+        mode: "Recojo en local",
+      };
+    }
+
+    if (order.status === "delivered") {
+      return {
+        title: "Pedido retirado",
+        description: "Gracias por pasar por el local. El pedido quedo marcado como completado.",
+        mode: "Recojo completado",
+      };
+    }
+
+    return {
+      title: "Te avisaremos cuando este listo",
+      description: "Sigue el avance de cocina aqui. El estado importante para recojo es listo para recoger.",
+      mode: "Recojo en local",
+    };
+  }
+
+  if (order.orderType === "delivery") {
+    if (order.status === "ready" && hasDeliveryDispatch(order)) {
+      return {
+        title: "Salio para entrega",
+        description: "El repartidor ya tiene el pedido. El seguimiento se mantiene por estados, sin mapa en vivo.",
+        mode: "Envio a domicilio",
+      };
+    }
+
+    if (order.status === "ready") {
+      return {
+        title: "Listo para envio",
+        description: "El restaurante ya termino la preparacion y esta coordinando el despacho.",
+        mode: "Envio a domicilio",
+      };
+    }
+
+    return {
+      title: order.status === "delivered" ? "Pedido entregado" : "Seguimiento por estados",
+      description: "Veras el avance del pedido y el momento en que salga para entrega.",
+      mode: "Envio a domicilio",
+    };
+  }
+
+  return {
+    title: order.status === "delivered" ? "Pedido completado" : "Seguimiento por estados",
+    description: "El restaurante actualizara el avance del pedido aqui.",
+    mode: "Pedido en local",
+  };
 }
 
 function mergeTrackingStatus(order: Order, status: OrderTrackingStatus): Order {
@@ -109,22 +178,31 @@ function mergeDeliveryChange(order: Order, payload: DeliveryChangePayload): Orde
 
 function trackingSteps(order: Order) {
   const isDelivery = order.orderType === "delivery";
+  const isPickup = order.orderType === "pickup";
   const steps = isDelivery
     ? [
-        { label: "Recibido", icon: CheckCircle2 },
-        { label: "Confirmado", icon: ClipboardCheck },
-        { label: "Preparando", icon: ChefHat },
-        { label: "Listo", icon: PackageCheck },
-        { label: "Salio para entrega", icon: Truck },
-        { label: "Entregado", icon: PackageCheck },
+        { label: "Recibido", description: "El restaurante recibio tu pedido.", icon: CheckCircle2 },
+        { label: "Confirmado", description: "El equipo lo aprobo.", icon: ClipboardCheck },
+        { label: "Preparando", description: "Cocina esta trabajando.", icon: ChefHat },
+        { label: "Listo", description: "Sale del local.", icon: PackageCheck },
+        { label: "Salio para entrega", description: "Va camino a tu direccion.", icon: Truck },
+        { label: "Entregado", description: "Pedido completado.", icon: PackageCheck },
       ]
-    : [
-        { label: "Recibido", icon: CheckCircle2 },
-        { label: "Confirmado", icon: ClipboardCheck },
-        { label: "Preparando", icon: ChefHat },
-        { label: "Listo", icon: Truck },
-        { label: "Entregado", icon: PackageCheck },
-      ];
+    : isPickup
+      ? [
+          { label: "Recibido", description: "El restaurante recibio tu pedido.", icon: CheckCircle2 },
+          { label: "Confirmado", description: "El equipo lo aprobo.", icon: ClipboardCheck },
+          { label: "Preparando", description: "Cocina esta trabajando.", icon: ChefHat },
+          { label: "Listo para recoger", description: "Ya puedes pasar por el local.", icon: ShoppingBag },
+          { label: "Retirado", description: "Pedido completado.", icon: Store },
+        ]
+      : [
+          { label: "Recibido", description: "El restaurante recibio tu pedido.", icon: CheckCircle2 },
+          { label: "Confirmado", description: "El equipo lo aprobo.", icon: ClipboardCheck },
+          { label: "Preparando", description: "Cocina esta trabajando.", icon: ChefHat },
+          { label: "Listo", description: "El pedido esta listo.", icon: PackageCheck },
+          { label: "Completado", description: "Pedido completado.", icon: Store },
+        ];
 
   const currentStep =
     order.status === "cancelled"
@@ -189,6 +267,7 @@ export function OrderTrackingLiveRefresh({
   }, [initialOrder.id, restaurantSlug, token]);
   const isTerminal = isTerminalStatus(order.status);
   const { steps, currentStep } = trackingSteps(order);
+  const heroCopy = trackingHeroCopy(order);
   const queue = initialQueue ? { ...initialQueue, status: order.status } : null;
 
   const fetchLatestStatus = useCallback(async () => {
@@ -272,7 +351,7 @@ export function OrderTrackingLiveRefresh({
     <>
       <SectionTitle title="Seguimiento del pedido" description={`Pedido ${order.orderNumber}`} action={<TrackingStatusBadge order={order} />} />
 
-      <Card className="mt-6 overflow-hidden">
+      <Card className="mt-6 max-w-full overflow-hidden">
         {order.status === "cancelled" ? (
           <div className="rounded-3xl bg-[var(--color-danger-soft)] p-5 text-center text-[var(--color-danger-strong)]">
             <XCircle className="mx-auto h-10 w-10" />
@@ -280,29 +359,43 @@ export function OrderTrackingLiveRefresh({
             <p className="mt-2 text-sm font-semibold">{order.cancellationReason || "El equipo no pudo aprobar tu pedido."}</p>
           </div>
         ) : (
-          <div className="grid gap-5 lg:grid-cols-[230px_1fr] lg:items-center">
-            <div className="rounded-[1.5rem] bg-[var(--primary-light)] p-4 text-center">
-              <IllustrationAsset className="mx-auto max-w-[210px]" name={order.status === "delivered" ? "orderSuccess" : "orderStatus"} priority sizes="210px" />
-              <p className="mt-3 text-sm font-black text-[var(--primary)]">{order.status === "delivered" ? "Pedido entregado" : "Seguimiento por estados"}</p>
-              <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Sin mapa en vivo ni ubicacion del repartidor.</p>
+          <div className="grid min-w-0 gap-5 lg:grid-cols-[240px_minmax(0,1fr)] lg:items-start">
+            <div className="min-w-0 rounded-[1.5rem] border border-[var(--border)] bg-[var(--color-surface)] p-4 text-center">
+              <IllustrationAsset className="mx-auto max-w-[190px]" name={order.status === "delivered" ? "orderSuccess" : "orderStatus"} priority sizes="190px" />
+              <Badge className="mt-3 border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--primary-dark)]">{heroCopy.mode}</Badge>
+              <p className="mt-3 text-base font-black leading-tight text-[var(--primary)]">{heroCopy.title}</p>
+              <p className="mx-auto mt-2 max-w-[15rem] break-words text-xs font-semibold leading-5 text-[var(--muted)] sm:max-w-[18rem]">{heroCopy.description}</p>
             </div>
-            <div className={cn("grid gap-4", order.orderType === "delivery" ? "md:grid-cols-6" : "md:grid-cols-5")}>
+            <div className="grid min-w-0 gap-3 md:grid-cols-2 lg:grid-cols-1">
               {steps.map((step, index) => {
                 const done = currentStep > index;
                 const active = currentStep === index;
                 return (
                   <div
                     className={cn(
-                      "rounded-3xl border p-4 text-center transition",
+                      "flex min-h-20 min-w-0 items-center gap-3 rounded-2xl border p-3 text-left transition md:block md:min-h-[136px] md:p-4 md:text-center lg:flex lg:min-h-[76px] lg:p-3 lg:text-left",
                       done && "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]",
-                      active && "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)] ring-2 ring-[var(--primary)]/15",
+                      active && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--primary-dark)] ring-2 ring-[var(--accent-ring)]",
                       !done && !active && "border-transparent bg-[var(--color-surface)] text-[var(--muted)]",
                     )}
                     key={step.label}
                   >
-                    <step.icon className={cn("mx-auto h-8 w-8", done ? "text-[var(--color-on-primary)]" : active ? "text-[var(--primary)]" : "text-[var(--color-placeholder)]")} />
-                    <p className="mt-3 text-sm font-black">{step.label}</p>
-                    <p className={cn("mt-1 text-xs font-semibold", done ? "text-[var(--color-on-primary-muted)]" : "text-[var(--muted)]")}>{active ? "Ahora" : `Paso ${index + 1}`}</p>
+                    <span
+                      className={cn(
+                        "grid h-11 w-11 shrink-0 place-items-center rounded-2xl md:mx-auto lg:mx-0",
+                        done && "bg-[var(--color-on-primary-soft)]",
+                        active && "bg-[var(--surface)]",
+                        !done && !active && "bg-[var(--surface)]",
+                      )}
+                    >
+                      <step.icon className={cn("h-6 w-6", done ? "text-[var(--color-on-primary)]" : active ? "text-[var(--primary)]" : "text-[var(--color-placeholder)]")} />
+                    </span>
+                    <span className="min-w-0 lg:flex-1">
+                      <p className="text-sm font-black leading-tight md:mt-3 lg:mt-0">{step.label}</p>
+                      <p className={cn("mt-1 text-xs font-semibold leading-5", done ? "text-[var(--color-on-primary-muted)]" : "text-[var(--muted)]")}>
+                        {active ? "Ahora" : step.description}
+                      </p>
+                    </span>
                   </div>
                 );
               })}
@@ -310,6 +403,34 @@ export function OrderTrackingLiveRefresh({
           </div>
         )}
       </Card>
+
+      {order.status !== "cancelled" ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
+              <Clock3 className="h-4 w-4 text-[var(--primary)]" />
+              Actualizacion
+            </div>
+            <p className="mt-2 text-xs font-semibold leading-5 text-[var(--muted)]">Se refresca automaticamente sin recargar toda la pagina.</p>
+          </div>
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
+              {order.orderType === "delivery" ? <Truck className="h-4 w-4 text-[var(--primary)]" /> : <Store className="h-4 w-4 text-[var(--primary)]" />}
+              {order.orderType === "delivery" ? "Entrega" : "Recojo"}
+            </div>
+            <p className="mt-2 text-xs font-semibold leading-5 text-[var(--muted)]">
+              {order.orderType === "delivery" ? "El estado avisara cuando salga para entrega." : "El estado avisara cuando este listo para pasar por el local."}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
+              <PackageCheck className="h-4 w-4 text-[var(--primary)]" />
+              Estado claro
+            </div>
+            <p className="mt-2 text-xs font-semibold leading-5 text-[var(--muted)]">Sin mapa en vivo ni ubicacion del repartidor.</p>
+          </div>
+        </div>
+      ) : null}
 
       <VirtualQueueCard order={order} queue={queue} />
     </>

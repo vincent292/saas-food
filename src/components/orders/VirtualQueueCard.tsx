@@ -65,7 +65,15 @@ function headline(order: Order, queue: OrderQueueState) {
   }
 
   if (order.status === "ready") {
-    return order.orderType === "delivery" ? "Tu pedido esta listo para envio" : "Tu pedido esta listo";
+    if (order.orderType === "delivery") {
+      return "Tu pedido esta listo para envio";
+    }
+
+    if (order.orderType === "pickup") {
+      return "Tu pedido esta listo para recoger";
+    }
+
+    return "Tu pedido esta listo";
   }
 
   if (order.status === "delivered") {
@@ -99,7 +107,15 @@ function supportingText(order: Order, queue: OrderQueueState) {
   }
 
   if (order.status === "ready") {
-    return order.orderType === "delivery" ? "El equipo lo tiene listo para despacho." : "Puedes pasar por el cuando el restaurante te lo indique.";
+    if (order.orderType === "delivery") {
+      return "El equipo lo tiene listo para despacho.";
+    }
+
+    if (order.orderType === "pickup") {
+      return "Puedes pasar por el local y pedirlo con tu numero de pedido.";
+    }
+
+    return "El pedido esta listo para continuar.";
   }
 
   if (order.status === "delivered") {

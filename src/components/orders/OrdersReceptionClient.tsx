@@ -1,14 +1,15 @@
 "use client";
 
-import { CheckCircle2, Clock, Printer, RefreshCw, Truck } from "lucide-react";
+import { ChefHat, CheckCircle2, Clock, ExternalLink, Printer, RefreshCw, Truck, Utensils } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { updateOrderStatusAction } from "@/app/admin/actions";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { elapsedLabel, minutesSince, orderSourceLabel, orderStatusLabels, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
 import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
-import { buttonClasses } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils/cn";
@@ -25,7 +26,12 @@ type ReceptionStatus = {
   charged?: string;
   rejected?: string;
   error?: string;
+  tab?: string;
 };
+
+function normalizeReceptionTab(value?: string): ReceptionTab {
+  return value === "cocina" || value === "historial" || value === "nuevos" ? value : "nuevos";
+}
 
 function statusMessage(status: ReceptionStatus) {
   if (status.charged) {
@@ -71,7 +77,7 @@ export function OrdersReceptionClient({
   status: ReceptionStatus;
 }) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<ReceptionTab>("nuevos");
+  const [activeTab, setActiveTab] = useState<ReceptionTab>(() => normalizeReceptionTab(status.tab));
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
@@ -138,11 +144,21 @@ export function OrdersReceptionClient({
             Aquí llegan los pedidos de mesa y de afuera. Caja o recepción los aprueba, valida el comprobante y los manda a cocina.
           </p>
         </div>
-        <div className="flex items-center gap-2 rounded-full bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--muted)] shadow-sm">
-          <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin text-[var(--primary)]")} />
-          {isRefreshing ? "Actualizando" : "En vivo"}
+        <div className="flex flex-wrap items-center gap-2">
+          <a className={buttonClasses("secondary", "min-h-10 px-4 text-sm")} href={`/cocina/${restaurant.slug}`} rel="noreferrer" target="_blank">
+            <ExternalLink className="h-4 w-4" />
+            Abrir cocina
+          </a>
+          <div className="flex items-center gap-2 rounded-full bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--muted)] shadow-sm">
+            <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin text-[var(--primary)]")} />
+            {isRefreshing ? "Actualizando" : "En vivo"}
+          </div>
         </div>
       </section>
+
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm font-semibold leading-6 text-[var(--muted)] shadow-sm">
+        Si el negocio no tiene pantalla en cocina, usa la pestaña <strong className="text-[var(--text)]">En cocina</strong> para iniciar preparacion y marcar pedidos listos desde este mismo panel.
+      </div>
 
       {!hasOpenSession ? (
         <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">
@@ -212,6 +228,9 @@ function ReceptionOrderCard({
   defaultPrintFormat: PrintFormat;
 }) {
   const minutes = minutesSince(order.createdAt, new Date());
+  const nextKitchenStatus = order.status === "accepted" ? "preparing" : order.status === "preparing" ? "ready" : null;
+  const nextKitchenLabel = order.status === "accepted" ? "Iniciar preparacion" : "Marcar listo";
+  const readyLabel = order.orderType === "pickup" ? "Listo para recojo" : order.orderType === "delivery" ? "Listo para despacho" : "Listo para entregar";
 
   return (
     <Card className="rounded-[1.25rem] p-4">
@@ -265,6 +284,22 @@ function ReceptionOrderCard({
               Grande
             </button>
           </div>
+
+          {nextKitchenStatus ? (
+            <form action={updateOrderStatusAction} className="rounded-2xl border border-[var(--border)] p-3">
+              <input name="restaurantId" type="hidden" value={order.restaurantId} />
+              <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
+              <input name="orderId" type="hidden" value={order.id} />
+              <input name="source" type="hidden" value="pedidos" />
+              <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">Avance rapido para locales sin pantalla de cocina separada.</p>
+              <Button className="w-full" name="status" type="submit" value={nextKitchenStatus}>
+                {order.status === "accepted" ? <ChefHat className="h-4 w-4" /> : <Utensils className="h-4 w-4" />}
+                {nextKitchenLabel}
+              </Button>
+            </form>
+          ) : order.status === "ready" ? (
+            <div className="rounded-2xl bg-[var(--primary-light)] p-3 text-center text-sm font-black text-[var(--primary-dark)]">{readyLabel}</div>
+          ) : null}
         </div>
       </div>
     </Card>

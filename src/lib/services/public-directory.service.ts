@@ -33,6 +33,16 @@ type VisitRow = {
   visited_at: string;
 };
 
+type AnnouncementRow = {
+  restaurant_id: string;
+  type: "announcement" | "closure";
+  title: string;
+  body: string | null;
+  image_url: string | null;
+  starts_at: string;
+  ends_at: string | null;
+};
+
 type DirectoryCacheEntry = {
   expiresAt: number;
   value: PublicDirectory;
@@ -46,6 +56,15 @@ export type PublicRestaurantCard = {
   orders30d: number;
   visits7d: number;
   popularProducts: string[];
+  currentAnnouncement?: {
+    type: "announcement" | "closure";
+    title: string;
+    body: string;
+    imageUrl: string;
+    startsAt: string;
+    endsAt?: string;
+  };
+  isTemporarilyClosed: boolean;
 };
 
 export type PublicDishCard = {
@@ -160,22 +179,40 @@ export const publicDirectoryService = {
 
     const since7d = daysAgoIso(7);
     const since30d = daysAgoIso(30);
-    const [{ data: categoryRows }, { data: productRows }, { data: orderRows }, { data: visitRows }] = await Promise.all([
+    const now = new Date().toISOString();
+    const [{ data: categoryRows }, { data: productRows }, { data: orderRows }, { data: visitRows }, { data: announcementRows }] = await Promise.all([
       supabase.from("categories").select("id,restaurant_id,name,is_active").in("restaurant_id", restaurantIds).eq("is_active", true),
       supabase.from("products").select("id,restaurant_id,category_id,name,description,price,image_url,is_available,order_count").in("restaurant_id", restaurantIds).eq("is_available", true),
       supabase.from("orders").select("restaurant_id,created_at").in("restaurant_id", restaurantIds).gte("created_at", since30d),
       supabase.from("restaurant_public_visits").select("restaurant_id,visited_at").in("restaurant_id", restaurantIds).gte("visited_at", since7d),
+      supabase
+        .from("restaurant_announcements")
+        .select("restaurant_id,type,title,body,image_url,starts_at,ends_at")
+        .in("restaurant_id", restaurantIds)
+        .eq("is_active", true)
+        .lte("starts_at", now)
+        .or(`ends_at.is.null,ends_at.gte.${now}`)
+        .order("type", { ascending: false })
+        .order("starts_at", { ascending: false }),
     ]);
 
     const categories = (categoryRows ?? []) as CategoryRow[];
     const products = (productRows ?? []) as ProductRow[];
     const orders = (orderRows ?? []) as OrderRow[];
     const visits = (visitRows ?? []) as VisitRow[];
+    const announcements = (announcementRows ?? []) as AnnouncementRow[];
     const restaurantById = new Map(restaurants.map((restaurant) => [restaurant.id, restaurant]));
     const categoryById = new Map(categories.map((item) => [item.id, item.name]));
     const ordersCountByRestaurant = countByRestaurant(orders);
     const visitsCountByRestaurant = countByRestaurant(visits);
     const productsByRestaurant = new Map<string, ProductRow[]>();
+    const announcementByRestaurant = new Map<string, AnnouncementRow>();
+
+    for (const announcement of announcements) {
+      if (!announcementByRestaurant.has(announcement.restaurant_id) || announcement.type === "closure") {
+        announcementByRestaurant.set(announcement.restaurant_id, announcement);
+      }
+    }
 
     for (const product of products) {
       const current = productsByRestaurant.get(product.restaurant_id) ?? [];
@@ -198,6 +235,7 @@ export const publicDirectoryService = {
         .slice(0, 3)
         .map((product) => product.name);
       const primaryCategory = restaurant.publicCategory || "";
+      const currentAnnouncement = announcementByRestaurant.get(restaurant.id);
 
       return {
         restaurant,
@@ -207,6 +245,17 @@ export const publicDirectoryService = {
         orders30d: ordersCountByRestaurant.get(restaurant.id) ?? 0,
         visits7d: visitsCountByRestaurant.get(restaurant.id) ?? 0,
         popularProducts,
+        currentAnnouncement: currentAnnouncement
+          ? {
+              type: currentAnnouncement.type,
+              title: currentAnnouncement.title,
+              body: currentAnnouncement.body ?? "",
+              imageUrl: currentAnnouncement.image_url ?? "",
+              startsAt: currentAnnouncement.starts_at,
+              endsAt: currentAnnouncement.ends_at ?? undefined,
+            }
+          : undefined,
+        isTemporarilyClosed: currentAnnouncement?.type === "closure",
       };
     });
 

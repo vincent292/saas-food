@@ -1,8 +1,8 @@
 "use client";
 
-import { Clock3, CreditCard, ImageIcon, MapPin, Printer, Settings2, ShieldCheck, Store, UserRound } from "lucide-react";
+import { CalendarClock, Clock3, CreditCard, ImageIcon, Megaphone, MapPin, Power, Printer, Settings2, ShieldCheck, Store, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
-import { updateRestaurantConfigurationAction } from "@/app/admin/actions";
+import { closeRestaurantTodayAction, createRestaurantAnnouncementAction, deactivateRestaurantAnnouncementAction, updateRestaurantConfigurationAction } from "@/app/admin/actions";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { ModuleToggle } from "@/components/settings/ModuleToggle";
 import { Button } from "@/components/ui/Button";
@@ -12,7 +12,7 @@ import { PasswordInput } from "@/components/ui/PasswordInput";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { restaurantCategoryOptions, restaurantLocationOptions } from "@/lib/restaurant-directory-options";
 import { cn } from "@/lib/utils/cn";
-import type { BusinessHour, ModuleKey, Restaurant, RestaurantSettings, SubscriptionPlan } from "@/types/restaurant.types";
+import type { BusinessHour, ModuleKey, Restaurant, RestaurantAnnouncement, RestaurantSettings, SubscriptionPlan } from "@/types/restaurant.types";
 
 const days = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -24,6 +24,7 @@ const tabs = [
   { key: "impresion", label: "Impresión", icon: Printer },
   { key: "ubicacion", label: "Ubicación", icon: MapPin },
   { key: "horarios", label: "Horarios", icon: Clock3 },
+  { key: "avisos", label: "Avisos", icon: Megaphone },
   { key: "responsable", label: "Responsable", icon: UserRound },
 ];
 
@@ -46,22 +47,48 @@ function isImageUrl(value: string | undefined) {
   return Boolean(value && (value.startsWith("http") || value.startsWith("/")));
 }
 
+function toDateTimeLocalInput(date: Date) {
+  const offsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function endOfToday() {
+  const date = new Date();
+  date.setHours(23, 59, 59, 999);
+  return date;
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("es-BO", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
 export function RestaurantSettingsFormClient({
   restaurant,
   settings,
   businessHours,
+  announcements,
   plans,
   saved,
   error,
+  announcementCreated,
+  closureCreated,
+  announcementDisabled,
   initialTab,
   canManagePlan,
 }: {
   restaurant: Restaurant;
   settings: RestaurantSettings | null;
   businessHours: BusinessHour[];
+  announcements: RestaurantAnnouncement[];
   plans: SubscriptionPlan[];
   saved?: string;
   error?: string;
+  announcementCreated?: string;
+  closureCreated?: string;
+  announcementDisabled?: string;
   initialTab?: string;
   canManagePlan: boolean;
 }) {
@@ -75,16 +102,22 @@ export function RestaurantSettingsFormClient({
   const bannerIsImage = isImageUrl(restaurant.bannerUrl);
   const qrIsImage = isImageUrl(settings?.qrPaymentUrl);
   const canUseModule = (moduleKey: ModuleKey) => planModules.has(moduleKey);
+  const nowInputValue = toDateTimeLocalInput(new Date());
+  const endOfTodayInputValue = toDateTimeLocalInput(endOfToday());
 
   return (
     <form action={updateRestaurantConfigurationAction} className="space-y-6">
       <input name="restaurantId" type="hidden" value={restaurant.id} />
       <input name="currentSlug" type="hidden" value={restaurant.slug} />
+      <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
       <input name="currentQrPaymentUrl" type="hidden" value={settings?.qrPaymentUrl ?? ""} />
       <input name="currentMenuBackgroundImageUrl" type="hidden" value={restaurant.menuBackgroundImageUrl} />
       <input name="tab" type="hidden" value={activeTab} />
 
       {saved ? <Banner tone="success">Configuración guardada en Supabase.</Banner> : null}
+      {announcementCreated ? <Banner tone="success">Comunicado publicado.</Banner> : null}
+      {closureCreated ? <Banner tone="success">Cierre temporal publicado para hoy.</Banner> : null}
+      {announcementDisabled ? <Banner tone="success">Aviso desactivado.</Banner> : null}
       {error ? <Banner tone="danger">{errorMessages[error] ?? `No se pudo guardar la configuración: ${error}.`}</Banner> : null}
 
       <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
@@ -384,6 +417,91 @@ export function RestaurantSettingsFormClient({
             })}
           </div>
         </Card>
+      </div>
+
+      <div className={cn(activeTab === "avisos" ? "block" : "hidden")}>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="space-y-6">
+            <Card className="grid gap-4 md:grid-cols-2">
+              <SectionTitle title="Cerrar temporalmente" description="Para feriados, mantenimiento, remodelacion o falta de stock." />
+              <div className="md:col-span-2 rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-semibold leading-6 text-[var(--color-warning-strong)]">
+                El restaurante seguira visible en el home, pero aparecera como cerrado y no permitira pedidos mientras el cierre este activo.
+              </div>
+              <Input defaultValue="Cerrado por hoy" name="closureTitle" placeholder="Titulo del cierre" />
+              <Input defaultValue={endOfTodayInputValue} name="closurePreviewEndsAt" readOnly type="datetime-local" />
+              <Textarea className="md:col-span-2" defaultValue="No recibiremos pedidos hasta el proximo horario disponible." name="closureBody" placeholder="Mensaje para clientes" />
+              <div className="md:col-span-2 flex justify-end">
+                <Button formAction={closeRestaurantTodayAction} type="submit">
+                  <Power className="h-4 w-4" />
+                  Cerrar por hoy
+                </Button>
+              </div>
+            </Card>
+
+            <Card className="grid gap-4 md:grid-cols-2">
+              <SectionTitle title="Comunicado programado" description="Publica una alerta por rango de fechas con imagen opcional." />
+              <div className="md:col-span-2" />
+              <Select defaultValue="announcement" name="announcementType">
+                <option value="announcement">Comunicado informativo</option>
+                <option value="closure">Cierre temporal</option>
+              </Select>
+              <Input name="announcementTitle" placeholder="Ej: Cerrado por remodelacion" />
+              <Input defaultValue={nowInputValue} name="announcementStartsAt" type="datetime-local" />
+              <Input name="announcementEndsAt" type="datetime-local" />
+              <Textarea className="md:col-span-2" name="announcementBody" placeholder="Detalle visible para los clientes" />
+              <div className="md:col-span-2">
+                <CompressedImageInput help="Opcional. Recomendado: 1200 x 700 px, sin texto pequeno." label="Imagen del comunicado" name="announcementImageFile" />
+              </div>
+              <div className="md:col-span-2 flex justify-end">
+                <Button formAction={createRestaurantAnnouncementAction} type="submit">
+                  <Megaphone className="h-4 w-4" />
+                  Publicar aviso
+                </Button>
+              </div>
+            </Card>
+          </div>
+
+          <Card className="space-y-4">
+            <SectionTitle title="Avisos recientes" description="Se muestran en el menu publico y en el directorio si estan vigentes." />
+            {announcements.length ? (
+              <div className="space-y-3">
+                {announcements.map((announcement) => (
+                  <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3" key={announcement.id}>
+                    {announcement.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img alt={announcement.title} className="mb-3 h-28 w-full rounded-xl object-cover" src={announcement.imageUrl} />
+                    ) : null}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-black", announcement.type === "closure" ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--primary-light)] text-[var(--primary)]")}>
+                          {announcement.type === "closure" ? "Cierre" : "Comunicado"}
+                        </span>
+                        <h3 className="mt-2 line-clamp-2 text-sm font-black text-[var(--color-heading)]">{announcement.title}</h3>
+                        <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">{announcement.body || "Sin detalle adicional."}</p>
+                      </div>
+                      <span className={cn("shrink-0 rounded-full px-2 py-1 text-[10px] font-black", announcement.isActive ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]")}>
+                        {announcement.isActive ? "Activo" : "Inactivo"}
+                      </span>
+                    </div>
+                    <p className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[var(--color-secondary-text)]">
+                      <CalendarClock className="h-3.5 w-3.5" />
+                      {formatDateTime(announcement.startsAt)} - {announcement.endsAt ? formatDateTime(announcement.endsAt) : "sin fin"}
+                    </p>
+                    {announcement.isActive ? (
+                      <Button className="mt-3 w-full" formAction={deactivateRestaurantAnnouncementAction} name="announcementId" type="submit" value={announcement.id} variant="secondary">
+                        Desactivar aviso
+                      </Button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-secondary-text)]">
+                Todavia no hay avisos publicados para este restaurante.
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
 
       <div className={cn(activeTab === "responsable" ? "block" : "hidden")}>

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { announcementService } from "@/lib/services/announcement.service";
 import { uploadPublicImage } from "@/lib/supabase/storage";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTimeWithinBusinessHours, localDateTimeInputToIso } from "@/lib/utils/business-hours";
 import type { BusinessHour } from "@/types/restaurant.types";
@@ -324,6 +325,10 @@ export async function createPublicOrderAction(formData: FormData) {
 
   if (!settings) {
     redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=settings`);
+  }
+
+  if (await announcementService.hasActiveClosure(parsed.data.restaurantId)) {
+    redirect(`${failPath}?error=temporarily-closed`);
   }
 
   let resolvedCart: ResolvedCartItem[];

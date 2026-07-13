@@ -89,6 +89,29 @@ const updateRestaurantConfigurationSchema = z.object({
   ownerPassword: z.string().min(8).optional().or(z.literal("")),
 });
 
+const createAnnouncementSchema = z.object({
+  restaurantId: z.string().uuid(),
+  restaurantSlug: z.string().min(1).optional(),
+  type: z.enum(["announcement", "closure"]).default("announcement"),
+  title: z.string().min(3),
+  body: z.string().optional(),
+  startsAt: z.string().min(1),
+  endsAt: z.string().optional(),
+});
+
+const closeTodaySchema = z.object({
+  restaurantId: z.string().uuid(),
+  restaurantSlug: z.string().min(1).optional(),
+  title: z.string().min(3).default("Cerrado por hoy"),
+  body: z.string().optional(),
+});
+
+const announcementIdSchema = z.object({
+  restaurantId: z.string().uuid(),
+  restaurantSlug: z.string().min(1).optional(),
+  announcementId: z.string().uuid(),
+});
+
 const setRestaurantStatusSchema = z.object({
   restaurantId: z.string().uuid(),
   status: z.enum(["active", "inactive", "suspended"]),
@@ -1710,6 +1733,121 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   revalidatePath(`/r/${parsed.data.currentSlug}`);
   revalidatePath(`/r/${slug}`);
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=${returnTab}&saved=1`);
+}
+
+function dateTimeInputToIso(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+}
+
+function revalidateAnnouncementPaths(restaurantId: string, restaurantSlug?: string) {
+  revalidatePath("/");
+  revalidatePath(`/admin/restaurantes/${restaurantId}/configuracion`);
+  if (restaurantSlug) {
+    revalidatePath(`/r/${restaurantSlug}`);
+  }
+}
+
+export async function createRestaurantAnnouncementAction(formData: FormData) {
+  const parsed = createAnnouncementSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    restaurantSlug: formData.get("restaurantSlug") || undefined,
+    type: formData.get("announcementType") || "announcement",
+    title: formData.get("announcementTitle"),
+    body: formData.get("announcementBody") || undefined,
+    startsAt: formData.get("announcementStartsAt"),
+    endsAt: formData.get("announcementEndsAt") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=avisos&error=invalid-announcement`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos`);
+  const { supabase, user } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  const imageUrl = await uploadPublicImage(formData.get("announcementImageFile") as File | null, `restaurants/${parsed.data.restaurantId}/announcements`);
+
+  const { error } = await supabase.from("restaurant_announcements").insert({
+    restaurant_id: parsed.data.restaurantId,
+    type: parsed.data.type,
+    title: parsed.data.title.trim(),
+    body: parsed.data.body?.trim() || null,
+    image_url: imageUrl ?? null,
+    starts_at: dateTimeInputToIso(parsed.data.startsAt),
+    ends_at: parsed.data.endsAt ? dateTimeInputToIso(parsed.data.endsAt) : null,
+    is_active: true,
+    created_by: user.id,
+  });
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&error=${error.code}`);
+  }
+
+  revalidateAnnouncementPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&announcement=1`);
+}
+
+export async function closeRestaurantTodayAction(formData: FormData) {
+  const parsed = closeTodaySchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    restaurantSlug: formData.get("restaurantSlug") || undefined,
+    title: formData.get("closureTitle") || "Cerrado por hoy",
+    body: formData.get("closureBody") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=avisos&error=invalid-closure`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos`);
+  const { supabase, user } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  const endsAt = new Date();
+  endsAt.setHours(23, 59, 59, 999);
+
+  const { error } = await supabase.from("restaurant_announcements").insert({
+    restaurant_id: parsed.data.restaurantId,
+    type: "closure",
+    title: parsed.data.title.trim(),
+    body: parsed.data.body?.trim() || "No recibiremos pedidos hasta el proximo horario disponible.",
+    starts_at: new Date().toISOString(),
+    ends_at: endsAt.toISOString(),
+    is_active: true,
+    created_by: user.id,
+  });
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&error=${error.code}`);
+  }
+
+  revalidateAnnouncementPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&closed=1`);
+}
+
+export async function deactivateRestaurantAnnouncementAction(formData: FormData) {
+  const parsed = announcementIdSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    restaurantSlug: formData.get("restaurantSlug") || undefined,
+    announcementId: formData.get("announcementId"),
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=avisos&error=invalid-announcement`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos`);
+  const { supabase } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  const { error } = await supabase
+    .from("restaurant_announcements")
+    .update({ is_active: false })
+    .eq("id", parsed.data.announcementId)
+    .eq("restaurant_id", parsed.data.restaurantId);
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&error=${error.code}`);
+  }
+
+  revalidateAnnouncementPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&disabled=1`);
 }
 
 export async function createCategoryAction(formData: FormData) {

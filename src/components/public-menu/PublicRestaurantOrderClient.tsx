@@ -2,17 +2,18 @@
 
 import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCard, Flame, Heart, MapPin, Minus, Plus, ReceiptText, Search, Share2, ShoppingCart, Star, Store, UserRound, X } from "lucide-react";
 import Link from "next/link";
-import { type CSSProperties, type FormEvent, type ReactNode, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input } from "@/components/ui/Input";
+import { readCart, writeCart } from "@/lib/utils/cart";
 import { DEFAULT_RESTAURANT_TIME_ZONE, getBusinessStatus, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
-import type { BusinessHour, Restaurant, RestaurantSettings } from "@/types/restaurant.types";
+import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantSettings } from "@/types/restaurant.types";
 
 type PublicOrderType = "delivery" | "pickup";
 type SelectedOptions = Record<string, string[]>;
@@ -46,6 +47,7 @@ export function PublicRestaurantOrderClient({
   products,
   settings,
   businessHours,
+  announcements,
   configuration,
   orderError,
 }: {
@@ -54,13 +56,14 @@ export function PublicRestaurantOrderClient({
   products: Product[];
   settings: RestaurantSettings | null;
   businessHours: BusinessHour[];
+  announcements: RestaurantAnnouncement[];
   configuration: ProductConfiguration;
   orderError?: string;
 }) {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [productQuery, setProductQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(() => readCart(restaurant.slug) as CartItem[]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerClosing, setDrawerClosing] = useState(false);
   const businessStatus = useMemo(() => getBusinessStatus(businessHours, new Date(), DEFAULT_RESTAURANT_TIME_ZONE), [businessHours]);
@@ -68,6 +71,7 @@ export function PublicRestaurantOrderClient({
   const [requiresInvoice, setRequiresInvoice] = useState(false);
   const [fulfillmentMode, setFulfillmentMode] = useState<"now" | "scheduled">(() => (businessStatus.hasSchedule && !businessStatus.isOpen ? "scheduled" : "now"));
   const [orderType, setOrderType] = useState<PublicOrderType>(() => (settings?.pickupEnabled === false && settings?.deliveryEnabled ? "delivery" : "pickup"));
+  const activeClosure = announcements.find((announcement) => announcement.type === "closure");
 
   const configByProduct = useMemo<ProductConfigMap>(() => {
     const map: ProductConfigMap = {};
@@ -111,6 +115,14 @@ export function PublicRestaurantOrderClient({
         backgroundPosition: "center",
       }
     : {};
+
+  useEffect(() => {
+    writeCart(cart, {
+      restaurantId: restaurant.id,
+      restaurantName: restaurant.name,
+      restaurantSlug: restaurant.slug,
+    });
+  }, [cart, restaurant.id, restaurant.name, restaurant.slug]);
 
   function addConfiguredProduct(product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) {
     const price = product.price + (variant?.priceDelta ?? 0) + selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
@@ -175,7 +187,7 @@ export function PublicRestaurantOrderClient({
           <div className="flex shrink-0 items-center justify-end gap-2">
             <span className="hidden items-center gap-1 rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-black text-[var(--primary)] md:inline-flex">
               <Clock3 className="h-3.5 w-3.5" />
-              Abierto hoy
+              {activeClosure ? "Cerrado hoy" : "Abierto hoy"}
             </span>
             <Link className="hidden rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:inline-flex" href={`/r/${restaurant.slug}/seguimiento`}>
               Rastrear pedido
@@ -250,6 +262,26 @@ export function PublicRestaurantOrderClient({
               </div>
             </div>
           </div>
+
+          {announcements.length ? (
+            <div className="mb-4 grid gap-3">
+              {announcements.map((announcement) => (
+                <div className={cn("overflow-hidden rounded-[1.45rem] border p-4 shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]", announcement.type === "closure" ? "border-[var(--color-warning-strong)]/30 bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "border-[var(--border)] bg-white text-[var(--text)]")} key={announcement.id}>
+                  <div className="grid gap-3 sm:grid-cols-[120px_1fr] sm:items-center">
+                    {announcement.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img alt={announcement.title} className="h-28 w-full rounded-[1rem] object-cover sm:h-24" src={announcement.imageUrl} />
+                    ) : null}
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.14em]">{announcement.type === "closure" ? "Cierre temporal" : "Comunicado"}</p>
+                      <h2 className="mt-1 text-xl font-black">{announcement.title}</h2>
+                      {announcement.body ? <p className="mt-1 text-sm font-semibold leading-6 opacity-85">{announcement.body}</p> : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {topOrderedProducts.length ? (
             <div className="mb-4 rounded-[1.65rem] border border-[var(--border)] bg-white p-4 shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]">
@@ -379,6 +411,7 @@ export function PublicRestaurantOrderClient({
                 restaurant={restaurant}
                 businessHours={businessHours}
                 businessStatus={businessStatus}
+                activeClosure={activeClosure}
                 setOrderType={setOrderType}
                 setPaymentMethod={setPaymentMethod}
                 setFulfillmentMode={setFulfillmentMode}
@@ -404,6 +437,8 @@ function OrderErrorMessage({ error }: { error: string }) {
         ? "Para pago QR debes subir el comprobante antes de confirmar."
         : error === "qr-unavailable"
           ? "Este restaurante todavia no tiene QR configurado. Elige pago en efectivo."
+          : error === "temporarily-closed"
+            ? "El restaurante esta cerrado temporalmente y no esta recibiendo pedidos."
           : error === "outside-hours"
             ? "El restaurante esta fuera de horario. Programa el pedido dentro del horario de atencion."
             : error === "schedule-past"
@@ -645,6 +680,7 @@ function PublicOrderPanel({
   settings,
   businessHours,
   businessStatus,
+  activeClosure,
   cart,
   cartJson,
   total,
@@ -664,6 +700,7 @@ function PublicOrderPanel({
   settings: RestaurantSettings | null;
   businessHours: BusinessHour[];
   businessStatus: ReturnType<typeof getBusinessStatus>;
+  activeClosure?: RestaurantAnnouncement;
   cart: CartItem[];
   cartJson: string;
   total: number;
@@ -683,7 +720,7 @@ function PublicOrderPanel({
   const pickupEnabled = settings?.pickupEnabled ?? true;
   const invoiceEnabled = settings?.invoiceEnabled ?? false;
   const qrAvailable = Boolean(settings?.qrPaymentUrl);
-  const nowAvailable = !businessStatus.hasSchedule || businessStatus.isOpen;
+  const nowAvailable = !activeClosure && (!businessStatus.hasSchedule || businessStatus.isOpen);
   const freeDeliveryFrom = settings?.freeDeliveryFrom ?? 0;
   const deliveryFee = orderType === "delivery" && (!freeDeliveryFrom || total < freeDeliveryFrom) ? (settings?.deliveryFee ?? 0) : 0;
   const grandTotal = total + deliveryFee;
@@ -725,6 +762,9 @@ function PublicOrderPanel({
     setFormError("");
 
     if (step === "fulfillment") {
+      if (activeClosure) {
+        return reject(activeClosure.body || activeClosure.title || "El restaurante esta cerrado temporalmente.");
+      }
       if (orderType === "delivery" && !deliveryEnabled) {
         return reject("El restaurante no tiene envio a domicilio disponible ahora.");
       }
@@ -860,7 +900,17 @@ function PublicOrderPanel({
       {formError ? <div className="mt-3 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">{formError}</div> : null}
 
       <section className={cn("mt-4 space-y-4", activeStep === "fulfillment" ? "block" : "hidden")}>
-        {businessStatus.hasSchedule && !businessStatus.isOpen ? (
+        {activeClosure ? (
+          <div className="rounded-[1.35rem] border border-[var(--color-warning-strong)]/20 bg-[var(--color-warning-soft)] p-4 text-[var(--color-warning-strong)]">
+            <div className="flex gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-black">{activeClosure.title}</p>
+                <p className="mt-1 text-sm font-semibold">{activeClosure.body || "El restaurante no recibira pedidos mientras este aviso siga activo."}</p>
+              </div>
+            </div>
+          </div>
+        ) : businessStatus.hasSchedule && !businessStatus.isOpen ? (
           <div className="rounded-[1.35rem] border border-[var(--color-warning-strong)]/20 bg-[var(--color-warning-soft)] p-4 text-[var(--color-warning-strong)]">
             <div className="flex gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />

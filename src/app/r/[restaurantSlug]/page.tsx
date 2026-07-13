@@ -2,12 +2,13 @@ import { notFound } from "next/navigation";
 import { PublicRestaurantOrderClient } from "@/components/public-menu/PublicRestaurantOrderClient";
 import { RestaurantThemeProvider } from "@/components/restaurant/RestaurantThemeProvider";
 import { categoryService } from "@/lib/services/category.service";
+import { announcementService } from "@/lib/services/announcement.service";
 import { productService } from "@/lib/services/product.service";
 import { publicDirectoryService } from "@/lib/services/public-directory.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { settingsService } from "@/lib/services/settings.service";
 import type { ProductConfiguration } from "@/types/product.types";
-import type { BusinessHour, Restaurant, RestaurantSettings } from "@/types/restaurant.types";
+import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantSettings } from "@/types/restaurant.types";
 
 type PublicRestaurantPageData = {
   restaurant: Restaurant;
@@ -16,6 +17,7 @@ type PublicRestaurantPageData = {
   categories: Awaited<ReturnType<typeof categoryService.listPublicByRestaurant>>;
   products: Awaited<ReturnType<typeof productService.listPublicAvailableByRestaurant>>;
   configuration: ProductConfiguration;
+  announcements: RestaurantAnnouncement[];
 };
 
 const PUBLIC_RESTAURANT_PAGE_TTL_MS = 15_000;
@@ -34,15 +36,16 @@ async function getPublicRestaurantPageData(restaurantSlug: string) {
     return null;
   }
 
-  const [settings, businessHours, categories, products, configuration] = await Promise.all([
+  const [settings, businessHours, categories, products, configuration, announcements] = await Promise.all([
     settingsService.getPublicRestaurantSettings(restaurant.id),
     settingsService.listPublicBusinessHours(restaurant.id),
     categoryService.listPublicByRestaurant(restaurant.id),
     productService.listPublicAvailableByRestaurant(restaurant.id),
     productService.listPublicConfigurationsByRestaurant(restaurant.id),
+    announcementService.listCurrentPublic(restaurant.id),
   ]);
 
-  const data = { restaurant, settings, businessHours, categories, products, configuration };
+  const data = { restaurant, settings, businessHours, categories, products, configuration, announcements };
   publicRestaurantPageCache.set(restaurantSlug, { expiresAt: Date.now() + PUBLIC_RESTAURANT_PAGE_TTL_MS, data });
 
   return data;
@@ -62,12 +65,12 @@ export default async function RestaurantPublicPage({
     notFound();
   }
 
-  const { restaurant, settings, businessHours, categories, products, configuration } = pageData;
+  const { restaurant, settings, businessHours, categories, products, configuration, announcements } = pageData;
   publicDirectoryService.recordVisit(restaurant.id).catch(() => null);
 
   return (
     <RestaurantThemeProvider>
-      <PublicRestaurantOrderClient businessHours={businessHours} categories={categories} configuration={configuration} orderError={error} products={products} restaurant={restaurant} settings={settings} />
+      <PublicRestaurantOrderClient announcements={announcements} businessHours={businessHours} categories={categories} configuration={configuration} orderError={error} products={products} restaurant={restaurant} settings={settings} />
     </RestaurantThemeProvider>
   );
 }

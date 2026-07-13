@@ -40,7 +40,7 @@ export default async function TrackingPage({
 
   return (
     <RestaurantLayout restaurant={restaurant} showCart={false} showMobileNav={false}>
-      <ClearCartOnOrderSuccess enabled={Boolean(token)} />
+      <ClearCartOnOrderSuccess enabled={Boolean(token)} restaurantSlug={restaurantSlug} />
       <main className="mx-auto grid max-w-6xl gap-6 px-4 pb-16 pt-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:px-8 lg:pt-8">
         <section className="min-w-0">
           <OrderTrackingLiveRefresh initialOrder={order} initialQueue={queueState} restaurantSlug={restaurantSlug} token={token} />

@@ -26,7 +26,7 @@ export function CheckoutClient({
   error?: string;
   settings: RestaurantSettings | null;
 }) {
-  const [cart] = useState<CartProduct[]>(() => readCart());
+  const [cart] = useState<CartProduct[]>(() => readCart(restaurantSlug));
   const [selectedOrderType, setSelectedOrderType] = useState<OrderType>(() => {
     if (settings?.pickupEnabled ?? true) {
       return "pickup";
@@ -62,6 +62,8 @@ export function CheckoutClient({
         ? "La caja esta cerrada. El restaurante debe abrir caja para recibir pedidos."
         : error === "receipt-required"
         ? "Para pago QR debes subir el comprobante antes de confirmar."
+        : error === "temporarily-closed"
+          ? "El restaurante esta cerrado temporalmente y no esta recibiendo pedidos."
         : error === "disabled"
           ? "La modalidad seleccionada ya no esta habilitada para este restaurante."
           : error === "settings"

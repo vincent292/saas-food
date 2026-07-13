@@ -13,7 +13,7 @@ export function CartDrawer({ restaurantSlug }: { restaurantSlug: string }) {
   const [items, setItems] = useState<CartProduct[]>([]);
 
   useEffect(() => {
-    const refresh = () => setItems(readCart());
+    const refresh = () => setItems(readCart(restaurantSlug));
     refresh();
     window.addEventListener("restaurant-saas-cart-updated", refresh);
     window.addEventListener("storage", refresh);
@@ -21,7 +21,7 @@ export function CartDrawer({ restaurantSlug }: { restaurantSlug: string }) {
       window.removeEventListener("restaurant-saas-cart-updated", refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, []);
+  }, [restaurantSlug]);
 
   const total = useMemo(() => items.reduce((sum, item) => sum + item.price * item.quantity, 0), [items]);
 

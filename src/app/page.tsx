@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   BadgeCheck,
   Beef,
@@ -23,6 +24,7 @@ import {
   Utensils,
 } from "lucide-react";
 import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
+import { PendingCartNotice } from "@/components/home/PendingCartNotice";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -149,6 +151,8 @@ export default async function Home({
       </section>
 
       <div className="mx-auto max-w-7xl space-y-10 px-4 py-8 sm:px-6 lg:px-8">
+        <PendingCartNotice />
+
         <section id="explorar">
           <div className="flex items-end justify-between gap-3">
             <SectionHeader eyebrow="Categorias" title="Explora por categorias" />
@@ -176,9 +180,13 @@ export default async function Home({
                 <RestaurantLogo card={card} size="sm" />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-black">{card.restaurant.name}</span>
-                  <span className="block truncate text-xs font-semibold text-[var(--color-secondary-text)]">{card.categories.slice(0, 2).join(" | ") || card.restaurant.city || "Menu disponible"}</span>
+                  <span className="block truncate text-xs font-semibold text-[var(--color-secondary-text)]">
+                    {card.isTemporarilyClosed ? "Cerrado temporalmente" : card.categories.slice(0, 2).join(" | ") || card.restaurant.city || "Menu disponible"}
+                  </span>
                 </span>
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)]">{index + 1}</span>
+                <span className={cn("grid h-8 w-8 place-items-center rounded-full text-[var(--primary)]", card.isTemporarilyClosed ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--accent)]")}>
+                  {card.isTemporarilyClosed ? <AlertTriangle className="h-4 w-4" /> : index + 1}
+                </span>
               </Link>
             ))}
           </section>
@@ -336,6 +344,12 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
         <span className="absolute bottom-3 left-3 max-w-[75%] truncate rounded-full bg-white/92 px-3 py-1 text-xs font-black text-[var(--primary)] backdrop-blur">
           {card.categories[0] || card.restaurant.city || "Menu disponible"}
         </span>
+        {card.currentAnnouncement ? (
+          <span className={cn("absolute left-3 top-3 inline-flex max-w-[78%] items-center gap-1 truncate rounded-full px-2.5 py-1 text-xs font-black shadow-sm backdrop-blur", card.isTemporarilyClosed ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-white/92 text-[var(--primary)]")}>
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{card.isTemporarilyClosed ? "Cerrado hoy" : card.currentAnnouncement.title}</span>
+          </span>
+        ) : null}
         <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
           <Star className="h-3.5 w-3.5 fill-current" />
           {Math.max(4, Math.min(5, 4 + card.orders30d / 100)).toFixed(1)}
@@ -346,7 +360,9 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
           <RestaurantLogo card={card} size="sm" />
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-xl font-black">{card.restaurant.name}</h3>
-            <p className="mt-1 truncate text-sm font-semibold text-[var(--color-secondary-text)]">{card.restaurant.city || card.restaurant.address || `/r/${card.restaurant.slug}`}</p>
+            <p className="mt-1 truncate text-sm font-semibold text-[var(--color-secondary-text)]">
+              {card.isTemporarilyClosed ? card.currentAnnouncement?.title || "Cerrado temporalmente" : card.restaurant.city || card.restaurant.address || `/r/${card.restaurant.slug}`}
+            </p>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {card.categories.slice(0, 3).map((category) => (
                 <span className="rounded-full bg-[var(--primary-light)] px-2.5 py-1 text-xs font-black text-[var(--primary)]" key={category}>
@@ -356,7 +372,15 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
             </div>
           </div>
         </div>
-        {card.popularProducts.length ? <p className="mt-4 line-clamp-2 min-h-10 text-sm font-semibold text-[var(--color-secondary-text)]">Popular: {card.popularProducts.join(", ")}</p> : <p className="mt-4 min-h-10 text-sm font-semibold text-[var(--color-secondary-text)]">Menu activo para revisar y pedir directo.</p>}
+        {card.currentAnnouncement ? (
+          <p className={cn("mt-4 line-clamp-2 min-h-10 text-sm font-semibold", card.isTemporarilyClosed ? "text-[var(--color-warning-strong)]" : "text-[var(--color-secondary-text)]")}>
+            {card.currentAnnouncement.body || card.currentAnnouncement.title}
+          </p>
+        ) : card.popularProducts.length ? (
+          <p className="mt-4 line-clamp-2 min-h-10 text-sm font-semibold text-[var(--color-secondary-text)]">Popular: {card.popularProducts.join(", ")}</p>
+        ) : (
+          <p className="mt-4 min-h-10 text-sm font-semibold text-[var(--color-secondary-text)]">Menu activo para revisar y pedir directo.</p>
+        )}
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-black text-[var(--color-secondary-text)]">
           <span className="rounded-2xl bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]">{card.visits7d} visitas semana</span>
           <span className="rounded-2xl bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]">{card.orders30d} pedidos 30d</span>

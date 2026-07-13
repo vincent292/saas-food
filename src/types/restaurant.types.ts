@@ -88,6 +88,22 @@ export type BusinessHour = {
   isClosed: boolean;
 };
 
+export type RestaurantAnnouncementType = "announcement" | "closure";
+
+export type RestaurantAnnouncement = {
+  id: string;
+  restaurantId: string;
+  type: RestaurantAnnouncementType;
+  title: string;
+  body: string;
+  imageUrl: string;
+  startsAt: string;
+  endsAt?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type SubscriptionPlan = {
   id: string;
   key: PlanKey;

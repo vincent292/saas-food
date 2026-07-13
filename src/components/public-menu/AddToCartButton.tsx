@@ -6,6 +6,8 @@ import { readCart, writeCart } from "@/lib/utils/cart";
 
 export function AddToCartButton({
   product,
+  restaurantSlug,
+  restaurantName,
 }: {
   product: {
     productId: string;
@@ -13,17 +15,19 @@ export function AddToCartButton({
     price: number;
     imageUrl?: string;
   };
+  restaurantSlug?: string;
+  restaurantName?: string;
 }) {
   function addToCart() {
-    const cart = readCart();
+    const cart = readCart(restaurantSlug);
     const existing = cart.find((item) => item.productId === product.productId);
 
     if (existing) {
-      writeCart(cart.map((item) => (item.productId === product.productId ? { ...item, quantity: item.quantity + 1 } : item)));
+      writeCart(cart.map((item) => (item.productId === product.productId ? { ...item, quantity: item.quantity + 1 } : item)), { restaurantSlug, restaurantName });
       return;
     }
 
-    writeCart([...cart, { ...product, quantity: 1 }]);
+    writeCart([...cart, { ...product, quantity: 1 }], { restaurantSlug, restaurantName });
   }
 
   return (

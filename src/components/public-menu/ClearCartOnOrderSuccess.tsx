@@ -3,12 +3,12 @@
 import { useEffect } from "react";
 import { clearCart } from "@/lib/utils/cart";
 
-export function ClearCartOnOrderSuccess({ enabled }: { enabled: boolean }) {
+export function ClearCartOnOrderSuccess({ enabled, restaurantSlug }: { enabled: boolean; restaurantSlug?: string }) {
   useEffect(() => {
     if (enabled) {
-      clearCart();
+      clearCart(restaurantSlug);
     }
-  }, [enabled]);
+  }, [enabled, restaurantSlug]);
 
   return null;
 }

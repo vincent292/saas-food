@@ -3,6 +3,7 @@
 import { Check, Maximize2, Minimize2, Minus, Plus, Search, ShoppingCart, Trash2, X } from "lucide-react";
 import { useDeferredValue, useMemo, useState } from "react";
 import { createPosSaleAction } from "@/app/admin/actions";
+import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select } from "@/components/ui/Input";
@@ -16,6 +17,8 @@ type ProductConfigMap = Record<string, { variants: ProductVariant[]; optionGroup
 type PosCartItem = {
   cartId: string;
   productId: string;
+  variantId?: string;
+  optionIds?: string[];
   name: string;
   price: number;
   quantity: number;
@@ -74,7 +77,7 @@ export function POSProductGrid({
   }, [categoryId, deferredQuery, products]);
 
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const cartJson = JSON.stringify(cart.map(({ productId, name, price, quantity, notes }) => ({ productId, name, price, quantity, notes })));
+  const cartJson = JSON.stringify(cart.map(({ productId, variantId, optionIds, name, price, quantity, notes }) => ({ productId, variantId, optionIds, name, price, quantity, notes })));
 
   function addConfiguredProduct(product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) {
     const price = product.price + (variant?.priceDelta ?? 0) + selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
@@ -94,6 +97,8 @@ export function POSProductGrid({
         {
           cartId,
           productId: product.id,
+          variantId: variant?.id,
+          optionIds: selectedOptions.map((option) => option.id),
           name,
           price,
           quantity: 1,
@@ -232,7 +237,7 @@ export function POSProductGrid({
             {paymentMethod === "qr" ? (
               <div className="space-y-2 rounded-2xl border border-[var(--border)] p-3">
                 <Input name="paymentReceiptReference" placeholder="Número de comprobante o referencia QR" />
-                <Input accept="image/*,.pdf" name="paymentReceiptFile" type="file" />
+                <CompressedImageInput acceptPdf help="Opcional: captura o PDF del pago. Las imagenes se optimizan en WebP." label="Comprobante QR" name="paymentReceiptFile" />
                 <p className="text-xs font-semibold text-[var(--muted)]">En POS puedes subir una captura o registrar la referencia del pago QR.</p>
               </div>
             ) : null}

@@ -11,6 +11,7 @@ const errorMessages: Record<string, string> = {
   auth: "Correo o contraseña incorrectos.",
   session: "No se pudo validar la sesión.",
   "no-access": "Este usuario no tiene un restaurante activo asignado.",
+  "superadmin-required": "Esta consola requiere usuario superadmin.",
 };
 
 export default async function AdminLoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {

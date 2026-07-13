@@ -2,7 +2,7 @@
 
 import { Banknote, Bike, Calculator, CreditCard, FileText, History, PackageSearch, ReceiptText, ShoppingBag, Store, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, updateOrderStatusAction } from "@/app/admin/actions";
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
@@ -92,6 +92,7 @@ export function CashWorkspaceClient({
   categories,
   products,
   configuration,
+  loadedTab,
   movements,
   reports,
   orders,
@@ -102,6 +103,7 @@ export function CashWorkspaceClient({
   categories: Category[];
   products: Product[];
   configuration: ProductConfiguration;
+  loadedTab: CashTab;
   movements: CashMovement[];
   reports: CashSessionReport[];
   orders: Order[];
@@ -109,9 +111,24 @@ export function CashWorkspaceClient({
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<CashTab>(() => normalizeTab(status.tab));
+  const [isTabPending, startTabTransition] = useTransition();
+  const refreshTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const refresh = () => router.refresh();
+    const refresh = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      if (refreshTimeoutRef.current) {
+        window.clearTimeout(refreshTimeoutRef.current);
+      }
+
+      refreshTimeoutRef.current = window.setTimeout(() => {
+        router.refresh();
+        refreshTimeoutRef.current = null;
+      }, 900);
+    };
     const supabase = createClient();
     const channel = supabase
       .channel(`caja-despacho-${restaurant.id}`)
@@ -120,6 +137,9 @@ export function CashWorkspaceClient({
       .subscribe();
 
     return () => {
+      if (refreshTimeoutRef.current) {
+        window.clearTimeout(refreshTimeoutRef.current);
+      }
       supabase.removeChannel(channel);
     };
   }, [restaurant.id, router]);
@@ -137,22 +157,26 @@ export function CashWorkspaceClient({
   const ordersById = useMemo(() => new Map(todaysOrders.map((order) => [order.id, order])), [todaysOrders]);
   const latestReport = reports[0];
   const banner = statusMessage(status);
+  const hasOperationalCounts = loadedTab === "pedidos" || loadedTab === "delivery" || loadedTab === "recojo" || loadedTab === "movimientos";
+  const activeTabIsLoaded = activeTab === loadedTab;
   const tabs: { key: CashTab; label: string; icon: LucideIcon; count?: number }[] = [
     { key: "venta", label: "Venta POS", icon: Store },
-    { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: pendingOrders.length },
-    { key: "delivery", label: "Delivery", icon: Bike, count: deliveryOrders.length },
-    { key: "recojo", label: "Recojo", icon: ShoppingBag, count: pickupOrders.length },
-    { key: "movimientos", label: "Movimientos", icon: History, count: movements.length },
+    { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: hasOperationalCounts ? pendingOrders.length : undefined },
+    { key: "delivery", label: "Delivery", icon: Bike, count: hasOperationalCounts ? deliveryOrders.length : undefined },
+    { key: "recojo", label: "Recojo", icon: ShoppingBag, count: hasOperationalCounts ? pickupOrders.length : undefined },
+    { key: "movimientos", label: "Movimientos", icon: History, count: loadedTab === "movimientos" ? movements.length : undefined },
     { key: "egresos", label: "Caja chica", icon: CreditCard },
     { key: "cierre", label: "Cierre", icon: Calculator },
-    { key: "reportes", label: "Reportes", icon: FileText, count: reports.length },
+    { key: "reportes", label: "Reportes", icon: FileText, count: loadedTab === "reportes" ? reports.length : undefined },
   ];
 
-function switchTab(nextTab: CashTab) {
+  function switchTab(nextTab: CashTab) {
     setActiveTab(nextTab);
     const url = new URL(window.location.href);
     url.searchParams.set("tab", nextTab);
-    window.history.replaceState({}, "", url.toString());
+    startTabTransition(() => {
+      router.replace(`${url.pathname}?${url.searchParams.toString()}`, { scroll: false });
+    });
   }
 
   return (
@@ -217,6 +241,8 @@ function switchTab(nextTab: CashTab) {
         <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>{banner.text}</div>
       ) : null}
 
+      {isTabPending ? <div className="rounded-2xl bg-[var(--color-info-soft)] p-3 text-sm font-bold text-[var(--color-info-strong)]">Actualizando datos de caja...</div> : null}
+
       <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
         {tabs.map((tab) => (
           <button
@@ -252,7 +278,9 @@ function switchTab(nextTab: CashTab) {
       {activeTab === "pedidos" ? (
         <section className="space-y-4">
           <SectionTitle title="Pedidos del dia" description="Mesa y POS pendientes para aprobar, cobrar o rechazar." />
-          {pendingOrders.length ? (
+          {!activeTabIsLoaded ? (
+            <TabLoadingState />
+          ) : pendingOrders.length ? (
             <div className="grid gap-3">
               {pendingOrders.map((order) => (
                 <PendingOrderReviewCard context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
@@ -267,7 +295,9 @@ function switchTab(nextTab: CashTab) {
       {activeTab === "delivery" ? (
         <section className="space-y-4">
           <SectionTitle title="Delivery del dia" description="Pedidos con envio. Caja los aprueba y, cuando cocina marca listo, genera el QR para la moto." />
-          {deliveryOrders.length ? (
+          {!activeTabIsLoaded ? (
+            <TabLoadingState />
+          ) : deliveryOrders.length ? (
             <div className="grid gap-3">
               {deliveryOrders.map((order) =>
                 order.status === "pending" ? (
@@ -286,7 +316,9 @@ function switchTab(nextTab: CashTab) {
       {activeTab === "recojo" ? (
         <section className="space-y-4">
           <SectionTitle title="Recojo del dia" description="Pedidos para recoger en tienda, separados del delivery para que caja los ubique rapido." />
-          {pickupOrders.length ? (
+          {!activeTabIsLoaded ? (
+            <TabLoadingState />
+          ) : pickupOrders.length ? (
             <div className="grid gap-3">
               {pickupOrders.map((order) =>
                 order.status === "pending" ? (
@@ -306,7 +338,9 @@ function switchTab(nextTab: CashTab) {
         <Card>
           <SectionTitle title="Movimientos" description="Cobros, egresos, ingresos, apertura y cierre del turno actual." />
           <div className="mt-4">
-            {movements.length ? (
+            {!activeTabIsLoaded ? (
+              <TabLoadingState />
+            ) : movements.length ? (
               movements.map((movement) => <CashMovementRow key={movement.id} movement={movement} order={movement.orderId ? ordersById.get(movement.orderId) : undefined} />)
             ) : (
               <EmptyState title="Sin movimientos" description="Los movimientos del turno aparecerán aquí." />
@@ -363,7 +397,9 @@ function switchTab(nextTab: CashTab) {
       {activeTab === "reportes" ? (
         <section className="space-y-4">
           <SectionTitle title="Reportes de caja" description="Aperturas y cierres guardados con montos, diferencia y usuario." />
-          {reports.length ? (
+          {!activeTabIsLoaded ? (
+            <TabLoadingState />
+          ) : reports.length ? (
             <div className="grid gap-4">
               {reports.map((report) => (
                 <CashReportCard key={report.session.id} report={report} />
@@ -376,6 +412,10 @@ function switchTab(nextTab: CashTab) {
       ) : null}
     </div>
   );
+}
+
+function TabLoadingState() {
+  return <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-6 text-sm font-bold text-[var(--muted)]">Cargando datos...</div>;
 }
 
 function DeliveryOrderCard({ order, restaurantSlug }: { order: Order; restaurantSlug: string }) {

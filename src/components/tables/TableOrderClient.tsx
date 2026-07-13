@@ -3,6 +3,7 @@
 import { Check, Minus, Plus, ShoppingCart, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
+import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
@@ -532,10 +533,7 @@ function OrderPanel({
       ) : null}
 
       {paymentMethod === "qr" ? (
-        <label className="mt-3 block text-sm font-black">
-          Comprobante QR
-          <Input accept="image/*,.pdf" className="mt-2" name="paymentReceiptFile" required type="file" />
-        </label>
+        <CompressedImageInput acceptPdf className="mt-3" help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." label="Comprobante QR" name="paymentReceiptFile" required />
       ) : null}
 
       <p className="mt-4 rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">

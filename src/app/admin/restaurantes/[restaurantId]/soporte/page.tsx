@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createSupportTicketAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { SupportTicketList } from "@/components/support/SupportTicketList";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -96,11 +97,11 @@ export default async function RestaurantSupportPage({
               Restaurante: {restaurant.name}
             </div>
             <Textarea className="lg:col-span-2" name="description" placeholder="Qué pasó, desde cuándo pasa, y qué intentó el equipo." />
-            <label className="space-y-2 text-sm font-semibold text-[var(--color-body)] lg:col-span-2">
+            <div className="space-y-2 text-sm font-semibold text-[var(--color-body)] lg:col-span-2">
               Screenshots
-              <Input accept="image/*" multiple name="attachments" type="file" />
+              <CompressedImageInput help="Hasta 5 imagenes. Se convertiran a WebP antes de subir." label="Screenshots" multiple name="attachments" />
               <span className="block text-xs text-[var(--color-secondary-text)]">Hasta 5 imágenes de 5 MB cada una.</span>
-            </label>
+            </div>
             <div className="lg:col-span-2">
               <Button>Enviar ticket</Button>
             </div>

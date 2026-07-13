@@ -14,7 +14,7 @@ export default async function TableOrderPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const [{ restaurantSlug, tableCode }, { error }] = await Promise.all([params, searchParams]);
-  const restaurant = await restaurantService.getBySlug(restaurantSlug);
+  const restaurant = await restaurantService.getPublicBySlug(restaurantSlug);
 
   if (!restaurant) {
     notFound();
@@ -27,14 +27,14 @@ export default async function TableOrderPage({
   }
 
   const [categories, products, settings, configuration] = await Promise.all([
-    categoryService.listByRestaurant(restaurant.id),
-    productService.listAvailableByRestaurant(restaurant.id),
-    restaurantService.getSettings(restaurant.id),
-    productService.listConfigurationsByRestaurant(restaurant.id),
+    categoryService.listPublicByRestaurant(restaurant.id),
+    productService.listPublicAvailableByRestaurant(restaurant.id),
+    restaurantService.getPublicSettings(restaurant.id),
+    productService.listPublicConfigurationsByRestaurant(restaurant.id),
   ]);
 
   return (
-    <RestaurantThemeProvider theme={restaurant.theme}>
+    <RestaurantThemeProvider>
       <TableOrderClient categories={categories} configuration={configuration} orderError={error} products={products} restaurant={restaurant} settings={settings} table={table} />
     </RestaurantThemeProvider>
   );

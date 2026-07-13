@@ -2,7 +2,7 @@
 
 import { ChefHat, CheckCircle2, Clock, ExternalLink, Printer, RefreshCw, Truck, Utensils } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateOrderStatusAction } from "@/app/admin/actions";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
@@ -79,21 +79,35 @@ export function OrdersReceptionClient({
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ReceptionTab>(() => normalizeReceptionTab(status.tab));
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     const refresh = () => {
-      setIsRefreshing(true);
-      router.refresh();
-      window.setTimeout(() => setIsRefreshing(false), 800);
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      if (refreshTimeoutRef.current) {
+        window.clearTimeout(refreshTimeoutRef.current);
+      }
+
+      refreshTimeoutRef.current = window.setTimeout(() => {
+        setIsRefreshing(true);
+        router.refresh();
+        window.setTimeout(() => setIsRefreshing(false), 800);
+        refreshTimeoutRef.current = null;
+      }, 900);
     };
     const supabase = createClient();
     const channel = supabase
       .channel(`pedidos-recepcion-${restaurant.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurant.id}` }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, refresh)
       .subscribe();
 
     return () => {
+      if (refreshTimeoutRef.current) {
+        window.clearTimeout(refreshTimeoutRef.current);
+      }
       supabase.removeChannel(channel);
     };
   }, [restaurant.id, router]);
@@ -108,7 +122,7 @@ export function OrdersReceptionClient({
       window.setTimeout(() => setIsRefreshing(false), 800);
     };
 
-    const interval = window.setInterval(refreshIfVisible, 5000);
+    const interval = window.setInterval(refreshIfVisible, 30000);
     window.addEventListener("focus", refreshIfVisible);
     document.addEventListener("visibilitychange", refreshIfVisible);
 

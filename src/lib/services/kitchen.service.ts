@@ -3,7 +3,7 @@ import { isSameBusinessDay } from "@/lib/utils/dates";
 
 export const kitchenService = {
   async listKitchenOrders(restaurantId: string) {
-    return (await orderService.listByRestaurant(restaurantId)).filter(
+    return (await orderService.listCashWorkspaceOrders(restaurantId)).filter(
       (order) => isSameBusinessDay(order.createdAt) && ["accepted", "preparing", "ready", "delivered"].includes(order.status),
     );
   },

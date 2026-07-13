@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { createPublicServerClient } from "@/lib/supabase/public-server";
 import type { Category } from "@/types/product.types";
 
 function mapCategory(row: {
@@ -32,6 +33,30 @@ export const categoryService = {
     const { data, error } = await supabase
       .from("categories")
       .select("*")
+      .eq("restaurant_id", restaurantId)
+      .eq("is_active", true)
+      .order("sort_order");
+
+    if (error || !data?.length) {
+      return [];
+    }
+
+    return data.map(mapCategory);
+  },
+
+  async listPublicByRestaurant(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const supabase = createPublicServerClient();
+    if (!supabase) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from("categories")
+      .select("id,restaurant_id,name,description,image_url,sort_order,is_active")
       .eq("restaurant_id", restaurantId)
       .eq("is_active", true)
       .order("sort_order");

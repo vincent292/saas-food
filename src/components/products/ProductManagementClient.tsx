@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { createCategoryAction, createProductAction, updateProductAction } from "@/app/admin/actions";
 import { ProductCard } from "@/components/products/ProductCard";
 import { ProductStats } from "@/components/products/ProductStats";
+import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Badge } from "@/components/ui/Badge";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -300,9 +301,9 @@ export function ProductManagementClient({
             <Labeled label="Descripcion">
               <Textarea name="description" />
             </Labeled>
-            <Labeled label="Imagen">
-              <Input accept="image/*" name="imageFile" type="file" />
-            </Labeled>
+            <div>
+              <CompressedImageInput help="Recomendado: 1200 x 800 px. Se convertira a WebP antes de subir." label="Imagen" name="imageFile" />
+            </div>
             <div className="grid gap-3 sm:grid-cols-[1fr_1fr] sm:items-end">
               <Labeled label="Orden">
                 <Input defaultValue={categories.length + 1} min={0} name="sortOrder" type="number" />
@@ -349,9 +350,9 @@ export function ProductManagementClient({
                 <Labeled label="Orden">
                   <Input defaultValue={editingProduct?.sortOrder ?? products.length + 1} min={0} name="sortOrder" type="number" />
                 </Labeled>
-                <Labeled className="sm:col-span-2" label="Imagen">
-                  <Input accept="image/*" name="imageFile" type="file" />
-                </Labeled>
+                <div className="sm:col-span-2">
+                  <CompressedImageInput help="Recomendado: 1200 x 900 px. Usa foto clara del plato, sin texto pequeno." label="Imagen" name="imageFile" />
+                </div>
                 <label className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
                   <input defaultChecked={editingProduct?.isAvailable ?? true} name="isAvailable" type="checkbox" />
                   Activo

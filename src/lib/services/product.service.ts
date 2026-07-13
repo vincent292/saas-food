@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { createPublicServerClient } from "@/lib/supabase/public-server";
 import type { Product, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
 
 function mapProduct(row: {
@@ -139,6 +140,38 @@ export const productService = {
     return (await this.listByRestaurant(restaurantId)).filter((product) => product.isAvailable);
   },
 
+  async listPublicAvailableByRestaurant(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const supabase = createPublicServerClient();
+    if (!supabase) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from("products")
+      .select("id,restaurant_id,category_id,name,description,price,image_url,is_available,is_featured,order_count,last_ordered_at,track_stock,sort_order")
+      .eq("restaurant_id", restaurantId)
+      .eq("is_available", true)
+      .order("sort_order");
+
+    if (error || !data?.length) {
+      return [];
+    }
+
+    const mostOrderedIds = new Set(
+      [...data]
+        .filter((product) => Number(product.order_count ?? 0) > 0)
+        .sort((first, second) => Number(second.order_count ?? 0) - Number(first.order_count ?? 0))
+        .slice(0, 3)
+        .map((product) => product.id),
+    );
+
+    return data.map((product) => mapProduct(product, mostOrderedIds.has(product.id)));
+  },
+
   async listFeaturedByRestaurant(restaurantId: string) {
     return (await this.listAvailableByRestaurant(restaurantId)).filter((product) => product.isFeatured);
   },
@@ -153,6 +186,53 @@ export const productService = {
       supabase.from("product_variants").select("*").eq("restaurant_id", restaurantId).order("sort_order"),
       supabase.from("product_option_groups").select("*").eq("restaurant_id", restaurantId).order("sort_order"),
       supabase.from("product_options").select("*").eq("restaurant_id", restaurantId).order("sort_order"),
+    ]);
+
+    if (variantsError || groupsError || optionsError) {
+      return { variants: [], optionGroups: [] };
+    }
+
+    const mappedOptions = (options ?? []).map(mapOption);
+    return {
+      variants: (variants ?? []).map(mapVariant),
+      optionGroups: (groups ?? []).map((group) =>
+        mapOptionGroup(
+          group,
+          mappedOptions.filter((option) => option.optionGroupId === group.id),
+        ),
+      ),
+    };
+  },
+
+  async listPublicConfigurationsByRestaurant(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return { variants: [], optionGroups: [] };
+    }
+
+    const supabase = createPublicServerClient();
+    if (!supabase) {
+      return { variants: [], optionGroups: [] };
+    }
+
+    const [{ data: variants, error: variantsError }, { data: groups, error: groupsError }, { data: options, error: optionsError }] = await Promise.all([
+      supabase
+        .from("product_variants")
+        .select("id,restaurant_id,product_id,name,description,price_delta,sort_order,is_active")
+        .eq("restaurant_id", restaurantId)
+        .eq("is_active", true)
+        .order("sort_order"),
+      supabase
+        .from("product_option_groups")
+        .select("id,restaurant_id,product_id,name,description,min_choices,max_choices,is_required,sort_order,is_active")
+        .eq("restaurant_id", restaurantId)
+        .eq("is_active", true)
+        .order("sort_order"),
+      supabase
+        .from("product_options")
+        .select("id,restaurant_id,product_id,option_group_id,name,description,price_delta,sort_order,is_active")
+        .eq("restaurant_id", restaurantId)
+        .eq("is_active", true)
+        .order("sort_order"),
     ]);
 
     if (variantsError || groupsError || optionsError) {

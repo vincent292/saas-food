@@ -1,5 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { createPublicServerClient } from "@/lib/supabase/public-server";
 import { restaurantCategoryLabel, restaurantCategoryOptions } from "@/lib/restaurant-directory-options";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import type { Restaurant } from "@/types/restaurant.types";
@@ -31,6 +31,11 @@ type OrderRow = {
 type VisitRow = {
   restaurant_id: string;
   visited_at: string;
+};
+
+type DirectoryCacheEntry = {
+  expiresAt: number;
+  value: PublicDirectory;
 };
 
 export type PublicRestaurantCard = {
@@ -95,27 +100,62 @@ function imageUrl(value?: string | null) {
   return value && (value.startsWith("http") || value.startsWith("/")) ? value : "";
 }
 
+const directoryCache = new Map<string, DirectoryCacheEntry>();
+const DIRECTORY_CACHE_TTL_MS = 15_000;
+
+function directoryCacheKey({ search = "", category = "", city = "" }: { search?: string; category?: string; city?: string }) {
+  return JSON.stringify({
+    search: normalize(search),
+    category: normalize(category),
+    city: normalize(city),
+  });
+}
+
+function emptyDirectory(): PublicDirectory {
+  return { restaurants: [], categories: [], locations: [], categoryCards: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [], dishSuggestions: [] };
+}
+
+function countByRestaurant<T extends { restaurant_id: string }>(rows: T[]) {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    counts.set(row.restaurant_id, (counts.get(row.restaurant_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export const publicDirectoryService = {
   async recordVisit(restaurantId: string) {
     if (!hasSupabaseEnv()) {
       return;
     }
 
-    const supabase = await createClient();
+    const supabase = createPublicServerClient();
+    if (!supabase) {
+      return;
+    }
     await supabase.from("restaurant_public_visits").insert({ restaurant_id: restaurantId });
   },
 
   async getDirectory({ search = "", category = "", city = "" }: { search?: string; category?: string; city?: string } = {}): Promise<PublicDirectory> {
-    if (!hasSupabaseEnv()) {
-      return { restaurants: [], categories: [], locations: [], categoryCards: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [], dishSuggestions: [] };
+    const cacheKey = directoryCacheKey({ search, category, city });
+    const cached = directoryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
     }
 
-    const supabase = await createClient();
-    const restaurants = activePublicRestaurants(await restaurantService.listRestaurants());
+    if (!hasSupabaseEnv()) {
+      return emptyDirectory();
+    }
+
+    const supabase = createPublicServerClient();
+    if (!supabase) {
+      return emptyDirectory();
+    }
+    const restaurants = activePublicRestaurants(await restaurantService.listPublicDirectoryRestaurants());
     const restaurantIds = restaurants.map((restaurant) => restaurant.id);
 
     if (!restaurantIds.length) {
-      return { restaurants: [], categories: [], locations: [], categoryCards: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [], dishSuggestions: [] };
+      return emptyDirectory();
     }
 
     const since7d = daysAgoIso(7);
@@ -133,18 +173,27 @@ export const publicDirectoryService = {
     const visits = (visitRows ?? []) as VisitRow[];
     const restaurantById = new Map(restaurants.map((restaurant) => [restaurant.id, restaurant]));
     const categoryById = new Map(categories.map((item) => [item.id, item.name]));
+    const ordersCountByRestaurant = countByRestaurant(orders);
+    const visitsCountByRestaurant = countByRestaurant(visits);
+    const productsByRestaurant = new Map<string, ProductRow[]>();
+
+    for (const product of products) {
+      const current = productsByRestaurant.get(product.restaurant_id) ?? [];
+      current.push(product);
+      productsByRestaurant.set(product.restaurant_id, current);
+    }
 
     const cards = restaurants.map<PublicRestaurantCard>((restaurant) => {
+      const restaurantProducts = productsByRestaurant.get(restaurant.id) ?? [];
       const restaurantCategories = Array.from(
         new Set(
-          products
-            .filter((product) => product.restaurant_id === restaurant.id && product.category_id)
+          restaurantProducts
+            .filter((product) => product.category_id)
             .map((product) => categoryById.get(product.category_id ?? ""))
             .filter((name): name is string => Boolean(name)),
         ),
       );
-      const popularProducts = products
-        .filter((product) => product.restaurant_id === restaurant.id)
+      const popularProducts = [...restaurantProducts]
         .sort((left, right) => Number(right.order_count ?? 0) - Number(left.order_count ?? 0))
         .slice(0, 3)
         .map((product) => product.name);
@@ -155,8 +204,8 @@ export const publicDirectoryService = {
         primaryCategory,
         primaryCategoryLabel: restaurantCategoryLabel(primaryCategory) || restaurantCategories[0] || "Restaurante",
         categories: restaurantCategories,
-        orders30d: orders.filter((order) => order.restaurant_id === restaurant.id).length,
-        visits7d: visits.filter((visit) => visit.restaurant_id === restaurant.id).length,
+        orders30d: ordersCountByRestaurant.get(restaurant.id) ?? 0,
+        visits7d: visitsCountByRestaurant.get(restaurant.id) ?? 0,
         popularProducts,
       };
     });
@@ -180,20 +229,43 @@ export const publicDirectoryService = {
       return matchesSearch && matchesCategory && matchesCity;
     });
 
+    const firstRestaurantByCategory = new Map<string, Restaurant>();
+    const restaurantIdsByCategory = new Map<string, Set<string>>();
+    for (const card of cards) {
+      if (!firstRestaurantByCategory.has(card.primaryCategory)) {
+        firstRestaurantByCategory.set(card.primaryCategory, card.restaurant);
+      }
+      const current = restaurantIdsByCategory.get(card.primaryCategory) ?? new Set<string>();
+      current.add(card.restaurant.id);
+      restaurantIdsByCategory.set(card.primaryCategory, current);
+    }
+
+    const firstProductImageByCategory = new Map<string, string>();
+    for (const product of products) {
+      if (!product.image_url) {
+        continue;
+      }
+
+      const restaurant = restaurantById.get(product.restaurant_id);
+      const publicCategory = restaurant?.publicCategory ?? "";
+      if (publicCategory && !firstProductImageByCategory.has(publicCategory)) {
+        firstProductImageByCategory.set(publicCategory, product.image_url);
+      }
+    }
+
     const categoryCards = restaurantCategoryOptions.map((option) => {
-      const categoryRestaurants = cards.filter((card) => card.primaryCategory === option.value);
-      const firstRestaurant = categoryRestaurants[0]?.restaurant;
-      const firstProduct = products.find((product) => categoryRestaurants.some((card) => card.restaurant.id === product.restaurant_id) && product.image_url);
+      const firstRestaurant = firstRestaurantByCategory.get(option.value);
+      const categoryRestaurantIds = restaurantIdsByCategory.get(option.value);
 
       return {
         value: option.value,
         label: option.label,
-        imageUrl: imageUrl(firstRestaurant?.bannerUrl) || imageUrl(firstProduct?.image_url) || imageUrl(firstRestaurant?.logoUrl),
-        count: categoryRestaurants.length,
+        imageUrl: imageUrl(firstRestaurant?.bannerUrl) || imageUrl(firstProductImageByCategory.get(option.value)) || imageUrl(firstRestaurant?.logoUrl),
+        count: categoryRestaurantIds?.size ?? 0,
       };
     });
 
-    const dishSuggestions = products
+    const dishSuggestions = [...products]
       .sort((left, right) => Number(right.order_count ?? 0) - Number(left.order_count ?? 0))
       .slice(0, 48)
       .map((product) => {
@@ -215,7 +287,7 @@ export const publicDirectoryService = {
       .filter((product): product is PublicDishCard => Boolean(product));
     const mostOrderedDishes = dishSuggestions.filter((product) => product.orderCount > 0).slice(0, 12);
 
-    return {
+    const directory = {
       restaurants: filteredRestaurants,
       categories: restaurantCategoryOptions.map((option) => option.label),
       locations: Array.from(new Set(restaurants.map((restaurant) => restaurant.city).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
@@ -225,5 +297,12 @@ export const publicDirectoryService = {
       mostOrderedDishes,
       dishSuggestions,
     };
+
+    directoryCache.set(cacheKey, {
+      expiresAt: Date.now() + DIRECTORY_CACHE_TTL_MS,
+      value: directory,
+    });
+
+    return directory;
   },
 };

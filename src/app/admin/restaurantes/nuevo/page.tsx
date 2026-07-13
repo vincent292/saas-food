@@ -1,5 +1,6 @@
 import { createRestaurantAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
@@ -7,7 +8,6 @@ import { PasswordInput } from "@/components/ui/PasswordInput";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { restaurantCategoryOptions, restaurantLocationOptions } from "@/lib/restaurant-directory-options";
 import { planService } from "@/lib/services/plan.service";
-import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 
 const errorMessages: Record<string, string> = {
   invalid: "Revisa los datos obligatorios.",
@@ -55,10 +55,8 @@ export default async function NewRestaurantPage({ searchParams }: { searchParams
               </option>
             ))}
           </Select>
-          <Input defaultValue={defaultRestaurantPalette.primaryColor} name="primaryColor" placeholder={`Color principal ${defaultRestaurantPalette.primaryColor}`} />
-          <Input defaultValue={defaultRestaurantPalette.secondaryColor} name="secondaryColor" placeholder="Color secundario" />
-          <Input accept="image/*" name="logoFile" type="file" />
-          <Input accept="image/*" name="bannerFile" type="file" />
+          <CompressedImageInput help="Recomendado: cuadrado 800 x 800 px. Se subira optimizado en WebP." label="Logo" name="logoFile" previewClassName="aspect-square" />
+          <CompressedImageInput help="Recomendado: 1600 x 900 px o similar. Evita texto pequeno dentro de la imagen." label="Banner" name="bannerFile" />
           <Textarea className="md:col-span-2" name="description" placeholder="Descripción del negocio" />
 
           <SectionTitle className="md:col-span-2" title="Responsable" description="Este usuario entrará directo al panel del restaurante." />

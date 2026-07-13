@@ -95,7 +95,7 @@ export function AdminShellClient({
         <div className="flex items-center justify-between gap-3">
           <Link className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href={restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}>
             <Store className="h-5 w-5 shrink-0" />
-            <span className="truncate text-sm font-black">{restaurantName || "Restaurant SaaS"}</span>
+            <span className="truncate text-sm font-black">{restaurantName || "Panel de restaurantes"}</span>
           </Link>
           <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-body)] lg:hidden" onClick={() => setSidebarOpen(false)} type="button">
             <X className="h-5 w-5" />

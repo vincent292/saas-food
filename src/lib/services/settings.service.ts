@@ -1,10 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { createPublicServerClient } from "@/lib/supabase/public-server";
 import { restaurantService } from "./restaurant.service";
 
 export const settingsService = {
   async getRestaurantSettings(restaurantId: string) {
     return restaurantService.getSettings(restaurantId);
+  },
+  async getPublicRestaurantSettings(restaurantId: string) {
+    return restaurantService.getPublicSettings(restaurantId);
   },
   async listBusinessHours(restaurantId: string) {
     if (!hasSupabaseEnv()) {
@@ -13,6 +17,33 @@ export const settingsService = {
 
     const supabase = await createClient();
     const { data, error } = await supabase.from("business_hours").select("*").eq("restaurant_id", restaurantId).order("day_of_week");
+
+    if (error || !data?.length) {
+      return [];
+    }
+
+    return data.map((hour) => ({
+      dayOfWeek: hour.day_of_week,
+      opensAt: hour.opens_at ?? "",
+      closesAt: hour.closes_at ?? "",
+      isClosed: hour.is_closed,
+    }));
+  },
+  async listPublicBusinessHours(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const supabase = createPublicServerClient();
+    if (!supabase) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from("business_hours")
+      .select("day_of_week,opens_at,closes_at,is_closed")
+      .eq("restaurant_id", restaurantId)
+      .order("day_of_week");
 
     if (error || !data?.length) {
       return [];

@@ -272,6 +272,21 @@ function mapOrderToTrackingStatus(order: Order): OrderTrackingStatus {
   };
 }
 
+function startOfBusinessDayIso() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/La_Paz",
+    year: "numeric",
+  }).formatToParts(new Date());
+
+  const year = parts.find((part) => part.type === "year")?.value ?? "0000";
+  const month = parts.find((part) => part.type === "month")?.value ?? "00";
+  const day = parts.find((part) => part.type === "day")?.value ?? "00";
+
+  return new Date(`${year}-${month}-${day}T00:00:00-04:00`).toISOString();
+}
+
 export const orderService = {
   async listByRestaurant(restaurantId: string) {
     if (!hasSupabaseEnv()) {
@@ -305,6 +320,42 @@ export const orderService = {
 
   async listLiveByRestaurant(restaurantId: string) {
     return (await this.listByRestaurant(restaurantId)).filter((order) => order.status !== "delivered" && order.status !== "cancelled");
+  },
+
+  async listCashWorkspaceOrders(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const supabase = await createClient();
+    const { data: orders, error } = await supabase
+      .from("orders")
+      .select(
+        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_maps_url,requested_fulfillment_at,order_type,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,subtotal,delivery_fee,discount_total,total,notes,created_at,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
+      )
+      .eq("restaurant_id", restaurantId)
+      .gte("created_at", startOfBusinessDayIso())
+      .in("status", ["pending", "accepted", "preparing", "ready", "delivered"])
+      .order("created_at", { ascending: false })
+      .limit(160);
+
+    if (error || !orders?.length) {
+      return [];
+    }
+
+    const orderIds = orders.map((order) => order.id);
+    const [{ data: items }, { data: deliveryLinks }] = await Promise.all([
+      supabase.from("order_items").select("id,order_id,product_id,product_name,unit_price,quantity,subtotal,notes").in("order_id", orderIds),
+      supabase.from("order_delivery_links").select("order_id,delivery_phone,delivery_name,status,opened_at,arrived_at,delivered_at").in("order_id", orderIds),
+    ]);
+
+    return orders.map((order) =>
+      mapOrder(
+        order as OrderRow,
+        (items ?? []).filter((item) => item.order_id === order.id).map(mapItem),
+        mapDeliveryLink((deliveryLinks ?? []).find((link) => link.order_id === order.id) as DeliveryLinkRow | undefined),
+      ),
+    );
   },
 
   async listByStatus(restaurantId: string, status: OrderStatus) {

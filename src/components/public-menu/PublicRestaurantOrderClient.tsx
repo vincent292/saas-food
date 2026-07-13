@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCa
 import Link from "next/link";
 import { type CSSProperties, type FormEvent, type ReactNode, useMemo, useRef, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
+import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input } from "@/components/ui/Input";
@@ -20,6 +21,8 @@ type ProductConfigMap = Record<string, { variants: ProductVariant[]; optionGroup
 type CartItem = {
   cartId: string;
   productId: string;
+  variantId?: string;
+  optionIds?: string[];
   name: string;
   price: number;
   quantity: number;
@@ -92,7 +95,7 @@ export function PublicRestaurantOrderClient({
   const cartQuantity = cart.reduce((total, item) => total + item.quantity, 0);
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const notes = `Pedido desde menu publico${requiresInvoice ? " - Requiere factura" : ""}`;
-  const cartJson = JSON.stringify(cart.map(({ productId, name, price, quantity, notes: itemNotes }) => ({ productId, name, price, quantity, notes: itemNotes })));
+  const cartJson = JSON.stringify(cart.map(({ productId, variantId, optionIds, name, price, quantity, notes: itemNotes }) => ({ productId, variantId, optionIds, name, price, quantity, notes: itemNotes })));
   const hasLogoImage = restaurant.logoUrl.startsWith("http") || restaurant.logoUrl.startsWith("/");
   const logoText = restaurant.logoUrl || restaurant.name.slice(0, 1).toUpperCase();
   const heroImage = restaurant.bannerUrl || products.find((product) => product.isFeatured && product.imageUrl)?.imageUrl || products.find((product) => product.imageUrl)?.imageUrl || defaultImage;
@@ -105,7 +108,6 @@ export function PublicRestaurantOrderClient({
     ? {
         backgroundImage: `linear-gradient(var(--color-menu-background-scrim), var(--color-menu-background-scrim)), url(${restaurant.menuBackgroundImageUrl})`,
         backgroundSize: "cover",
-        backgroundAttachment: "fixed",
         backgroundPosition: "center",
       }
     : {};
@@ -122,7 +124,7 @@ export function PublicRestaurantOrderClient({
       if (existing) {
         return current.map((item) => (item.cartId === cartId ? { ...item, quantity: item.quantity + 1 } : item));
       }
-      return [...current, { cartId, productId: product.id, name, price, quantity: 1, imageUrl: product.imageUrl || defaultImage, notes: itemNotes }];
+      return [...current, { cartId, productId: product.id, variantId: variant?.id, optionIds: selectedOptions.map((option) => option.id), name, price, quantity: 1, imageUrl: product.imageUrl || defaultImage, notes: itemNotes }];
     });
     setSelectedProduct(null);
   }
@@ -411,7 +413,13 @@ function OrderErrorMessage({ error }: { error: string }) {
                 : error === "delivery-address"
                   ? "Para delivery debes registrar una direccion de entrega."
                   : error === "invoice"
-                    ? "Completa los datos de factura para confirmar el pedido."
+                ? "Completa los datos de factura para confirmar el pedido."
+                : error === "product-not-found"
+                  ? "Uno de los productos ya no esta disponible. Actualiza el menu e intenta nuevamente."
+                  : error === "product-configuration"
+                    ? "Uno de los productos necesita opciones validas. Vuelve a agregarlo al pedido."
+                    : error === "service-role-required"
+                      ? "Falta una configuracion segura del servidor para recibir pedidos."
                     : "No se pudo confirmar el pedido. Revisa los datos e intenta nuevamente.";
 
   return <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)] md:col-span-2">{message}</div>;
@@ -971,10 +979,9 @@ function PublicOrderPanel({
             ) : null}
           </div>
         </div>
-        <label className={cn("block text-sm font-black", paymentMethod === "qr" ? "block" : "hidden")}>
-          Comprobante QR
-          <Input accept="image/*,.pdf" className="mt-2" name="paymentReceiptFile" ref={paymentReceiptRef} type="file" />
-        </label>
+        <div className={cn(paymentMethod === "qr" ? "block" : "hidden")}>
+          <CompressedImageInput acceptPdf help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." inputRef={paymentReceiptRef} label="Comprobante QR" name="paymentReceiptFile" />
+        </div>
         <p className="rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">
           {paymentMethod === "cash" ? "El pedido quedara guardado como pago en efectivo pendiente de validacion en caja." : "El equipo confirmara el comprobante antes de preparar el pedido."}
         </p>

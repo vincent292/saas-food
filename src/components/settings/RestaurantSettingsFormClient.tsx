@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3, CreditCard, ImageIcon, MapPin, Palette, Printer, Settings2, ShieldCheck, Store, UserRound } from "lucide-react";
+import { Clock3, CreditCard, ImageIcon, MapPin, Printer, Settings2, ShieldCheck, Store, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
 import { updateRestaurantConfigurationAction } from "@/app/admin/actions";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
@@ -11,7 +11,6 @@ import { Input, Select, Textarea } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { restaurantCategoryOptions, restaurantLocationOptions } from "@/lib/restaurant-directory-options";
-import { defaultRestaurantPalette, restaurantPalettePresets } from "@/lib/theme/design-tokens";
 import { cn } from "@/lib/utils/cn";
 import type { BusinessHour, ModuleKey, Restaurant, RestaurantSettings, SubscriptionPlan } from "@/types/restaurant.types";
 
@@ -19,7 +18,7 @@ const days = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "
 
 const tabs = [
   { key: "general", label: "General", icon: Store },
-  { key: "estilo", label: "Estilo", icon: Palette },
+  { key: "estilo", label: "Imagenes", icon: ImageIcon },
   { key: "pagos", label: "Pagos", icon: CreditCard },
   { key: "operacion", label: "Operación", icon: Settings2 },
   { key: "impresion", label: "Impresión", icon: Printer },
@@ -68,17 +67,6 @@ export function RestaurantSettingsFormClient({
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeTab(initialTab));
   const [selectedPlanKey, setSelectedPlanKey] = useState(() => restaurant.planKey ?? plans[0]?.key ?? "basic");
-  const [colors, setColors] = useState(() => ({
-    primaryColor: restaurant.primaryColor,
-    secondaryColor: restaurant.secondaryColor,
-    backgroundColor: restaurant.theme.background,
-    surfaceColor: restaurant.theme.surface,
-    textColor: restaurant.theme.text,
-    mutedColor: restaurant.theme.muted,
-    borderColor: restaurant.theme.border,
-    navBackgroundColor: restaurant.theme.navBackground,
-    navTextColor: restaurant.theme.navText,
-  }));
 
   const selectedPlan = useMemo(() => plans.find((plan) => plan.key === selectedPlanKey), [plans, selectedPlanKey]);
   const planModules = useMemo(() => new Set<ModuleKey>(selectedPlan?.modules ?? []), [selectedPlan]);
@@ -87,7 +75,6 @@ export function RestaurantSettingsFormClient({
   const bannerIsImage = isImageUrl(restaurant.bannerUrl);
   const qrIsImage = isImageUrl(settings?.qrPaymentUrl);
   const canUseModule = (moduleKey: ModuleKey) => planModules.has(moduleKey);
-  const updateColor = (key: keyof typeof colors, value: string) => setColors((current) => ({ ...current, [key]: value }));
 
   return (
     <form action={updateRestaurantConfigurationAction} className="space-y-6">
@@ -156,11 +143,9 @@ export function RestaurantSettingsFormClient({
                 </option>
               ))}
             </Select>
-            <Input name="primaryColor" onChange={(event) => updateColor("primaryColor", event.target.value)} type="color" value={colors.primaryColor} />
-            <Input name="secondaryColor" onChange={(event) => updateColor("secondaryColor", event.target.value)} type="color" value={colors.secondaryColor} />
             <Textarea className="md:col-span-2" defaultValue={restaurant.description} name="description" placeholder="Descripción del negocio" />
-            <CompressedImageInput label="Logo" name="logoFile" />
-            <CompressedImageInput label="Banner" name="bannerFile" />
+            <CompressedImageInput help="Recomendado: cuadrado 800 x 800 px. Se subira optimizado en WebP." label="Logo" name="logoFile" previewClassName="aspect-square" />
+            <CompressedImageInput help="Recomendado: 1600 x 900 px o similar. Evita texto pequeno dentro de la imagen." label="Banner" name="bannerFile" />
             <div className="rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
               El menú público <strong>/r/{restaurant.slug}</strong> solo responde cuando el restaurante está activo.
             </div>
@@ -184,37 +169,13 @@ export function RestaurantSettingsFormClient({
           <Card className="grid gap-4 md:grid-cols-2">
             <SectionTitle title="Apariencia del menú" description="Colores, fondo y tamaño del banner público." />
             <div className="md:col-span-2" />
-            <div className="grid gap-3 md:col-span-2 md:grid-cols-4">
-              {restaurantPalettePresets.map((palette) => (
-                <button className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-sm font-black text-[var(--color-body)] shadow-sm transition hover:-translate-y-0.5" key={palette.name} onClick={() => setColors(palette.colors)} type="button">
-                  <span>{palette.name}</span>
-                  <span className="mt-2 flex gap-1">
-                    {Object.values(palette.colors)
-                      .slice(0, 5)
-                      .map((color) => (
-                        <span className="h-5 w-5 rounded-full border border-[var(--border)]" key={color} style={{ background: color }} />
-                      ))}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <button className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] px-4 py-3 text-sm font-black text-[var(--color-body)] md:col-span-2" onClick={() => setColors(defaultRestaurantPalette)} type="button">
-              Restablecer paleta
-            </button>
-            <Input name="backgroundColor" onChange={(event) => updateColor("backgroundColor", event.target.value)} type="color" value={colors.backgroundColor} />
-            <Input name="surfaceColor" onChange={(event) => updateColor("surfaceColor", event.target.value)} type="color" value={colors.surfaceColor} />
-            <Input name="textColor" onChange={(event) => updateColor("textColor", event.target.value)} type="color" value={colors.textColor} />
-            <Input name="mutedColor" onChange={(event) => updateColor("mutedColor", event.target.value)} type="color" value={colors.mutedColor} />
-            <Input name="borderColor" onChange={(event) => updateColor("borderColor", event.target.value)} type="color" value={colors.borderColor} />
-            <Input name="navBackgroundColor" onChange={(event) => updateColor("navBackgroundColor", event.target.value)} type="color" value={colors.navBackgroundColor} />
-            <Input name="navTextColor" onChange={(event) => updateColor("navTextColor", event.target.value)} type="color" value={colors.navTextColor} />
             <Select defaultValue={restaurant.publicBannerSize} name="publicBannerSize">
               <option value="compact">Banner compacto</option>
               <option value="standard">Banner medio</option>
               <option value="large">Banner grande</option>
             </Select>
             <div className="md:col-span-2">
-              <CompressedImageInput label="Imagen de fondo del menú" name="menuBackgroundImageFile" />
+              <CompressedImageInput help="Opcional. Recomendado: 1600 x 1200 px, liviana y sin texto importante." label="Imagen de fondo del menu" name="menuBackgroundImageFile" />
             </div>
             <div className="md:col-span-2 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
               El banner compacto deja ver antes las categorías y productos, especialmente en celular.
@@ -223,8 +184,8 @@ export function RestaurantSettingsFormClient({
 
           <Card className="space-y-4">
             <SectionTitle title="Vista pública" description="Aproximación del estilo aplicado." />
-            <div className="rounded-2xl border p-4" style={{ background: colors.backgroundColor, borderColor: colors.borderColor, color: colors.textColor }}>
-              <div className="flex items-center justify-between rounded-2xl px-3 py-2 text-sm font-black" style={{ background: colors.navBackgroundColor, color: colors.navTextColor }}>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--text)]">
+              <div className="flex items-center justify-between rounded-2xl bg-[var(--primary)] px-3 py-2 text-sm font-black text-[var(--color-on-primary)]">
                 <span>{restaurant.name}</span>
                 <span>Carrito</span>
               </div>
@@ -235,7 +196,7 @@ export function RestaurantSettingsFormClient({
                 ) : null}
               </div>
               <div className="mt-3 flex items-center gap-3">
-                <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl text-sm font-black text-[var(--color-on-primary)]" style={{ background: colors.primaryColor }}>
+                <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl bg-[var(--primary)] text-sm font-black text-[var(--color-on-primary)]">
                   {logoIsImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img alt={restaurant.name} className="h-full w-full object-cover" src={restaurant.logoUrl} />
@@ -245,7 +206,7 @@ export function RestaurantSettingsFormClient({
                 </div>
                 <div>
                   <p className="font-black">{restaurant.name}</p>
-                  <p className="text-sm font-semibold" style={{ color: colors.mutedColor }}>
+                  <p className="text-sm font-semibold text-[var(--muted)]">
                     Productos, combos y destacados.
                   </p>
                 </div>
@@ -283,7 +244,7 @@ export function RestaurantSettingsFormClient({
               <option value="USD">QR en dólares</option>
             </Select>
             <div className="md:col-span-2">
-              <CompressedImageInput label="QR de pago" name="qrPaymentFile" />
+              <CompressedImageInput help="Recomendado: QR cuadrado, nitido y sin bordes cortados. Se subira como WebP." label="QR de pago" name="qrPaymentFile" previewClassName="aspect-square" />
             </div>
             <div className="md:col-span-2 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
               Este QR se muestra en el pedido público y en mesa para que el cliente pague y luego suba su comprobante.

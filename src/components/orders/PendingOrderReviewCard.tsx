@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { chargeOrderAction, rejectCashOrderAction } from "@/app/admin/actions";
 import { orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
+import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
@@ -111,7 +112,7 @@ export function PendingOrderReviewCard({
                 ) : (
                   <>
                     <Input name="paymentReceiptReference" placeholder="Número de comprobante o referencia QR" />
-                    <Input accept="image/*,.pdf" name="paymentReceiptFile" required type="file" />
+                    <CompressedImageInput acceptPdf help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." label="Comprobante QR" name="paymentReceiptFile" required />
                   </>
                 )}
               </>

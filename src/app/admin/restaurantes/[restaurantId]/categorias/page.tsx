@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createCategoryAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
@@ -46,7 +47,7 @@ export default async function CategoriesPage({
           <input name="restaurantId" type="hidden" value={restaurant.id} />
           <Input name="name" placeholder="Nombre de categoría" required />
           <Textarea className="min-h-11" name="description" placeholder="Descripción corta" />
-          <Input accept="image/*" name="imageFile" type="file" />
+          <CompressedImageInput help="Recomendado: 1200 x 800 px. Se convertira a WebP antes de subir." label="Imagen" name="imageFile" />
           <Input defaultValue={categories.length + 1} min={0} name="sortOrder" placeholder="Orden" type="number" />
           <Button>Nueva categoría</Button>
         </Card>

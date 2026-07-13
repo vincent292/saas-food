@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Restaurant SaaS",
-  description: "Plataforma SaaS white-label para restaurantes, pedidos, caja e inventario.",
+  title: "Pedidos Directos",
+  description: "Menu online, pedidos, caja y cocina para restaurantes.",
 };
 
 export default function RootLayout({

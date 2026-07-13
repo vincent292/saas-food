@@ -244,6 +244,8 @@ const rejectCashOrderSchema = z.object({
 
 const posCartItemSchema = z.object({
   productId: z.string().uuid(),
+  variantId: z.string().uuid().optional(),
+  optionIds: z.array(z.string().uuid()).optional().default([]),
   name: z.string().min(1),
   price: z.coerce.number().nonnegative(),
   quantity: z.coerce.number().int().positive(),

@@ -16,7 +16,7 @@ export function RestaurantLayout({
   showMobileNav?: boolean;
 }) {
   return (
-    <RestaurantThemeProvider theme={restaurant.theme}>
+    <RestaurantThemeProvider>
       <Header restaurant={restaurant} cartCount={0} showCart={showCart} />
       {children}
       {showMobileNav ? <MobileBottomNav restaurantSlug={restaurant.slug} /> : null}

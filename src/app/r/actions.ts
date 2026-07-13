@@ -9,9 +9,11 @@ import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTime
 import type { BusinessHour } from "@/types/restaurant.types";
 
 const cartItemSchema = z.object({
-  productId: z.string().min(1),
-  name: z.string().min(1),
-  price: z.coerce.number().nonnegative(),
+  productId: z.string().uuid(),
+  variantId: z.string().uuid().optional(),
+  optionIds: z.array(z.string().uuid()).optional().default([]),
+  name: z.string().optional(),
+  price: z.coerce.number().nonnegative().optional(),
   quantity: z.coerce.number().int().positive(),
   notes: z.string().optional(),
 });
@@ -59,6 +61,50 @@ type PublicOrderSettings = {
   min_order_amount: number;
   invoice_enabled: boolean;
   qr_payment_url: string | null;
+};
+
+type ParsedCartItem = z.infer<typeof cartItemSchema>;
+
+type ResolvedCartItem = {
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  subtotal: number;
+  notes?: string;
+};
+
+type ProductPriceRow = {
+  id: string;
+  name: string;
+  price: number;
+  is_available: boolean;
+};
+
+type VariantPriceRow = {
+  id: string;
+  product_id: string;
+  name: string;
+  price_delta: number;
+  is_active: boolean;
+};
+
+type OptionGroupPriceRow = {
+  id: string;
+  product_id: string;
+  min_choices: number;
+  max_choices: number;
+  is_required: boolean;
+  is_active: boolean;
+};
+
+type OptionPriceRow = {
+  id: string;
+  product_id: string;
+  option_group_id: string;
+  name: string;
+  price_delta: number;
+  is_active: boolean;
 };
 
 async function getOrCreatePublicOrderSettings(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {
@@ -116,6 +162,116 @@ async function listPublicBusinessHours(supabase: Awaited<ReturnType<typeof creat
   })) satisfies BusinessHour[];
 }
 
+async function resolvePublicCartItems(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string, cart: ParsedCartItem[]) {
+  const productIds = Array.from(new Set(cart.map((item) => item.productId)));
+  const optionIds = Array.from(new Set(cart.flatMap((item) => item.optionIds ?? [])));
+
+  const [{ data: productRows, error: productsError }, { data: variantRows }, { data: groupRows }, { data: optionRows }] = await Promise.all([
+    supabase
+      .from("products")
+      .select("id,name,price,is_available")
+      .eq("restaurant_id", restaurantId)
+      .in("id", productIds),
+    supabase
+      .from("product_variants")
+      .select("id,product_id,name,price_delta,is_active")
+      .eq("restaurant_id", restaurantId)
+      .in("product_id", productIds),
+    supabase
+      .from("product_option_groups")
+      .select("id,product_id,min_choices,max_choices,is_required,is_active")
+      .eq("restaurant_id", restaurantId)
+      .in("product_id", productIds),
+    optionIds.length
+      ? supabase
+          .from("product_options")
+          .select("id,product_id,option_group_id,name,price_delta,is_active")
+          .eq("restaurant_id", restaurantId)
+          .in("id", optionIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (productsError || !productRows?.length) {
+    throw new Error("product-not-found");
+  }
+
+  const products = new Map((productRows as ProductPriceRow[]).map((product) => [product.id, product]));
+  const variants = new Map(((variantRows ?? []) as VariantPriceRow[]).map((variant) => [variant.id, variant]));
+  const activeVariantsByProduct = new Map<string, VariantPriceRow[]>();
+  for (const variant of (variantRows ?? []) as VariantPriceRow[]) {
+    if (!variant.is_active) {
+      continue;
+    }
+    const current = activeVariantsByProduct.get(variant.product_id) ?? [];
+    current.push(variant);
+    activeVariantsByProduct.set(variant.product_id, current);
+  }
+  const options = new Map(((optionRows ?? []) as OptionPriceRow[]).map((option) => [option.id, option]));
+  const groupsByProduct = new Map<string, OptionGroupPriceRow[]>();
+
+  for (const group of (groupRows ?? []) as OptionGroupPriceRow[]) {
+    const groups = groupsByProduct.get(group.product_id) ?? [];
+    groups.push(group);
+    groupsByProduct.set(group.product_id, groups);
+  }
+
+  return cart.map<ResolvedCartItem>((item) => {
+    const product = products.get(item.productId);
+
+    if (!product?.is_available) {
+      throw new Error("product-not-found");
+    }
+
+    if (!item.variantId && (activeVariantsByProduct.get(item.productId)?.length ?? 0) > 0) {
+      throw new Error("product-configuration");
+    }
+
+    const variant = item.variantId ? variants.get(item.variantId) : null;
+    if (item.variantId && (!variant?.is_active || variant.product_id !== item.productId)) {
+      throw new Error("product-configuration");
+    }
+
+    const selectedOptions = (item.optionIds ?? []).map((optionId) => options.get(optionId));
+    if (selectedOptions.some((option) => !option?.is_active || option.product_id !== item.productId)) {
+      throw new Error("product-configuration");
+    }
+
+    const selectedOptionRows = selectedOptions.filter((option): option is OptionPriceRow => Boolean(option));
+    const optionIdsByGroup = new Map<string, string[]>();
+    for (const option of selectedOptionRows) {
+      const groupOptions = optionIdsByGroup.get(option.option_group_id) ?? [];
+      groupOptions.push(option.id);
+      optionIdsByGroup.set(option.option_group_id, groupOptions);
+    }
+
+    for (const group of groupsByProduct.get(item.productId) ?? []) {
+      if (!group.is_active) {
+        continue;
+      }
+
+      const selectedCount = optionIdsByGroup.get(group.id)?.length ?? 0;
+      if (selectedCount < group.min_choices || selectedCount > group.max_choices || (group.is_required && selectedCount === 0)) {
+        throw new Error("product-configuration");
+      }
+    }
+
+    const detailParts = [variant?.name, ...selectedOptionRows.map((option) => option.name)].filter(Boolean);
+    const unitPrice = Number(product.price) + Number(variant?.price_delta ?? 0) + selectedOptionRows.reduce((sum, option) => sum + Number(option.price_delta), 0);
+    const name = variant ? `${product.name} - ${variant.name}` : product.name;
+    const detailNotes = detailParts.length ? detailParts.join(" | ") : "";
+    const notes = [detailNotes, item.notes?.trim()].filter(Boolean).join(" | ") || undefined;
+
+    return {
+      productId: item.productId,
+      name,
+      price: unitPrice,
+      quantity: item.quantity,
+      subtotal: unitPrice * item.quantity,
+      notes,
+    };
+  });
+}
+
 export async function createPublicOrderAction(formData: FormData) {
   const rawCart = String(formData.get("cartJson") ?? "[]");
   let cart: unknown;
@@ -151,9 +307,11 @@ export async function createPublicOrderAction(formData: FormData) {
   }
 
   const failPath = parsed.data.tableCode ? `/r/${parsed.data.restaurantSlug}/mesa/${parsed.data.tableCode}` : `/r/${parsed.data.restaurantSlug}`;
-  const subtotal = parsed.data.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const supabase = await createClient();
-  const writeClient = createAdminClient() ?? supabase;
+  const writeClient = createAdminClient();
+  if (!writeClient) {
+    redirect(`${failPath}?error=service-role-required`);
+  }
   const { data: hasOpenCashSession } = await supabase.rpc("has_open_cash_session_public", {
     p_restaurant_id: parsed.data.restaurantId,
   });
@@ -167,6 +325,16 @@ export async function createPublicOrderAction(formData: FormData) {
   if (!settings) {
     redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=settings`);
   }
+
+  let resolvedCart: ResolvedCartItem[];
+  try {
+    resolvedCart = await resolvePublicCartItems(supabase, parsed.data.restaurantId, parsed.data.cart);
+  } catch (error) {
+    const key = error instanceof Error ? error.message : "invalid-cart";
+    redirect(`${failPath}?error=${encodeURIComponent(key)}`);
+  }
+
+  const subtotal = resolvedCart.reduce((sum, item) => sum + item.subtotal, 0);
 
   const businessHours = await listPublicBusinessHours(supabase, parsed.data.restaurantId);
   const requestedFulfillmentAt = parsed.data.requestedFulfillmentAt?.trim();
@@ -273,13 +441,13 @@ export async function createPublicOrderAction(formData: FormData) {
   }
 
   const { error: itemsError } = await writeClient.from("order_items").insert(
-    parsed.data.cart.map((item) => ({
+    resolvedCart.map((item) => ({
       order_id: order.id,
-      product_id: /^[0-9a-f-]{36}$/i.test(item.productId) ? item.productId : null,
+      product_id: item.productId,
       product_name: item.name,
       unit_price: item.price,
       quantity: item.quantity,
-      subtotal: item.price * item.quantity,
+      subtotal: item.subtotal,
       notes: item.notes,
     })),
   );

@@ -1,7 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { ImagePlus } from "lucide-react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/Input";
+import { cn } from "@/lib/utils/cn";
 
 const MAX_IMAGE_BYTES = 2.8 * 1024 * 1024;
 const MAX_IMAGE_SIDE = 1800;
@@ -9,41 +11,117 @@ const MAX_IMAGE_SIDE = 1800;
 export function CompressedImageInput({
   name,
   label,
+  help,
+  previewClassName,
+  acceptPdf,
+  required,
+  className,
+  inputRef,
+  multiple,
 }: {
   name: string;
   label: string;
+  help?: string;
+  previewClassName?: string;
+  acceptPdf?: boolean;
+  required?: boolean;
+  className?: string;
+  inputRef?: RefObject<HTMLInputElement | null>;
+  multiple?: boolean;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const fallbackInputRef = useRef<HTMLInputElement>(null);
+  const resolvedInputRef = inputRef ?? fallbackInputRef;
   const [message, setMessage] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
 
-  async function handleChange(file: File | undefined) {
-    if (!file || !file.type.startsWith("image/")) {
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
+  async function handleChange(files: FileList | null | undefined) {
+    const selectedFiles = Array.from(files ?? []);
+    if (!selectedFiles.length) {
       setMessage("");
+      setPreviewUrl("");
       return;
     }
 
     try {
-      const compressed = await compressImage(file);
       const dataTransfer = new DataTransfer();
-      dataTransfer.items.add(compressed);
+      let originalBytes = 0;
+      let optimizedBytes = 0;
+      let imageCount = 0;
+      let documentCount = 0;
+      let firstPreviewFile: File | null = null;
 
-      if (inputRef.current) {
-        inputRef.current.files = dataTransfer.files;
+      for (const file of selectedFiles) {
+        originalBytes += file.size;
+
+        if (file.type.startsWith("image/")) {
+          const compressed = await compressImage(file);
+          dataTransfer.items.add(compressed);
+          optimizedBytes += compressed.size;
+          imageCount += 1;
+          firstPreviewFile ??= compressed;
+          continue;
+        }
+
+        if (acceptPdf && file.type === "application/pdf") {
+          dataTransfer.items.add(file);
+          optimizedBytes += file.size;
+          documentCount += 1;
+          continue;
+        }
       }
 
-      const originalMb = file.size / 1024 / 1024;
-      const compressedMb = compressed.size / 1024 / 1024;
-      setMessage(`Optimizada a WebP: ${originalMb.toFixed(1)} MB -> ${compressedMb.toFixed(1)} MB`);
+      if (!dataTransfer.files.length) {
+        setMessage("");
+        setPreviewUrl("");
+        return;
+      }
+
+      if (resolvedInputRef.current) {
+        resolvedInputRef.current.files = dataTransfer.files;
+      }
+
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+
+      setPreviewUrl(firstPreviewFile ? URL.createObjectURL(firstPreviewFile) : "");
+      const originalMb = originalBytes / 1024 / 1024;
+      const optimizedMb = optimizedBytes / 1024 / 1024;
+      const suffix = documentCount ? ` + ${documentCount} PDF` : "";
+      setMessage(`${imageCount > 1 ? `${imageCount} imagenes WebP` : imageCount === 1 ? "WebP listo" : "Archivo listo"}${suffix}: ${originalMb.toFixed(1)} MB -> ${optimizedMb.toFixed(1)} MB`);
     } catch {
-      setMessage("No se pudo optimizar la imagen. Intenta con una imagen menor a 3 MB.");
+      setMessage("No se pudo optimizar la imagen. Intenta con imagenes menores a 3 MB.");
     }
   }
 
   return (
-    <label className="space-y-2 text-sm font-semibold text-[var(--color-body)]">
-      {label}
-      <Input accept="image/*" name={name} onChange={(event) => handleChange(event.currentTarget.files?.[0])} ref={inputRef} type="file" />
-      {message ? <span className="block text-xs font-semibold text-[var(--muted)]">{message}</span> : null}
+    <label className={cn("block space-y-2 text-sm font-semibold text-[var(--color-body)]", className)}>
+      <span>{label}</span>
+      <div className="grid gap-3 sm:grid-cols-[120px_1fr] sm:items-center">
+        <div className={cn("grid aspect-[4/3] min-h-24 place-items-center overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] text-[var(--muted)]", previewClassName)}>
+          {previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img alt={label} className="h-full w-full object-cover" src={previewUrl} />
+          ) : (
+            <ImagePlus className="h-6 w-6" />
+          )}
+        </div>
+        <div className="min-w-0 space-y-2">
+          <Input accept={acceptPdf ? "image/*,.pdf" : "image/*"} multiple={multiple} name={name} onChange={(event) => handleChange(event.currentTarget.files)} ref={resolvedInputRef} required={required} type="file" />
+          <p className="text-xs font-semibold leading-5 text-[var(--muted)]">
+            {help ?? (acceptPdf ? "Sube imagen o PDF. Las imagenes se convierten a WebP y se reducen hasta 1800 px." : "Sube JPG, PNG o WebP. Se convierte a WebP y se reduce hasta 1800 px para cargar mas rapido.")}
+          </p>
+          {message ? <span className="block text-xs font-black text-[var(--color-success-strong)]">{message}</span> : null}
+        </div>
+      </div>
     </label>
   );
 }

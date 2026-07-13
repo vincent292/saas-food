@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { createPublicServerClient } from "@/lib/supabase/public-server";
 import { inferRestaurantCategory } from "@/lib/restaurant-directory-options";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import type { ModuleKey, PlanKey, Restaurant, RestaurantSettings } from "@/types/restaurant.types";
@@ -107,8 +108,8 @@ function mapRestaurant(row: {
     deletedAt: row.deleted_at ?? undefined,
     logoUrl: row.logo_url || initials,
     bannerUrl: row.banner_url || "",
-    primaryColor: row.primary_color,
-    secondaryColor: row.secondary_color ?? defaultRestaurantPalette.secondaryColor,
+    primaryColor: defaultRestaurantPalette.primaryColor,
+    secondaryColor: defaultRestaurantPalette.secondaryColor,
     whatsapp: row.whatsapp ?? "",
     address: row.address ?? "",
     addressReference: row.address_reference ?? "",
@@ -119,17 +120,7 @@ function mapRestaurant(row: {
     mapsUrl: row.maps_url ?? "",
     menuBackgroundImageUrl: row.menu_background_image_url ?? "",
     publicBannerSize: row.public_banner_size ?? "compact",
-    theme: themeFromColors({
-      primaryColor: row.primary_color,
-      secondaryColor: row.secondary_color,
-      backgroundColor: row.background_color,
-      surfaceColor: row.surface_color,
-      textColor: row.text_color,
-      mutedColor: row.muted_color,
-      borderColor: row.border_color,
-      navBackgroundColor: row.nav_background_color,
-      navTextColor: row.nav_text_color,
-    }),
+    theme: themeFromColors(defaultRestaurantPalette),
   };
 }
 
@@ -217,6 +208,90 @@ async function enrichRestaurants(restaurants: Restaurant[]) {
 }
 
 export const restaurantService = {
+  async listPublicDirectoryRestaurants() {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const supabase = createPublicServerClient();
+    if (!supabase) {
+      return [];
+    }
+    const { data, error } = await supabase.from("restaurants").select("*").eq("status", "active").is("deleted_at", null).order("created_at", { ascending: false });
+
+    if (error || !data?.length) {
+      return [];
+    }
+
+    const restaurants = data.map(mapRestaurant);
+    const restaurantIds = restaurants.map((restaurant) => restaurant.id);
+    const { data: modules } = await supabase
+      .from("module_settings")
+      .select("restaurant_id,module_key,is_enabled")
+      .in("restaurant_id", restaurantIds);
+
+    const modulesByRestaurant = new Map<string, { module_key: string; is_enabled: boolean }[]>();
+    for (const moduleRow of modules ?? []) {
+      const current = modulesByRestaurant.get(moduleRow.restaurant_id) ?? [];
+      current.push(moduleRow);
+      modulesByRestaurant.set(moduleRow.restaurant_id, current);
+    }
+
+    return restaurants
+      .map((restaurant) => {
+        const configuredModules = modulesByRestaurant.get(restaurant.id) ?? [];
+        const activeModules = configuredModules.length
+          ? configuredModules.filter((moduleRow) => moduleRow.is_enabled).map((moduleRow) => moduleRow.module_key as ModuleKey)
+          : (["public_menu", "orders"] as ModuleKey[]);
+
+        return {
+          ...restaurant,
+          activeModules,
+        };
+      })
+      .filter((restaurant) => restaurant.activeModules?.includes("public_menu"));
+  },
+
+  async getPublicBySlug(slug: string) {
+    if (!hasSupabaseEnv()) {
+      return null;
+    }
+
+    const supabase = createPublicServerClient();
+    if (!supabase) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from("restaurants")
+      .select("*")
+      .eq("slug", slug)
+      .eq("status", "active")
+      .is("deleted_at", null)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    const restaurant = mapRestaurant(data);
+    const { data: modules } = await supabase
+      .from("module_settings")
+      .select("module_key,is_enabled")
+      .eq("restaurant_id", restaurant.id);
+
+    const activeModules = modules?.length
+      ? modules.filter((moduleRow) => moduleRow.is_enabled).map((moduleRow) => moduleRow.module_key as ModuleKey)
+      : (["public_menu", "orders"] as ModuleKey[]);
+
+    return activeModules.includes("public_menu")
+      ? {
+          ...restaurant,
+          activeModules,
+        }
+      : null;
+  },
+
   async listRestaurants() {
     if (!hasSupabaseEnv()) {
       return [];
@@ -263,6 +338,22 @@ export const restaurantService = {
     return restaurant.activeModules?.includes("public_menu") ? restaurant : null;
   },
 
+  async getOperationalBySlug(slug: string) {
+    if (!hasSupabaseEnv()) {
+      return null;
+    }
+
+    const supabase = await createClient();
+    const { data, error } = await supabase.from("restaurants").select("*").eq("slug", slug).eq("status", "active").is("deleted_at", null).maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    const [restaurant] = await enrichRestaurants([mapRestaurant(data)]);
+    return restaurant;
+  },
+
   async getById(restaurantId: string) {
     if (!hasSupabaseEnv()) {
       return null;
@@ -298,6 +389,29 @@ export const restaurantService = {
 
     const supabase = await createClient();
     const { data, error } = await supabase.from("restaurant_settings").select("*").eq("restaurant_id", restaurantId).maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return mapSettings(data);
+  },
+
+  async getPublicSettings(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return null;
+    }
+
+    const supabase = createPublicServerClient();
+    if (!supabase) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from("restaurant_settings")
+      .select("*")
+      .eq("restaurant_id", restaurantId)
+      .maybeSingle();
 
     if (error || !data) {
       return null;

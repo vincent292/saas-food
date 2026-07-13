@@ -3,6 +3,7 @@
 import { Bike, Store, Table2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
+import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
@@ -61,28 +62,34 @@ export function CheckoutClient({
         ? "La caja esta cerrada. El restaurante debe abrir caja para recibir pedidos."
         : error === "receipt-required"
         ? "Para pago QR debes subir el comprobante antes de confirmar."
-      : error === "disabled"
-        ? "La modalidad seleccionada ya no esta habilitada para este restaurante."
-        : error === "settings"
-          ? "Falta configurar las reglas operativas del restaurante."
-          : error === "invalid"
-            ? "Faltan datos obligatorios o el carrito no tiene el formato correcto."
-            : error === "create"
-              ? "Supabase rechazo la creacion del pedido. Revisa permisos o intenta nuevamente."
-              : error === "create-items"
-                ? "El pedido se inicio, pero no se pudieron guardar sus productos. Intenta nuevamente."
-          : "No se pudo confirmar el pedido. Revisa que el carrito tenga productos y que la conexion con Supabase este activa.";
+        : error === "disabled"
+          ? "La modalidad seleccionada ya no esta habilitada para este restaurante."
+          : error === "settings"
+            ? "Falta configurar las reglas operativas del restaurante."
+            : error === "invalid"
+              ? "Faltan datos obligatorios o el carrito no tiene el formato correcto."
+              : error === "product-not-found"
+                ? "Uno de los productos ya no esta disponible. Actualiza el menu e intenta nuevamente."
+                : error === "product-configuration"
+                  ? "Uno de los productos necesita opciones validas. Vuelve a agregarlo al pedido."
+                  : error === "service-role-required"
+                    ? "Falta una configuracion segura del servidor para recibir pedidos."
+                    : error === "create"
+                      ? "Supabase rechazo la creacion del pedido. Revisa permisos o intenta nuevamente."
+                      : error === "create-items"
+                        ? "El pedido se inicio, pero no se pudieron guardar sus productos. Intenta nuevamente."
+                        : "No se pudo confirmar el pedido. Revisa que el carrito tenga productos y que la conexion con Supabase este activa.";
 
   return (
     <main className="mx-auto grid max-w-7xl gap-6 px-4 pb-28 pt-8 sm:px-6 lg:grid-cols-[1fr_360px] lg:px-8">
       <section className="space-y-6">
-        <SectionTitle title="Checkout" description="Datos del cliente, entrega, pago y resumen del pedido." />
+        <SectionTitle title="Confirmar pedido" description="Datos de contacto, modalidad, pago y resumen final." />
         <Card className="overflow-hidden bg-[linear-gradient(135deg,var(--surface)_0%,var(--primary-light)_100%)] p-4 sm:p-5">
           <div className="flex items-center gap-4">
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">Sin registro obligatorio</p>
-              <h2 className="mt-1 text-xl font-black text-[var(--text)]">Confirma como invitado</h2>
-              <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Solo pedimos los datos necesarios para preparar y coordinar tu pedido.</p>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">Ultimo paso</p>
+              <h2 className="mt-1 text-xl font-black text-[var(--text)]">Datos para preparar y avisarte</h2>
+              <p className="mt-1 text-sm font-semibold text-[var(--muted)]">El restaurante usara esta informacion solo para coordinar este pedido.</p>
             </div>
             <IllustrationAsset className="hidden max-w-[150px] sm:block" name="orderSuccess" priority sizes="150px" />
           </div>
@@ -140,10 +147,7 @@ export function CheckoutClient({
           ) : null}
           {selectedPaymentMethod === "qr" ? (
             <Card>
-              <label className="block text-sm font-black">
-                Comprobante QR
-                <Input accept="image/*,.pdf" className="mt-2" name="paymentReceiptFile" required type="file" />
-              </label>
+              <CompressedImageInput acceptPdf help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." label="Comprobante QR" name="paymentReceiptFile" required />
             </Card>
           ) : null}
           <Button className="w-full md:w-auto" disabled={!cart.length || belowMinimum || !orderTypes.length}>

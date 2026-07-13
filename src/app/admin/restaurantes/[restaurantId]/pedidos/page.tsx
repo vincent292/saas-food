@@ -23,7 +23,7 @@ export default async function OrdersPage({
 
   await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/pedidos`);
 
-  const [orders, settings, session] = await Promise.all([orderService.listByRestaurant(restaurant.id), restaurantService.getSettings(restaurant.id), cashService.getOpenSession(restaurant.id)]);
+  const [orders, settings, session] = await Promise.all([orderService.listCashWorkspaceOrders(restaurant.id), restaurantService.getSettings(restaurant.id), cashService.getOpenSession(restaurant.id)]);
 
   return (
     <AdminLayout

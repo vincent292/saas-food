@@ -27,6 +27,7 @@ import {
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { signOutAction } from "@/app/admin/actions";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 import { cn } from "@/lib/utils/cn";
 import type { ModuleKey, PlatformBillingAlert, RestaurantStatus } from "@/types/restaurant.types";
 
@@ -128,9 +129,9 @@ export function AdminShellClient({
         )}
       >
         <div className="flex items-center justify-between gap-3">
-          <Link className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href={restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}>
-            <Store className="h-5 w-5 shrink-0" />
-            <span className="truncate text-sm font-black">{restaurantName || "Panel de restaurantes"}</span>
+          <Link className="flex min-w-0 flex-1 flex-col items-start gap-2 rounded-2xl bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href={restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}>
+            <BrandLogo className="h-6 w-auto max-w-[160px]" variant="dark" />
+            <span className="max-w-full truncate text-xs font-black text-white/82">{restaurantName || "Panel administrativo"}</span>
           </Link>
           <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-body)] lg:hidden" onClick={() => setSidebarOpen(false)} type="button">
             <X className="h-5 w-5" />

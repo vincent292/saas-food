@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ShoppingCart, Store } from "lucide-react";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
@@ -25,6 +26,9 @@ export function Header({ restaurant, cartCount = 0, showCart = true }: { restaur
           </span>
         </Link>
         <div className="flex items-center gap-2">
+          <Link aria-label="Volver a yopido.shop" className="hidden rounded-xl border border-[var(--border)] bg-white px-2.5 py-2 shadow-sm transition hover:-translate-y-0.5 lg:inline-flex" href="/">
+            <BrandLogo className="h-5 w-auto" variant="light" />
+          </Link>
           <PublicThemeToggle compact />
           <Badge className="hidden bg-[var(--accent)] text-[var(--primary)] sm:inline-flex">Abierto hoy</Badge>
           {showCart ? (

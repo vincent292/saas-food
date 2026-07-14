@@ -433,3 +433,10 @@ body.public-search-open .public-site-header {
   scrollbar-width: thin;
   scrollbar-color: var(--accent) transparent;
 }
+
+.brand-logo {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  user-select: none;
+}

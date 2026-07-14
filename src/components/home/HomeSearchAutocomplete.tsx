@@ -200,15 +200,15 @@ export function HomeSearchAutocomplete({
         openSearch();
       }}>
         <div>
-          <label className="flex min-h-16 items-center gap-3 rounded-[1.25rem] border border-[var(--primary)]/10 bg-[linear-gradient(180deg,#FFFFFF_0%,#F8FAFC_100%)] px-4 text-[var(--color-heading)] ring-1 ring-[var(--border)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[var(--accent-ring)]">
+          <label className="flex min-h-14 items-center gap-3 rounded-[1.25rem] border border-[var(--primary)]/10 bg-[linear-gradient(180deg,#FFFFFF_0%,#F8FAFC_100%)] px-4 text-[var(--color-heading)] ring-1 ring-[var(--border)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[var(--accent-ring)] sm:min-h-16">
             <Search className="h-5 w-5 shrink-0 text-[var(--primary)]" />
             <input
               autoComplete="off"
-              className="h-12 min-w-0 flex-1 bg-transparent text-base font-black outline-none placeholder:text-[var(--color-placeholder)]"
+              className="h-11 min-w-0 flex-1 bg-transparent text-sm font-black outline-none placeholder:text-[var(--color-placeholder)] sm:h-12 sm:text-base"
               name="q"
               onChange={(event) => setQuery(event.target.value)}
               onFocus={openSearch}
-              placeholder="Busca productos, negocios o categorias"
+              placeholder="Busca productos o negocios"
               value={query}
             />
             {query ? (

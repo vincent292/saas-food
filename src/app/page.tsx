@@ -30,6 +30,7 @@ import {
   TrendingUp,
   Utensils,
 } from "lucide-react";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
 import { PendingCartNotice } from "@/components/home/PendingCartNotice";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
@@ -42,8 +43,7 @@ import {
 import { publicDirectoryService, type PublicBusinessTypeCard, type PublicDishCard, type PublicRestaurantCard } from "@/lib/services/public-directory.service";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
-
-const defaultImage = "/imagendefault.jpeg";
+import type { BusinessType } from "@/types/restaurant.types";
 
 export default async function Home({
   searchParams,
@@ -66,11 +66,8 @@ export default async function Home({
     <main className="public-brand-theme min-h-screen bg-[linear-gradient(180deg,var(--background)_0%,var(--color-surface)_48%,var(--background)_100%)] text-[var(--color-heading)]">
       <header className="public-site-header sticky top-0 z-40 border-b border-[var(--color-on-primary-border)] bg-[linear-gradient(90deg,#082441_0%,#12355B_62%,#082441_100%)] text-[var(--color-on-primary)] shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-          <Link className="flex min-w-0 items-center gap-3 rounded-full font-black outline-none transition focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]">
-              <Store className="h-5 w-5" />
-            </span>
-            <span className="truncate text-lg">Pedidos Directos</span>
+          <Link aria-label="Ir al inicio de yopido.shop" className="flex min-w-0 items-center rounded-full outline-none transition focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/">
+            <BrandLogo className="h-8 w-auto sm:h-9" priority variant="dark" />
           </Link>
           <nav className="hidden items-center gap-1 rounded-full bg-white/8 p-1 text-xs font-black lg:flex">
             <Link className="rounded-full bg-[var(--accent)] px-4 py-2 text-[var(--primary)]" href="/">
@@ -87,8 +84,8 @@ export default async function Home({
             </Link>
           </nav>
           <div className="flex items-center gap-2">
-            <PublicThemeToggle compact />
-            <Link className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-sm font-black text-[var(--primary)] shadow-sm transition hover:bg-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] active:scale-[0.98] sm:inline-flex sm:w-auto sm:gap-2 sm:px-4" href="/admin/login">
+            <PublicThemeToggle compact tone="onPrimary" />
+            <Link className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/70 bg-white text-sm font-black text-[#12355B] shadow-sm transition hover:bg-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] active:scale-[0.98] sm:inline-flex sm:w-auto sm:gap-2 sm:px-4" href="/admin/login">
               <LogIn className="h-4 w-4" />
               <span className="hidden sm:inline">Admin</span>
             </Link>
@@ -96,18 +93,18 @@ export default async function Home({
         </div>
       </header>
 
-      <section className="bg-[linear-gradient(180deg,#082441_0%,#12355B_68%,#F8FAFC_68%,#FFFFFF_100%)] px-4 pb-6 pt-4 text-[var(--color-heading)] sm:px-6 lg:px-8">
+      <section className="bg-[linear-gradient(180deg,#082441_0%,#12355B_68%,var(--color-surface)_68%,var(--background)_100%)] px-3 pb-5 pt-4 text-[var(--color-heading)] sm:px-6 sm:pb-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <div className="relative overflow-hidden rounded-[2rem] border border-white/14 bg-[linear-gradient(135deg,#082441_0%,#12355B_58%,#071E36_100%)] p-4 text-white shadow-[0_28px_90px_rgb(8_36_65_/_0.28)] sm:p-5 lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-6 lg:p-6 xl:grid-cols-[minmax(0,1fr)_430px]">
+          <div className="relative overflow-hidden rounded-[1.6rem] border border-white/14 bg-[linear-gradient(135deg,#082441_0%,#12355B_58%,#071E36_100%)] p-4 text-white shadow-[0_28px_90px_rgb(8_36_65_/_0.28)] sm:rounded-[2rem] sm:p-5 lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-6 lg:p-6 xl:grid-cols-[minmax(0,1fr)_430px]">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/35" />
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,rgb(255_255_255_/_0.12)_0%,transparent_34%,transparent_100%)]" />
             <div className="relative z-10 min-w-0">
               <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--accent)]">Negocios locales</p>
-              <h1 className="mt-2 max-w-2xl text-3xl font-black leading-tight sm:text-4xl lg:text-5xl">Explora negocios, productos y pedidos directos en tu zona</h1>
+              <h1 className="mt-2 max-w-2xl text-[1.95rem] font-black leading-[1.08] min-[380px]:text-[2.05rem] sm:text-4xl lg:text-5xl">Explora negocios, productos y pedidos directos en tu zona</h1>
               <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-white/78 sm:text-base">
                 Busca por producto, negocio, rubro o ciudad. Entra al catalogo real, arma tu pedido y sigue el avance sin llamadas cruzadas.
               </p>
-              <div className="mt-5 max-w-3xl">
+              <div className="mt-4 max-w-3xl sm:mt-5">
                 <HomeSearchAutocomplete
                   businessTypes={baseDirectory.businessTypeCards}
                   categories={baseDirectory.categoryCards}
@@ -125,10 +122,10 @@ export default async function Home({
               </div>
             </div>
 
-            <div className="relative z-10 mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:mt-0">
+            <div className="relative z-10 mt-5 hidden grid-cols-1 gap-3 sm:grid-cols-2 lg:mt-0 lg:grid">
               <Link className="group overflow-hidden rounded-[1.45rem] bg-white p-2 text-[var(--primary)] shadow-[0_18px_45px_rgb(2_10_18_/_0.18)] ring-1 ring-white/60 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={featuredRestaurant ? `/r/${featuredRestaurant.restaurant.slug}` : "#restaurantes"}>
                 <span className="relative block h-32 overflow-hidden rounded-[1.1rem] bg-[var(--primary-light)] sm:h-36 lg:h-40">
-                  <Image alt={featuredRestaurant?.restaurant.name ?? "Negocios"} className="object-cover transition duration-300 group-hover:scale-105" fill sizes="(min-width:1280px) 205px, (min-width:1024px) 190px, 45vw" src={featuredRestaurant && isImageSrc(featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl) ? (featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl || defaultImage) : defaultImage} />
+                  <BusinessVisual businessType={featuredRestaurant?.restaurant.businessType ?? "other"} className="absolute inset-0 h-full w-full transition duration-300 group-hover:scale-105" label={featuredRestaurant?.restaurant.name ?? "Negocios"} />
                   <span className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-medium)] to-transparent" />
                 </span>
                 <span className="mt-3 flex items-center justify-between gap-2 px-1 pb-1 text-sm font-black">
@@ -139,7 +136,7 @@ export default async function Home({
 
               <Link className="group overflow-hidden rounded-[1.45rem] bg-white p-2 text-[var(--primary)] shadow-[0_18px_45px_rgb(2_10_18_/_0.18)] ring-1 ring-white/60 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={featuredDish ? `/r/${featuredDish.restaurantSlug}` : "#platos"}>
                 <span className="relative block h-32 overflow-hidden rounded-[1.1rem] bg-[var(--primary-light)] sm:h-36 lg:h-40">
-                  <Image alt={featuredDish?.name ?? "Productos populares"} className="object-cover transition duration-300 group-hover:scale-105" fill sizes="(min-width:1280px) 205px, (min-width:1024px) 190px, 45vw" src={featuredDish?.imageUrl || defaultImage} />
+                  <BusinessVisual businessType={featuredRestaurant?.restaurant.businessType ?? "other"} className="absolute inset-0 h-full w-full transition duration-300 group-hover:scale-105" label={featuredDish?.name ?? "Productos populares"} />
                   <span className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-medium)] to-transparent" />
                 </span>
                 <span className="mt-3 flex items-center justify-between gap-2 px-1 pb-1 text-sm font-black">
@@ -169,7 +166,7 @@ export default async function Home({
         <section id="explorar">
           <div className="flex items-end justify-between gap-3">
             <SectionHeader eyebrow="Rubros" title="Explora por tipo de negocio" />
-            <Link className="rounded-full px-2 py-1 text-sm font-black text-[var(--primary)] transition hover:bg-[var(--accent-soft)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}` : "/"}>
+            <Link className="rounded-full px-2 py-1 text-sm font-black text-[var(--color-heading)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}` : "/"}>
               Ver todos
             </Link>
           </div>
@@ -189,7 +186,7 @@ export default async function Home({
         <section>
           <div className="flex items-end justify-between gap-3">
             <SectionHeader eyebrow="Categorias" title={selectedBusinessTypeLabel ? `Categorias en ${selectedBusinessTypeLabel}` : "Explora por categorias"} />
-            <Link className="rounded-full px-2 py-1 text-sm font-black text-[var(--primary)] transition hover:bg-[var(--accent-soft)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}` : "/"}>
+            <Link className="rounded-full px-2 py-1 text-sm font-black text-[var(--color-heading)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}` : "/"}>
               Ver todas
             </Link>
           </div>
@@ -267,15 +264,15 @@ export default async function Home({
 function SectionHeader({ eyebrow, title }: { eyebrow: string; title: string }) {
   return (
     <div>
-      <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">{eyebrow}</p>
-      <h2 className="mt-1 text-3xl font-black">{title}</h2>
+      <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">{eyebrow}</p>
+      <h2 className="mt-1 text-2xl font-black sm:text-3xl">{title}</h2>
     </div>
   );
 }
 
 function HeroSignal({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return (
-    <div className="flex min-h-[76px] items-start gap-3 rounded-[1.2rem] border border-white/14 bg-white/10 p-3 text-white shadow-sm backdrop-blur">
+    <div className="flex min-h-[72px] items-start gap-3 rounded-[1.2rem] border border-white/14 bg-white/10 p-3 text-white shadow-sm backdrop-blur">
       <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]">{icon}</span>
       <span className="min-w-0">
         <span className="block text-sm font-black leading-5">{title}</span>
@@ -305,7 +302,7 @@ function CategoryImageCard({
       <div className={cn("grid h-14 w-14 place-items-center rounded-2xl ring-1 ring-[var(--border)] transition group-hover:shadow-[var(--shadow-glow)]", categoryIconTone(category.value, category.label), active && "bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]")}>
         <CategoryIcon label={category.label} value={category.value} />
       </div>
-      <span className="block w-full truncate text-[11px] font-black text-[var(--primary)]">{category.label}</span>
+      <span className="block w-full truncate text-[11px] font-black text-[var(--color-heading)]">{category.label}</span>
     </Link>
   );
 }
@@ -331,7 +328,7 @@ function BusinessTypeCard({
         <BusinessTypeIcon value={businessType.value} />
       </div>
       <span className="min-w-0">
-        <span className="block truncate text-sm font-black text-[var(--primary)]">{businessType.label}</span>
+        <span className="block truncate text-sm font-black text-[var(--color-heading)]">{businessType.label}</span>
         <span className="mt-1 block text-xs font-semibold text-[var(--color-secondary-text)]">{businessType.count} locales</span>
       </span>
     </Link>
@@ -421,31 +418,83 @@ function isImageSrc(value?: string | null) {
   return Boolean(value && (value.startsWith("http") || value.startsWith("/")));
 }
 
-function RestaurantLogo({ card, size = "md" }: { card: PublicRestaurantCard; size?: "sm" | "md" }) {
-  const isImage = isImageSrc(card.restaurant.logoUrl);
-  const className = size === "sm" ? "h-16 w-16 rounded-2xl" : "h-20 w-20 rounded-[1.25rem]";
-  const initials = card.restaurant.name
+function isDisplayImage(value?: string | null) {
+  return Boolean(value && isImageSrc(value) && !value.includes("imagendefault"));
+}
+
+function initials(value: string) {
+  return value
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+}
+
+function businessVisualClasses(businessType: BusinessType) {
+  if (businessType === "fashion") return "from-[#3A1F2B] via-[#A44A6A] to-[#F1B7A4] text-white";
+  if (businessType === "footwear") return "from-[#2B2348] via-[#6F4BC4] to-[#D6C4FF] text-white";
+  if (businessType === "pharmacy") return "from-[#073B35] via-[#0F8A70] to-[#BFF4E8] text-white";
+  if (businessType === "market") return "from-[#204015] via-[#72A51C] to-[#EAF7B4] text-white";
+  if (businessType === "beauty") return "from-[#43142C] via-[#C44E86] to-[#FFD0E5] text-white";
+  if (businessType === "home") return "from-[#3D2517] via-[#B97842] to-[#F7D4A8] text-white";
+  if (businessType === "electronics") return "from-[#071B3A] via-[#1464B4] to-[#A8DAFF] text-white";
+  if (businessType === "services") return "from-[#171B39] via-[#4F5CC7] to-[#CAD4FF] text-white";
+  return "from-[#082441] via-[#12355B] to-[#C7F000] text-white";
+}
+
+function BusinessVisualIcon({ businessType, className = "h-8 w-8" }: { businessType: BusinessType; className?: string }) {
+  if (businessType === "food") return <Utensils className={className} />;
+  if (businessType === "fashion") return <Shirt className={className} />;
+  if (businessType === "footwear") return <ShoppingBag className={className} />;
+  if (businessType === "pharmacy") return <Pill className={className} />;
+  if (businessType === "market") return <Store className={className} />;
+  if (businessType === "beauty") return <Sparkles className={className} />;
+  if (businessType === "home") return <House className={className} />;
+  if (businessType === "electronics") return <Smartphone className={className} />;
+  if (businessType === "services") return <Briefcase className={className} />;
+  return <Store className={className} />;
+}
+
+function BusinessVisual({ businessType, label, className }: { businessType: BusinessType; label: string; className?: string }) {
+  return (
+    <span className={cn("relative grid overflow-hidden bg-gradient-to-br", businessVisualClasses(businessType), className)}>
+      <span className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgb(255_255_255_/_0.35),transparent_28%),radial-gradient(circle_at_82%_20%,rgb(255_255_255_/_0.22),transparent_24%),linear-gradient(135deg,transparent_0%,rgb(255_255_255_/_0.16)_48%,transparent_49%)]" />
+      <span className="absolute -right-8 -top-8 h-24 w-24 rounded-full border border-white/24" />
+      <span className="relative z-10 grid h-full w-full place-items-center">
+        <span className="grid h-14 w-14 place-items-center rounded-[1.2rem] bg-white/18 shadow-xl ring-1 ring-white/24 backdrop-blur">
+          <BusinessVisualIcon businessType={businessType} className="h-7 w-7" />
+        </span>
+      </span>
+      <span className="absolute bottom-2 left-3 z-10 text-[9px] font-black uppercase tracking-[0.16em] text-white/58">{initials(label) || "YP"}</span>
+    </span>
+  );
+}
+
+function RestaurantLogo({ card, size = "md" }: { card: PublicRestaurantCard; size?: "sm" | "md" }) {
+  const isImage = isDisplayImage(card.restaurant.logoUrl);
+  const className = size === "sm" ? "h-16 w-16 rounded-2xl" : "h-20 w-20 rounded-[1.25rem]";
+  const textLogo = initials(card.restaurant.name);
 
   return (
     <span className={cn("grid shrink-0 place-items-center overflow-hidden bg-[var(--primary)] text-xl font-black text-[var(--color-on-primary)] ring-1 ring-[var(--border)]", className)}>
-      {isImage ? <Image alt={card.restaurant.name} className="h-full w-full object-cover" height={80} src={card.restaurant.logoUrl} width={80} /> : <span aria-hidden="true">{initials || <Store className="h-5 w-5" />}</span>}
+      {isImage ? <Image alt={card.restaurant.name} className="h-full w-full object-cover" height={80} src={card.restaurant.logoUrl} width={80} /> : <span aria-hidden="true">{textLogo || <Store className="h-5 w-5" />}</span>}
     </span>
   );
 }
 
 function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
-  const imageSrc = isImageSrc(card.restaurant.bannerUrl || card.restaurant.logoUrl) ? card.restaurant.bannerUrl || card.restaurant.logoUrl : defaultImage;
+  const imageSrc = isDisplayImage(card.restaurant.bannerUrl || card.restaurant.logoUrl) ? card.restaurant.bannerUrl || card.restaurant.logoUrl : "";
 
   return (
     <Card className="flex h-full flex-col overflow-hidden p-0 transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="relative h-44 bg-[var(--primary-light)]">
-        <Image alt={card.restaurant.name} className="object-cover" fill sizes="(min-width:1280px) 33vw, (min-width:768px) 50vw, 100vw" src={imageSrc} />
+        {imageSrc ? (
+          <Image alt={card.restaurant.name} className="object-cover" fill sizes="(min-width:1280px) 33vw, (min-width:768px) 50vw, 100vw" src={imageSrc} />
+        ) : (
+          <BusinessVisual businessType={card.restaurant.businessType} className="absolute inset-0 h-full w-full" label={card.restaurant.name} />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-strong)] via-[var(--color-image-overlay-medium)] to-transparent" />
         <span className="absolute bottom-3 left-3 max-w-[75%] truncate rounded-full bg-white/92 px-3 py-1 text-xs font-black text-[var(--primary)] backdrop-blur">
           {card.categories[0] || card.restaurant.city || `${businessCatalogLabelTitle(card.restaurant.businessType)} disponible`}
@@ -535,10 +584,15 @@ function RankingPanel({
 }
 
 function DishCard({ dish }: { dish: PublicDishCard }) {
+  const imageSrc = isDisplayImage(dish.imageUrl) ? dish.imageUrl : "";
   return (
     <Link className="overflow-hidden rounded-[1.25rem] bg-[var(--surface)] shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={`/r/${dish.restaurantSlug}`}>
       <div className="relative aspect-[4/3] bg-[var(--primary-light)]">
-        <Image alt={dish.name} className="object-cover" fill sizes="(min-width:1024px) 25vw, 50vw" src={dish.imageUrl || defaultImage} />
+        {imageSrc ? (
+          <Image alt={dish.name} className="object-cover" fill sizes="(min-width:1024px) 25vw, 50vw" src={imageSrc} />
+        ) : (
+          <BusinessVisual businessType="other" className="absolute inset-0 h-full w-full" label={dish.name} />
+        )}
         <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
           <Star className="h-3.5 w-3.5 fill-current" />
           {dish.orderCount}

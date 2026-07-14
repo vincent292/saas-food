@@ -32,6 +32,7 @@ export type Database = {
         whatsapp: string | null;
         address: string | null;
         city: string | null;
+        business_type: Database["public"]["Enums"]["business_type"] | null;
         public_category: string | null;
         owner_user_id: string | null;
         owner_name: string | null;
@@ -204,6 +205,7 @@ export type Database = {
         invoice_document_number: string | null;
         invoice_name: string | null;
         order_type: "table" | "delivery" | "pickup" | "pos";
+        order_origin: Database["public"]["Enums"]["order_origin"];
         status: "pending" | "accepted" | "preparing" | "ready" | "delivered" | "cancelled";
         payment_status: "pending" | "paid" | "cancelled" | "refunded";
         payment_method: "cash" | "qr" | "bank_transfer" | "card" | "other";
@@ -432,6 +434,50 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      restaurant_platform_billing: Row<{
+        id: string;
+        restaurant_id: string;
+        billing_anchor_date: string;
+        next_due_date: string;
+        reminder_days: number;
+        platform_qr_url: string | null;
+        platform_qr_note: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      restaurant_platform_payment_cycles: Row<{
+        id: string;
+        restaurant_id: string;
+        due_date: string;
+        proof_url: string | null;
+        proof_uploaded_at: string | null;
+        proof_verified_at: string | null;
+        proof_verified_by: string | null;
+        paid_at: string | null;
+        paid_by: string | null;
+        notes: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      restaurant_owner_change_requests: Row<{
+        id: string;
+        restaurant_id: string;
+        requested_by: string;
+        current_owner_name: string | null;
+        current_owner_email: string | null;
+        requested_owner_name: string;
+        requested_owner_email: string;
+        reason: string | null;
+        eligible_at: string;
+        status: Database["public"]["Enums"]["owner_change_request_status"];
+        approved_at: string | null;
+        approved_by: string | null;
+        rejected_at: string | null;
+        rejected_by: string | null;
+        resolution_notes: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       admin_audit_logs: Row<{
         id: string;
         actor_user_id: string | null;
@@ -568,8 +614,10 @@ export type Database = {
       };
       create_pos_sale_with_cash_movement: {
         Args: {
+          p_customer_phone?: string | null;
           p_customer_name?: string | null;
           p_items?: Json;
+          p_order_origin?: Database["public"]["Enums"]["order_origin"];
           p_order_number: string;
           p_payment_method: Database["public"]["Enums"]["payment_method_type"];
           p_receipt_reference?: string | null;
@@ -777,7 +825,10 @@ export type Database = {
     };
     Enums: {
       app_role: "superadmin" | "restaurant_admin" | "cashier" | "kitchen" | "waiter";
+      business_type: "food" | "fashion" | "footwear" | "pharmacy" | "market" | "beauty" | "home" | "electronics" | "services" | "other";
       restaurant_status: "active" | "inactive" | "suspended";
+      order_origin: "pos_counter" | "table_qr" | "web_checkout" | "phone_whatsapp" | "external_platform";
+      owner_change_request_status: "pending" | "approved" | "rejected" | "cancelled";
       order_status: "pending" | "accepted" | "preparing" | "ready" | "delivered" | "cancelled";
       payment_method_type: "cash" | "qr" | "bank_transfer" | "card" | "other";
       cash_session_status: "open" | "closed";

@@ -3,7 +3,9 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { formatShortTime } from "@/lib/utils/dates";
 import { cn } from "@/lib/utils/cn";
+import { businessPreparationAreaLabel, businessPreparationAreaTitle, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import type { Order, OrderQueueState, OrderStatus } from "@/types/order.types";
+import type { BusinessType } from "@/types/restaurant.types";
 
 const queueStep: Record<OrderStatus, number> = {
   pending: 0,
@@ -51,7 +53,7 @@ function estimateLabel(queue: OrderQueueState) {
   return `${queue.estimatedMinMinutes}-${queue.estimatedMaxMinutes} min`;
 }
 
-function headline(order: Order, queue: OrderQueueState) {
+function headline(order: Order, queue: OrderQueueState, businessType: BusinessType) {
   if (order.status === "pending" && queue.queuePosition) {
     return `Estas #${queue.queuePosition} en la fila virtual`;
   }
@@ -80,18 +82,26 @@ function headline(order: Order, queue: OrderQueueState) {
     return "Pedido completado";
   }
 
-  return "Seguimiento de cocina";
+  return businessTypeSupportsKitchen(businessType) ? "Seguimiento de cocina" : "Seguimiento del pedido";
 }
 
-function supportingText(order: Order, queue: OrderQueueState) {
+function supportingText(order: Order, queue: OrderQueueState, businessType: BusinessType) {
+  const preparationArea = businessPreparationAreaLabel(businessType);
+
   if (order.status === "pending") {
     const ahead = queue.ordersAhead ?? 0;
     if (ahead === 0) {
-      return "Tu pedido ya esta en la fila. El restaurante lo confirmara para mandarlo a cocina.";
+      return businessTypeSupportsKitchen(businessType)
+        ? "Tu pedido ya esta en la fila. El restaurante lo confirmara para mandarlo a cocina."
+        : `Tu pedido ya esta en la fila. El negocio lo confirmara para enviarlo a ${preparationArea}.`;
     }
     return ahead === 1
-      ? "Hay 1 pedido antes que el tuyo. El restaurante confirmara el tuyo para mandarlo a cocina."
-      : `Hay ${ahead} pedidos antes que el tuyo. El restaurante confirmara el tuyo para mandarlo a cocina.`;
+      ? businessTypeSupportsKitchen(businessType)
+        ? "Hay 1 pedido antes que el tuyo. El restaurante confirmara el tuyo para mandarlo a cocina."
+        : `Hay 1 pedido antes que el tuyo. El negocio confirmara el tuyo para enviarlo a ${preparationArea}.`
+      : businessTypeSupportsKitchen(businessType)
+        ? `Hay ${ahead} pedidos antes que el tuyo. El restaurante confirmara el tuyo para mandarlo a cocina.`
+        : `Hay ${ahead} pedidos antes que el tuyo. El negocio confirmara el tuyo para enviarlo a ${preparationArea}.`;
   }
 
   if (order.status === "accepted") {
@@ -103,7 +113,7 @@ function supportingText(order: Order, queue: OrderQueueState) {
   }
 
   if (order.status === "preparing") {
-    return "Cocina ya esta trabajando en tu pedido.";
+    return businessTypeSupportsKitchen(businessType) ? "Cocina ya esta trabajando en tu pedido." : "El equipo esta alistando tu pedido.";
   }
 
   if (order.status === "ready") {
@@ -180,12 +190,13 @@ function QueueLane({ queue }: { queue: OrderQueueState }) {
   );
 }
 
-function QueueProgress({ status }: { status: OrderStatus }) {
+function QueueProgress({ status, businessType }: { status: OrderStatus; businessType: BusinessType }) {
+  const preparationTitle = businessPreparationAreaTitle(businessType);
   const currentStep = queueStep[status];
   const steps = [
     { label: "Confirmado", icon: Sparkles },
     { label: "En fila", icon: UsersRound },
-    { label: "Preparacion", icon: ChefHat },
+    { label: preparationTitle, icon: ChefHat },
     { label: "Listo", icon: Flame },
   ];
 
@@ -213,7 +224,7 @@ function QueueProgress({ status }: { status: OrderStatus }) {
   );
 }
 
-export function VirtualQueueCard({ order, queue }: { order: Order; queue: OrderQueueState | null }) {
+export function VirtualQueueCard({ order, queue, businessType = "food" }: { order: Order; queue: OrderQueueState | null; businessType?: BusinessType }) {
   if (!queue?.queueEnabled || order.status === "cancelled") {
     return null;
   }
@@ -230,8 +241,8 @@ export function VirtualQueueCard({ order, queue }: { order: Order; queue: OrderQ
                 <Activity className="mr-1.5 h-3.5 w-3.5" />
                 {queue.demandLabel}
               </Badge>
-              <h2 className="mt-4 text-2xl font-black leading-tight text-[var(--text)] sm:text-3xl">{headline(order, queue)}</h2>
-              <p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-[var(--muted)]">{supportingText(order, queue)}</p>
+              <h2 className="mt-4 text-2xl font-black leading-tight text-[var(--text)] sm:text-3xl">{headline(order, queue, businessType)}</h2>
+              <p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-[var(--muted)]">{supportingText(order, queue, businessType)}</p>
             </div>
 
             <div className="rounded-2xl bg-[var(--primary-light)] px-4 py-3 text-[var(--primary-dark)] sm:text-right">
@@ -242,7 +253,7 @@ export function VirtualQueueCard({ order, queue }: { order: Order; queue: OrderQ
           </div>
 
           <QueueLane queue={queue} />
-          <QueueProgress status={order.status} />
+          <QueueProgress businessType={businessType} status={order.status} />
         </section>
 
         <aside className="grid gap-3 border-t border-[var(--border)] bg-[var(--color-surface)] p-5 sm:grid-cols-3 lg:grid-cols-1 lg:border-l lg:border-t-0">
@@ -258,7 +269,7 @@ export function VirtualQueueCard({ order, queue }: { order: Order; queue: OrderQ
           <div className="rounded-2xl bg-[var(--surface)] p-4 shadow-sm">
             <div className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
               <ChefHat className="h-4 w-4 text-[var(--primary)]" />
-              En cocina
+              {businessPreparationAreaTitle(businessType)}
             </div>
             <p className="mt-3 text-3xl font-black text-[var(--text)]">{queue.preparingOrders}</p>
             <p className="text-xs font-semibold text-[var(--muted)]">en preparacion</p>

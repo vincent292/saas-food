@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { updateOrderStatusAction } from "@/app/admin/actions";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
-import { elapsedLabel, minutesSince, orderSourceLabel, orderStatusLabels, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
+import { elapsedLabel, minutesSince, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
 import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -16,6 +16,15 @@ import { cn } from "@/lib/utils/cn";
 import { isSameBusinessDay } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
 import { createClient } from "@/lib/supabase/client";
+import {
+  businessOrderAdvanceLabel,
+  businessOrderReadyLabel,
+  businessOrderStatusLabel,
+  businessPreparationAreaLabel,
+  businessQueueEmptyLabel,
+  businessQueueLabel,
+  businessTypeSupportsKitchen,
+} from "@/lib/restaurant-directory-options";
 import type { Order } from "@/types/order.types";
 import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
 
@@ -33,9 +42,12 @@ function normalizeReceptionTab(value?: string): ReceptionTab {
   return value === "cocina" || value === "historial" || value === "nuevos" ? value : "nuevos";
 }
 
-function statusMessage(status: ReceptionStatus) {
+function statusMessage(status: ReceptionStatus, restaurant: Restaurant) {
+  const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
+  const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType);
+
   if (status.charged) {
-    return { tone: "success", text: "Pedido aprobado, cobrado y enviado a cocina." };
+    return { tone: "success", text: hasKitchenFlow ? "Pedido aprobado, cobrado y enviado a cocina." : `Pedido aprobado, cobrado y enviado a ${preparationArea}.` };
   }
   if (status.rejected) {
     return { tone: "success", text: "Pedido rechazado correctamente." };
@@ -145,8 +157,11 @@ export function OrdersReceptionClient({
     [orders],
   );
 
-  const banner = statusMessage(status);
+  const banner = statusMessage(status, restaurant);
   const visibleOrders = groups[activeTab];
+  const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType);
+  const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
+  const queueLabel = businessQueueLabel(restaurant.businessType);
 
   return (
     <div className="space-y-6">
@@ -155,14 +170,18 @@ export function OrdersReceptionClient({
           <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Recepcion</p>
           <h1 className="text-3xl font-black text-[var(--text)]">Pedidos en tiempo real</h1>
           <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">
-            Aquí llegan los pedidos de mesa y de afuera. Caja o recepción los aprueba, valida el comprobante y los manda a cocina.
+            {hasKitchenFlow
+              ? "Aqui llegan los pedidos de mesa y de afuera. Caja o recepcion los aprueba, valida el comprobante y los manda a cocina."
+              : `Aqui llegan pedidos web, POS, celular y plataformas externas. Caja o recepcion los aprueba y los envia a ${preparationArea}.`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <a className={buttonClasses("secondary", "min-h-10 px-4 text-sm")} href={`/cocina/${restaurant.slug}`} rel="noreferrer" target="_blank">
-            <ExternalLink className="h-4 w-4" />
-            Abrir cocina
-          </a>
+          {hasKitchenFlow ? (
+            <a className={buttonClasses("secondary", "min-h-10 px-4 text-sm")} href={`/cocina/${restaurant.slug}`} rel="noreferrer" target="_blank">
+              <ExternalLink className="h-4 w-4" />
+              Abrir cocina
+            </a>
+          ) : null}
           <div className="flex items-center gap-2 rounded-full bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--muted)] shadow-sm">
             <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin text-[var(--primary)]")} />
             {isRefreshing ? "Actualizando" : "En vivo"}
@@ -171,7 +190,15 @@ export function OrdersReceptionClient({
       </section>
 
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm font-semibold leading-6 text-[var(--muted)] shadow-sm">
-        Si el negocio no tiene pantalla en cocina, usa la pestaña <strong className="text-[var(--text)]">En cocina</strong> para iniciar preparacion y marcar pedidos listos desde este mismo panel.
+        {hasKitchenFlow ? (
+          <>
+            Si el negocio no tiene pantalla en cocina, usa la pestaña <strong className="text-[var(--text)]">En cocina</strong> para iniciar preparacion y marcar pedidos listos desde este mismo panel.
+          </>
+        ) : (
+          <>
+            Usa la pestaña <strong className="text-[var(--text)]">{queueLabel}</strong> para alistar pedidos, marcarlos listos y continuar con recojo o despacho.
+          </>
+        )}
       </div>
 
       {!hasOpenSession ? (
@@ -186,25 +213,25 @@ export function OrdersReceptionClient({
 
       <section className="grid gap-3 md:grid-cols-3">
         <SummaryCard count={groups.nuevos.length} icon={<Clock className="h-5 w-5" />} label="Nuevos por aprobar" />
-        <SummaryCard count={groups.cocina.length} icon={<CheckCircle2 className="h-5 w-5" />} label="En cocina" />
+        <SummaryCard count={groups.cocina.length} icon={<CheckCircle2 className="h-5 w-5" />} label={queueLabel} />
         <SummaryCard count={groups.historial.length} icon={<Truck className="h-5 w-5" />} label="Cerrados recientes" />
       </section>
 
       <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
         <TabButton active={activeTab === "nuevos"} count={groups.nuevos.length} label="Nuevos" onClick={() => setActiveTab("nuevos")} />
-        <TabButton active={activeTab === "cocina"} count={groups.cocina.length} label="En cocina" onClick={() => setActiveTab("cocina")} />
+        <TabButton active={activeTab === "cocina"} count={groups.cocina.length} label={queueLabel} onClick={() => setActiveTab("cocina")} />
         <TabButton active={activeTab === "historial"} count={groups.historial.length} label="Historial" onClick={() => setActiveTab("historial")} />
       </div>
 
       {visibleOrders.length ? (
         <section className="grid gap-4">
           {activeTab === "nuevos"
-            ? groups.nuevos.map((order) => <PendingOrderReviewCard context="pedidos" disabled={!hasOpenSession} key={order.id} order={order} restaurantSlug={restaurant.slug} />)
+            ? groups.nuevos.map((order) => <PendingOrderReviewCard businessType={restaurant.businessType} context="pedidos" disabled={!hasOpenSession} key={order.id} order={order} restaurantSlug={restaurant.slug} />)
             : visibleOrders.map((order) => <ReceptionOrderCard defaultPrintFormat={settings?.printFormat ?? "thermal_80"} key={order.id} order={order} restaurant={restaurant} />)}
         </section>
       ) : (
         <EmptyState
-          title={activeTab === "nuevos" ? "Sin pedidos nuevos" : activeTab === "cocina" ? "Nada enviado a cocina" : "Sin historial reciente"}
+          title={activeTab === "nuevos" ? "Sin pedidos nuevos" : activeTab === "cocina" ? businessQueueEmptyLabel(restaurant.businessType) : "Sin historial reciente"}
           description="Cuando Supabase reciba o actualice pedidos aparecerán aquí automáticamente."
         />
       )}
@@ -243,8 +270,9 @@ function ReceptionOrderCard({
 }) {
   const minutes = minutesSince(order.createdAt, new Date());
   const nextKitchenStatus = order.status === "accepted" ? "preparing" : order.status === "preparing" ? "ready" : null;
-  const nextKitchenLabel = order.status === "accepted" ? "Iniciar preparacion" : "Marcar listo";
-  const readyLabel = order.orderType === "pickup" ? "Listo para recojo" : order.orderType === "delivery" ? "Listo para despacho" : "Listo para entregar";
+  const nextKitchenLabel = businessOrderAdvanceLabel(order.status, restaurant.businessType);
+  const readyLabel = businessOrderReadyLabel(order.orderType, restaurant.businessType);
+  const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType);
 
   return (
     <Card className="rounded-[1.25rem] p-4">
@@ -252,7 +280,7 @@ function ReceptionOrderCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xl font-black text-[var(--text)]">Pedido {order.orderNumber}</h2>
-            <OrderStatusBadge status={order.status} />
+            <OrderStatusBadge businessType={restaurant.businessType} status={order.status} />
             <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">{orderSourceLabel(order)}</span>
           </div>
 
@@ -279,7 +307,7 @@ function ReceptionOrderCard({
           <div className="rounded-2xl bg-[var(--primary-light)] p-4">
             <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Resumen</p>
             <p className="mt-1 text-2xl font-black text-[var(--primary-dark)]">{formatMoney(order.total)}</p>
-            <p className="mt-1 text-xs font-semibold text-[var(--muted)]">{orderStatusLabels[order.status]}</p>
+            <p className="mt-1 text-xs font-semibold text-[var(--muted)]">{businessOrderStatusLabel(order.status, restaurant.businessType)}</p>
             {order.paymentReceiptReference ? <p className="mt-2 text-xs font-black text-[var(--primary-dark)]">Referencia: {order.paymentReceiptReference}</p> : null}
             {order.paymentReceiptUrl ? (
               <a className="mt-3 inline-flex rounded-full bg-[var(--surface)] px-3 py-1 text-xs font-black text-[var(--primary)]" href={order.paymentReceiptUrl} rel="noreferrer" target="_blank">
@@ -305,7 +333,7 @@ function ReceptionOrderCard({
               <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
               <input name="orderId" type="hidden" value={order.id} />
               <input name="source" type="hidden" value="pedidos" />
-              <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">Avance rapido para locales sin pantalla de cocina separada.</p>
+              <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">{hasKitchenFlow ? "Avance rapido para locales sin pantalla de cocina separada." : "Avance rapido para alistar y marcar pedidos listos desde recepcion."}</p>
               <Button className="w-full" name="status" type="submit" value={nextKitchenStatus}>
                 {order.status === "accepted" ? <ChefHat className="h-4 w-4" /> : <Utensils className="h-4 w-4" />}
                 {nextKitchenLabel}

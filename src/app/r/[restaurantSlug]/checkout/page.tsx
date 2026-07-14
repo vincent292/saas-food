@@ -21,7 +21,7 @@ export default async function CheckoutPage({
 
   return (
     <RestaurantLayout restaurant={restaurant}>
-      <CheckoutClient error={error} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} settings={settings} />
+      <CheckoutClient businessType={restaurant.businessType} error={error} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} settings={settings} />
     </RestaurantLayout>
   );
 }

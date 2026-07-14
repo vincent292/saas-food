@@ -73,6 +73,10 @@ export default async function CashPage({
           status.charged ?? "",
           status.expense ?? "",
           status.pos ?? "",
+          status.posOrderId ?? "",
+          status.posOrderNumber ?? "",
+          status.posTrackingToken ?? "",
+          status.posCustomerPhone ?? "",
           status.rejected ?? "",
         ].join(":")}
         categories={categories}

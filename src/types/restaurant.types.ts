@@ -1,5 +1,16 @@
 export type AppRole = "superadmin" | "restaurant_admin" | "cashier" | "kitchen" | "waiter";
 export type RestaurantStatus = "active" | "inactive" | "suspended";
+export type BusinessType =
+  | "food"
+  | "fashion"
+  | "footwear"
+  | "pharmacy"
+  | "market"
+  | "beauty"
+  | "home"
+  | "electronics"
+  | "services"
+  | "other";
 export type PlanKey = "basic" | "pro" | "premium";
 export type ModuleKey =
   | "public_menu"
@@ -46,6 +57,7 @@ export type Restaurant = {
   address: string;
   addressReference: string;
   city: string;
+  businessType: BusinessType;
   publicCategory: string;
   latitude?: number;
   longitude?: number;
@@ -123,4 +135,72 @@ export type RestaurantSubscription = {
   status: "trialing" | "active" | "past_due" | "cancelled";
   startsAt: string;
   endsAt?: string;
+};
+
+export type PlatformBillingCycle = {
+  id: string;
+  restaurantId: string;
+  dueDate: string;
+  proofUrl?: string;
+  proofUploadedAt?: string;
+  proofVerifiedAt?: string;
+  proofVerifiedBy?: string;
+  paidAt?: string;
+  paidBy?: string;
+  notes?: string;
+};
+
+export type PlatformBilling = {
+  id: string;
+  restaurantId: string;
+  billingAnchorDate: string;
+  nextDueDate: string;
+  reminderDays: number;
+  platformQrUrl?: string;
+  platformQrNote?: string;
+  currentCycle?: PlatformBillingCycle | null;
+  planPriceMonthly?: number;
+  isConfigured: boolean;
+  isOverdue: boolean;
+  isSuspendedForBilling: boolean;
+  reminderStartsAt?: string;
+  daysUntilDue?: number;
+};
+
+export type PlatformBillingAlert = {
+  showModal: boolean;
+  tone: "warning" | "danger";
+  title: string;
+  body: string;
+  actionHref: string;
+  actionLabel: string;
+  dueDate?: string;
+};
+
+export type OwnerChangeRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+export type RestaurantOwnerChangeRequest = {
+  id: string;
+  restaurantId: string;
+  requestedBy: string;
+  currentOwnerName?: string;
+  currentOwnerEmail?: string;
+  requestedOwnerName: string;
+  requestedOwnerEmail: string;
+  reason?: string;
+  eligibleAt: string;
+  status: OwnerChangeRequestStatus;
+  approvedAt?: string;
+  approvedBy?: string;
+  rejectedAt?: string;
+  rejectedBy?: string;
+  resolutionNotes?: string;
+  createdAt: string;
+};
+
+export type OwnerChangePolicy = {
+  approvedCount: number;
+  cooldownDays: number;
+  nextAllowedAt?: string;
+  canRequestNow: boolean;
 };

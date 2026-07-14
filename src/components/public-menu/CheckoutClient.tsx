@@ -9,9 +9,10 @@ import { Card } from "@/components/ui/Card";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
+import { businessCatalogLabel, businessTypeSupportsTableQr } from "@/lib/restaurant-directory-options";
 import { readCart, type CartProduct } from "@/lib/utils/cart";
 import { formatMoney } from "@/lib/utils/money";
-import type { RestaurantSettings } from "@/types/restaurant.types";
+import type { BusinessType, RestaurantSettings } from "@/types/restaurant.types";
 
 type OrderType = "table" | "delivery" | "pickup";
 
@@ -20,11 +21,13 @@ export function CheckoutClient({
   restaurantSlug,
   error,
   settings,
+  businessType,
 }: {
   restaurantId: string;
   restaurantSlug: string;
   error?: string;
   settings: RestaurantSettings | null;
+  businessType: BusinessType;
 }) {
   const [cart] = useState<CartProduct[]>(() => readCart(restaurantSlug));
   const [selectedOrderType, setSelectedOrderType] = useState<OrderType>(() => {
@@ -32,7 +35,7 @@ export function CheckoutClient({
       return "pickup";
     }
 
-    if (settings?.tableOrdersEnabled ?? true) {
+    if ((settings?.tableOrdersEnabled ?? true) && businessTypeSupportsTableQr(businessType)) {
       return "table";
     }
 
@@ -44,11 +47,11 @@ export function CheckoutClient({
   const orderTypes = useMemo(
     () =>
       [
-        { value: "table" as const, label: "Pedido en mesa", enabled: settings?.tableOrdersEnabled ?? true },
+        { value: "table" as const, label: "Pedido en mesa", enabled: (settings?.tableOrdersEnabled ?? true) && businessTypeSupportsTableQr(businessType) },
         { value: "delivery" as const, label: "Delivery", enabled: settings?.deliveryEnabled ?? true },
         { value: "pickup" as const, label: "Recojo en local", enabled: settings?.pickupEnabled ?? true },
       ].filter((option) => option.enabled),
-    [settings?.deliveryEnabled, settings?.pickupEnabled, settings?.tableOrdersEnabled],
+    [businessType, settings?.deliveryEnabled, settings?.pickupEnabled, settings?.tableOrdersEnabled],
   );
   const freeDeliveryFrom = settings?.freeDeliveryFrom ?? 0;
   const deliveryFee = selectedOrderType === "delivery" && (!freeDeliveryFrom || subtotal < freeDeliveryFrom) ? (settings?.deliveryFee ?? 0) : 0;
@@ -177,7 +180,7 @@ export function CheckoutClient({
               <div className="rounded-[1.5rem] bg-[var(--primary-light)] p-5 text-center text-sm font-semibold text-[var(--primary-dark)]">
                 <IllustrationAsset className="mx-auto max-w-[180px]" name="emptyCart" sizes="180px" />
                 <p className="mt-3 font-black text-[var(--primary)]">Tu carrito esta vacio</p>
-                <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Vuelve al menu y agrega tus platos favoritos.</p>
+                <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Vuelve al {businessCatalogLabel(businessType)} y agrega productos.</p>
               </div>
             )}
           </div>

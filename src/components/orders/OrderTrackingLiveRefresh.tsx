@@ -7,9 +7,11 @@ import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { VirtualQueueCard } from "@/components/orders/VirtualQueueCard";
 import { Badge } from "@/components/ui/Badge";
+import { businessPickupReadyLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 import type { Order, OrderDeliveryDispatch, OrderQueueState, OrderStatus, OrderTrackingStatus } from "@/types/order.types";
+import type { BusinessType } from "@/types/restaurant.types";
 
 const POLL_INTERVAL_MS = 30000;
 const terminalStatuses = new Set<OrderStatus>(["delivered", "cancelled"]);
@@ -58,8 +60,11 @@ function isTerminalStatus(status: OrderStatus) {
   return terminalStatuses.has(status);
 }
 
-function trackingLabel(order: Order) {
+function trackingLabel(order: Order & { businessType?: BusinessType }) {
   if (order.orderType === "pickup") {
+    if (order.status === "ready") {
+      return businessPickupReadyLabel(order.businessType ?? "food");
+    }
     return pickupLabels[order.status];
   }
 
@@ -70,11 +75,11 @@ function trackingLabel(order: Order) {
   return trackingLabels[order.status];
 }
 
-function trackingHeroCopy(order: Order) {
+function trackingHeroCopy(order: Order, businessType: BusinessType) {
   if (order.orderType === "pickup") {
     if (order.status === "ready") {
       return {
-        title: "Listo para recoger",
+        title: businessPickupReadyLabel(businessType),
         description: "Tu pedido ya esta listo. Puedes pasar por el local y pedirlo con tu numero de pedido.",
         mode: "Recojo en local",
       };
@@ -90,7 +95,7 @@ function trackingHeroCopy(order: Order) {
 
     return {
       title: "Te avisaremos cuando este listo",
-      description: "Sigue el avance de cocina aqui. El estado importante para recojo es listo para recoger.",
+      description: `Sigue el avance del pedido aqui. El estado importante para recojo es ${businessPickupReadyLabel(businessType).toLowerCase()}.`,
       mode: "Recojo en local",
     };
   }
@@ -126,7 +131,7 @@ function trackingHeroCopy(order: Order) {
   };
 }
 
-function mergeTrackingStatus(order: Order, status: OrderTrackingStatus): Order {
+function mergeTrackingStatus<T extends Order>(order: T, status: OrderTrackingStatus): T {
   return {
     ...order,
     orderType: status.orderType,
@@ -143,10 +148,10 @@ function mergeTrackingStatus(order: Order, status: OrderTrackingStatus): Order {
           ...status.deliveryDispatch,
         }
       : order.deliveryDispatch,
-  };
+  } as T;
 }
 
-function mergeOrderChange(order: Order, payload: OrderChangePayload): Order {
+function mergeOrderChange<T extends Order>(order: T, payload: OrderChangePayload): T {
   return {
     ...order,
     status: payload.status ?? order.status,
@@ -156,10 +161,10 @@ function mergeOrderChange(order: Order, payload: OrderChangePayload): Order {
     deliveredAt: payload.delivered_at ?? order.deliveredAt,
     cancelledAt: payload.cancelled_at ?? order.cancelledAt,
     cancellationReason: payload.cancellation_reason ?? order.cancellationReason,
-  };
+  } as T;
 }
 
-function mergeDeliveryChange(order: Order, payload: DeliveryChangePayload): Order {
+function mergeDeliveryChange<T extends Order>(order: T, payload: DeliveryChangePayload): T {
   if (!payload.status) {
     return order;
   }
@@ -173,17 +178,20 @@ function mergeDeliveryChange(order: Order, payload: DeliveryChangePayload): Orde
       arrivedAt: payload.arrived_at ?? order.deliveryDispatch?.arrivedAt,
       deliveredAt: payload.delivered_at ?? order.deliveryDispatch?.deliveredAt,
     },
-  };
+  } as T;
 }
 
-function trackingSteps(order: Order) {
+function trackingSteps(order: Order & { businessType?: BusinessType }) {
   const isDelivery = order.orderType === "delivery";
   const isPickup = order.orderType === "pickup";
+  const isFood = businessTypeSupportsKitchen(order.businessType);
+  const preparingDescription = isFood ? "Cocina esta trabajando." : "Estamos preparando tu pedido.";
+  const pickupReadyLabel = businessPickupReadyLabel(order.businessType ?? "food");
   const steps = isDelivery
     ? [
         { label: "Recibido", description: "El restaurante recibio tu pedido.", icon: CheckCircle2 },
         { label: "Confirmado", description: "El equipo lo aprobo.", icon: ClipboardCheck },
-        { label: "Preparando", description: "Cocina esta trabajando.", icon: ChefHat },
+        { label: "Preparando", description: preparingDescription, icon: isFood ? ChefHat : ShoppingBag },
         { label: "Listo", description: "Sale del local.", icon: PackageCheck },
         { label: "Salio para entrega", description: "Va camino a tu direccion.", icon: Truck },
         { label: "Entregado", description: "Pedido completado.", icon: PackageCheck },
@@ -192,14 +200,14 @@ function trackingSteps(order: Order) {
       ? [
           { label: "Recibido", description: "El restaurante recibio tu pedido.", icon: CheckCircle2 },
           { label: "Confirmado", description: "El equipo lo aprobo.", icon: ClipboardCheck },
-          { label: "Preparando", description: "Cocina esta trabajando.", icon: ChefHat },
-          { label: "Listo para recoger", description: "Ya puedes pasar por el local.", icon: ShoppingBag },
+          { label: "Preparando", description: preparingDescription, icon: isFood ? ChefHat : ShoppingBag },
+          { label: pickupReadyLabel, description: "Ya puedes pasar por el local.", icon: ShoppingBag },
           { label: "Retirado", description: "Pedido completado.", icon: Store },
         ]
       : [
           { label: "Recibido", description: "El restaurante recibio tu pedido.", icon: CheckCircle2 },
           { label: "Confirmado", description: "El equipo lo aprobo.", icon: ClipboardCheck },
-          { label: "Preparando", description: "Cocina esta trabajando.", icon: ChefHat },
+          { label: "Preparando", description: preparingDescription, icon: isFood ? ChefHat : ShoppingBag },
           { label: "Listo", description: "El pedido esta listo.", icon: PackageCheck },
           { label: "Completado", description: "Pedido completado.", icon: Store },
         ];
@@ -253,21 +261,23 @@ export function OrderTrackingLiveRefresh({
   initialOrder,
   initialQueue,
   restaurantSlug,
+  businessType,
   token,
 }: {
   initialOrder: Order;
   initialQueue: OrderQueueState | null;
   restaurantSlug: string;
+  businessType: BusinessType;
   token?: string;
 }) {
-  const [order, setOrder] = useState(initialOrder);
+  const [order, setOrder] = useState<Order & { businessType: BusinessType }>({ ...initialOrder, businessType });
   const statusUrl = useMemo(() => {
     const params = token ? `?token=${encodeURIComponent(token)}` : "";
     return `/r/${restaurantSlug}/pedido/${initialOrder.id}/status${params}`;
   }, [initialOrder.id, restaurantSlug, token]);
   const isTerminal = isTerminalStatus(order.status);
   const { steps, currentStep } = trackingSteps(order);
-  const heroCopy = trackingHeroCopy(order);
+  const heroCopy = trackingHeroCopy(order, businessType);
   const queue = initialQueue ? { ...initialQueue, status: order.status } : null;
 
   const fetchLatestStatus = useCallback(async () => {
@@ -432,7 +442,7 @@ export function OrderTrackingLiveRefresh({
         </div>
       ) : null}
 
-      <VirtualQueueCard order={order} queue={queue} />
+      <VirtualQueueCard businessType={businessType} order={order} queue={queue} />
     </>
   );
 }

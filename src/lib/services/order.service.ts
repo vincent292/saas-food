@@ -16,6 +16,7 @@ type OrderRow = {
   delivery_maps_url?: string | null;
   requested_fulfillment_at?: string | null;
   order_type: Order["orderType"];
+  order_origin?: Order["orderOrigin"] | null;
   status: Order["status"];
   payment_status: Order["paymentStatus"];
   payment_method: Order["paymentMethod"];
@@ -158,6 +159,8 @@ function mapPublicDelivery(payload: PublicOrderPayload): OrderDeliveryDispatch |
 }
 
 function mapOrder(row: OrderRow, items: OrderItem[], deliveryDispatch?: OrderDeliveryDispatch): Order {
+  const orderOrigin = row.order_origin ?? (row.order_type === "table" ? "table_qr" : row.order_type === "pos" ? "pos_counter" : "web_checkout");
+
   return {
     id: row.id,
     restaurantId: row.restaurant_id,
@@ -171,6 +174,7 @@ function mapOrder(row: OrderRow, items: OrderItem[], deliveryDispatch?: OrderDel
     deliveryMapsUrl: row.delivery_maps_url ?? undefined,
     requestedFulfillmentAt: row.requested_fulfillment_at ?? undefined,
     orderType: row.order_type,
+    orderOrigin,
     status: row.status,
     paymentStatus: row.payment_status,
     paymentMethod: row.payment_method,
@@ -331,7 +335,7 @@ export const orderService = {
     const { data: orders, error } = await supabase
       .from("orders")
       .select(
-        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_maps_url,requested_fulfillment_at,order_type,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,subtotal,delivery_fee,discount_total,total,notes,created_at,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
+        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_maps_url,requested_fulfillment_at,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,subtotal,delivery_fee,discount_total,total,notes,created_at,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
       )
       .eq("restaurant_id", restaurantId)
       .gte("created_at", startOfBusinessDayIso())

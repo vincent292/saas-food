@@ -1,6 +1,6 @@
 "use client";
 
-import { Banknote, Bike, Calculator, CreditCard, FileText, History, PackageSearch, ReceiptText, ShoppingBag, Store, type LucideIcon } from "lucide-react";
+import { Banknote, Bike, Calculator, Copy, CreditCard, ExternalLink, FileText, History, MessageCircle, PackageSearch, ReceiptText, ShoppingBag, Store, X, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -15,6 +15,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
+import { businessCatalogLabelTitle, businessOrderStatusLabel, businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils/dates";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
@@ -33,7 +34,10 @@ function normalizeTab(value: string | undefined): CashTab {
   return "venta";
 }
 
-function statusMessage(status: CashPageStatus) {
+function statusMessage(status: CashPageStatus, businessType: Restaurant["businessType"]) {
+  const preparationArea = businessPreparationAreaLabel(businessType);
+  const hasKitchenFlow = businessTypeSupportsKitchen(businessType);
+
   if (status.opened) {
     return { tone: "success", text: "Caja abierta correctamente." };
   }
@@ -41,10 +45,10 @@ function statusMessage(status: CashPageStatus) {
     return { tone: "success", text: "Caja cerrada correctamente. El reporte quedó guardado." };
   }
   if (status.charged) {
-    return { tone: "success", text: "Pedido aprobado, cobrado y enviado a cocina." };
+    return { tone: "success", text: hasKitchenFlow ? "Pedido aprobado, cobrado y enviado a cocina." : `Pedido aprobado, cobrado y enviado a ${preparationArea}.` };
   }
   if (status.pos) {
-    return { tone: "success", text: "Venta POS cobrada y enviada a cocina." };
+    return { tone: "success", text: hasKitchenFlow ? "Venta POS cobrada y enviada a cocina." : `Venta POS cobrada y enviada a ${preparationArea}.` };
   }
   if (status.expense) {
     return { tone: "success", text: "Movimiento registrado correctamente." };
@@ -60,7 +64,7 @@ function statusMessage(status: CashPageStatus) {
     "no-open-session": "Necesitas una caja abierta para operar.",
     "receipt-required": "Para pago QR el comprobante o referencia es obligatorio.",
     "already-paid": "Ese pedido ya fue cobrado.",
-    "cash-required": "El pedido debe estar cobrado antes de pasar a cocina.",
+    "cash-required": hasKitchenFlow ? "El pedido debe estar cobrado antes de pasar a cocina." : `El pedido debe estar cobrado antes de pasar a ${preparationArea}.`,
     "session-open": "Ya existe una caja abierta para este restaurante.",
     "order-not-found": "No encontramos ese pedido.",
     "order-cancelled": "Ese pedido fue cancelado.",
@@ -84,6 +88,10 @@ export type CashPageStatus = {
   expense?: string;
   pos?: string;
   rejected?: string;
+  posOrderId?: string;
+  posOrderNumber?: string;
+  posTrackingToken?: string;
+  posCustomerPhone?: string;
 };
 
 export function CashWorkspaceClient({
@@ -112,6 +120,9 @@ export function CashWorkspaceClient({
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<CashTab>(() => normalizeTab(status.tab));
   const [isTabPending, startTabTransition] = useTransition();
+  const [showPosCreatedModal, setShowPosCreatedModal] = useState(Boolean(status.pos && status.posOrderId && status.posTrackingToken));
+  const [posWhatsAppPhone, setPosWhatsAppPhone] = useState(status.posCustomerPhone ?? "");
+  const [copied, setCopied] = useState(false);
   const refreshTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -156,9 +167,20 @@ export function CashWorkspaceClient({
   );
   const ordersById = useMemo(() => new Map(todaysOrders.map((order) => [order.id, order])), [todaysOrders]);
   const latestReport = reports[0];
-  const banner = statusMessage(status);
+  const banner = statusMessage(status, restaurant.businessType);
   const hasOperationalCounts = loadedTab === "pedidos" || loadedTab === "delivery" || loadedTab === "recojo" || loadedTab === "movimientos";
   const activeTabIsLoaded = activeTab === loadedTab;
+  const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
+  const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
+  const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType);
+  const trackingUrl =
+    status.posOrderId && status.posTrackingToken && typeof window !== "undefined"
+      ? `${window.location.origin}/r/${restaurant.slug}/pedido/${status.posOrderId}?token=${status.posTrackingToken}`
+      : "";
+  const whatsappHref =
+    posWhatsAppPhone.replace(/\D/g, "") && trackingUrl
+      ? `https://wa.me/${posWhatsAppPhone.replace(/\D/g, "")}?text=${encodeURIComponent(`Tu pedido ${status.posOrderNumber ?? ""} ya fue registrado. Puedes seguirlo aqui: ${trackingUrl}`)}`
+      : "";
   const tabs: { key: CashTab; label: string; icon: LucideIcon; count?: number }[] = [
     { key: "venta", label: "Venta POS", icon: Store },
     { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: hasOperationalCounts ? pendingOrders.length : undefined },
@@ -243,6 +265,68 @@ export function CashWorkspaceClient({
 
       {isTabPending ? <div className="rounded-2xl bg-[var(--color-info-soft)] p-3 text-sm font-bold text-[var(--color-info-strong)]">Actualizando datos de caja...</div> : null}
 
+      {showPosCreatedModal && status.posOrderNumber ? (
+        <div className="fixed inset-0 z-[85] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">
+          <div className="w-full max-w-xl rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:rounded-[1.5rem]">
+            <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] p-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta confirmada</p>
+                <h2 className="mt-1 text-2xl font-black text-[var(--color-heading)]">Pedido {status.posOrderNumber}</h2>
+                <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
+                  {hasKitchenFlow ? "Ya quedo enviado a cocina." : `Ya quedo enviado a ${preparationArea}.`} Puedes compartir el seguimiento al cliente desde aqui.
+                </p>
+              </div>
+              <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={() => setShowPosCreatedModal(false)} type="button">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid gap-4 p-4">
+              <div className="rounded-2xl bg-[var(--primary-light)] p-4">
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Seguimiento</p>
+                <p className="mt-2 break-all text-sm font-semibold text-[var(--color-body)]">{trackingUrl || "Abriendo enlace..."}</p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                <Input name="posModalPhone" onChange={(event) => setPosWhatsAppPhone(event.target.value)} placeholder="Telefono o WhatsApp del cliente" value={posWhatsAppPhone} />
+                <button
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--border)] px-4 text-sm font-black"
+                  onClick={async () => {
+                    if (!trackingUrl) return;
+                    await navigator.clipboard.writeText(trackingUrl);
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 1500);
+                  }}
+                  type="button"
+                >
+                  <Copy className="h-4 w-4" />
+                  {copied ? "Copiado" : "Copiar link"}
+                </button>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <a className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--border)] px-4 text-sm font-black" href={trackingUrl || "#"} rel="noreferrer" target="_blank">
+                  <ExternalLink className="h-4 w-4" />
+                  Ver seguimiento
+                </a>
+                <a
+                  className={cn(
+                    "inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-4 text-sm font-black",
+                    whatsappHref ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]",
+                  )}
+                  href={whatsappHref || "#"}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Enviar por WhatsApp
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
         {tabs.map((tab) => (
           <button
@@ -263,8 +347,9 @@ export function CashWorkspaceClient({
 
       {activeTab === "venta" ? (
         <section className="space-y-4">
-          <SectionTitle title="Venta POS" description="Catálogo real del restaurante, con imágenes, variantes y agregados." />
+          <SectionTitle title="Venta POS" description={`${catalogLabelTitle} real del negocio, con imagenes, variantes y opciones.`} />
           <POSProductGrid
+            businessType={restaurant.businessType}
             categories={categories}
             configuration={configuration}
             disabled={!summary.session}
@@ -277,13 +362,13 @@ export function CashWorkspaceClient({
 
       {activeTab === "pedidos" ? (
         <section className="space-y-4">
-          <SectionTitle title="Pedidos del dia" description="Mesa y POS pendientes para aprobar, cobrar o rechazar." />
+          <SectionTitle title="Pedidos del dia" description={hasKitchenFlow ? "Mesa y POS pendientes para aprobar, cobrar o rechazar." : "Pedidos pendientes para aprobar, cobrar o rechazar."} />
           {!activeTabIsLoaded ? (
             <TabLoadingState />
           ) : pendingOrders.length ? (
             <div className="grid gap-3">
               {pendingOrders.map((order) => (
-                <PendingOrderReviewCard context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
+                <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
               ))}
             </div>
           ) : (
@@ -294,16 +379,16 @@ export function CashWorkspaceClient({
 
       {activeTab === "delivery" ? (
         <section className="space-y-4">
-          <SectionTitle title="Delivery del dia" description="Pedidos con envio. Caja los aprueba y, cuando cocina marca listo, genera el QR para la moto." />
+          <SectionTitle title="Delivery del dia" description={hasKitchenFlow ? "Pedidos con envio. Caja los aprueba y, cuando cocina marca listo, genera el QR para la moto." : "Pedidos con envio. Caja los aprueba y, cuando el pedido queda listo, habilita el despacho."} />
           {!activeTabIsLoaded ? (
             <TabLoadingState />
           ) : deliveryOrders.length ? (
             <div className="grid gap-3">
               {deliveryOrders.map((order) =>
                 order.status === "pending" ? (
-                  <PendingOrderReviewCard context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
+                  <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
-                  <DeliveryOrderCard key={order.id} order={order} restaurantSlug={restaurant.slug} />
+                  <DeliveryOrderCard businessType={restaurant.businessType} key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ),
               )}
             </div>
@@ -322,9 +407,9 @@ export function CashWorkspaceClient({
             <div className="grid gap-3">
               {pickupOrders.map((order) =>
                 order.status === "pending" ? (
-                  <PendingOrderReviewCard context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
+                  <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
-                  <PickupOrderCard key={order.id} order={order} restaurantSlug={restaurant.slug} />
+                  <PickupOrderCard businessType={restaurant.businessType} key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ),
               )}
             </div>
@@ -418,14 +503,15 @@ function TabLoadingState() {
   return <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-6 text-sm font-bold text-[var(--muted)]">Cargando datos...</div>;
 }
 
-function DeliveryOrderCard({ order, restaurantSlug }: { order: Order; restaurantSlug: string }) {
+function DeliveryOrderCard({ order, restaurantSlug, businessType }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"] }) {
   const isReady = order.status === "ready";
   const dispatchStatus = order.status === "delivered" ? "delivered" : order.deliveryDispatch?.status;
+  const hasKitchenFlow = businessTypeSupportsKitchen(businessType);
 
   return (
     <Card className="rounded-[1.25rem] p-4">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <OrderOperationalSummary order={order} title="Delivery" />
+        <OrderOperationalSummary businessType={businessType} order={order} title="Delivery" />
         {dispatchStatus === "delivered" ? (
           <DispatchStatusPanel label="Entregado" tone="success" value={order.deliveryDispatch?.deliveredAt ?? order.deliveredAt} />
         ) : dispatchStatus === "arrived" ? (
@@ -434,7 +520,7 @@ function DeliveryOrderCard({ order, restaurantSlug }: { order: Order; restaurant
           <DeliveryDispatchPanel compact order={order} restaurantSlug={restaurantSlug} />
         ) : (
           <div className="rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-bold text-[var(--color-warning-strong)]">
-            Aun esta en cocina. El QR de moto se habilita cuando el pedido este listo.
+            {hasKitchenFlow ? "Aun esta en cocina." : "Aun esta en preparacion."} El QR de moto se habilita cuando el pedido este listo.
           </div>
         )}
       </div>
@@ -451,11 +537,11 @@ function DispatchStatusPanel({ label, tone, value }: { label: string; tone: "inf
   );
 }
 
-function PickupOrderCard({ order, restaurantSlug }: { order: Order; restaurantSlug: string }) {
+function PickupOrderCard({ order, restaurantSlug, businessType }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"] }) {
   return (
     <Card className="rounded-[1.25rem] p-4">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start">
-        <OrderOperationalSummary order={order} title="Recojo" />
+        <OrderOperationalSummary businessType={businessType} order={order} title="Recojo" />
         {order.status === "ready" ? (
           <form action={updateOrderStatusAction} className="rounded-2xl border border-[var(--border)] p-3">
             <input name="restaurantId" type="hidden" value={order.restaurantId} />
@@ -472,7 +558,7 @@ function PickupOrderCard({ order, restaurantSlug }: { order: Order; restaurantSl
           <DispatchStatusPanel label="Retirado" tone="success" value={order.deliveredAt} />
         ) : (
           <div className="rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-bold text-[var(--color-warning-strong)]">
-            Aun no esta listo para entregar al cliente.
+            {businessTypeSupportsKitchen(businessType) ? "Aun no esta listo para entregar al cliente." : "Aun no esta listo para retirar o entregar al cliente."}
           </div>
         )}
       </div>
@@ -480,14 +566,14 @@ function PickupOrderCard({ order, restaurantSlug }: { order: Order; restaurantSl
   );
 }
 
-function OrderOperationalSummary({ order, title }: { order: Order; title: string }) {
+function OrderOperationalSummary({ order, title, businessType }: { order: Order; title: string; businessType: Restaurant["businessType"] }) {
   return (
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-xl font-black text-[var(--text)]">
           {title} {order.orderNumber}
         </h3>
-        <span className="rounded-full bg-[var(--color-success-soft)] px-3 py-1 text-xs font-black text-[var(--color-success-strong)]">{order.status}</span>
+        <span className="rounded-full bg-[var(--color-success-soft)] px-3 py-1 text-xs font-black text-[var(--color-success-strong)]">{businessOrderStatusLabel(order.status, businessType)}</span>
         {order.deliveryDispatch?.status === "arrived" ? <span className="rounded-full bg-[var(--color-info-soft)] px-3 py-1 text-xs font-black text-[var(--color-info-strong)]">llego</span> : null}
         {order.deliveryDispatch?.status === "delivered" ? <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">entregado por moto</span> : null}
         <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">{formatMoney(order.total)}</span>

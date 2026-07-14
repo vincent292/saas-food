@@ -24,7 +24,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ rest
       restaurantStatus={restaurant.status}
       title={`Dashboard | ${restaurant.name}`}
     >
-      <RestaurantDashboard restaurantId={restaurant.id} />
+      <RestaurantDashboard businessType={restaurant.businessType} restaurantId={restaurant.id} />
     </AdminLayout>
   );
 }

@@ -6,7 +6,7 @@ import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { SectionTitle } from "@/components/ui/SectionTitle";
-import { restaurantCategoryLabel } from "@/lib/restaurant-directory-options";
+import { restaurantBusinessTypeLabel, restaurantCategoryLabel } from "@/lib/restaurant-directory-options";
 import { modulesForAdminLayout } from "@/lib/modules";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
@@ -78,8 +78,9 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
               <p className="mt-1 text-lg font-black">{restaurant.city || "Sin ciudad"}</p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">Categoria publica</p>
-              <p className="mt-1 text-lg font-black">{restaurantCategoryLabel(restaurant.publicCategory) || "Sin categoria"}</p>
+              <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">Rubro / categoria</p>
+              <p className="mt-1 text-lg font-black">{restaurantBusinessTypeLabel(restaurant.businessType)}</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">{restaurantCategoryLabel(restaurant.publicCategory) || "Sin categoria"}</p>
             </div>
             <div>
               <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">Estado</p>

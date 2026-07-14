@@ -6,8 +6,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { announcementService } from "@/lib/services/announcement.service";
 import { uploadPublicImage } from "@/lib/supabase/storage";
+import { businessTypeSupportsTableQr, normalizeRestaurantBusinessType } from "@/lib/restaurant-directory-options";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTimeWithinBusinessHours, localDateTimeInputToIso } from "@/lib/utils/business-hours";
-import type { BusinessHour } from "@/types/restaurant.types";
+import type { BusinessHour, BusinessType } from "@/types/restaurant.types";
 
 const cartItemSchema = z.object({
   productId: z.string().uuid(),
@@ -146,6 +147,11 @@ async function getOrCreatePublicOrderSettings(supabase: Awaited<ReturnType<typeo
     .maybeSingle();
 
   return (createdSettings as PublicOrderSettings | null) ?? null;
+}
+
+async function getPublicRestaurantBusinessType(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string): Promise<BusinessType> {
+  const { data } = await supabase.from("restaurants").select("business_type").eq("id", restaurantId).maybeSingle();
+  return normalizeRestaurantBusinessType(data?.business_type);
 }
 
 async function listPublicBusinessHours(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {
@@ -321,7 +327,10 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${failPath}?error=no-open-cash`);
   }
 
-  const settings = await getOrCreatePublicOrderSettings(supabase, parsed.data.restaurantId);
+  const [settings, businessType] = await Promise.all([
+    getOrCreatePublicOrderSettings(supabase, parsed.data.restaurantId),
+    getPublicRestaurantBusinessType(supabase, parsed.data.restaurantId),
+  ]);
 
   if (!settings) {
     redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=settings`);
@@ -349,7 +358,7 @@ export async function createPublicOrderAction(formData: FormData) {
   const orderTypeEnabled =
     (parsed.data.orderType === "delivery" && settings.delivery_enabled) ||
     (parsed.data.orderType === "pickup" && settings.pickup_enabled) ||
-    (parsed.data.orderType === "table" && settings.table_orders_enabled);
+    (parsed.data.orderType === "table" && settings.table_orders_enabled && businessTypeSupportsTableQr(businessType));
 
   if (!orderTypeEnabled) {
     redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=disabled`);
@@ -427,6 +436,7 @@ export async function createPublicOrderAction(formData: FormData) {
       invoice_document_number: parsed.data.invoiceRequired ? parsed.data.invoiceDocumentNumber : null,
       invoice_name: parsed.data.invoiceRequired ? parsed.data.invoiceName : null,
       order_type: parsed.data.orderType,
+      order_origin: parsed.data.orderType === "table" ? "table_qr" : "web_checkout",
       status: "pending",
       payment_status: "pending",
       payment_method: parsed.data.paymentMethod,

@@ -1,8 +1,15 @@
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createPublicServerClient } from "@/lib/supabase/public-server";
-import { restaurantCategoryLabel, restaurantCategoryOptions } from "@/lib/restaurant-directory-options";
+import {
+  categoriesForBusinessType,
+  restaurantBusinessTypeDescription,
+  restaurantBusinessTypeLabel,
+  restaurantBusinessTypeOptions,
+  restaurantCategoryLabel,
+  restaurantCategoryOptions,
+} from "@/lib/restaurant-directory-options";
 import { restaurantService } from "@/lib/services/restaurant.service";
-import type { Restaurant } from "@/types/restaurant.types";
+import type { BusinessType, Restaurant } from "@/types/restaurant.types";
 
 type CategoryRow = {
   id: string;
@@ -82,6 +89,15 @@ export type PublicDishCard = {
 export type PublicCategoryCard = {
   value: string;
   label: string;
+  businessType: BusinessType;
+  imageUrl: string;
+  count: number;
+};
+
+export type PublicBusinessTypeCard = {
+  value: BusinessType;
+  label: string;
+  description: string;
   imageUrl: string;
   count: number;
 };
@@ -89,7 +105,9 @@ export type PublicCategoryCard = {
 export type PublicDirectory = {
   restaurants: PublicRestaurantCard[];
   categories: string[];
+  businessTypes: BusinessType[];
   locations: string[];
+  businessTypeCards: PublicBusinessTypeCard[];
   categoryCards: PublicCategoryCard[];
   mostVisited: PublicRestaurantCard[];
   mostOrderedRestaurants: PublicRestaurantCard[];
@@ -122,16 +140,27 @@ function imageUrl(value?: string | null) {
 const directoryCache = new Map<string, DirectoryCacheEntry>();
 const DIRECTORY_CACHE_TTL_MS = 15_000;
 
-function directoryCacheKey({ search = "", category = "", city = "" }: { search?: string; category?: string; city?: string }) {
+function directoryCacheKey({
+  search = "",
+  category = "",
+  city = "",
+  businessType = "",
+}: {
+  search?: string;
+  category?: string;
+  city?: string;
+  businessType?: string;
+}) {
   return JSON.stringify({
     search: normalize(search),
     category: normalize(category),
     city: normalize(city),
+    businessType: normalize(businessType),
   });
 }
 
 function emptyDirectory(): PublicDirectory {
-  return { restaurants: [], categories: [], locations: [], categoryCards: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [], dishSuggestions: [] };
+  return { restaurants: [], categories: [], businessTypes: [], locations: [], businessTypeCards: [], categoryCards: [], mostVisited: [], mostOrderedRestaurants: [], mostOrderedDishes: [], dishSuggestions: [] };
 }
 
 function countByRestaurant<T extends { restaurant_id: string }>(rows: T[]) {
@@ -155,8 +184,18 @@ export const publicDirectoryService = {
     await supabase.from("restaurant_public_visits").insert({ restaurant_id: restaurantId });
   },
 
-  async getDirectory({ search = "", category = "", city = "" }: { search?: string; category?: string; city?: string } = {}): Promise<PublicDirectory> {
-    const cacheKey = directoryCacheKey({ search, category, city });
+  async getDirectory({
+    search = "",
+    category = "",
+    city = "",
+    businessType = "",
+  }: {
+    search?: string;
+    category?: string;
+    city?: string;
+    businessType?: string;
+  } = {}): Promise<PublicDirectory> {
+    const cacheKey = directoryCacheKey({ search, category, city, businessType });
     const cached = directoryCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.value;
@@ -240,7 +279,7 @@ export const publicDirectoryService = {
       return {
         restaurant,
         primaryCategory,
-        primaryCategoryLabel: restaurantCategoryLabel(primaryCategory) || restaurantCategories[0] || "Restaurante",
+        primaryCategoryLabel: restaurantCategoryLabel(primaryCategory) || restaurantCategories[0] || restaurantBusinessTypeLabel(restaurant.businessType) || "Negocio",
         categories: restaurantCategories,
         orders30d: ordersCountByRestaurant.get(restaurant.id) ?? 0,
         visits7d: visitsCountByRestaurant.get(restaurant.id) ?? 0,
@@ -262,11 +301,13 @@ export const publicDirectoryService = {
     const searchNeedle = normalize(search);
     const categoryNeedle = normalize(category);
     const cityNeedle = normalize(city);
+    const businessTypeNeedle = normalize(businessType);
     const filteredRestaurants = cards.filter((card) => {
       const matchesSearch =
         !searchNeedle ||
         normalize(card.restaurant.name).includes(searchNeedle) ||
         normalize(card.restaurant.city).includes(searchNeedle) ||
+        normalize(restaurantBusinessTypeLabel(card.restaurant.businessType)).includes(searchNeedle) ||
         normalize(card.primaryCategoryLabel).includes(searchNeedle) ||
         card.categories.some((item) => normalize(item).includes(searchNeedle));
       const matchesCategory =
@@ -274,12 +315,18 @@ export const publicDirectoryService = {
         normalize(card.primaryCategory) === categoryNeedle ||
         normalize(card.primaryCategoryLabel) === categoryNeedle ||
         card.categories.some((item) => normalize(item) === categoryNeedle);
+      const matchesBusinessType =
+        !businessTypeNeedle ||
+        normalize(card.restaurant.businessType) === businessTypeNeedle ||
+        normalize(restaurantBusinessTypeLabel(card.restaurant.businessType)) === businessTypeNeedle;
       const matchesCity = !cityNeedle || normalize(card.restaurant.city) === cityNeedle;
-      return matchesSearch && matchesCategory && matchesCity;
+      return matchesSearch && matchesCategory && matchesBusinessType && matchesCity;
     });
 
     const firstRestaurantByCategory = new Map<string, Restaurant>();
     const restaurantIdsByCategory = new Map<string, Set<string>>();
+    const firstRestaurantByBusinessType = new Map<BusinessType, Restaurant>();
+    const restaurantIdsByBusinessType = new Map<BusinessType, Set<string>>();
     for (const card of cards) {
       if (!firstRestaurantByCategory.has(card.primaryCategory)) {
         firstRestaurantByCategory.set(card.primaryCategory, card.restaurant);
@@ -287,9 +334,17 @@ export const publicDirectoryService = {
       const current = restaurantIdsByCategory.get(card.primaryCategory) ?? new Set<string>();
       current.add(card.restaurant.id);
       restaurantIdsByCategory.set(card.primaryCategory, current);
+
+      if (!firstRestaurantByBusinessType.has(card.restaurant.businessType)) {
+        firstRestaurantByBusinessType.set(card.restaurant.businessType, card.restaurant);
+      }
+      const currentBusinessType = restaurantIdsByBusinessType.get(card.restaurant.businessType) ?? new Set<string>();
+      currentBusinessType.add(card.restaurant.id);
+      restaurantIdsByBusinessType.set(card.restaurant.businessType, currentBusinessType);
     }
 
     const firstProductImageByCategory = new Map<string, string>();
+    const firstProductImageByBusinessType = new Map<BusinessType, string>();
     for (const product of products) {
       if (!product.image_url) {
         continue;
@@ -300,21 +355,42 @@ export const publicDirectoryService = {
       if (publicCategory && !firstProductImageByCategory.has(publicCategory)) {
         firstProductImageByCategory.set(publicCategory, product.image_url);
       }
+
+      const currentBusinessType = restaurant?.businessType;
+      if (currentBusinessType && !firstProductImageByBusinessType.has(currentBusinessType)) {
+        firstProductImageByBusinessType.set(currentBusinessType, product.image_url);
+      }
     }
 
-    const categoryCards = restaurantCategoryOptions.map((option) => {
+    const businessTypeCards = restaurantBusinessTypeOptions.map((option) => {
+      const firstRestaurant = firstRestaurantByBusinessType.get(option.value);
+      const businessTypeRestaurantIds = restaurantIdsByBusinessType.get(option.value);
+
+      return {
+        value: option.value,
+        label: option.label,
+        description: restaurantBusinessTypeDescription(option.value),
+        imageUrl: imageUrl(firstRestaurant?.bannerUrl) || imageUrl(firstProductImageByBusinessType.get(option.value)) || imageUrl(firstRestaurant?.logoUrl),
+        count: businessTypeRestaurantIds?.size ?? 0,
+      };
+    });
+
+    const categoryCards = (businessType ? categoriesForBusinessType(businessType) : restaurantCategoryOptions).map((option) => {
       const firstRestaurant = firstRestaurantByCategory.get(option.value);
       const categoryRestaurantIds = restaurantIdsByCategory.get(option.value);
 
       return {
         value: option.value,
         label: option.label,
+        businessType: option.businessType,
         imageUrl: imageUrl(firstRestaurant?.bannerUrl) || imageUrl(firstProductImageByCategory.get(option.value)) || imageUrl(firstRestaurant?.logoUrl),
         count: categoryRestaurantIds?.size ?? 0,
       };
     });
 
-    const dishSuggestions = [...products]
+    const filteredRestaurantIds = new Set(filteredRestaurants.map((card) => card.restaurant.id));
+    const suggestionProducts = products.filter((product) => filteredRestaurantIds.has(product.restaurant_id));
+    const dishSuggestions = [...suggestionProducts]
       .sort((left, right) => Number(right.order_count ?? 0) - Number(left.order_count ?? 0))
       .slice(0, 48)
       .map((product) => {
@@ -338,11 +414,13 @@ export const publicDirectoryService = {
 
     const directory = {
       restaurants: filteredRestaurants,
-      categories: restaurantCategoryOptions.map((option) => option.label),
+      categories: categoryCards.map((option) => option.label),
+      businessTypes: restaurantBusinessTypeOptions.map((option) => option.value),
       locations: Array.from(new Set(restaurants.map((restaurant) => restaurant.city).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
+      businessTypeCards,
       categoryCards,
-      mostVisited: [...cards].sort((left, right) => right.visits7d - left.visits7d).slice(0, 6),
-      mostOrderedRestaurants: [...cards].sort((left, right) => right.orders30d - left.orders30d).slice(0, 6),
+      mostVisited: [...filteredRestaurants].sort((left, right) => right.visits7d - left.visits7d).slice(0, 6),
+      mostOrderedRestaurants: [...filteredRestaurants].sort((left, right) => right.orders30d - left.orders30d).slice(0, 6),
       mostOrderedDishes,
       dishSuggestions,
     };

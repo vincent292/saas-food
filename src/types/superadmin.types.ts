@@ -1,4 +1,4 @@
-import type { AppRole, PlanKey, RestaurantStatus } from "./restaurant.types";
+import type { AppRole, BusinessType, PlanKey, RestaurantStatus } from "./restaurant.types";
 
 export type SupportTicketStatus = "open" | "in_progress" | "waiting_customer" | "resolved" | "closed";
 export type SupportTicketPriority = "low" | "medium" | "high" | "urgent";
@@ -90,6 +90,7 @@ export type RestaurantOperationSummary = {
   status: RestaurantStatus;
   ownerEmail: string;
   city: string;
+  businessType: BusinessType;
   publicCategory: string;
   planKey?: PlanKey;
   activeModules: number;

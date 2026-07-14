@@ -1,4 +1,4 @@
-import { AlertTriangle, ChefHat, ClipboardList, Table2, WalletCards } from "lucide-react";
+import { AlertTriangle, ChefHat, ClipboardList, PackageCheck, Table2, WalletCards } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { SectionTitle } from "@/components/ui/SectionTitle";
@@ -9,8 +9,10 @@ import { productService } from "@/lib/services/product.service";
 import { tableService } from "@/lib/services/table.service";
 import { isSameBusinessDay } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
+import { businessCatalogItemsLabel, businessPreparationAreaTitle, businessTypeSupportsTableQr } from "@/lib/restaurant-directory-options";
+import type { BusinessType } from "@/types/restaurant.types";
 
-export async function RestaurantDashboard({ restaurantId }: { restaurantId: string }) {
+export async function RestaurantDashboard({ restaurantId, businessType }: { restaurantId: string; businessType: BusinessType }) {
   const [summary, orders, tables, products, lowStock] = await Promise.all([
     cashService.getSummary(restaurantId),
     orderService.listByRestaurant(restaurantId),
@@ -19,19 +21,26 @@ export async function RestaurantDashboard({ restaurantId }: { restaurantId: stri
     inventoryService.listLowStock(restaurantId),
   ]);
   const todaysOrders = orders.filter((order) => isSameBusinessDay(order.createdAt));
+  const supportsTables = businessTypeSupportsTableQr(businessType);
+  const preparationTitle = businessPreparationAreaTitle(businessType);
+  const itemsLabel = businessCatalogItemsLabel(businessType);
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={<WalletCards className="h-5 w-5" />} label="Ventas del día" value={formatMoney(summary.salesTotal)} detail="Pagadas hasta ahora" />
         <StatCard icon={<ClipboardList className="h-5 w-5" />} label="Pedidos pendientes" value={String(todaysOrders.filter((order) => order.status === "pending").length)} />
-        <StatCard icon={<ChefHat className="h-5 w-5" />} label="En preparación" value={String(todaysOrders.filter((order) => order.status === "preparing").length)} />
-        <StatCard icon={<Table2 className="h-5 w-5" />} label="Mesas activas" value={String(tables.filter((table) => table.status !== "available").length)} />
+        <StatCard icon={<ChefHat className="h-5 w-5" />} label={`En ${preparationTitle.toLowerCase()}`} value={String(todaysOrders.filter((order) => order.status === "preparing").length)} />
+        <StatCard
+          icon={supportsTables ? <Table2 className="h-5 w-5" /> : <PackageCheck className="h-5 w-5" />}
+          label={supportsTables ? "Mesas activas" : "Listos para entrega"}
+          value={String(supportsTables ? tables.filter((table) => table.status !== "available").length : todaysOrders.filter((order) => order.status === "ready").length)}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <SectionTitle title="Productos disponibles" description="Productos activos del restaurante." />
+          <SectionTitle title="Productos disponibles" description={`${itemsLabel[0].toUpperCase()}${itemsLabel.slice(1)} activos del negocio.`} />
           <div className="mt-4 space-y-3">
             {products.slice(0, 4).map((product, index) => (
               <div className="flex items-center justify-between rounded-2xl bg-[var(--color-surface)] p-3" key={product.id}>

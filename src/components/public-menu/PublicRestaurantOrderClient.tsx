@@ -8,6 +8,7 @@ import { CompressedImageInput } from "@/components/settings/CompressedImageInput
 import { Button } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input } from "@/components/ui/Input";
+import { businessCatalogItemsLabel, businessCatalogLabel } from "@/lib/restaurant-directory-options";
 import { readCart, writeCart } from "@/lib/utils/cart";
 import { DEFAULT_RESTAURANT_TIME_ZONE, getBusinessStatus, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
 import { cn } from "@/lib/utils/cn";
@@ -94,11 +95,13 @@ export function PublicRestaurantOrderClient({
       return matchesCategory && matchesSearch;
     });
   }, [productQuery, products, selectedCategory]);
-  const selectedCategoryName = selectedCategory === "all" ? "Todo el menu" : (categories.find((category) => category.id === selectedCategory)?.name ?? "Categoria");
+  const catalogLabel = businessCatalogLabel(restaurant.businessType);
+  const catalogItemsLabel = businessCatalogItemsLabel(restaurant.businessType);
+  const selectedCategoryName = selectedCategory === "all" ? `Todo el ${catalogLabel}` : (categories.find((category) => category.id === selectedCategory)?.name ?? "Categoria");
 
   const cartQuantity = cart.reduce((total, item) => total + item.quantity, 0);
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const notes = `Pedido desde menu publico${requiresInvoice ? " - Requiere factura" : ""}`;
+  const notes = `Pedido desde ${catalogLabel} publico${requiresInvoice ? " - Requiere factura" : ""}`;
   const cartJson = JSON.stringify(cart.map(({ productId, variantId, optionIds, name, price, quantity, notes: itemNotes }) => ({ productId, variantId, optionIds, name, price, quantity, notes: itemNotes })));
   const hasLogoImage = restaurant.logoUrl.startsWith("http") || restaurant.logoUrl.startsWith("/");
   const logoText = restaurant.logoUrl || restaurant.name.slice(0, 1).toUpperCase();
@@ -238,7 +241,7 @@ export function PublicRestaurantOrderClient({
                   <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
                   <span>{settings?.deliveryFee ? `${formatMoney(settings.deliveryFee)} envio` : "Delivery disponible"}</span>
                   <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
-                  <span>{products.length} platos</span>
+                  <span>{products.length} {catalogItemsLabel}</span>
                 </div>
               </div>
               <div className="absolute bottom-5 right-5 z-20 hidden max-w-xs rounded-[1.35rem] bg-[var(--primary)]/92 p-4 text-white shadow-xl ring-1 ring-white/15 backdrop-blur sm:block">
@@ -248,7 +251,7 @@ export function PublicRestaurantOrderClient({
                   </span>
                   <div>
                     <p className="text-sm font-black">Ofertas y favoritos</p>
-                    <p className="mt-1 text-xs font-semibold text-white/76">Agrega platos al pedido y confirma en minutos.</p>
+                    <p className="mt-1 text-xs font-semibold text-white/76">Agrega productos al pedido y confirma en minutos.</p>
                   </div>
                 </div>
               </div>
@@ -315,7 +318,7 @@ export function PublicRestaurantOrderClient({
               <input
                 className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none placeholder:text-[var(--color-placeholder)]"
                 onChange={(event) => setProductQuery(event.target.value)}
-                placeholder="Busca platos, combos o favoritos"
+                placeholder="Busca productos, combos o favoritos"
                 value={productQuery}
               />
               {productQuery ? (
@@ -363,7 +366,7 @@ export function PublicRestaurantOrderClient({
           {!filteredProducts.length ? <div className="rounded-[1.5rem] bg-[var(--surface)] p-6 text-center text-sm font-semibold text-[var(--muted)] ring-1 ring-[var(--border)]">
               <IllustrationAsset className="mx-auto max-w-[190px]" name="emptyCart" sizes="190px" />
               <p className="mt-3 font-black text-[var(--text)]">No hay productos disponibles</p>
-              <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Prueba con otra categoria o vuelve a ver todo el menu.</p>
+              <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Prueba con otra categoria o vuelve a ver todo el {catalogLabel}.</p>
             </div> : null}
         </section>
       </div>
@@ -450,7 +453,7 @@ function OrderErrorMessage({ error }: { error: string }) {
                   : error === "invoice"
                 ? "Completa los datos de factura para confirmar el pedido."
                 : error === "product-not-found"
-                  ? "Uno de los productos ya no esta disponible. Actualiza el menu e intenta nuevamente."
+                  ? "Uno de los productos ya no esta disponible. Actualiza el catalogo e intenta nuevamente."
                   : error === "product-configuration"
                     ? "Uno de los productos necesita opciones validas. Vuelve a agregarlo al pedido."
                     : error === "service-role-required"
@@ -581,7 +584,7 @@ function ProductOptionModal({
             <div className="min-w-0">
               <p className="text-xs font-black uppercase text-[var(--primary)]">Personalizar</p>
               <h2 className="mt-1 text-3xl font-black leading-tight">{product.name}</h2>
-              <p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-[var(--muted)]">{product.description || "Elige las opciones y agrega este plato a tu pedido."}</p>
+              <p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-[var(--muted)]">{product.description || "Elige las opciones y agrega este producto a tu pedido."}</p>
             </div>
             <span className="inline-flex shrink-0 items-center gap-1 rounded-2xl bg-[var(--primary-light)] px-3 py-2 text-sm font-black text-[var(--primary)]">
               <Star className="h-4 w-4 fill-current" />
@@ -1070,7 +1073,7 @@ function PublicOrderPanel({
             <div className="rounded-[1.25rem] bg-[var(--color-surface)] p-5 text-center ring-1 ring-[var(--border)]">
                 <IllustrationAsset className="mx-auto max-w-[170px]" name="emptyCart" sizes="170px" />
                 <p className="mt-3 text-sm font-black text-[var(--primary)]">No agregaste productos todavia</p>
-                <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Elige tus platos favoritos para continuar.</p>
+                <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Elige tus productos favoritos para continuar.</p>
               </div>
           )}
         </div>

@@ -44,6 +44,7 @@ export default async function ProductsPage({
     >
       <ProductManagementClient
         categories={categories}
+        businessType={restaurant.businessType}
         categoryCreated={status.categoryCreated}
         configuration={configuration}
         created={status.created}

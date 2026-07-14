@@ -13,9 +13,18 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
+import {
+  businessCatalogItemLabel,
+  businessCatalogItemsLabel,
+  businessCatalogLabelTitle,
+  businessOptionGroupCopy,
+  businessProductImageHelp,
+  businessVariantExample,
+} from "@/lib/restaurant-directory-options";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
+import type { BusinessType } from "@/types/restaurant.types";
 
 type ProductStatus = "all" | "active" | "inactive";
 type ViewMode = "grid" | "list";
@@ -68,11 +77,13 @@ export function ProductManagementClient({
   categoryCreated,
   updated,
   error,
+  businessType,
 }: {
   restaurantId: string;
   products: Product[];
   categories: Category[];
   configuration: ProductConfiguration;
+  businessType: BusinessType;
   created?: string;
   categoryCreated?: string;
   updated?: string;
@@ -137,14 +148,19 @@ export function ProductManagementClient({
     [optionGroups],
   );
 
+  const catalogTitle = businessCatalogLabelTitle(businessType);
+  const itemLabel = businessCatalogItemLabel(businessType);
+  const itemsLabel = businessCatalogItemsLabel(businessType);
+  const variantExample = businessVariantExample(businessType);
+
   return (
     <div className="space-y-4">
       <section className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Catalogo operativo</p>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">{catalogTitle} operativo</p>
             <h2 className="mt-1 text-3xl font-black text-[var(--text)]">Productos</h2>
-            <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">Categorias, productos, variantes y opciones del menu en una sola superficie.</p>
+            <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">Categorias, {itemsLabel}, variantes y opciones del {catalogTitle.toLowerCase()} en una sola superficie.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button className={buttonClasses("secondary")} onClick={() => setCategoryModalOpen(true)} type="button">
@@ -159,7 +175,7 @@ export function ProductManagementClient({
               type="button"
             >
               <Plus className="h-4 w-4" />
-              {canCreateInSelectedCategory ? `Producto en ${selectedCategoryName}` : "Selecciona categoria"}
+              {canCreateInSelectedCategory ? `${itemLabel[0].toUpperCase()}${itemLabel.slice(1)} en ${selectedCategoryName}` : "Selecciona categoria"}
             </button>
           </div>
         </div>
@@ -208,7 +224,7 @@ export function ProductManagementClient({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Categorias</p>
-            <h3 className="text-xl font-black text-[var(--text)]">Secciones del menu</h3>
+            <h3 className="text-xl font-black text-[var(--text)]">Secciones del {catalogTitle.toLowerCase()}</h3>
           </div>
           <p className="text-sm font-semibold text-[var(--muted)]">Selecciona una categoria para crear productos ahi dentro.</p>
         </div>
@@ -242,7 +258,7 @@ export function ProductManagementClient({
           </div>
           <button className={buttonClasses(canCreateInSelectedCategory ? "primary" : "secondary")} disabled={!canCreateInSelectedCategory} onClick={() => openCreateProductModal()} type="button">
             <Plus className="h-4 w-4" />
-            {canCreateInSelectedCategory ? "Nuevo producto" : "Elige categoria"}
+            {canCreateInSelectedCategory ? `Nuevo ${itemLabel}` : "Elige categoria"}
           </button>
         </div>
 
@@ -285,7 +301,7 @@ export function ProductManagementClient({
             </div>
           )
         ) : (
-          <EmptyState title={products.length ? "No hay productos con esos filtros" : "Todavia no tienes productos"} description={products.length ? "Ajusta la busqueda o cambia la categoria seleccionada." : "Crea el primer producto real para publicarlo en el menu."} />
+          <EmptyState title={products.length ? "No hay productos con esos filtros" : "Todavia no tienes productos"} description={products.length ? "Ajusta la busqueda o cambia la categoria seleccionada." : `Crea el primer ${itemLabel} real para publicarlo en el ${catalogTitle.toLowerCase()}.`} />
         )}
       </section>
 
@@ -351,7 +367,7 @@ export function ProductManagementClient({
                   <Input defaultValue={editingProduct?.sortOrder ?? products.length + 1} min={0} name="sortOrder" type="number" />
                 </Labeled>
                 <div className="sm:col-span-2">
-                  <CompressedImageInput help="Recomendado: 1200 x 900 px. Usa foto clara del plato, sin texto pequeno." label="Imagen" name="imageFile" />
+                <CompressedImageInput help={businessProductImageHelp(businessType)} label="Imagen" name="imageFile" />
                 </div>
                 <label className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
                   <input defaultChecked={editingProduct?.isAvailable ?? true} name="isAvailable" type="checkbox" />
@@ -381,7 +397,7 @@ export function ProductManagementClient({
                   <div className="rounded-3xl border border-[var(--border)] bg-[var(--primary-light)]/40 p-4" key={index}>
                     <div className="grid gap-3 md:grid-cols-[1fr_160px_120px_auto] md:items-end">
                       <Labeled label="Nombre">
-                        <Input onChange={(event) => updateVariant(index, { name: event.target.value })} placeholder="Ej. Con papas" value={variant.name} />
+                        <Input onChange={(event) => updateVariant(index, { name: event.target.value })} placeholder={variantExample} value={variant.name} />
                       </Labeled>
                       <Labeled label="Precio extra">
                         <Input onChange={(event) => updateVariant(index, { priceDelta: Number(event.target.value) })} step="0.01" type="number" value={variant.priceDelta} />
@@ -403,7 +419,7 @@ export function ProductManagementClient({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h3 className="font-black text-[var(--text)]">Opciones configurables</h3>
-                  <p className="mt-1 text-sm text-[var(--muted)]">Usa grupos para salsa, acompanamientos, tamanos, agregados o combos.</p>
+                  <p className="mt-1 text-sm text-[var(--muted)]">{businessOptionGroupCopy(businessType)}</p>
                 </div>
                 <Button onClick={() => setOptionGroups((current) => [...current, emptyOptionGroup(current.length)])} type="button">
                   <Plus className="h-4 w-4" />

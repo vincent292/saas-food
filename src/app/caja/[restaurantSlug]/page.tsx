@@ -45,7 +45,7 @@ export default async function PublicCashPage({ params }: { params: Promise<{ res
           <CashSummaryCard amount={summary.netTotal} label="Neto turno" />
         </div>
         <div className="mt-6">
-          <POSProductGrid categories={categories} configuration={configuration} disabled={!summary.session} products={products} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} />
+          <POSProductGrid businessType={restaurant.businessType} categories={categories} configuration={configuration} disabled={!summary.session} products={products} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} />
         </div>
       </main>
     </RestaurantThemeProvider>

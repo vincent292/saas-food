@@ -255,6 +255,7 @@ export const superadminService = {
         status: restaurant.status,
         ownerEmail: restaurant.ownerEmail ?? "",
         city: restaurant.city,
+        businessType: restaurant.businessType,
         publicCategory: restaurant.publicCategory,
         planKey: restaurant.planKey,
         activeModules: restaurant.activeModules?.length ?? 0,

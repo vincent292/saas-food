@@ -1,4 +1,6 @@
-import type { Order, OrderStatus, OrderType, PaymentMethodType } from "@/types/order.types";
+import type { Order, OrderOrigin, OrderStatus, OrderType, PaymentMethodType } from "@/types/order.types";
+import { businessOrderStatusLabel } from "@/lib/restaurant-directory-options";
+import type { BusinessType } from "@/types/restaurant.types";
 
 export const orderStatusLabels: Record<OrderStatus, string> = {
   pending: "Pendiente",
@@ -24,20 +26,36 @@ export const paymentMethodLabels: Record<PaymentMethodType, string> = {
   other: "Otro",
 };
 
+export function orderStatusLabel(status: OrderStatus, businessType?: BusinessType | null) {
+  return businessOrderStatusLabel(status, businessType ?? "food");
+}
+
+export const orderOriginLabels: Record<OrderOrigin, string> = {
+  pos_counter: "POS en caja",
+  table_qr: "Mesa QR",
+  web_checkout: "Pedido web",
+  phone_whatsapp: "Celular / WhatsApp",
+  external_platform: "Plataforma externa",
+};
+
 export function orderSourceLabel(order: Order) {
-  if (order.orderType === "table") {
+  if (order.orderOrigin === "table_qr") {
     return "Pedido de mesa";
   }
 
-  if (order.orderType === "delivery") {
-    return "Pedido de afuera";
+  if (order.orderOrigin === "web_checkout") {
+    return order.orderType === "pickup" ? "Pedido web para recojo" : "Pedido web";
   }
 
-  if (order.orderType === "pickup") {
-    return "Recojo en tienda";
+  if (order.orderOrigin === "phone_whatsapp") {
+    return "Pedido por celular";
   }
 
-  return "Venta POS";
+  if (order.orderOrigin === "external_platform") {
+    return "Plataforma externa";
+  }
+
+  return order.orderType === "pickup" ? "Recojo en mostrador" : "Venta POS";
 }
 
 export function kitchenStartDate(order: Order) {

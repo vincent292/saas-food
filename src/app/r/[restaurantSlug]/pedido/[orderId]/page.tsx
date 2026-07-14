@@ -4,6 +4,7 @@ import { OrderTrackingLiveRefresh } from "@/components/orders/OrderTrackingLiveR
 import { ClearCartOnOrderSuccess } from "@/components/public-menu/ClearCartOnOrderSuccess";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { businessPickupReadyLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import { orderService } from "@/lib/services/order.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { formatMoney } from "@/lib/utils/money";
@@ -43,7 +44,7 @@ export default async function TrackingPage({
       <ClearCartOnOrderSuccess enabled={Boolean(token)} restaurantSlug={restaurantSlug} />
       <main className="mx-auto grid max-w-6xl gap-6 px-4 pb-16 pt-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:px-8 lg:pt-8">
         <section className="min-w-0">
-          <OrderTrackingLiveRefresh initialOrder={order} initialQueue={queueState} restaurantSlug={restaurantSlug} token={token} />
+          <OrderTrackingLiveRefresh businessType={restaurant.businessType} initialOrder={order} initialQueue={queueState} restaurantSlug={restaurantSlug} token={token} />
         </section>
 
         <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start">
@@ -58,10 +59,12 @@ export default async function TrackingPage({
               </div>
               <p className="mt-3 text-sm font-semibold leading-6 text-[var(--muted)]">
                 {order.orderType === "pickup"
-                  ? "Cuando el estado sea listo para recoger, pasa por el local con este numero."
+                  ? `Cuando el estado sea ${businessPickupReadyLabel(restaurant.businessType).toLowerCase()}, pasa por el local con este numero.`
                   : order.orderType === "delivery"
                     ? "El estado te avisara cuando el pedido salga para entrega."
-                    : "El restaurante actualizara el avance del pedido aqui."}
+                    : businessTypeSupportsKitchen(restaurant.businessType)
+                      ? "El restaurante actualizara el avance del pedido aqui."
+                      : "La tienda actualizara el avance del pedido aqui."}
               </p>
             </div>
 

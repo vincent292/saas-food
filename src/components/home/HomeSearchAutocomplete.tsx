@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Clock3, LocateFixed, MapPin, Search, Store, Utensils, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
-import type { PublicCategoryCard, PublicDishCard, PublicRestaurantCard } from "@/lib/services/public-directory.service";
+import type { PublicBusinessTypeCard, PublicCategoryCard, PublicDishCard, PublicRestaurantCard } from "@/lib/services/public-directory.service";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
 
@@ -33,11 +33,12 @@ function distanceKm(from: { latitude: number; longitude: number }, to: { latitud
   return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function directoryHref({ query, location, category }: { query?: string; location?: string; category?: string }) {
+function directoryHref({ query, location, category, businessType }: { query?: string; location?: string; category?: string; businessType?: string }) {
   const params = new URLSearchParams();
   if (query?.trim()) params.set("q", query.trim());
   if (location?.trim()) params.set("ubicacion", location.trim());
   if (category?.trim()) params.set("categoria", category.trim());
+  if (businessType?.trim()) params.set("rubro", businessType.trim());
   const queryString = params.toString();
   return queryString ? `/?${queryString}#restaurantes` : "/#restaurantes";
 }
@@ -45,6 +46,7 @@ function directoryHref({ query, location, category }: { query?: string; location
 export function HomeSearchAutocomplete({
   restaurants,
   dishes,
+  businessTypes,
   categories,
   locations,
   initialQuery = "",
@@ -52,6 +54,7 @@ export function HomeSearchAutocomplete({
 }: {
   restaurants: PublicRestaurantCard[];
   dishes: PublicDishCard[];
+  businessTypes: PublicBusinessTypeCard[];
   categories: PublicCategoryCard[];
   locations: string[];
   initialQuery?: string;
@@ -74,12 +77,19 @@ export function HomeSearchAutocomplete({
     return restaurants
       .filter((card) => {
         const matchesLocation = !locationNeedle || normalize(card.restaurant.city).includes(locationNeedle);
-        const searchable = normalize(`${card.restaurant.name} ${card.restaurant.city} ${card.primaryCategoryLabel} ${card.categories.join(" ")} ${card.popularProducts.join(" ")}`);
+        const searchable = normalize(`${card.restaurant.name} ${card.restaurant.city} ${card.restaurant.businessType} ${card.primaryCategoryLabel} ${card.categories.join(" ")} ${card.popularProducts.join(" ")}`);
         return matchesLocation && (!needle || searchable.includes(needle));
       })
       .sort((left, right) => (needle ? right.orders30d - left.orders30d : right.visits7d - left.visits7d))
       .slice(0, needle ? 8 : 4);
   }, [location, needle, restaurants]);
+
+  const filteredBusinessTypes = useMemo(() => {
+    return businessTypes
+      .filter((businessType) => !needle || normalize(`${businessType.label} ${businessType.description} ${businessType.value}`).includes(needle))
+      .sort((left, right) => right.count - left.count)
+      .slice(0, 8);
+  }, [businessTypes, needle]);
 
   const filteredDishes = useMemo(() => {
     const dishMatches = needle ? dishes.filter((dish) => normalize(`${dish.name} ${dish.description} ${dish.restaurantName}`).includes(needle)) : dishes;
@@ -90,18 +100,19 @@ export function HomeSearchAutocomplete({
 
   const filteredCategories = useMemo(() => {
     return categories
-      .filter((category) => !needle || normalize(`${category.label} ${category.value}`).includes(needle))
+      .filter((category) => !needle || normalize(`${category.label} ${category.value} ${category.businessType}`).includes(needle))
       .sort((left, right) => right.count - left.count)
       .slice(0, 10);
   }, [categories, needle]);
 
   const popularChips = useMemo(() => {
     const dishChips = dishes.slice(0, 4).map((dish) => dish.name);
+    const businessTypeChips = businessTypes.slice(0, 4).map((businessType) => businessType.label);
     const categoryChips = categories.slice(0, 5).map((category) => category.label);
-    return Array.from(new Set([...dishChips, ...categoryChips])).slice(0, 8);
-  }, [categories, dishes]);
+    return Array.from(new Set([...dishChips, ...businessTypeChips, ...categoryChips])).slice(0, 8);
+  }, [businessTypes, categories, dishes]);
 
-  const hasResults = filteredRestaurants.length > 0 || filteredDishes.length > 0 || filteredCategories.length > 0;
+  const hasResults = filteredRestaurants.length > 0 || filteredDishes.length > 0 || filteredBusinessTypes.length > 0 || filteredCategories.length > 0;
 
   const closeSearch = useCallback(() => {
     if (isClosing) return;
@@ -197,7 +208,7 @@ export function HomeSearchAutocomplete({
               name="q"
               onChange={(event) => setQuery(event.target.value)}
               onFocus={openSearch}
-              placeholder="Busca platos o restaurantes"
+              placeholder="Busca productos, negocios o categorias"
               value={query}
             />
             {query ? (
@@ -218,7 +229,7 @@ export function HomeSearchAutocomplete({
       </form>
 
       {isOpen && typeof document !== "undefined" ? createPortal(
-        <div className="public-brand-theme fixed inset-0 z-[80] bg-[rgb(8_36_65_/_0.78)] p-0 text-[var(--color-heading)] backdrop-blur-md sm:p-6" role="dialog" aria-modal="true" aria-label="Busqueda de comida">
+        <div className="public-brand-theme fixed inset-0 z-[80] bg-[rgb(8_36_65_/_0.78)] p-0 text-[var(--color-heading)] backdrop-blur-md sm:p-6" role="dialog" aria-modal="true" aria-label="Busqueda de negocios">
           <div className={cn("relative mx-auto flex h-dvh w-full flex-col overflow-hidden bg-white shadow-[0_30px_90px_rgb(2_10_18_/_0.36)] sm:h-[min(88dvh,820px)] sm:max-w-6xl sm:rounded-[2rem]", isClosing ? "search-tv-exit" : "search-tv-enter")}>
             <span className={cn("search-tv-line pointer-events-none absolute left-1/2 top-1/2 z-50 h-1 w-[72%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--accent)] shadow-[0_0_32px_rgb(199_240_0_/_0.88)]", isClosing && "search-tv-line-out")} />
 
@@ -235,7 +246,7 @@ export function HomeSearchAutocomplete({
                       autoComplete="off"
                       className="min-w-0 flex-1 bg-transparent text-base font-black outline-none placeholder:text-[var(--color-placeholder)]"
                       onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Ej: hamburguesas, pizza, cafe..."
+                      placeholder="Ej: hamburguesas, ropa, farmacia..."
                       value={query}
                     />
                     {query ? (
@@ -338,10 +349,34 @@ export function HomeSearchAutocomplete({
                   </div>
 
                   <div className="grid content-start gap-4">
-                    <SearchSection title={needle ? "Categorias" : "Categorias mas visitadas"} count={filteredCategories.length}>
+                    <SearchSection title={needle ? "Rubros" : "Rubros sugeridos"} count={filteredBusinessTypes.length}>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {filteredBusinessTypes.map((businessType) => (
+                          <Link
+                            className={cn(
+                              "inline-flex min-w-0 items-center gap-3 rounded-[1.1rem] border border-[var(--border)] bg-white p-3 text-sm font-black text-[var(--primary)] shadow-sm transition hover:bg-[var(--accent-soft)]",
+                              businessType.count ? "" : "opacity-60",
+                            )}
+                            href={directoryHref({ query, location, businessType: businessType.value })}
+                            key={businessType.value}
+                            onClick={() => setIsOpen(false)}
+                          >
+                            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[var(--accent)] text-[var(--primary)]">
+                              <Store className="h-5 w-5" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate">{businessType.label}</span>
+                              <span className="block text-xs font-semibold text-[var(--muted)]">{businessType.count || "Sin"} locales</span>
+                            </span>
+                          </Link>
+                        ))}
+                      </div>
+                    </SearchSection>
+
+                    <SearchSection title={needle ? "Categorias" : "Categorias destacadas"} count={filteredCategories.length}>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-2">
                         {filteredCategories.map((category) => (
-                          <Link className={cn("inline-flex min-w-0 items-center gap-3 rounded-[1.1rem] border border-[var(--border)] bg-white p-3 text-sm font-black text-[var(--primary)] shadow-sm transition hover:bg-[var(--accent-soft)]", category.count ? "" : "opacity-60")} href={directoryHref({ query, location, category: category.value })} key={category.value} onClick={() => setIsOpen(false)}>
+                          <Link className={cn("inline-flex min-w-0 items-center gap-3 rounded-[1.1rem] border border-[var(--border)] bg-white p-3 text-sm font-black text-[var(--primary)] shadow-sm transition hover:bg-[var(--accent-soft)]", category.count ? "" : "opacity-60")} href={directoryHref({ query, location, category: category.value, businessType: category.businessType })} key={category.value} onClick={() => setIsOpen(false)}>
                             <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-[var(--accent)]">
                               {category.imageUrl ? (
                                 // eslint-disable-next-line @next/next/no-img-element
@@ -367,7 +402,7 @@ export function HomeSearchAutocomplete({
                       <Store className="h-7 w-7" />
                     </div>
                     <p className="mt-4 text-lg font-black text-[var(--color-heading)]">Sin resultados rapidos</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Prueba con otro plato, categoria o ciudad.</p>
+                    <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Prueba con otro producto, rubro, categoria o ciudad.</p>
                   </div>
                 </div>
               )}

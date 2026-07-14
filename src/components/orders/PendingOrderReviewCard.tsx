@@ -12,7 +12,9 @@ import { Input, Select, Textarea } from "@/components/ui/Input";
 import { formatShortTime } from "@/lib/utils/dates";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
+import { businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import type { Order } from "@/types/order.types";
+import type { BusinessType } from "@/types/restaurant.types";
 
 type PendingOrderContext = "pedidos" | "caja";
 
@@ -27,17 +29,29 @@ export function PendingOrderReviewCard({
   restaurantSlug,
   context,
   disabled = false,
+  businessType = "food",
 }: {
   order: Order;
   restaurantSlug: string;
   context: PendingOrderContext;
   disabled?: boolean;
+  businessType?: BusinessType;
 }) {
   const [paymentMethod, setPaymentMethod] = useState<Order["paymentMethod"]>(order.paymentMethod);
   const [showReject, setShowReject] = useState(false);
   const whatsappUrl = whatsappHref(order.customerPhone, order.orderNumber);
   const pendingLabel = context === "pedidos" ? "Pendiente por aprobar" : "Pendiente de caja";
   const hasReceiptEvidence = Boolean(order.paymentReceiptUrl || order.paymentReceiptReference);
+  const preparationArea = businessPreparationAreaLabel(businessType);
+  const hasKitchenFlow = businessTypeSupportsKitchen(businessType);
+  const approvalCopy =
+    context === "pedidos"
+      ? hasKitchenFlow
+        ? "Aprueba aqui para enviarlo directo a cocina."
+        : `Aprueba aqui para enviarlo a ${preparationArea}.`
+      : hasKitchenFlow
+        ? "Cobro y validacion del pedido antes de cocina."
+        : `Cobro y validacion del pedido antes de pasarlo a ${preparationArea}.`;
 
   return (
     <Card className="rounded-[1.25rem] p-4">
@@ -79,7 +93,7 @@ export function PendingOrderReviewCard({
             <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Decision de caja</p>
             <p className="mt-1 text-2xl font-black text-[var(--primary-dark)]">{formatMoney(order.total)}</p>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
-              {context === "pedidos" ? "Aprueba aquí para enviarlo directo a cocina." : "Cobro y validación del pedido antes de cocina."}
+              {approvalCopy}
             </p>
             {order.paymentReceiptReference ? <p className="mt-2 text-xs font-black text-[var(--primary-dark)]">Referencia: {order.paymentReceiptReference}</p> : null}
             {order.paymentReceiptUrl ? (

@@ -7,13 +7,21 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteRestaurantAssets, uploadPublicImage } from "@/lib/supabase/storage";
+import {
+  businessTypeSupportsKitchen,
+  businessTypeSupportsTableQr,
+  normalizeRestaurantBusinessType,
+  normalizeRestaurantCategory,
+  restaurantBusinessTypeValues,
+} from "@/lib/restaurant-directory-options";
+import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { moduleCatalog } from "@/lib/modules";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import { toSlug } from "@/lib/utils/slug";
 import type { Json } from "@/types/database.types";
 import type { ModuleKey, PlanKey } from "@/types/restaurant.types";
-import type { OrderStatus } from "@/types/order.types";
+import type { OrderOrigin, OrderStatus } from "@/types/order.types";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -27,6 +35,7 @@ const createRestaurantSchema = z.object({
   whatsapp: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
+  businessType: z.enum(restaurantBusinessTypeValues).default("food"),
   publicCategory: z.string().optional(),
   primaryColor: z.string().default(defaultRestaurantPalette.primaryColor),
   secondaryColor: z.string().default(defaultRestaurantPalette.secondaryColor),
@@ -47,6 +56,7 @@ const updateRestaurantConfigurationSchema = z.object({
   whatsapp: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
+  businessType: z.enum(restaurantBusinessTypeValues).default("food"),
   publicCategory: z.string().optional(),
   addressReference: z.string().optional(),
   latitude: z.coerce.number().optional(),
@@ -224,6 +234,7 @@ const createDeliveryLinkSchema = z.object({
 });
 
 const paymentMethodSchema = z.enum(["cash", "qr", "bank_transfer", "card", "other"]);
+const orderOriginSchema = z.enum(["pos_counter", "table_qr", "web_checkout", "phone_whatsapp", "external_platform"]);
 
 const openCashSessionSchema = z.object({
   restaurantId: z.string().uuid(),
@@ -281,7 +292,42 @@ const createPosSaleSchema = z.object({
   paymentMethod: paymentMethodSchema.default("cash"),
   paymentReceiptReference: z.string().optional(),
   customerName: z.string().optional(),
+  customerPhone: z.string().optional(),
+  orderOrigin: orderOriginSchema.default("pos_counter"),
   cart: z.array(posCartItemSchema).min(1),
+});
+
+const updatePlatformBillingSchema = z.object({
+  restaurantId: z.string().uuid(),
+  currentPlatformQrUrl: z.string().optional(),
+  nextDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  reminderDays: z.coerce.number().int().min(0).max(15).default(4),
+  platformQrNote: z.string().optional(),
+});
+
+const submitPlatformPaymentProofSchema = z.object({
+  restaurantId: z.string().uuid(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  notes: z.string().optional(),
+});
+
+const resolvePlatformPaymentCycleSchema = z.object({
+  restaurantId: z.string().uuid(),
+  cycleId: z.string().uuid(),
+  notes: z.string().optional(),
+});
+
+const createOwnerChangeRequestSchema = z.object({
+  restaurantId: z.string().uuid(),
+  requestedOwnerName: z.string().min(2),
+  requestedOwnerEmail: z.string().email(),
+  reason: z.string().optional(),
+});
+
+const resolveOwnerChangeRequestSchema = z.object({
+  restaurantId: z.string().uuid(),
+  requestId: z.string().uuid(),
+  notes: z.string().optional(),
 });
 
 const createInventoryItemSchema = z.object({
@@ -528,6 +574,50 @@ async function updateRestaurantPlan(supabase: Awaited<ReturnType<typeof createCl
     plan_id: plan.id,
     status: "trialing",
   });
+}
+
+function platformConfigPath(restaurantId: string) {
+  return `/admin/restaurantes/${restaurantId}/configuracion?tab=plataforma`;
+}
+
+async function ensurePlatformPaymentCycle(
+  admin: NonNullable<ReturnType<typeof createAdminClient>>,
+  restaurantId: string,
+  dueDate: string,
+) {
+  const { data: existing } = await admin
+    .from("restaurant_platform_payment_cycles")
+    .select("*")
+    .eq("restaurant_id", restaurantId)
+    .eq("due_date", dueDate)
+    .maybeSingle();
+
+  if (existing) {
+    return existing;
+  }
+
+  const { data } = await admin
+    .from("restaurant_platform_payment_cycles")
+    .insert({
+      restaurant_id: restaurantId,
+      due_date: dueDate,
+    })
+    .select("*")
+    .single();
+
+  return data;
+}
+
+async function reactivateRestaurantAfterPlatformPayment(
+  admin: NonNullable<ReturnType<typeof createAdminClient>>,
+  restaurantId: string,
+) {
+  const { data: restaurant } = await admin.from("restaurants").select("status").eq("id", restaurantId).maybeSingle();
+  if (restaurant?.status === "suspended") {
+    await admin.from("restaurants").update({ status: "active" }).eq("id", restaurantId);
+  }
+
+  await admin.from("restaurant_subscriptions").update({ status: "active" }).eq("restaurant_id", restaurantId).in("status", ["trialing", "past_due"]);
 }
 
 async function ensureRestaurantOwner({
@@ -1370,6 +1460,7 @@ export async function createRestaurantAction(formData: FormData) {
     whatsapp: formData.get("whatsapp") || undefined,
     address: formData.get("address") || undefined,
     city: formData.get("city") || undefined,
+    businessType: formData.get("businessType") || "food",
     publicCategory: formData.get("publicCategory") || undefined,
     primaryColor: formData.get("primaryColor") || defaultRestaurantPalette.primaryColor,
     secondaryColor: formData.get("secondaryColor") || defaultRestaurantPalette.secondaryColor,
@@ -1399,6 +1490,10 @@ export async function createRestaurantAction(formData: FormData) {
   const logoUrl = await uploadPublicImage(formData.get("logoFile") as File | null, `restaurants/${slug}/identity`);
   const bannerUrl = await uploadPublicImage(formData.get("bannerFile") as File | null, `restaurants/${slug}/identity`);
   const enabledPlanModules = await modulesForPlan(parsed.data.planKey);
+  const businessType = normalizeRestaurantBusinessType(parsed.data.businessType);
+  const publicCategory = normalizeRestaurantCategory(parsed.data.publicCategory, businessType);
+  const supportsTableQr = businessTypeSupportsTableQr(businessType);
+  const supportsKitchen = businessTypeSupportsKitchen(businessType);
   const { data: restaurant, error: restaurantError } = await supabase
     .from("restaurants")
     .insert({
@@ -1413,7 +1508,8 @@ export async function createRestaurantAction(formData: FormData) {
       whatsapp: parsed.data.whatsapp,
       address: parsed.data.address,
       city: parsed.data.city,
-      public_category: parsed.data.publicCategory,
+      business_type: businessType,
+      public_category: publicCategory,
       owner_user_id: owner.id,
       owner_name: owner.name,
       owner_email: owner.email,
@@ -1429,10 +1525,10 @@ export async function createRestaurantAction(formData: FormData) {
     restaurant_id: restaurant.id,
     delivery_enabled: true,
     pickup_enabled: true,
-    table_orders_enabled: enabledPlanModules.includes("table_qr"),
+    table_orders_enabled: supportsTableQr && enabledPlanModules.includes("table_qr"),
     inventory_enabled: enabledPlanModules.includes("inventory"),
     cash_enabled: enabledPlanModules.includes("cash"),
-    kitchen_enabled: enabledPlanModules.includes("kitchen"),
+    kitchen_enabled: supportsKitchen && enabledPlanModules.includes("kitchen"),
     delivery_fee: 0,
     min_order_amount: 0,
     currency: "BOB",
@@ -1484,6 +1580,7 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     address: formData.get("address") || undefined,
     addressReference: formData.get("addressReference") || undefined,
     city: formData.get("city") || undefined,
+    businessType: formData.get("businessType") || "food",
     publicCategory: formData.get("publicCategory") || undefined,
     latitude: formData.get("latitude") || undefined,
     longitude: formData.get("longitude") || undefined,
@@ -1540,8 +1637,14 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
 
   const { data: currentRestaurant } = await supabase
     .from("restaurants")
-    .select("owner_user_id,owner_name,owner_email,status")
+    .select("owner_user_id,owner_name,owner_email,status,business_type")
     .eq("id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  const { data: currentSettings } = await supabase
+    .from("restaurant_settings")
+    .select("delivery_enabled,pickup_enabled,table_orders_enabled,inventory_enabled,cash_enabled,kitchen_enabled")
+    .eq("restaurant_id", parsed.data.restaurantId)
     .maybeSingle();
 
   if (!currentRestaurant) {
@@ -1552,6 +1655,18 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   const planKey = canChangePlan && parsed.data.planKey ? parsed.data.planKey : await getPlanKeyForRestaurant(supabase, parsed.data.restaurantId);
   const allowedModules = await modulesForPlan(planKey);
   const isAllowedModule = (moduleKey: ModuleKey) => allowedModules.includes(moduleKey);
+  const businessType = normalizeRestaurantBusinessType(parsed.data.businessType ?? currentRestaurant.business_type ?? "food");
+  const normalizedCategory = normalizeRestaurantCategory(parsed.data.publicCategory, businessType);
+  const supportsTableQr = businessTypeSupportsTableQr(businessType);
+  const supportsKitchen = businessTypeSupportsKitchen(businessType);
+  const moduleState = {
+    deliveryEnabled: isSuperadmin ? parsed.data.deliveryEnabled : currentSettings?.delivery_enabled ?? true,
+    pickupEnabled: isSuperadmin ? parsed.data.pickupEnabled : currentSettings?.pickup_enabled ?? true,
+    tableOrdersEnabled: supportsTableQr && (isSuperadmin ? parsed.data.tableOrdersEnabled : currentSettings?.table_orders_enabled ?? true),
+    inventoryEnabled: isSuperadmin ? parsed.data.inventoryEnabled : currentSettings?.inventory_enabled ?? true,
+    cashEnabled: isSuperadmin ? parsed.data.cashEnabled : currentSettings?.cash_enabled ?? true,
+    kitchenEnabled: supportsKitchen && (isSuperadmin ? parsed.data.kitchenEnabled : currentSettings?.kitchen_enabled ?? true),
+  };
 
   if (canChangePlan && parsed.data.planKey) {
     await updateRestaurantPlan(supabase, parsed.data.restaurantId, parsed.data.planKey);
@@ -1590,6 +1705,7 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     address: string | null;
     address_reference: string | null;
     city: string | null;
+    business_type: typeof businessType;
     public_category: string | null;
     latitude: number | null;
     longitude: number | null;
@@ -1616,7 +1732,8 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     address: parsed.data.address ?? null,
     address_reference: parsed.data.addressReference ?? null,
     city: parsed.data.city ?? null,
-    public_category: parsed.data.publicCategory ?? null,
+    business_type: businessType,
+    public_category: normalizedCategory,
     latitude: parsed.data.latitude ?? null,
     longitude: parsed.data.longitude ?? null,
     maps_url: parsed.data.mapsUrl ?? null,
@@ -1636,9 +1753,9 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     currentOwnerUserId: currentRestaurant.owner_user_id,
     currentOwnerName: currentRestaurant.owner_name,
     currentOwnerEmail: currentRestaurant.owner_email,
-    ownerName: parsed.data.ownerName,
-    ownerEmail: parsed.data.ownerEmail || undefined,
-    ownerPassword: parsed.data.ownerPassword || undefined,
+    ownerName: isSuperadmin ? parsed.data.ownerName : currentRestaurant.owner_name ?? undefined,
+    ownerEmail: isSuperadmin ? parsed.data.ownerEmail || undefined : currentRestaurant.owner_email ?? undefined,
+    ownerPassword: isSuperadmin ? parsed.data.ownerPassword || undefined : undefined,
     fallbackUserId: user.id,
     fallbackEmail: user.email ?? "",
   }).catch((error: Error) => {
@@ -1662,12 +1779,12 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   const { error: settingsError } = await supabase.from("restaurant_settings").upsert(
     {
       restaurant_id: parsed.data.restaurantId,
-      delivery_enabled: parsed.data.deliveryEnabled,
-      pickup_enabled: parsed.data.pickupEnabled,
-      table_orders_enabled: parsed.data.tableOrdersEnabled && isAllowedModule("table_qr"),
-      inventory_enabled: parsed.data.inventoryEnabled && isAllowedModule("inventory"),
-      cash_enabled: parsed.data.cashEnabled && isAllowedModule("cash"),
-      kitchen_enabled: parsed.data.kitchenEnabled && isAllowedModule("kitchen"),
+      delivery_enabled: moduleState.deliveryEnabled,
+      pickup_enabled: moduleState.pickupEnabled,
+      table_orders_enabled: moduleState.tableOrdersEnabled && isAllowedModule("table_qr"),
+      inventory_enabled: moduleState.inventoryEnabled && isAllowedModule("inventory"),
+      cash_enabled: moduleState.cashEnabled && isAllowedModule("cash"),
+      kitchen_enabled: moduleState.kitchenEnabled && isAllowedModule("kitchen"),
       delivery_fee: parsed.data.deliveryFee,
       free_delivery_from: parsed.data.freeDeliveryFrom ?? null,
       min_order_amount: parsed.data.minOrderAmount,
@@ -1680,7 +1797,7 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
       qr_account_type: parsed.data.qrAccountType ?? null,
       qr_currency: parsed.data.qrCurrency,
       print_format: parsed.data.printFormat,
-      auto_print_kitchen: parsed.data.autoPrintKitchen,
+      auto_print_kitchen: supportsKitchen ? parsed.data.autoPrintKitchen : false,
       print_logo: parsed.data.printLogo,
     },
     { onConflict: "restaurant_id" },
@@ -1710,10 +1827,10 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   const moduleRows = [
     { module_key: "public_menu", is_enabled: true },
     { module_key: "orders", is_enabled: true },
-    { module_key: "table_qr", is_enabled: parsed.data.tableOrdersEnabled },
-    { module_key: "kitchen", is_enabled: parsed.data.kitchenEnabled },
-    { module_key: "cash", is_enabled: parsed.data.cashEnabled },
-    { module_key: "inventory", is_enabled: parsed.data.inventoryEnabled },
+    { module_key: "table_qr", is_enabled: moduleState.tableOrdersEnabled },
+    { module_key: "kitchen", is_enabled: moduleState.kitchenEnabled },
+    { module_key: "cash", is_enabled: moduleState.cashEnabled },
+    { module_key: "inventory", is_enabled: moduleState.inventoryEnabled },
     { module_key: "reports", is_enabled: isAllowedModule("reports") },
     { module_key: "multi_user", is_enabled: isAllowedModule("multi_user") },
   ].map((module) => ({
@@ -1733,6 +1850,418 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   revalidatePath(`/r/${parsed.data.currentSlug}`);
   revalidatePath(`/r/${slug}`);
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=${returnTab}&saved=1`);
+}
+
+export async function updatePlatformBillingSettingsAction(formData: FormData) {
+  const parsed = updatePlatformBillingSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    currentPlatformQrUrl: formData.get("currentPlatformQrUrl") || undefined,
+    nextDueDate: formData.get("platformNextDueDate"),
+    reminderDays: formData.get("platformReminderDays") || 4,
+    platformQrNote: formData.get("platformQrNote") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(`${platformConfigPath(String(formData.get("restaurantId")))}&error=invalid-platform-billing`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, platformConfigPath(parsed.data.restaurantId));
+  const { isSuperadmin } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  if (!isSuperadmin) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=superadmin-required`);
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=service-role-required`);
+  }
+
+  const { data: existing } = await admin
+    .from("restaurant_platform_billing")
+    .select("id,platform_qr_url")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  const platformQrUrl =
+    (await uploadPublicImage(formData.get("platformQrFile") as File | null, `platform/billing/${parsed.data.restaurantId}`)) ??
+    parsed.data.currentPlatformQrUrl ??
+    existing?.platform_qr_url ??
+    null;
+
+  const { error } = await admin.from("restaurant_platform_billing").upsert(
+    {
+      id: existing?.id,
+      restaurant_id: parsed.data.restaurantId,
+      billing_anchor_date: parsed.data.nextDueDate,
+      next_due_date: parsed.data.nextDueDate,
+      reminder_days: parsed.data.reminderDays,
+      platform_qr_url: platformQrUrl,
+      platform_qr_note: parsed.data.platformQrNote ?? null,
+    },
+    { onConflict: "restaurant_id" },
+  );
+
+  if (error) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=${cashErrorKey(error, "platform-billing-save")}`);
+  }
+
+  await ensurePlatformPaymentCycle(admin, parsed.data.restaurantId, parsed.data.nextDueDate);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}`);
+  redirect(`${platformConfigPath(parsed.data.restaurantId)}&billingSaved=1`);
+}
+
+export async function submitPlatformPaymentProofAction(formData: FormData) {
+  const parsed = submitPlatformPaymentProofSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    dueDate: formData.get("platformDueDate"),
+    notes: formData.get("platformPaymentNotes") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(`${platformConfigPath(String(formData.get("restaurantId")))}&error=invalid-platform-proof`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, platformConfigPath(parsed.data.restaurantId));
+  await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=service-role-required`);
+  }
+
+  const { data: billing } = await admin
+    .from("restaurant_platform_billing")
+    .select("next_due_date,platform_qr_url")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  if (!billing?.platform_qr_url) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=platform-billing-not-configured`);
+  }
+
+  if (billing.next_due_date !== parsed.data.dueDate) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=platform-cycle-mismatch`);
+  }
+
+  const proofFile = formData.get("platformPaymentProofFile") as File | null;
+  if (!proofFile || proofFile.size === 0) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=platform-proof-required`);
+  }
+
+  const cycle = await ensurePlatformPaymentCycle(admin, parsed.data.restaurantId, parsed.data.dueDate);
+  if (cycle?.paid_at) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=platform-cycle-paid`);
+  }
+
+  const proofUrl = await uploadPublicImage(proofFile, `platform/payments/${parsed.data.restaurantId}`);
+  if (!proofUrl) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=platform-proof-upload`);
+  }
+
+  const { error } = await admin
+    .from("restaurant_platform_payment_cycles")
+    .update({
+      proof_url: proofUrl,
+      proof_uploaded_at: new Date().toISOString(),
+      proof_verified_at: null,
+      proof_verified_by: null,
+      notes: parsed.data.notes ?? null,
+    })
+    .eq("id", cycle?.id ?? "");
+
+  if (error) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=${cashErrorKey(error, "platform-proof-save")}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
+  redirect(`${platformConfigPath(parsed.data.restaurantId)}&paymentUploaded=1`);
+}
+
+export async function verifyPlatformPaymentProofAction(formData: FormData) {
+  const parsed = resolvePlatformPaymentCycleSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    cycleId: formData.get("cycleId"),
+    notes: formData.get("platformResolutionNotes") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(`${platformConfigPath(String(formData.get("restaurantId")))}&error=invalid-platform-cycle`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, platformConfigPath(parsed.data.restaurantId));
+  const { user } = await requireSuperadmin();
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=service-role-required`);
+  }
+
+  const { data: cycle } = await admin
+    .from("restaurant_platform_payment_cycles")
+    .select("id,proof_url")
+    .eq("id", parsed.data.cycleId)
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  if (!cycle?.proof_url) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=platform-proof-missing`);
+  }
+
+  const { error } = await admin
+    .from("restaurant_platform_payment_cycles")
+    .update({
+      proof_verified_at: new Date().toISOString(),
+      proof_verified_by: user.id,
+      notes: parsed.data.notes ?? null,
+    })
+    .eq("id", parsed.data.cycleId);
+
+  if (error) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=${cashErrorKey(error, "platform-proof-verify")}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
+  redirect(`${platformConfigPath(parsed.data.restaurantId)}&paymentVerified=1`);
+}
+
+export async function markPlatformPaymentPaidAction(formData: FormData) {
+  const parsed = resolvePlatformPaymentCycleSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    cycleId: formData.get("cycleId"),
+    notes: formData.get("platformResolutionNotes") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(`${platformConfigPath(String(formData.get("restaurantId")))}&error=invalid-platform-cycle`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, platformConfigPath(parsed.data.restaurantId));
+  const { user } = await requireSuperadmin();
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=service-role-required`);
+  }
+
+  const { data: billing } = await admin
+    .from("restaurant_platform_billing")
+    .select("next_due_date")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  const { data: cycle } = await admin
+    .from("restaurant_platform_payment_cycles")
+    .select("id,due_date,proof_verified_at")
+    .eq("id", parsed.data.cycleId)
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  if (!billing || !cycle) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=platform-cycle-missing`);
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from("restaurant_platform_payment_cycles")
+    .update({
+      proof_verified_at: cycle.proof_verified_at ?? now,
+      proof_verified_by: user.id,
+      paid_at: now,
+      paid_by: user.id,
+      notes: parsed.data.notes ?? null,
+    })
+    .eq("id", parsed.data.cycleId);
+
+  if (error) {
+    redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=${cashErrorKey(error, "platform-payment-paid")}`);
+  }
+
+  if (billing.next_due_date === cycle.due_date) {
+    const nextDueDate = platformBillingService.addMonthsClamped(cycle.due_date, 1);
+    await admin.from("restaurant_platform_billing").update({ next_due_date: nextDueDate }).eq("restaurant_id", parsed.data.restaurantId);
+    await ensurePlatformPaymentCycle(admin, parsed.data.restaurantId, nextDueDate);
+  }
+
+  await reactivateRestaurantAfterPlatformPayment(admin, parsed.data.restaurantId);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}`);
+  redirect(`${platformConfigPath(parsed.data.restaurantId)}&paymentPaid=1`);
+}
+
+export async function createOwnerChangeRequestAction(formData: FormData) {
+  const parsed = createOwnerChangeRequestSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    requestedOwnerName: formData.get("requestedOwnerName"),
+    requestedOwnerEmail: formData.get("requestedOwnerEmail"),
+    reason: formData.get("ownerChangeReason") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=responsable&error=invalid-owner-request`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable`);
+  const { supabase, user } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+
+  const requests = await platformBillingService.listOwnerChangeRequests(parsed.data.restaurantId);
+  if (requests.some((request) => request.status === "pending")) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&error=owner-change-pending`);
+  }
+
+  const policy = await platformBillingService.getOwnerChangePolicy(parsed.data.restaurantId);
+  if (!policy.canRequestNow) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&error=owner-change-cooldown`);
+  }
+
+  const { data: currentRestaurant } = await supabase
+    .from("restaurants")
+    .select("owner_name,owner_email")
+    .eq("id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  const { error } = await supabase.from("restaurant_owner_change_requests").insert({
+    restaurant_id: parsed.data.restaurantId,
+    requested_by: user.id,
+    current_owner_name: currentRestaurant?.owner_name ?? null,
+    current_owner_email: currentRestaurant?.owner_email ?? null,
+    requested_owner_name: parsed.data.requestedOwnerName.trim(),
+    requested_owner_email: parsed.data.requestedOwnerEmail.trim().toLowerCase(),
+    reason: parsed.data.reason ?? null,
+    eligible_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&error=${cashErrorKey(error, "owner-request-create")}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&ownerRequest=1`);
+}
+
+export async function approveOwnerChangeRequestAction(formData: FormData) {
+  const parsed = resolveOwnerChangeRequestSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    requestId: formData.get("requestId"),
+    notes: formData.get("ownerResolutionNotes") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=responsable&error=invalid-owner-resolution`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable`);
+  const { supabase, user } = await requireSuperadmin();
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&error=service-role-required`);
+  }
+
+  const { data: request } = await supabase
+    .from("restaurant_owner_change_requests")
+    .select("*")
+    .eq("id", parsed.data.requestId)
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  if (!request || request.status !== "pending") {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&error=owner-request-missing`);
+  }
+
+  const { data: currentRestaurant } = await supabase
+    .from("restaurants")
+    .select("owner_user_id,owner_name,owner_email")
+    .eq("id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  if (!currentRestaurant) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&error=restaurant-not-found`);
+  }
+
+  const owner = await updateRestaurantOwnerAccess({
+    supabase,
+    restaurantId: parsed.data.restaurantId,
+    currentOwnerUserId: currentRestaurant.owner_user_id,
+    currentOwnerName: currentRestaurant.owner_name,
+    currentOwnerEmail: currentRestaurant.owner_email,
+    ownerName: request.requested_owner_name,
+    ownerEmail: request.requested_owner_email,
+    fallbackUserId: user.id,
+    fallbackEmail: user.email ?? "",
+  }).catch((error: Error) => {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&error=${error.message}`);
+  });
+
+  await admin
+    .from("restaurants")
+    .update({
+      owner_user_id: owner.id,
+      owner_name: owner.name,
+      owner_email: owner.email,
+    })
+    .eq("id", parsed.data.restaurantId);
+
+  const { error } = await admin
+    .from("restaurant_owner_change_requests")
+    .update({
+      status: "approved",
+      approved_at: new Date().toISOString(),
+      approved_by: user.id,
+      resolution_notes: parsed.data.notes ?? null,
+    })
+    .eq("id", parsed.data.requestId);
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&error=${cashErrorKey(error, "owner-request-approve")}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&ownerApproved=1`);
+}
+
+export async function rejectOwnerChangeRequestAction(formData: FormData) {
+  const parsed = resolveOwnerChangeRequestSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    requestId: formData.get("requestId"),
+    notes: formData.get("ownerResolutionNotes") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=responsable&error=invalid-owner-resolution`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable`);
+  const { user } = await requireSuperadmin();
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&error=service-role-required`);
+  }
+
+  const { error } = await admin
+    .from("restaurant_owner_change_requests")
+    .update({
+      status: "rejected",
+      rejected_at: new Date().toISOString(),
+      rejected_by: user.id,
+      resolution_notes: parsed.data.notes ?? null,
+    })
+    .eq("id", parsed.data.requestId)
+    .eq("restaurant_id", parsed.data.restaurantId);
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&error=${cashErrorKey(error, "owner-request-reject")}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=responsable&ownerRejected=1`);
 }
 
 function dateTimeInputToIso(value: string) {
@@ -2630,6 +3159,8 @@ export async function createPosSaleAction(formData: FormData) {
     paymentMethod: formData.get("paymentMethod") || "cash",
     paymentReceiptReference: formData.get("paymentReceiptReference") || undefined,
     customerName: formData.get("customerName") || undefined,
+    customerPhone: formData.get("customerPhone") || undefined,
+    orderOrigin: formData.get("orderOrigin") || "pos_counter",
     cart,
   });
 
@@ -2654,10 +3185,12 @@ export async function createPosSaleAction(formData: FormData) {
 
   const orderNumber = `POS-${Date.now()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
 
-  const { error } = await supabase.rpc("create_pos_sale_with_cash_movement", {
+  const { data: orderId, error } = await supabase.rpc("create_pos_sale_with_cash_movement", {
     p_restaurant_id: parsed.data.restaurantId,
     p_order_number: orderNumber,
     p_customer_name: parsed.data.customerName ?? null,
+    p_customer_phone: parsed.data.customerPhone ?? null,
+    p_order_origin: parsed.data.orderOrigin as OrderOrigin,
     p_payment_method: parsed.data.paymentMethod,
     p_receipt_url: paymentReceiptUrl,
     p_receipt_reference: parsed.data.paymentReceiptReference ?? null,
@@ -2674,7 +3207,27 @@ export async function createPosSaleAction(formData: FormData) {
   if (parsed.data.restaurantSlug) {
     revalidatePath(`/cocina/${parsed.data.restaurantSlug}`);
   }
-  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta&pos=1`);
+
+  const { data: createdOrder } = await supabase
+    .from("orders")
+    .select("id,order_number,tracking_token,customer_phone")
+    .eq("id", orderId ?? "")
+    .maybeSingle();
+
+  const redirectUrl = new URL(`/admin/restaurantes/${parsed.data.restaurantId}/caja`, await currentPublicOrigin());
+  redirectUrl.searchParams.set("tab", "venta");
+  redirectUrl.searchParams.set("pos", "1");
+
+  if (createdOrder?.id && createdOrder.order_number && createdOrder.tracking_token) {
+    redirectUrl.searchParams.set("posOrderId", createdOrder.id);
+    redirectUrl.searchParams.set("posOrderNumber", createdOrder.order_number);
+    redirectUrl.searchParams.set("posTrackingToken", createdOrder.tracking_token);
+    if (createdOrder.customer_phone) {
+      redirectUrl.searchParams.set("posCustomerPhone", createdOrder.customer_phone);
+    }
+  }
+
+  redirect(redirectUrl.pathname + redirectUrl.search);
 }
 
 export async function createInventoryItemAction(formData: FormData) {

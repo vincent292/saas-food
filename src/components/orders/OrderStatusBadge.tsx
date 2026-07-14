@@ -1,8 +1,9 @@
 import { Badge } from "@/components/ui/Badge";
 import type { OrderStatus } from "@/types/order.types";
-import { orderStatusLabels } from "./orderPresentation";
+import type { BusinessType } from "@/types/restaurant.types";
+import { orderStatusLabel } from "./orderPresentation";
 
-export function OrderStatusBadge({ status }: { status: OrderStatus }) {
+export function OrderStatusBadge({ status, businessType }: { status: OrderStatus; businessType?: BusinessType }) {
   const tone =
     status === "pending"
       ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]"
@@ -16,5 +17,5 @@ export function OrderStatusBadge({ status }: { status: OrderStatus }) {
               ? "bg-[var(--color-neutral-100)] text-[var(--color-body)]"
               : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]";
 
-  return <Badge className={tone}>{orderStatusLabels[status]}</Badge>;
+  return <Badge className={tone}>{orderStatusLabel(status, businessType)}</Badge>;
 }

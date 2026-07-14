@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createPublicServerClient } from "@/lib/supabase/public-server";
-import { inferRestaurantCategory } from "@/lib/restaurant-directory-options";
+import { inferRestaurantCategory, normalizeRestaurantBusinessType, normalizeRestaurantCategory } from "@/lib/restaurant-directory-options";
+import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import type { ModuleKey, PlanKey, Restaurant, RestaurantSettings } from "@/types/restaurant.types";
 
@@ -83,11 +84,13 @@ function mapRestaurant(row: {
   address: string | null;
   address_reference?: string | null;
   city: string | null;
+  business_type?: Restaurant["businessType"] | null;
   public_category?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   maps_url?: string | null;
 }): Restaurant {
+  const businessType = normalizeRestaurantBusinessType(row.business_type);
   const initials = row.name
     .split(" ")
     .map((part) => part[0])
@@ -114,7 +117,8 @@ function mapRestaurant(row: {
     address: row.address ?? "",
     addressReference: row.address_reference ?? "",
     city: row.city ?? "",
-    publicCategory: row.public_category ?? inferRestaurantCategory(`${row.name} ${row.description ?? ""}`),
+    businessType,
+    publicCategory: normalizeRestaurantCategory(row.public_category ?? inferRestaurantCategory(`${row.name} ${row.description ?? ""}`, businessType), businessType),
     latitude: row.latitude === null || row.latitude === undefined ? undefined : Number(row.latitude),
     longitude: row.longitude === null || row.longitude === undefined ? undefined : Number(row.longitude),
     mapsUrl: row.maps_url ?? "",
@@ -328,7 +332,20 @@ export const restaurantService = {
     }
 
     const supabase = await createClient();
-    const { data, error } = await supabase.from("restaurants").select("*").eq("slug", slug).eq("status", "active").is("deleted_at", null).maybeSingle();
+    const { data: rawRestaurant, error: rawError } = await supabase.from("restaurants").select("*").eq("slug", slug).is("deleted_at", null).maybeSingle();
+
+    if (rawError || !rawRestaurant) {
+      return null;
+    }
+
+    const enforcedStatus = await platformBillingService.enforceRestaurantStatus(rawRestaurant.id);
+    const { data, error } = await supabase
+      .from("restaurants")
+      .select("*")
+      .eq("slug", slug)
+      .eq("status", enforcedStatus ?? "active")
+      .is("deleted_at", null)
+      .maybeSingle();
 
     if (error || !data) {
       return null;
@@ -344,7 +361,20 @@ export const restaurantService = {
     }
 
     const supabase = await createClient();
-    const { data, error } = await supabase.from("restaurants").select("*").eq("slug", slug).eq("status", "active").is("deleted_at", null).maybeSingle();
+    const { data: rawRestaurant, error: rawError } = await supabase.from("restaurants").select("*").eq("slug", slug).is("deleted_at", null).maybeSingle();
+
+    if (rawError || !rawRestaurant) {
+      return null;
+    }
+
+    const enforcedStatus = await platformBillingService.enforceRestaurantStatus(rawRestaurant.id);
+    const { data, error } = await supabase
+      .from("restaurants")
+      .select("*")
+      .eq("slug", slug)
+      .eq("status", enforcedStatus ?? "active")
+      .is("deleted_at", null)
+      .maybeSingle();
 
     if (error || !data) {
       return null;
@@ -359,6 +389,7 @@ export const restaurantService = {
       return null;
     }
 
+    await platformBillingService.enforceRestaurantStatus(restaurantId);
     const supabase = await createClient();
     const { data, error } = await supabase.from("restaurants").select("*").eq("id", restaurantId).maybeSingle();
 
@@ -374,7 +405,17 @@ export const restaurantService = {
 
       const { data: profile } = await supabase.from("profiles").select("global_role").eq("id", userData.user.id).maybeSingle();
       if (profile?.global_role !== "superadmin") {
-        return null;
+        const { data: membership } = await supabase
+          .from("restaurant_memberships")
+          .select("role")
+          .eq("restaurant_id", restaurantId)
+          .eq("user_id", userData.user.id)
+          .eq("is_active", true)
+          .maybeSingle();
+
+        if (!membership) {
+          return null;
+        }
       }
     }
 

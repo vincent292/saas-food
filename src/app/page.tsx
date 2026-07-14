@@ -6,20 +6,27 @@ import {
   ArrowRight,
   BadgeCheck,
   Beef,
+  Briefcase,
   Clock3,
   Coffee,
   CupSoda,
   Drumstick,
   Flame,
+  House,
   IceCreamBowl,
   LeafyGreen,
   LogIn,
+  Pill,
   Pizza,
   Salad,
   Sandwich,
+  Shirt,
+  ShoppingBag,
   Soup,
+  Sparkles,
   Star,
   Store,
+  Smartphone,
   TrendingUp,
   Utensils,
 } from "lucide-react";
@@ -28,7 +35,11 @@ import { PendingCartNotice } from "@/components/home/PendingCartNotice";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { publicDirectoryService, type PublicDishCard, type PublicRestaurantCard } from "@/lib/services/public-directory.service";
+import {
+  businessCatalogLabelTitle,
+  restaurantBusinessTypeLabel,
+} from "@/lib/restaurant-directory-options";
+import { publicDirectoryService, type PublicBusinessTypeCard, type PublicDishCard, type PublicRestaurantCard } from "@/lib/services/public-directory.service";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
 
@@ -37,18 +48,19 @@ const defaultImage = "/imagendefault.jpeg";
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; categoria?: string; ubicacion?: string }>;
+  searchParams: Promise<{ q?: string; categoria?: string; ubicacion?: string; rubro?: string }>;
 }) {
-  const { q = "", categoria = "", ubicacion = "" } = await searchParams;
-  const hasActiveFilter = Boolean(q || categoria || ubicacion);
+  const { q = "", categoria = "", ubicacion = "", rubro = "" } = await searchParams;
+  const hasActiveFilter = Boolean(q || categoria || ubicacion || rubro);
   const baseDirectoryPromise = publicDirectoryService.getDirectory();
-  const directoryPromise = hasActiveFilter ? publicDirectoryService.getDirectory({ search: q, category: categoria, city: ubicacion }) : baseDirectoryPromise;
+  const directoryPromise = hasActiveFilter ? publicDirectoryService.getDirectory({ search: q, category: categoria, city: ubicacion, businessType: rubro }) : baseDirectoryPromise;
   const [baseDirectory, directory] = await Promise.all([baseDirectoryPromise, directoryPromise]);
   const heroRestaurants = baseDirectory.mostVisited.length ? baseDirectory.mostVisited : baseDirectory.restaurants.slice(0, 6);
   const selectedCategoryLabel = baseDirectory.categoryCards.find((category) => category.value === categoria)?.label ?? categoria;
+  const selectedBusinessTypeLabel = rubro ? (baseDirectory.businessTypeCards.find((businessType) => businessType.value === rubro)?.label ?? restaurantBusinessTypeLabel(rubro)) : "";
   const featuredRestaurant = heroRestaurants[0];
   const featuredDish = baseDirectory.mostOrderedDishes[0] ?? baseDirectory.dishSuggestions[0];
-  const featuredCategory = baseDirectory.categoryCards[0];
+  const featuredBusinessType = baseDirectory.businessTypeCards[0];
 
   return (
     <main className="public-brand-theme min-h-screen bg-[linear-gradient(180deg,var(--background)_0%,var(--color-surface)_48%,var(--background)_100%)] text-[var(--color-heading)]">
@@ -65,13 +77,13 @@ export default async function Home({
               Inicio
             </Link>
             <Link className="rounded-full px-4 py-2 text-white/86 transition hover:bg-white/12 hover:text-white" href="#explorar">
-              Explorar
+              Rubros
             </Link>
             <Link className="rounded-full px-4 py-2 text-white/86 transition hover:bg-white/12 hover:text-white" href="#restaurantes">
-              Restaurantes
+              Negocios
             </Link>
             <Link className="rounded-full px-4 py-2 text-white/86 transition hover:bg-white/12 hover:text-white" href="#platos">
-              Platos
+              Productos
             </Link>
           </nav>
           <div className="flex items-center gap-2">
@@ -90,13 +102,14 @@ export default async function Home({
             <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/35" />
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,rgb(255_255_255_/_0.12)_0%,transparent_34%,transparent_100%)]" />
             <div className="relative z-10 min-w-0">
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--accent)]">Restaurantes locales</p>
-              <h1 className="mt-2 max-w-2xl text-3xl font-black leading-tight sm:text-4xl lg:text-5xl">Encuentra comida lista para pedir en tu zona</h1>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--accent)]">Negocios locales</p>
+              <h1 className="mt-2 max-w-2xl text-3xl font-black leading-tight sm:text-4xl lg:text-5xl">Explora negocios, productos y pedidos directos en tu zona</h1>
               <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-white/78 sm:text-base">
-                Busca por plato, restaurante o ciudad. Entra al menu real, arma tu pedido y sigue el avance sin llamadas cruzadas.
+                Busca por producto, negocio, rubro o ciudad. Entra al catalogo real, arma tu pedido y sigue el avance sin llamadas cruzadas.
               </p>
               <div className="mt-5 max-w-3xl">
                 <HomeSearchAutocomplete
+                  businessTypes={baseDirectory.businessTypeCards}
                   categories={baseDirectory.categoryCards}
                   dishes={baseDirectory.dishSuggestions}
                   initialLocation={ubicacion}
@@ -106,42 +119,42 @@ export default async function Home({
                 />
               </div>
               <div className="mt-4 grid max-w-3xl gap-2 sm:grid-cols-3">
-                <HeroSignal icon={<Utensils className="h-4 w-4" />} title="Menu actualizado" text="Productos, precios y fotos del local." />
+                <HeroSignal icon={<Utensils className="h-4 w-4" />} title="Catalogo actualizado" text="Productos, precios y fotos del negocio." />
                 <HeroSignal icon={<BadgeCheck className="h-4 w-4" />} title="Pago claro" text="Total visible antes de confirmar." />
-                <HeroSignal icon={<Clock3 className="h-4 w-4" />} title="Seguimiento" text="Estados para delivery, mesa o recojo." />
+                <HeroSignal icon={<Clock3 className="h-4 w-4" />} title="Seguimiento" text="Estados para delivery, retiro o pedido en local." />
               </div>
             </div>
 
             <div className="relative z-10 mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:mt-0">
               <Link className="group overflow-hidden rounded-[1.45rem] bg-white p-2 text-[var(--primary)] shadow-[0_18px_45px_rgb(2_10_18_/_0.18)] ring-1 ring-white/60 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={featuredRestaurant ? `/r/${featuredRestaurant.restaurant.slug}` : "#restaurantes"}>
                 <span className="relative block h-32 overflow-hidden rounded-[1.1rem] bg-[var(--primary-light)] sm:h-36 lg:h-40">
-                  <Image alt={featuredRestaurant?.restaurant.name ?? "Restaurantes"} className="object-cover transition duration-300 group-hover:scale-105" fill sizes="(min-width:1280px) 205px, (min-width:1024px) 190px, 45vw" src={featuredRestaurant && isImageSrc(featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl) ? (featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl || defaultImage) : defaultImage} />
+                  <Image alt={featuredRestaurant?.restaurant.name ?? "Negocios"} className="object-cover transition duration-300 group-hover:scale-105" fill sizes="(min-width:1280px) 205px, (min-width:1024px) 190px, 45vw" src={featuredRestaurant && isImageSrc(featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl) ? (featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl || defaultImage) : defaultImage} />
                   <span className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-medium)] to-transparent" />
                 </span>
                 <span className="mt-3 flex items-center justify-between gap-2 px-1 pb-1 text-sm font-black">
-                  {featuredRestaurant?.restaurant.name ?? "Restaurantes abiertos"}
+                  {featuredRestaurant?.restaurant.name ?? "Negocios activos"}
                   <ArrowRight className="h-4 w-4" />
                 </span>
               </Link>
 
               <Link className="group overflow-hidden rounded-[1.45rem] bg-white p-2 text-[var(--primary)] shadow-[0_18px_45px_rgb(2_10_18_/_0.18)] ring-1 ring-white/60 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={featuredDish ? `/r/${featuredDish.restaurantSlug}` : "#platos"}>
                 <span className="relative block h-32 overflow-hidden rounded-[1.1rem] bg-[var(--primary-light)] sm:h-36 lg:h-40">
-                  <Image alt={featuredDish?.name ?? "Platos populares"} className="object-cover transition duration-300 group-hover:scale-105" fill sizes="(min-width:1280px) 205px, (min-width:1024px) 190px, 45vw" src={featuredDish?.imageUrl || defaultImage} />
+                  <Image alt={featuredDish?.name ?? "Productos populares"} className="object-cover transition duration-300 group-hover:scale-105" fill sizes="(min-width:1280px) 205px, (min-width:1024px) 190px, 45vw" src={featuredDish?.imageUrl || defaultImage} />
                   <span className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-medium)] to-transparent" />
                 </span>
                 <span className="mt-3 flex items-center justify-between gap-2 px-1 pb-1 text-sm font-black">
-                  {featuredDish?.name ?? "Platos populares"}
+                  {featuredDish?.name ?? "Productos populares"}
                   <Flame className="h-4 w-4" />
                 </span>
               </Link>
 
-              <Link className="flex items-center gap-3 rounded-[1.35rem] bg-white/12 p-3 text-white ring-1 ring-white/16 transition hover:bg-white/16 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:col-span-2" href={featuredCategory ? `/?categoria=${encodeURIComponent(featuredCategory.value)}#restaurantes` : "#explorar"}>
+              <Link className="flex items-center gap-3 rounded-[1.35rem] bg-white/12 p-3 text-white ring-1 ring-white/16 transition hover:bg-white/16 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:col-span-2" href={featuredBusinessType ? `/?rubro=${encodeURIComponent(featuredBusinessType.value)}#explorar` : "#explorar"}>
                 <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-2xl bg-[var(--accent)] text-[var(--primary)]">
-                  {featuredCategory?.imageUrl ? <Image alt={featuredCategory.label} className="h-full w-full object-cover" height={48} src={featuredCategory.imageUrl} width={48} /> : <Utensils className="h-5 w-5" />}
+                  {featuredBusinessType?.imageUrl ? <Image alt={featuredBusinessType.label} className="h-full w-full object-cover" height={48} src={featuredBusinessType.imageUrl} width={48} /> : <Store className="h-5 w-5" />}
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-sm font-black">Explora por antojo</span>
-                  <span className="block truncate text-xs font-semibold text-white/68">{featuredCategory?.label ?? "Categorias activas"}</span>
+                  <span className="block text-sm font-black">Explora por rubro</span>
+                  <span className="block truncate text-xs font-semibold text-white/68">{featuredBusinessType?.label ?? "Rubros activos"}</span>
                 </span>
                 <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-[var(--accent)]" />
               </Link>
@@ -155,7 +168,27 @@ export default async function Home({
 
         <section id="explorar">
           <div className="flex items-end justify-between gap-3">
-            <SectionHeader eyebrow="Categorias" title="Explora por categorias" />
+            <SectionHeader eyebrow="Rubros" title="Explora por tipo de negocio" />
+            <Link className="rounded-full px-2 py-1 text-sm font-black text-[var(--primary)] transition hover:bg-[var(--accent-soft)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}` : "/"}>
+              Ver todos
+            </Link>
+          </div>
+          <div className="public-scrollbar -mx-4 mt-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
+            <div className="flex snap-x gap-3 pr-3">
+              {baseDirectory.businessTypeCards.map((businessType) => {
+                const params = new URLSearchParams();
+                if (q) params.set("q", q);
+                if (ubicacion) params.set("ubicacion", ubicacion);
+                params.set("rubro", businessType.value);
+                return <BusinessTypeCard active={rubro === businessType.value} businessType={businessType} href={`/?${params.toString()}#explorar`} key={businessType.value} />;
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="flex items-end justify-between gap-3">
+            <SectionHeader eyebrow="Categorias" title={selectedBusinessTypeLabel ? `Categorias en ${selectedBusinessTypeLabel}` : "Explora por categorias"} />
             <Link className="rounded-full px-2 py-1 text-sm font-black text-[var(--primary)] transition hover:bg-[var(--accent-soft)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}` : "/"}>
               Ver todas
             </Link>
@@ -166,6 +199,7 @@ export default async function Home({
               const params = new URLSearchParams();
               if (q) params.set("q", q);
               if (ubicacion) params.set("ubicacion", ubicacion);
+              if (category.businessType) params.set("rubro", category.businessType);
               params.set("categoria", category.value);
               return <CategoryImageCard active={categoria === category.value} category={category} href={`/?${params.toString()}`} key={category.value} />;
             })}
@@ -181,7 +215,7 @@ export default async function Home({
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-black">{card.restaurant.name}</span>
                   <span className="block truncate text-xs font-semibold text-[var(--color-secondary-text)]">
-                    {card.isTemporarilyClosed ? "Cerrado temporalmente" : card.categories.slice(0, 2).join(" | ") || card.restaurant.city || "Menu disponible"}
+                    {card.isTemporarilyClosed ? "Cerrado temporalmente" : card.categories.slice(0, 2).join(" | ") || card.restaurant.city || `${businessCatalogLabelTitle(card.restaurant.businessType)} disponible`}
                   </span>
                 </span>
                 <span className={cn("grid h-8 w-8 place-items-center rounded-full text-[var(--primary)]", card.isTemporarilyClosed ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--accent)]")}>
@@ -193,7 +227,7 @@ export default async function Home({
         ) : null}
 
         <section className="space-y-4" id="restaurantes">
-          <SectionHeader eyebrow="Directorio" title={selectedCategoryLabel ? `Restaurantes de ${selectedCategoryLabel}` : "Restaurantes para pedir"} />
+          <SectionHeader eyebrow="Directorio" title={selectedCategoryLabel ? `Negocios de ${selectedCategoryLabel}` : selectedBusinessTypeLabel ? selectedBusinessTypeLabel : "Negocios para pedir"} />
           {directory.restaurants.length ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {directory.restaurants.map((card) => (
@@ -202,8 +236,8 @@ export default async function Home({
             </div>
           ) : (
             <Card className="p-6 text-center">
-              <p className="text-lg font-black">Sin restaurantes encontrados</p>
-              <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Prueba con otra busqueda o categoria.</p>
+              <p className="text-lg font-black">Sin negocios encontrados</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Prueba con otra busqueda, rubro o categoria.</p>
             </Card>
           )}
         </section>
@@ -214,7 +248,7 @@ export default async function Home({
         </section>
 
         <section className="space-y-4" id="platos">
-          <SectionHeader eyebrow="Platos" title="Platos mas pedidos" />
+          <SectionHeader eyebrow="Productos" title="Productos mas pedidos" />
           {directory.mostOrderedDishes.length ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {directory.mostOrderedDishes.map((dish) => (
@@ -222,7 +256,7 @@ export default async function Home({
               ))}
             </div>
           ) : (
-            <Card className="p-6 text-sm font-semibold text-[var(--color-secondary-text)]">Aun no hay platos con pedidos registrados.</Card>
+            <Card className="p-6 text-sm font-semibold text-[var(--color-secondary-text)]">Aun no hay productos con pedidos registrados.</Card>
           )}
         </section>
       </div>
@@ -276,6 +310,61 @@ function CategoryImageCard({
   );
 }
 
+function BusinessTypeCard({
+  active,
+  href,
+  businessType,
+}: {
+  active: boolean;
+  href: string;
+  businessType: PublicBusinessTypeCard;
+}) {
+  return (
+    <Link
+      className={cn(
+        "group flex min-h-28 w-44 shrink-0 items-center gap-3 rounded-[1.2rem] border bg-[var(--surface)] p-3 text-left shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
+        active ? "border-[var(--accent)] bg-[var(--accent-soft)] ring-4 ring-[var(--accent-ring)]" : "border-[var(--border)]",
+      )}
+      href={href}
+    >
+      <div className={cn("grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-white ring-1 ring-[var(--border)]", businessTypeIconTone(businessType.value))}>
+        <BusinessTypeIcon value={businessType.value} />
+      </div>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-black text-[var(--primary)]">{businessType.label}</span>
+        <span className="mt-1 block text-xs font-semibold text-[var(--color-secondary-text)]">{businessType.count} locales</span>
+      </span>
+    </Link>
+  );
+}
+
+function businessTypeIconTone(value: string) {
+  if (value === "food") return "text-amber-700";
+  if (value === "fashion" || value === "footwear") return "text-fuchsia-700";
+  if (value === "pharmacy") return "text-emerald-700";
+  if (value === "market") return "text-lime-700";
+  if (value === "beauty") return "text-rose-700";
+  if (value === "home") return "text-orange-700";
+  if (value === "electronics") return "text-sky-700";
+  if (value === "services") return "text-indigo-700";
+  return "text-[var(--primary)]";
+}
+
+function BusinessTypeIcon({ value }: { value: string }) {
+  const className = "h-7 w-7";
+
+  if (value === "food") return <Utensils className={className} />;
+  if (value === "fashion") return <Shirt className={className} />;
+  if (value === "footwear") return <ShoppingBag className={className} />;
+  if (value === "pharmacy") return <Pill className={className} />;
+  if (value === "market") return <Store className={className} />;
+  if (value === "beauty") return <Sparkles className={className} />;
+  if (value === "home") return <House className={className} />;
+  if (value === "electronics") return <Smartphone className={className} />;
+  if (value === "services") return <Briefcase className={className} />;
+  return <Store className={className} />;
+}
+
 function categoryIconTone(value: string, label: string) {
   const text = `${value} ${label}`.toLowerCase();
 
@@ -288,6 +377,14 @@ function categoryIconTone(value: string, label: string) {
   if (text.includes("pollo")) return "bg-yellow-100 text-yellow-700";
   if (text.includes("cafe") || text.includes("coffee")) return "bg-stone-100 text-stone-700";
   if (text.includes("sand") || text.includes("combo")) return "bg-cyan-100 text-cyan-700";
+  if (text.includes("ropa") || text.includes("lenceria") || text.includes("accesorio")) return "bg-fuchsia-100 text-fuchsia-700";
+  if (text.includes("zapato") || text.includes("zapatilla") || text.includes("sandalia") || text.includes("bota")) return "bg-violet-100 text-violet-700";
+  if (text.includes("farm") || text.includes("dermo") || text.includes("suplement") || text.includes("orto")) return "bg-emerald-100 text-emerald-700";
+  if (text.includes("super") || text.includes("market") || text.includes("panader") || text.includes("fruta")) return "bg-lime-100 text-lime-700";
+  if (text.includes("belleza") || text.includes("barber") || text.includes("maquill") || text.includes("skin") || text.includes("perfume")) return "bg-rose-100 text-rose-700";
+  if (text.includes("hogar") || text.includes("mueble") || text.includes("decor") || text.includes("ferreter")) return "bg-orange-100 text-orange-700";
+  if (text.includes("celular") || text.includes("comput") || text.includes("tech") || text.includes("gaming")) return "bg-sky-100 text-sky-700";
+  if (text.includes("lavander") || text.includes("imprent") || text.includes("papeler") || text.includes("mensaj")) return "bg-indigo-100 text-indigo-700";
 
   return "bg-lime-100 text-[var(--primary)]";
 }
@@ -307,6 +404,15 @@ function CategoryIcon({ value, label }: { value: string; label: string }) {
   if (text.includes("cafe") || text.includes("coffee")) return <Coffee className={className} />;
   if (text.includes("sand") || text.includes("combo")) return <Sandwich className={className} />;
   if (text.includes("sopa")) return <Soup className={className} />;
+  if (text.includes("ropa") || text.includes("lenceria")) return <Shirt className={className} />;
+  if (text.includes("accesorio") || text.includes("bolso") || text.includes("mochila")) return <ShoppingBag className={className} />;
+  if (text.includes("zapato") || text.includes("zapatilla") || text.includes("sandalia") || text.includes("bota")) return <ShoppingBag className={className} />;
+  if (text.includes("farm") || text.includes("dermo") || text.includes("suplement") || text.includes("orto")) return <Pill className={className} />;
+  if (text.includes("super") || text.includes("market") || text.includes("panader") || text.includes("fruta")) return <Store className={className} />;
+  if (text.includes("belleza") || text.includes("barber") || text.includes("maquill") || text.includes("skin") || text.includes("perfume")) return <Sparkles className={className} />;
+  if (text.includes("hogar") || text.includes("mueble") || text.includes("decor") || text.includes("ferreter")) return <House className={className} />;
+  if (text.includes("celular") || text.includes("comput") || text.includes("tech") || text.includes("gaming")) return <Smartphone className={className} />;
+  if (text.includes("lavander") || text.includes("imprent") || text.includes("papeler") || text.includes("mensaj")) return <Briefcase className={className} />;
 
   return <Utensils className={className} />;
 }
@@ -342,7 +448,7 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
         <Image alt={card.restaurant.name} className="object-cover" fill sizes="(min-width:1280px) 33vw, (min-width:768px) 50vw, 100vw" src={imageSrc} />
         <div className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-strong)] via-[var(--color-image-overlay-medium)] to-transparent" />
         <span className="absolute bottom-3 left-3 max-w-[75%] truncate rounded-full bg-white/92 px-3 py-1 text-xs font-black text-[var(--primary)] backdrop-blur">
-          {card.categories[0] || card.restaurant.city || "Menu disponible"}
+          {card.categories[0] || card.restaurant.city || `${businessCatalogLabelTitle(card.restaurant.businessType)} disponible`}
         </span>
         {card.currentAnnouncement ? (
           <span className={cn("absolute left-3 top-3 inline-flex max-w-[78%] items-center gap-1 truncate rounded-full px-2.5 py-1 text-xs font-black shadow-sm backdrop-blur", card.isTemporarilyClosed ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-white/92 text-[var(--primary)]")}>
@@ -379,14 +485,14 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
         ) : card.popularProducts.length ? (
           <p className="mt-4 line-clamp-2 min-h-10 text-sm font-semibold text-[var(--color-secondary-text)]">Popular: {card.popularProducts.join(", ")}</p>
         ) : (
-          <p className="mt-4 min-h-10 text-sm font-semibold text-[var(--color-secondary-text)]">Menu activo para revisar y pedir directo.</p>
+          <p className="mt-4 min-h-10 text-sm font-semibold text-[var(--color-secondary-text)]">{businessCatalogLabelTitle(card.restaurant.businessType)} activo para revisar y pedir directo.</p>
         )}
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-black text-[var(--color-secondary-text)]">
           <span className="rounded-2xl bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]">{card.visits7d} visitas semana</span>
           <span className="rounded-2xl bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]">{card.orders30d} pedidos 30d</span>
         </div>
         <Link className={buttonClasses("primary", "mt-auto w-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] hover:bg-[#d9ff22] active:bg-[#d9ff22]")} href={`/r/${card.restaurant.slug}`}>
-          Ver menu
+          Ver {businessCatalogLabelTitle(card.restaurant.businessType).toLowerCase()}
           <ArrowRight className="h-4 w-4" />
         </Link>
       </div>

@@ -591,6 +591,8 @@ function ProductOptionModal({
     return initial;
   });
   const [isClosing, setIsClosing] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [shareState, setShareState] = useState<"idle" | "copied">("idle");
 
   const selectedVariant = variants.find((variant) => variant.id === variantId) ?? null;
   const flatOptions = optionGroups.flatMap((group) => group.options);
@@ -623,28 +625,52 @@ function ProductOptionModal({
     window.setTimeout(onClose, 210);
   }
 
+  async function shareProduct() {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const shareUrl = window.location.href;
+    const shareText = `${product.name} - ${formatMoney(total)}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: product.name, text: shareText, url: shareUrl });
+        return;
+      }
+
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareState("copied");
+        window.setTimeout(() => setShareState("idle"), 1400);
+      }
+    } catch {
+      setShareState("idle");
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-[60] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4" onClick={requestClose}>
-      <div className={cn("max-h-[94vh] w-full overflow-y-auto rounded-t-[2rem] bg-[var(--surface)] shadow-2xl sm:max-w-3xl sm:rounded-[2rem]", isClosing ? "public-sheet-exit" : "public-sheet-enter")} onClick={(event) => event.stopPropagation()}>
-        <div className="relative h-72 overflow-hidden bg-[var(--primary)] sm:h-80">
-          <ProductVisual businessType={businessType} className="h-full w-full" name={product.name} src={product.imageUrl} />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/42 to-transparent" />
-          <div className="absolute left-4 right-4 top-4 flex items-center justify-between">
-            <button className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" onClick={requestClose} type="button">
+      <div className={cn("relative isolate max-h-[94dvh] w-full overflow-y-auto overscroll-contain rounded-t-[2rem] bg-[var(--surface)] shadow-2xl sm:max-h-[94vh] sm:max-w-3xl sm:rounded-[2rem]", isClosing ? "public-sheet-exit" : "public-sheet-enter")} onClick={(event) => event.stopPropagation()}>
+        <div className="relative z-0 h-72 overflow-hidden bg-[var(--primary)] sm:h-80">
+          <ProductVisual businessType={businessType} className="pointer-events-none h-full w-full" name={product.name} src={product.imageUrl} />
+          <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/42 to-transparent" />
+          <div className="pointer-events-none absolute left-4 right-4 top-[calc(1rem+env(safe-area-inset-top))] z-40 flex items-center justify-between">
+            <button aria-label="Volver" className="pointer-events-auto grid h-12 w-12 shrink-0 touch-manipulation place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl transition hover:scale-105 active:scale-95" data-product-modal-close="" onClick={requestClose} type="button">
               <ArrowRight className="h-5 w-5 rotate-180" />
             </button>
             <div className="flex items-center gap-2">
-              <button className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" type="button">
-                <Heart className="h-5 w-5" />
+              <button aria-label={isFavorite ? "Quitar de favoritos" : "Agregar a favoritos"} aria-pressed={isFavorite} className={cn("pointer-events-auto grid h-12 w-12 shrink-0 touch-manipulation place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl transition hover:scale-105 active:scale-95", isFavorite ? "text-[var(--color-danger)]" : "text-[var(--primary)]")} data-product-modal-favorite="" onClick={() => setIsFavorite((current) => !current)} type="button">
+                <Heart className={cn("h-5 w-5", isFavorite ? "fill-current" : "")} />
               </button>
-              <button className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" type="button">
-                <Share2 className="h-5 w-5" />
+              <button aria-label="Compartir producto" className="pointer-events-auto grid h-12 w-12 shrink-0 touch-manipulation place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl transition hover:scale-105 active:scale-95" data-product-modal-share="" onClick={shareProduct} type="button">
+                {shareState === "copied" ? <Check className="h-5 w-5" /> : <Share2 className="h-5 w-5" />}
               </button>
             </div>
           </div>
         </div>
 
-        <div className="-mt-8 grid gap-5 rounded-t-[2rem] bg-[var(--surface)] p-4 sm:p-6">
+        <div className="relative z-20 -mt-8 grid gap-5 rounded-t-[2rem] bg-[var(--surface)] p-4 sm:p-6">
           <div className="relative z-10 flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="text-xs font-black uppercase text-[var(--primary)]">Personalizar</p>
@@ -726,7 +752,7 @@ function ProductOptionModal({
           })}
         </div>
 
-        <div className="sticky bottom-0 grid gap-3 border-t border-[var(--border)] bg-white/95 p-4 backdrop-blur sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="sticky bottom-0 z-30 grid gap-3 border-t border-[var(--border)] bg-white/95 p-4 backdrop-blur sm:grid-cols-[1fr_auto] sm:items-center">
           <div>
             <p className="text-xs font-black uppercase text-[var(--muted)]">Total producto</p>
             <p className="text-2xl font-black text-[var(--primary)]">{formatMoney(total)}</p>

@@ -1,0 +1,21 @@
+
+> restaurant-saas@0.1.0 dev
+> node --use-system-ca ./node_modules/next/dist/bin/next dev
+
+▲ Next.js 16.2.9 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.34:3000
+- Environments: .env
+✓ Ready in 573ms
+Creating turbopack project {
+  dir: 'C:\\Users\\TIESA\\OneDrive\\Escritorio\\saaas\\saas-food',
+  testMode: true
+}
+- Experiments (use with caution):
+  · serverActions
+
+ GET / 200 in 5.9s (next.js: 1537ms, application-code: 4.4s)
+ GET /r/brisa-urbana-demo 200 in 2.8s (next.js: 611ms, application-code: 2.2s)
+ GET /r/brisa-urbana-demo 200 in 1837ms (next.js: 25ms, application-code: 1813ms)
+ GET /r/brisa-urbana-demo 200 in 2.4s (next.js: 27ms, application-code: 2.4s)
+[?25h

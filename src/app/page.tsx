@@ -4,10 +4,8 @@ import type { ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowRight,
-  BadgeCheck,
   Beef,
   Briefcase,
-  Clock3,
   Coffee,
   CupSoda,
   Drumstick,
@@ -15,7 +13,6 @@ import {
   House,
   IceCreamBowl,
   LeafyGreen,
-  LogIn,
   Pill,
   Pizza,
   Salad,
@@ -29,6 +26,7 @@ import {
   Smartphone,
   TrendingUp,
   Utensils,
+  UserRound,
 } from "lucide-react";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
@@ -61,112 +59,106 @@ export default async function Home({
   const featuredRestaurant = heroRestaurants[0];
   const featuredDish = baseDirectory.mostOrderedDishes[0] ?? baseDirectory.dishSuggestions[0];
   const featuredBusinessType = baseDirectory.businessTypeCards[0];
+  const featuredHeroHref = featuredRestaurant ? `/r/${featuredRestaurant.restaurant.slug}` : "#restaurantes";
+  const featuredHeroImage = featuredRestaurant && isDisplayImage(featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl) ? featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl : "";
+  const featuredHeroTitle = featuredRestaurant?.restaurant.name ?? featuredBusinessType?.label ?? "yopido.shop";
+  const featuredHeroSubtitle = featuredRestaurant
+    ? featuredRestaurant.currentAnnouncement?.title || featuredRestaurant.popularProducts.slice(0, 2).join(" | ") || featuredRestaurant.categories.slice(0, 2).join(" | ") || featuredRestaurant.restaurant.city || businessCatalogLabelTitle(featuredRestaurant.restaurant.businessType)
+    : featuredBusinessType
+      ? `${featuredBusinessType.count} locales disponibles`
+      : "Catalogos y pedidos directos";
 
   return (
-    <main className="public-brand-theme min-h-screen bg-[linear-gradient(180deg,var(--background)_0%,var(--color-surface)_48%,var(--background)_100%)] text-[var(--color-heading)]">
-      <header className="public-site-header sticky top-0 z-40 border-b border-[var(--color-on-primary-border)] bg-[linear-gradient(90deg,#082441_0%,#12355B_62%,#082441_100%)] text-[var(--color-on-primary)] shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-          <Link aria-label="Ir al inicio de yopido.shop" className="flex min-w-0 items-center rounded-full outline-none transition focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/">
-            <BrandLogo className="h-8 w-auto sm:h-9" priority variant="dark" />
-          </Link>
-          <nav className="hidden items-center gap-1 rounded-full bg-white/8 p-1 text-xs font-black lg:flex">
-            <Link className="rounded-full bg-[var(--accent)] px-4 py-2 text-[var(--primary)]" href="/">
-              Inicio
+    <main className="public-brand-theme min-h-screen bg-[#12355B] text-[var(--color-heading)]">
+      <section className="relative overflow-hidden rounded-b-[2rem] bg-[#12355B] px-4 pb-5 pt-[calc(0.85rem+env(safe-area-inset-top))] text-[var(--color-on-primary)] shadow-[0_28px_80px_rgb(8_36_65_/_0.2)] sm:px-6 sm:pb-7 lg:px-8">
+        <div className="relative z-10 mx-auto max-w-7xl">
+          <header className="flex items-center justify-between gap-4">
+            <Link aria-label="Ir al inicio de yopido.shop" className="flex min-w-0 items-center rounded-full outline-none transition focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/">
+              <BrandLogo className="h-8 w-auto min-[390px]:h-9 sm:h-12" priority variant="dark" />
             </Link>
-            <Link className="rounded-full px-4 py-2 text-white/86 transition hover:bg-white/12 hover:text-white" href="#explorar">
-              Rubros
-            </Link>
-            <Link className="rounded-full px-4 py-2 text-white/86 transition hover:bg-white/12 hover:text-white" href="#restaurantes">
-              Negocios
-            </Link>
-            <Link className="rounded-full px-4 py-2 text-white/86 transition hover:bg-white/12 hover:text-white" href="#platos">
-              Productos
-            </Link>
-          </nav>
-          <div className="flex items-center gap-2">
-            <PublicThemeToggle compact tone="onPrimary" />
-            <Link className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/70 bg-white text-sm font-black text-[#12355B] shadow-sm transition hover:bg-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] active:scale-[0.98] sm:inline-flex sm:w-auto sm:gap-2 sm:px-4" href="/admin/login">
-              <LogIn className="h-4 w-4" />
-              <span className="hidden sm:inline">Admin</span>
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <section className="bg-[linear-gradient(180deg,#082441_0%,#12355B_68%,var(--color-surface)_68%,var(--background)_100%)] px-3 pb-5 pt-4 text-[var(--color-heading)] sm:px-6 sm:pb-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="relative overflow-hidden rounded-[1.6rem] border border-white/14 bg-[linear-gradient(135deg,#082441_0%,#12355B_58%,#071E36_100%)] p-4 text-white shadow-[0_28px_90px_rgb(8_36_65_/_0.28)] sm:rounded-[2rem] sm:p-5 lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-6 lg:p-6 xl:grid-cols-[minmax(0,1fr)_430px]">
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/35" />
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,rgb(255_255_255_/_0.12)_0%,transparent_34%,transparent_100%)]" />
-            <div className="relative z-10 min-w-0">
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--accent)]">Negocios locales</p>
-              <h1 className="mt-2 max-w-2xl text-[1.95rem] font-black leading-[1.08] min-[380px]:text-[2.05rem] sm:text-4xl lg:text-5xl">Explora negocios, productos y pedidos directos en tu zona</h1>
-              <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-white/78 sm:text-base">
-                Busca por producto, negocio, rubro o ciudad. Entra al catalogo real, arma tu pedido y sigue el avance sin llamadas cruzadas.
-              </p>
-              <div className="mt-4 max-w-3xl sm:mt-5">
-                <HomeSearchAutocomplete
-                  businessTypes={baseDirectory.businessTypeCards}
-                  categories={baseDirectory.categoryCards}
-                  dishes={baseDirectory.dishSuggestions}
-                  initialLocation={ubicacion}
-                  initialQuery={q}
-                  locations={baseDirectory.locations}
-                  restaurants={baseDirectory.restaurants}
-                />
-              </div>
-              <div className="mt-4 grid max-w-3xl gap-2 sm:grid-cols-3">
-                <HeroSignal icon={<Utensils className="h-4 w-4" />} title="Catalogo actualizado" text="Productos, precios y fotos del negocio." />
-                <HeroSignal icon={<BadgeCheck className="h-4 w-4" />} title="Pago claro" text="Total visible antes de confirmar." />
-                <HeroSignal icon={<Clock3 className="h-4 w-4" />} title="Seguimiento" text="Estados para delivery, retiro o pedido en local." />
-              </div>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <Link aria-label="Ingresar al panel" className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/22 bg-white/8 text-white shadow-sm backdrop-blur transition hover:bg-white/14 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:h-12 sm:w-12" href="/admin/login">
+                <UserRound className="h-5 w-5 sm:h-6 sm:w-6" />
+              </Link>
+              <PublicThemeToggle compact tone="onPrimary" />
             </div>
+          </header>
 
-            <div className="relative z-10 mt-5 hidden grid-cols-1 gap-3 sm:grid-cols-2 lg:mt-0 lg:grid">
-              <Link className="group overflow-hidden rounded-[1.45rem] bg-white p-2 text-[var(--primary)] shadow-[0_18px_45px_rgb(2_10_18_/_0.18)] ring-1 ring-white/60 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={featuredRestaurant ? `/r/${featuredRestaurant.restaurant.slug}` : "#restaurantes"}>
-                <span className="relative block h-32 overflow-hidden rounded-[1.1rem] bg-[var(--primary-light)] sm:h-36 lg:h-40">
-                  <BusinessVisual businessType={featuredRestaurant?.restaurant.businessType ?? "other"} className="absolute inset-0 h-full w-full transition duration-300 group-hover:scale-105" label={featuredRestaurant?.restaurant.name ?? "Negocios"} />
-                  <span className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-medium)] to-transparent" />
+          <div className="mt-4 sm:mt-6">
+            <HomeSearchAutocomplete
+              businessTypes={baseDirectory.businessTypeCards}
+              categories={baseDirectory.categoryCards}
+              dishes={baseDirectory.dishSuggestions}
+              initialLocation={ubicacion}
+              initialQuery={q}
+              locations={baseDirectory.locations}
+              restaurants={baseDirectory.restaurants}
+            />
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)] lg:items-stretch">
+            <Link className="group relative min-h-[224px] overflow-hidden rounded-[1.75rem] border border-white/14 bg-[#082441] p-5 text-white shadow-[0_24px_70px_rgb(2_10_18_/_0.26)] transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:min-h-[300px] sm:rounded-[2rem] sm:p-7" href={featuredHeroHref}>
+              {featuredHeroImage ? (
+                <Image alt={featuredHeroTitle} className="object-cover opacity-95 transition duration-500 group-hover:scale-105" fill priority sizes="(min-width:1024px) 55vw, 100vw" src={featuredHeroImage} />
+              ) : (
+                <BusinessVisual businessType={featuredRestaurant?.restaurant.businessType ?? featuredBusinessType?.value ?? "other"} className="absolute inset-0 h-full w-full opacity-95 transition duration-500 group-hover:scale-105" label={featuredHeroTitle} />
+              )}
+              <span className="absolute inset-0 bg-[linear-gradient(90deg,rgb(8_36_65_/_0.96)_0%,rgb(8_36_65_/_0.76)_42%,rgb(8_36_65_/_0.18)_100%)]" />
+              <span className="absolute inset-0 bg-[linear-gradient(180deg,transparent_0%,rgb(8_36_65_/_0.32)_100%)]" />
+              <span className="relative z-10 flex h-full max-w-[68%] flex-col justify-end sm:max-w-[54%] lg:max-w-[48%]">
+                <span className="mb-4 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--accent)] px-3 py-1.5 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Banner
                 </span>
-                <span className="mt-3 flex items-center justify-between gap-2 px-1 pb-1 text-sm font-black">
-                  {featuredRestaurant?.restaurant.name ?? "Negocios activos"}
+                <span className="block text-2xl font-black leading-tight sm:text-5xl">{featuredHeroTitle}</span>
+                <span className="mt-3 line-clamp-2 text-sm font-semibold leading-6 text-white/82 sm:text-base">{featuredHeroSubtitle}</span>
+                <span className="mt-5 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
+                  Ver ahora
                   <ArrowRight className="h-4 w-4" />
                 </span>
+              </span>
+            </Link>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+              <Link className="group grid min-h-32 grid-cols-[minmax(0,1fr)_104px] items-center gap-3 overflow-hidden rounded-[1.5rem] bg-white p-4 text-[var(--primary)] shadow-[0_18px_48px_rgb(18_53_91_/_0.1)] ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:grid-cols-[minmax(0,1fr)_148px]" href={featuredBusinessType ? `/?rubro=${encodeURIComponent(featuredBusinessType.value)}#explorar` : "#explorar"}>
+                <span className="min-w-0">
+                  <span className="block text-xl font-black leading-tight sm:text-2xl">{featuredBusinessType?.label ?? "Rubros activos"}</span>
+                  <span className="mt-2 block text-sm font-semibold text-[#6B7280]">{featuredBusinessType ? `${featuredBusinessType.count} locales` : "Ver opciones disponibles"}</span>
+                  <span className="mt-4 inline-flex items-center gap-2 text-sm font-black text-[var(--primary)]">
+                    Conocer mas
+                    <ArrowRight className="h-4 w-4 text-[var(--accent)]" />
+                  </span>
+                </span>
+                <span className="relative h-24 overflow-hidden rounded-[1.25rem] bg-[var(--primary-light)] sm:h-28">
+                  {featuredBusinessType?.imageUrl ? <Image alt={featuredBusinessType.label} className="object-cover transition duration-300 group-hover:scale-105" fill sizes="148px" src={featuredBusinessType.imageUrl} /> : <BusinessVisual businessType={featuredBusinessType?.value ?? "other"} className="absolute inset-0 h-full w-full" label={featuredBusinessType?.label ?? "Rubros"} />}
+                </span>
               </Link>
 
-              <Link className="group overflow-hidden rounded-[1.45rem] bg-white p-2 text-[var(--primary)] shadow-[0_18px_45px_rgb(2_10_18_/_0.18)] ring-1 ring-white/60 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={featuredDish ? `/r/${featuredDish.restaurantSlug}` : "#platos"}>
-                <span className="relative block h-32 overflow-hidden rounded-[1.1rem] bg-[var(--primary-light)] sm:h-36 lg:h-40">
-                  <BusinessVisual businessType={featuredRestaurant?.restaurant.businessType ?? "other"} className="absolute inset-0 h-full w-full transition duration-300 group-hover:scale-105" label={featuredDish?.name ?? "Productos populares"} />
-                  <span className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-medium)] to-transparent" />
-                </span>
-                <span className="mt-3 flex items-center justify-between gap-2 px-1 pb-1 text-sm font-black">
-                  {featuredDish?.name ?? "Productos populares"}
-                  <Flame className="h-4 w-4" />
-                </span>
-              </Link>
-
-              <Link className="flex items-center gap-3 rounded-[1.35rem] bg-white/12 p-3 text-white ring-1 ring-white/16 transition hover:bg-white/16 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:col-span-2" href={featuredBusinessType ? `/?rubro=${encodeURIComponent(featuredBusinessType.value)}#explorar` : "#explorar"}>
-                <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-2xl bg-[var(--accent)] text-[var(--primary)]">
-                  {featuredBusinessType?.imageUrl ? <Image alt={featuredBusinessType.label} className="h-full w-full object-cover" height={48} src={featuredBusinessType.imageUrl} width={48} /> : <Store className="h-5 w-5" />}
+              <Link className="group grid min-h-32 grid-cols-[104px_minmax(0,1fr)] items-center gap-3 overflow-hidden rounded-[1.5rem] bg-white p-4 text-[var(--primary)] shadow-[0_18px_48px_rgb(18_53_91_/_0.1)] ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:grid-cols-[148px_minmax(0,1fr)]" href={featuredDish ? `/r/${featuredDish.restaurantSlug}` : "#platos"}>
+                <span className="relative h-24 overflow-hidden rounded-[1.25rem] bg-[var(--primary-light)] sm:h-28">
+                  {featuredDish?.imageUrl && isDisplayImage(featuredDish.imageUrl) ? <Image alt={featuredDish.name} className="object-cover transition duration-300 group-hover:scale-105" fill sizes="148px" src={featuredDish.imageUrl} /> : <BusinessVisual businessType={featuredRestaurant?.restaurant.businessType ?? "other"} className="absolute inset-0 h-full w-full" label={featuredDish?.name ?? "Productos"} />}
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-sm font-black">Explora por rubro</span>
-                  <span className="block truncate text-xs font-semibold text-white/68">{featuredBusinessType?.label ?? "Rubros activos"}</span>
+                  <span className="block line-clamp-2 text-xl font-black leading-tight sm:text-2xl">{featuredDish?.name ?? "Productos populares"}</span>
+                  <span className="mt-2 block text-sm font-semibold text-[#6B7280]">{featuredDish?.restaurantName ?? "Ver productos"}</span>
+                  <span className="mt-4 inline-flex items-center gap-2 text-sm font-black text-[var(--primary)]">
+                    Ver mas
+                    <ArrowRight className="h-4 w-4 text-[var(--accent)]" />
+                  </span>
                 </span>
-                <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-[var(--accent)]" />
               </Link>
             </div>
           </div>
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-10 px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-10 bg-[#F8FAFC] px-4 py-8 sm:px-6 lg:px-8">
         <PendingCartNotice />
 
         <section id="explorar">
           <div className="flex items-end justify-between gap-3">
             <SectionHeader eyebrow="Rubros" title="Explora por tipo de negocio" />
-            <Link className="rounded-full px-2 py-1 text-sm font-black text-[var(--color-heading)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}` : "/"}>
+            <Link className="shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-sm font-black text-[var(--color-heading)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}` : "/"}>
               Ver todos
             </Link>
           </div>
@@ -183,26 +175,28 @@ export default async function Home({
           </div>
         </section>
 
-        <section>
-          <div className="flex items-end justify-between gap-3">
-            <SectionHeader eyebrow="Categorias" title={selectedBusinessTypeLabel ? `Categorias en ${selectedBusinessTypeLabel}` : "Explora por categorias"} />
-            <Link className="rounded-full px-2 py-1 text-sm font-black text-[var(--color-heading)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}` : "/"}>
-              Ver todas
-            </Link>
-          </div>
-          <div className="public-scrollbar -mx-4 mt-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
-            <div className="flex snap-x gap-3 pr-3">
-            {directory.categoryCards.map((category) => {
-              const params = new URLSearchParams();
-              if (q) params.set("q", q);
-              if (ubicacion) params.set("ubicacion", ubicacion);
-              if (category.businessType) params.set("rubro", category.businessType);
-              params.set("categoria", category.value);
-              return <CategoryImageCard active={categoria === category.value} category={category} href={`/?${params.toString()}`} key={category.value} />;
-            })}
+        {rubro ? (
+          <section>
+            <div className="flex items-end justify-between gap-3">
+              <SectionHeader eyebrow="Categorias" title={selectedBusinessTypeLabel ? `Categorias en ${selectedBusinessTypeLabel}` : "Explora por categorias"} />
+              <Link className="shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-sm font-black text-[var(--color-heading)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}#explorar` : "/#explorar"}>
+                Ver rubros
+              </Link>
             </div>
-          </div>
-        </section>
+            <div className="public-scrollbar -mx-4 mt-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
+              <div className="flex snap-x gap-3 pr-3">
+                {directory.categoryCards.map((category) => {
+                  const params = new URLSearchParams();
+                  if (q) params.set("q", q);
+                  if (ubicacion) params.set("ubicacion", ubicacion);
+                  if (category.businessType) params.set("rubro", category.businessType);
+                  params.set("categoria", category.value);
+                  return <CategoryImageCard active={categoria === category.value} category={category} href={`/?${params.toString()}#restaurantes`} key={category.value} />;
+                })}
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         {heroRestaurants.length ? (
           <section className="grid gap-3 rounded-[1.75rem] border border-[var(--border)] bg-[var(--color-surface)] p-3 lg:grid-cols-3">
@@ -270,18 +264,6 @@ function SectionHeader({ eyebrow, title }: { eyebrow: string; title: string }) {
   );
 }
 
-function HeroSignal({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
-  return (
-    <div className="flex min-h-[72px] items-start gap-3 rounded-[1.2rem] border border-white/14 bg-white/10 p-3 text-white shadow-sm backdrop-blur">
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]">{icon}</span>
-      <span className="min-w-0">
-        <span className="block text-sm font-black leading-5">{title}</span>
-        <span className="mt-0.5 block text-xs font-semibold leading-5 text-white/70">{text}</span>
-      </span>
-    </div>
-  );
-}
-
 function CategoryImageCard({
   active,
   href,
@@ -294,15 +276,15 @@ function CategoryImageCard({
   return (
     <Link
       className={cn(
-        "group flex min-h-24 w-28 shrink-0 flex-col items-center justify-center gap-2 rounded-[1.15rem] border bg-[var(--surface)] p-3 text-center shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
+        "group flex min-h-24 w-36 shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[1.15rem] border bg-[var(--surface)] p-3 text-center shadow-[0_16px_42px_rgb(18_53_91_/_0.08)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:min-h-28 sm:w-44",
         active ? "border-[var(--accent)] bg-[var(--accent-soft)] ring-4 ring-[var(--accent-ring)]" : "border-[var(--border)]",
       )}
       href={href}
     >
-      <div className={cn("grid h-14 w-14 place-items-center rounded-2xl ring-1 ring-[var(--border)] transition group-hover:shadow-[var(--shadow-glow)]", categoryIconTone(category.value, category.label), active && "bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]")}>
+      <div className={cn("grid h-12 w-12 place-items-center rounded-[1rem] ring-1 ring-[var(--border)] transition group-hover:shadow-[var(--shadow-glow)] sm:h-14 sm:w-14", categoryIconTone(category.value, category.label), active && "bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]")}>
         <CategoryIcon label={category.label} value={category.value} />
       </div>
-      <span className="block w-full truncate text-[11px] font-black text-[var(--color-heading)]">{category.label}</span>
+      <span className="line-clamp-2 block w-full text-balance text-xs font-black leading-tight text-[var(--primary)] sm:text-sm">{category.label}</span>
     </Link>
   );
 }
@@ -319,16 +301,16 @@ function BusinessTypeCard({
   return (
     <Link
       className={cn(
-        "group flex min-h-28 w-44 shrink-0 items-center gap-3 rounded-[1.2rem] border bg-[var(--surface)] p-3 text-left shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
+        "group flex min-h-24 w-[232px] shrink-0 snap-start items-center gap-3 rounded-[1.2rem] border bg-[var(--surface)] p-3 text-left shadow-[0_16px_42px_rgb(18_53_91_/_0.08)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:w-[250px]",
         active ? "border-[var(--accent)] bg-[var(--accent-soft)] ring-4 ring-[var(--accent-ring)]" : "border-[var(--border)]",
       )}
       href={href}
     >
-      <div className={cn("grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-white ring-1 ring-[var(--border)]", businessTypeIconTone(businessType.value))}>
+      <div className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-[1rem] bg-white ring-1 ring-[var(--border)] sm:h-14 sm:w-14", businessTypeIconTone(businessType.value))}>
         <BusinessTypeIcon value={businessType.value} />
       </div>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-black text-[var(--color-heading)]">{businessType.label}</span>
+      <span className="min-w-0 flex-1">
+        <span className="line-clamp-2 block text-sm font-black leading-tight text-[var(--primary)] sm:text-base">{businessType.label}</span>
         <span className="mt-1 block text-xs font-semibold text-[var(--color-secondary-text)]">{businessType.count} locales</span>
       </span>
     </Link>
@@ -441,7 +423,7 @@ function businessVisualClasses(businessType: BusinessType) {
   if (businessType === "home") return "from-[#3D2517] via-[#B97842] to-[#F7D4A8] text-white";
   if (businessType === "electronics") return "from-[#071B3A] via-[#1464B4] to-[#A8DAFF] text-white";
   if (businessType === "services") return "from-[#171B39] via-[#4F5CC7] to-[#CAD4FF] text-white";
-  return "from-[#082441] via-[#12355B] to-[#C7F000] text-white";
+  return "from-[#082441] via-[#12355B] to-[#27577F] text-white";
 }
 
 function BusinessVisualIcon({ businessType, className = "h-8 w-8" }: { businessType: BusinessType; className?: string }) {

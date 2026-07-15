@@ -21,6 +21,11 @@ export const metadata: Metadata = {
   description: "Pedidos y comercio digital en una sola plataforma.",
   applicationName: "yopido.shop",
   manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "yopido.shop",
+  },
   icons: {
     icon: [
       { url: "/brand/favicon-16.png", sizes: "16x16", type: "image/png" },

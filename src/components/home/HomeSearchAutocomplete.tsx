@@ -195,20 +195,19 @@ export function HomeSearchAutocomplete({
 
   return (
     <div className="relative">
-      <form className="rounded-[1.65rem] border border-[var(--primary)]/10 bg-white p-2 shadow-[0_24px_70px_rgb(18_53_91_/_0.16)]" onSubmit={(event) => {
+      <form className="rounded-[1.3rem] border border-white/70 bg-white p-1.5 shadow-[0_22px_54px_rgb(2_10_18_/_0.2)] sm:rounded-[1.55rem] sm:p-2" onSubmit={(event) => {
         event.preventDefault();
         openSearch();
       }}>
         <div>
-          <label className="flex min-h-14 items-center gap-3 rounded-[1.25rem] border border-[var(--primary)]/10 bg-[linear-gradient(180deg,#FFFFFF_0%,#F8FAFC_100%)] px-4 text-[var(--color-heading)] ring-1 ring-[var(--border)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[var(--accent-ring)] sm:min-h-16">
-            <Search className="h-5 w-5 shrink-0 text-[var(--primary)]" />
+          <label className="flex min-h-12 items-center gap-2 rounded-[1.1rem] bg-white pl-4 pr-1 text-[var(--color-heading)] transition focus-within:ring-4 focus-within:ring-[var(--accent-ring)] sm:min-h-14 sm:gap-3 sm:rounded-[1.3rem] sm:pl-5 sm:pr-1.5">
             <input
               autoComplete="off"
-              className="h-11 min-w-0 flex-1 bg-transparent text-sm font-black outline-none placeholder:text-[var(--color-placeholder)] sm:h-12 sm:text-base"
+              className="h-10 min-w-0 flex-1 bg-transparent text-sm font-black outline-none placeholder:text-[#6F7FA0] sm:h-11 sm:text-base"
               name="q"
               onChange={(event) => setQuery(event.target.value)}
               onFocus={openSearch}
-              placeholder="Busca productos o negocios"
+              placeholder="Locales, platos y productos"
               value={query}
             />
             {query ? (
@@ -224,6 +223,9 @@ export function HomeSearchAutocomplete({
                 <X className="h-4 w-4" />
               </button>
             ) : null}
+            <button aria-label="Abrir buscador" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] transition hover:bg-[#d9ff22] active:scale-95 sm:h-12 sm:w-12" onClick={openSearch} type="button">
+              <Search className="h-5 w-5" />
+            </button>
           </label>
         </div>
       </form>

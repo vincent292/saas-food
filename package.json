@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node --use-system-ca ./node_modules/next/dist/bin/next dev",
+    "dev": "node ./scripts/run-next-with-url.mjs dev",
     "build": "node --use-system-ca ./node_modules/next/dist/bin/next build --webpack",
-    "start": "node --use-system-ca ./node_modules/next/dist/bin/next start",
+    "start": "node ./scripts/run-next-with-url.mjs start",
     "lint": "eslint"
   },
   "dependencies": {

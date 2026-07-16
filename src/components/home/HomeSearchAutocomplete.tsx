@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
 
 const defaultImage = "/imagendefault.jpeg";
+type ActivePublicTheme = "light" | "dark";
 
 function normalize(value: string) {
   return value
@@ -67,6 +68,7 @@ export function HomeSearchAutocomplete({
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [autoLocationStatus, setAutoLocationStatus] = useState<"idle" | "detecting" | "detected" | "unavailable">("idle");
+  const [publicTheme, setPublicTheme] = useState<ActivePublicTheme>("light");
   const [userChangedLocation, setUserChangedLocation] = useState(Boolean(initialLocation));
   const [isPending, startTransition] = useTransition();
   const deferredQuery = useDeferredValue(query);
@@ -122,6 +124,24 @@ export function HomeSearchAutocomplete({
       setIsClosing(false);
     }, 420);
   }, [isClosing]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const syncTheme = () => {
+      const nextTheme = document.querySelector(".public-brand-theme")?.getAttribute("data-public-theme") === "dark" ? "dark" : "light";
+      setPublicTheme(nextTheme);
+    };
+
+    syncTheme();
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(document.body, {
+      attributeFilter: ["data-public-theme"],
+      attributes: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -195,15 +215,15 @@ export function HomeSearchAutocomplete({
 
   return (
     <div className="relative">
-      <form className="rounded-[1.3rem] border border-white/70 bg-white p-1.5 shadow-[0_22px_54px_rgb(2_10_18_/_0.2)] sm:rounded-[1.55rem] sm:p-2" onSubmit={(event) => {
+      <form className="rounded-[1.3rem] border border-[var(--border)] bg-[var(--color-card)] p-1.5 shadow-[var(--shadow-primary)] sm:rounded-[1.55rem] sm:p-2" onSubmit={(event) => {
         event.preventDefault();
         openSearch();
       }}>
         <div>
-          <label className="flex min-h-12 items-center gap-2 rounded-[1.1rem] bg-white pl-4 pr-1 text-[var(--color-heading)] transition focus-within:ring-4 focus-within:ring-[var(--accent-ring)] sm:min-h-14 sm:gap-3 sm:rounded-[1.3rem] sm:pl-5 sm:pr-1.5">
+          <label className="flex min-h-12 items-center gap-2 rounded-[1.1rem] bg-[var(--color-card)] pl-4 pr-1 text-[var(--color-heading)] transition focus-within:ring-4 focus-within:ring-[var(--accent-ring)] sm:min-h-14 sm:gap-3 sm:rounded-[1.3rem] sm:pl-5 sm:pr-1.5">
             <input
               autoComplete="off"
-              className="h-10 min-w-0 flex-1 bg-transparent text-sm font-black outline-none placeholder:text-[#6F7FA0] sm:h-11 sm:text-base"
+              className="h-10 min-w-0 flex-1 bg-transparent text-sm font-black outline-none placeholder:text-[var(--color-placeholder)] sm:h-11 sm:text-base"
               name="q"
               onChange={(event) => setQuery(event.target.value)}
               onFocus={openSearch}
@@ -231,8 +251,8 @@ export function HomeSearchAutocomplete({
       </form>
 
       {isOpen && typeof document !== "undefined" ? createPortal(
-        <div className="public-brand-theme fixed inset-0 z-[80] bg-[rgb(8_36_65_/_0.78)] p-0 text-[var(--color-heading)] backdrop-blur-md sm:p-6" role="dialog" aria-modal="true" aria-label="Busqueda de negocios">
-          <div className={cn("relative mx-auto flex h-dvh w-full flex-col overflow-hidden bg-white shadow-[0_30px_90px_rgb(2_10_18_/_0.36)] sm:h-[min(88dvh,820px)] sm:max-w-6xl sm:rounded-[2rem]", isClosing ? "search-tv-exit" : "search-tv-enter")}>
+        <div className="public-brand-theme fixed inset-0 z-[80] bg-[rgb(8_36_65_/_0.78)] p-0 text-[var(--color-heading)] backdrop-blur-md sm:p-6" data-public-theme={publicTheme} role="dialog" aria-modal="true" aria-label="Busqueda de negocios">
+          <div className={cn("relative mx-auto flex h-dvh w-full flex-col overflow-hidden bg-[var(--color-card)] shadow-[0_30px_90px_rgb(2_10_18_/_0.36)] sm:h-[min(88dvh,820px)] sm:max-w-6xl sm:rounded-[2rem]", isClosing ? "search-tv-exit" : "search-tv-enter")}>
             <span className={cn("search-tv-line pointer-events-none absolute left-1/2 top-1/2 z-50 h-1 w-[72%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--accent)] shadow-[0_0_32px_rgb(199_240_0_/_0.88)]", isClosing && "search-tv-line-out")} />
 
             <div className="sticky top-0 z-20 border-b border-white/12 bg-[linear-gradient(135deg,#082441_0%,#12355B_64%,#071E36_100%)] p-3 text-white shadow-[0_18px_55px_rgb(8_36_65_/_0.24)] backdrop-blur sm:p-5">
@@ -241,7 +261,7 @@ export function HomeSearchAutocomplete({
                   <X className="h-5 w-5" />
                 </button>
                 <form className="min-w-0 flex-1" onSubmit={submitSearch}>
-                  <label className="flex min-h-14 items-center gap-3 rounded-[1.35rem] border border-white/20 bg-white px-4 text-[var(--color-heading)] shadow-[0_18px_45px_rgb(2_10_18_/_0.16)] focus-within:border-[var(--accent)] focus-within:ring-4 focus-within:ring-[var(--accent-ring)]">
+                  <label className="flex min-h-14 items-center gap-3 rounded-[1.35rem] border border-white/20 bg-[var(--color-card)] px-4 text-[var(--color-heading)] shadow-[0_18px_45px_rgb(2_10_18_/_0.16)] focus-within:border-[var(--accent)] focus-within:ring-4 focus-within:ring-[var(--accent-ring)]">
                     <Search className="h-5 w-5 shrink-0 text-[var(--primary)]" />
                     <input
                       ref={searchInputRef}
@@ -264,7 +284,7 @@ export function HomeSearchAutocomplete({
                 <label className="flex min-h-12 items-center gap-2 rounded-full border border-white/22 bg-white/12 px-4 text-sm font-black text-white ring-1 ring-white/10">
                   <MapPin className="h-4 w-4 shrink-0" />
                   <select
-                    className="min-w-0 flex-1 bg-[#082441] outline-none"
+                    className="min-w-0 flex-1 bg-transparent outline-none"
                     onChange={(event) => {
                       setUserChangedLocation(true);
                       setLocation(event.target.value);
@@ -295,7 +315,7 @@ export function HomeSearchAutocomplete({
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,#F8FAFC_0%,#FFFFFF_100%)] p-3 sm:p-5">
+            <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--color-background)] p-3 sm:p-5">
               <div className="mb-4 flex items-end justify-between gap-3">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Busqueda en tiempo real</p>
@@ -313,7 +333,7 @@ export function HomeSearchAutocomplete({
                   <div className="grid gap-4">
                     <SearchSection title={needle ? "Restaurantes" : "Restaurantes mas visitados"} count={filteredRestaurants.length}>
                       {filteredRestaurants.map((card) => (
-                        <Link className="grid grid-cols-[64px_minmax(0,1fr)_32px] items-center gap-3 rounded-[1.25rem] bg-white p-2 text-[var(--color-heading)] shadow-sm ring-1 ring-[var(--border)] transition hover:bg-[var(--primary-light)]" href={`/r/${card.restaurant.slug}`} key={card.restaurant.id} onClick={() => setIsOpen(false)}>
+                        <Link className="grid grid-cols-[64px_minmax(0,1fr)_32px] items-center gap-3 rounded-[1.25rem] bg-[var(--surface)] p-2 text-[var(--color-heading)] shadow-sm ring-1 ring-[var(--border)] transition hover:bg-[var(--color-hover)]" href={`/r/${card.restaurant.slug}`} key={card.restaurant.id} onClick={() => setIsOpen(false)}>
                           <span className="grid h-16 w-16 place-items-center overflow-hidden rounded-2xl bg-[var(--primary)] text-sm font-black text-white">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img alt={card.restaurant.name} className="h-full w-full object-cover" src={imageSrc(card.restaurant.logoUrl || card.restaurant.bannerUrl)} />
@@ -327,14 +347,14 @@ export function HomeSearchAutocomplete({
                               {Math.max(4, Math.min(5, 4 + card.orders30d / 100)).toFixed(1)}
                             </span>
                           </span>
-                          <ArrowRight className="h-4 w-4 text-[var(--primary)]" />
+                          <ArrowRight className="h-4 w-4 text-[var(--accent)]" />
                         </Link>
                       ))}
                     </SearchSection>
 
                     <SearchSection title={needle ? "Platos" : "Platos mas pedidos"} count={filteredDishes.length}>
                       {filteredDishes.map((dish) => (
-                        <Link className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-3 rounded-[1.35rem] bg-white p-2 text-[var(--color-heading)] shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)]" href={`/r/${dish.restaurantSlug}`} key={dish.id} onClick={() => setIsOpen(false)}>
+                        <Link className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-3 rounded-[1.35rem] bg-[var(--surface)] p-2 text-[var(--color-heading)] shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)]" href={`/r/${dish.restaurantSlug}`} key={dish.id} onClick={() => setIsOpen(false)}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img alt={dish.name} className="h-20 w-[88px] rounded-[1.15rem] object-cover" src={imageSrc(dish.imageUrl)} />
                           <span className="min-w-0">
@@ -356,7 +376,7 @@ export function HomeSearchAutocomplete({
                         {filteredBusinessTypes.map((businessType) => (
                           <Link
                             className={cn(
-                              "inline-flex min-w-0 items-center gap-3 rounded-[1.1rem] border border-[var(--border)] bg-white p-3 text-sm font-black text-[var(--primary)] shadow-sm transition hover:bg-[var(--accent-soft)]",
+                              "inline-flex min-w-0 items-center gap-3 rounded-[1.1rem] border border-[var(--border)] bg-[var(--surface)] p-3 text-sm font-black text-[var(--color-heading)] shadow-sm transition hover:bg-[var(--accent-soft)]",
                               businessType.count ? "" : "opacity-60",
                             )}
                             href={directoryHref({ query, location, businessType: businessType.value })}
@@ -378,7 +398,7 @@ export function HomeSearchAutocomplete({
                     <SearchSection title={needle ? "Categorias" : "Categorias destacadas"} count={filteredCategories.length}>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-2">
                         {filteredCategories.map((category) => (
-                          <Link className={cn("inline-flex min-w-0 items-center gap-3 rounded-[1.1rem] border border-[var(--border)] bg-white p-3 text-sm font-black text-[var(--primary)] shadow-sm transition hover:bg-[var(--accent-soft)]", category.count ? "" : "opacity-60")} href={directoryHref({ query, location, category: category.value, businessType: category.businessType })} key={category.value} onClick={() => setIsOpen(false)}>
+                          <Link className={cn("inline-flex min-w-0 items-center gap-3 rounded-[1.1rem] border border-[var(--border)] bg-[var(--surface)] p-3 text-sm font-black text-[var(--color-heading)] shadow-sm transition hover:bg-[var(--accent-soft)]", category.count ? "" : "opacity-60")} href={directoryHref({ query, location, category: category.value, businessType: category.businessType })} key={category.value} onClick={() => setIsOpen(false)}>
                             <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-[var(--accent)]">
                               {category.imageUrl ? (
                                 // eslint-disable-next-line @next/next/no-img-element
@@ -398,7 +418,7 @@ export function HomeSearchAutocomplete({
                   </div>
                 </div>
               ) : (
-                <div className="grid min-h-[360px] place-items-center rounded-[1.5rem] bg-white p-8 text-center shadow-sm ring-1 ring-[var(--border)]">
+                <div className="grid min-h-[360px] place-items-center rounded-[1.5rem] bg-[var(--surface)] p-8 text-center shadow-sm ring-1 ring-[var(--border)]">
                   <div>
                     <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-[var(--primary-light)] text-[var(--primary)]">
                       <Store className="h-7 w-7" />
@@ -419,7 +439,7 @@ export function HomeSearchAutocomplete({
 
 function SearchSection({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
   return (
-    <section className="rounded-[1.5rem] bg-white/72 p-3 shadow-sm ring-1 ring-[var(--border)]">
+    <section className="rounded-[1.5rem] bg-[var(--color-card-muted)] p-3 shadow-sm ring-1 ring-[var(--border)] backdrop-blur-sm">
       <div className="mb-3 flex items-center justify-between gap-3 px-1">
         <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--muted)]">{title}</p>
         {typeof count === "number" ? <span className="rounded-full bg-[var(--primary-light)] px-2.5 py-1 text-xs font-black text-[var(--primary)]">{count}</span> : null}
@@ -433,11 +453,11 @@ function SearchSkeleton() {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
       {Array.from({ length: 2 }).map((_, groupIndex) => (
-        <div className="rounded-[1.5rem] bg-white/72 p-3 shadow-sm ring-1 ring-[var(--border)]" key={groupIndex}>
+        <div className="rounded-[1.5rem] bg-[var(--color-card-muted)] p-3 shadow-sm ring-1 ring-[var(--border)] backdrop-blur-sm" key={groupIndex}>
           <div className="mb-3 h-4 w-28 animate-pulse rounded-full bg-[var(--primary-light)]" />
           <div className="grid gap-2">
             {Array.from({ length: groupIndex === 0 ? 5 : 3 }).map((__, index) => (
-              <div className="grid grid-cols-[78px_minmax(0,1fr)] gap-3 rounded-[1.25rem] bg-white p-2 ring-1 ring-[var(--border)]" key={index}>
+              <div className="grid grid-cols-[78px_minmax(0,1fr)] gap-3 rounded-[1.25rem] bg-[var(--surface)] p-2 ring-1 ring-[var(--border)]" key={index}>
                 <div className="h-20 animate-pulse rounded-[1.15rem] bg-[var(--primary-light)]" />
                 <div className="py-2">
                   <div className="h-4 w-40 animate-pulse rounded-full bg-[var(--primary-light)]" />

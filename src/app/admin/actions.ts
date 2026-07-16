@@ -971,7 +971,7 @@ export async function signInAction(formData: FormData) {
 
   const restaurantIds = [...new Set((memberships ?? []).map((membership) => membership.restaurant_id))];
 
-  if (restaurantIds.length) {
+  if (restaurantIds.length === 1) {
     const { data: restaurants } = await supabase
       .from("restaurants")
       .select("id")
@@ -984,6 +984,10 @@ export async function signInAction(formData: FormData) {
     if (restaurants?.[0]) {
       redirect(`/admin/restaurantes/${restaurants[0].id}/dashboard`);
     }
+  }
+
+  if (restaurantIds.length > 1) {
+    redirect("/admin");
   }
 
   await supabase.auth.signOut();
@@ -2872,7 +2876,8 @@ function endOfBusinessDayIso(date = new Date()) {
 
 async function currentPublicOrigin() {
   const headerStore = await headers();
-  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host") ?? "localhost:3000";
+  const fallbackPort = process.env.PORT?.trim() || "3000";
+  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host") ?? `localhost:${fallbackPort}`;
   const protocol = headerStore.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
   return `${protocol}://${host}`;
 }

@@ -22,15 +22,15 @@ export async function AdminLayout({
   title: string;
   active?: string;
 }) {
+  const profile = await authService.getCurrentProfile();
+
+  if (!profile) {
+    redirect("/admin/login?error=session");
+  }
+
   if (!restaurantId) {
-    const profile = await authService.getCurrentProfile();
-
-    if (!profile) {
-      redirect("/admin/login?error=session");
-    }
-
     if (profile.globalRole !== "superadmin") {
-      redirect("/admin/login?error=superadmin-required");
+      redirect("/admin");
     }
   }
 
@@ -40,6 +40,7 @@ export async function AdminLayout({
     <AdminShellClient
       active={active}
       billingAlert={billingAlert}
+      canAccessSuperadmin={profile.globalRole === "superadmin"}
       enabledModules={enabledModules}
       restaurantId={restaurantId}
       restaurantName={restaurantName}

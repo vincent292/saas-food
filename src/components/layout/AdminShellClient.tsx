@@ -68,6 +68,7 @@ export function AdminShellClient({
   restaurantName,
   restaurantStatus,
   billingAlert,
+  canAccessSuperadmin = false,
   enabledModules,
   title,
   active = "dashboard",
@@ -77,6 +78,7 @@ export function AdminShellClient({
   restaurantName?: string;
   restaurantStatus?: RestaurantStatus;
   billingAlert?: PlatformBillingAlert | null;
+  canAccessSuperadmin?: boolean;
   enabledModules?: ModuleKey[];
   title: string;
   active?: string;
@@ -190,9 +192,12 @@ export function AdminShellClient({
               <p className="text-xs font-black uppercase text-[var(--primary)]">Panel administrativo</p>
               <h1 className="truncate text-xl font-black text-[var(--color-heading)] sm:text-2xl">{title}</h1>
             </div>
-            <Link className="hidden min-h-10 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)] sm:inline-flex" href="/admin/restaurantes">
+            <Link
+              className="hidden min-h-10 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)] sm:inline-flex"
+              href={canAccessSuperadmin ? "/admin/restaurantes" : restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}
+            >
               <BarChart3 className="h-4 w-4" />
-              Restaurantes
+              {canAccessSuperadmin ? "Restaurantes" : "Mi sucursal"}
             </Link>
           </div>
         </header>

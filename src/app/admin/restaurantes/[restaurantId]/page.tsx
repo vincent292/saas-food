@@ -13,6 +13,7 @@ import { restaurantService } from "@/lib/services/restaurant.service";
 import { superadminService } from "@/lib/services/superadmin.service";
 import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
 export default async function RestaurantOverviewPage({ params }: { params: Promise<{ restaurantId: string }> }) {
   const { restaurantId } = await params;
@@ -45,7 +46,7 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
         <SectionTitle
           action={
             <div className="flex flex-wrap gap-2">
-              <Link className={buttonClasses("secondary")} href={`/r/${restaurant.slug}`}>
+              <Link className={buttonClasses("secondary")} href={publicRestaurantPath(restaurant.slug)}>
                 Ver menú
               </Link>
               <Link className={buttonClasses("secondary")} href={`/admin/restaurantes/${restaurant.id}/soporte`}>
@@ -71,7 +72,7 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
           <div className="grid gap-4 lg:grid-cols-4">
             <div>
               <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">URL pública</p>
-              <p className="mt-1 text-lg font-black">/r/{restaurant.slug}</p>
+              <p className="mt-1 text-lg font-black">{publicRestaurantPath(restaurant.slug)}</p>
             </div>
             <div>
               <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">Ciudad</p>

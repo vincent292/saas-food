@@ -22,6 +22,7 @@ import {
   businessVariantExample,
 } from "@/lib/restaurant-directory-options";
 import { cn } from "@/lib/utils/cn";
+import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
 import type { BusinessType } from "@/types/restaurant.types";
@@ -595,7 +596,7 @@ function ProductThumb({ imageUrl, name, small = false }: { imageUrl?: string; na
   return (
     <div className={cn("grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-[var(--primary-light)]", small ? "h-12 w-12" : "h-24 w-24")}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img alt={name} className="h-full w-full object-cover" src={imageUrl || "/imagendefault.jpeg"} />
+      <img alt={name} className="h-full w-full object-cover" src={imageUrl || defaultProductImage} />
     </div>
   );
 }
@@ -604,7 +605,7 @@ function PreviewBanner({ label, className, imageUrl }: { label: string; classNam
   return (
     <div className={cn("relative flex min-h-44 items-end overflow-hidden rounded-3xl bg-[var(--primary-light)] p-3", className)}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img alt={label} className="absolute inset-0 h-full w-full object-cover opacity-75" src={imageUrl || "/imagendefault.jpeg"} />
+      <img alt={label} className="absolute inset-0 h-full w-full object-cover opacity-75" src={imageUrl || defaultProductImage} />
       <div className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-strong)] via-[var(--color-image-overlay-medium)] to-[var(--color-image-overlay-none)]" />
       <div className="relative w-full rounded-2xl bg-[var(--color-overlay)] p-3 text-[var(--color-on-primary)]">
         <p className="text-xs font-black uppercase text-[var(--color-on-primary-muted)]">Catalogo</p>

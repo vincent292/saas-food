@@ -40,7 +40,9 @@ import {
 } from "@/lib/restaurant-directory-options";
 import { publicDirectoryService, type PublicBusinessTypeCard, type PublicDishCard, type PublicRestaurantCard } from "@/lib/services/public-directory.service";
 import { cn } from "@/lib/utils/cn";
+import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { BusinessType } from "@/types/restaurant.types";
 
 export default async function Home({
@@ -59,7 +61,7 @@ export default async function Home({
   const featuredRestaurant = heroRestaurants[0];
   const featuredDish = baseDirectory.mostOrderedDishes[0] ?? baseDirectory.dishSuggestions[0];
   const featuredBusinessType = baseDirectory.businessTypeCards[0];
-  const featuredHeroHref = featuredRestaurant ? `/r/${featuredRestaurant.restaurant.slug}` : "#restaurantes";
+  const featuredHeroHref = featuredRestaurant ? publicRestaurantPath(featuredRestaurant.restaurant.slug) : "#restaurantes";
   const featuredHeroImage = featuredRestaurant && isDisplayImage(featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl) ? featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl : "";
   const featuredHeroTitle = featuredRestaurant?.restaurant.name ?? featuredBusinessType?.label ?? "yopido.shop";
   const featuredHeroSubtitle = featuredRestaurant
@@ -179,7 +181,7 @@ export default async function Home({
                   </span>
                 </Link>
 
-                <Link className="group grid min-h-32 grid-cols-[104px_minmax(0,1fr)] items-center gap-3 overflow-hidden rounded-[1.5rem] bg-[var(--surface)] p-4 text-[var(--color-heading)] shadow-[0_18px_48px_rgb(18_53_91_/_0.1)] ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:grid-cols-[148px_minmax(0,1fr)] lg:min-h-0 lg:grid-cols-[160px_minmax(0,1fr)] lg:rounded-[1.35rem] lg:px-5 lg:py-4" href={featuredDish ? `/r/${featuredDish.restaurantSlug}` : "#platos"}>
+                <Link className="group grid min-h-32 grid-cols-[104px_minmax(0,1fr)] items-center gap-3 overflow-hidden rounded-[1.5rem] bg-[var(--surface)] p-4 text-[var(--color-heading)] shadow-[0_18px_48px_rgb(18_53_91_/_0.1)] ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:grid-cols-[148px_minmax(0,1fr)] lg:min-h-0 lg:grid-cols-[160px_minmax(0,1fr)] lg:rounded-[1.35rem] lg:px-5 lg:py-4" href={featuredDish ? publicRestaurantPath(featuredDish.restaurantSlug) : "#platos"}>
                   <span className="relative h-24 overflow-hidden rounded-[1.25rem] bg-[var(--primary-light)] sm:h-28 lg:h-24">
                     {featuredDish?.imageUrl && isDisplayImage(featuredDish.imageUrl) ? <Image alt={featuredDish.name} className="object-cover transition duration-300 group-hover:scale-105" fill sizes="160px" src={featuredDish.imageUrl} /> : <BusinessVisual businessType={featuredRestaurant?.restaurant.businessType ?? "other"} className="absolute inset-0 h-full w-full" label={featuredDish?.name ?? "Productos"} />}
                   </span>
@@ -247,7 +249,7 @@ export default async function Home({
         {heroRestaurants.length ? (
           <section className="grid gap-3 rounded-[1.75rem] border border-[var(--border)] bg-[var(--color-surface)] p-3 lg:grid-cols-3">
             {heroRestaurants.slice(0, 3).map((card, index) => (
-              <Link className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 rounded-[1.25rem] bg-[var(--surface)] p-3 shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:ring-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={`/r/${card.restaurant.slug}`} key={card.restaurant.id}>
+              <Link className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 rounded-[1.25rem] bg-[var(--surface)] p-3 shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:ring-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={publicRestaurantPath(card.restaurant.slug)} key={card.restaurant.id}>
                 <RestaurantLogo card={card} size="sm" />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-black">{card.restaurant.name}</span>
@@ -544,7 +546,7 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-xl font-black">{card.restaurant.name}</h3>
             <p className="mt-1 truncate text-sm font-semibold text-[var(--color-secondary-text)]">
-              {card.isTemporarilyClosed ? card.currentAnnouncement?.title || "Cerrado temporalmente" : card.restaurant.city || card.restaurant.address || `/r/${card.restaurant.slug}`}
+              {card.isTemporarilyClosed ? card.currentAnnouncement?.title || "Cerrado temporalmente" : card.restaurant.city || card.restaurant.address || publicRestaurantPath(card.restaurant.slug)}
             </p>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {card.categories.slice(0, 3).map((category) => (
@@ -568,7 +570,7 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
           <span className="rounded-2xl bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]">{card.visits7d} visitas semana</span>
           <span className="rounded-2xl bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]">{card.orders30d} pedidos 30d</span>
         </div>
-        <Link className={buttonClasses("primary", "mt-auto w-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] hover:bg-[#d9ff22] active:bg-[#d9ff22]")} href={`/r/${card.restaurant.slug}`}>
+        <Link className={buttonClasses("primary", "mt-auto w-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] hover:bg-[#d9ff22] active:bg-[#d9ff22]")} href={publicRestaurantPath(card.restaurant.slug)}>
           Ver {businessCatalogLabelTitle(card.restaurant.businessType).toLowerCase()}
           <ArrowRight className="h-4 w-4" />
         </Link>
@@ -595,7 +597,7 @@ function RankingPanel({
       <SectionHeader eyebrow="Ranking" title={title} />
       <Card className="space-y-3 p-4">
         {cards.map((card, index) => (
-          <Link className="grid grid-cols-[36px_56px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl bg-[var(--color-surface)] p-2 ring-1 ring-transparent transition hover:-translate-y-0.5 hover:bg-[var(--primary-light)] hover:ring-[var(--border)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={`/r/${card.restaurant.slug}`} key={card.restaurant.id}>
+          <Link className="grid grid-cols-[36px_56px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl bg-[var(--color-surface)] p-2 ring-1 ring-transparent transition hover:-translate-y-0.5 hover:bg-[var(--primary-light)] hover:ring-[var(--border)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={publicRestaurantPath(card.restaurant.slug)} key={card.restaurant.id}>
             <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-sm font-black text-[var(--primary)]">{index + 1}</span>
             <RestaurantLogo card={card} size="sm" />
             <span className="min-w-0">
@@ -612,15 +614,11 @@ function RankingPanel({
 }
 
 function DishCard({ dish }: { dish: PublicDishCard }) {
-  const imageSrc = isDisplayImage(dish.imageUrl) ? dish.imageUrl : "";
+  const imageSrc = isDisplayImage(dish.imageUrl) ? dish.imageUrl : defaultProductImage;
   return (
-    <Link className="overflow-hidden rounded-[1.25rem] bg-[var(--surface)] shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={`/r/${dish.restaurantSlug}`}>
+    <Link className="overflow-hidden rounded-[1.25rem] bg-[var(--surface)] shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={publicRestaurantPath(dish.restaurantSlug)}>
       <div className="relative aspect-[4/3] bg-[var(--primary-light)]">
-        {imageSrc ? (
-          <Image alt={dish.name} className="object-cover" fill sizes="(min-width:1024px) 25vw, 50vw" src={imageSrc} />
-        ) : (
-          <BusinessVisual businessType="other" className="absolute inset-0 h-full w-full" label={dish.name} />
-        )}
+        <Image alt={dish.name} className="object-cover" fill sizes="(min-width:1024px) 25vw, 50vw" src={imageSrc} />
         <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
           <Star className="h-3.5 w-3.5 fill-current" />
           {dish.orderCount}

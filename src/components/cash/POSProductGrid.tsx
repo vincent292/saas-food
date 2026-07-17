@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/Card";
 import { Input, Select } from "@/components/ui/Input";
 import { businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import { cn } from "@/lib/utils/cn";
+import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import type { OrderOrigin } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
@@ -31,7 +32,7 @@ type PosCartItem = {
   notes?: string;
 };
 
-const defaultImage = "/imagendefault.jpeg";
+const defaultImage = defaultProductImage;
 
 export function POSProductGrid({
   categories,

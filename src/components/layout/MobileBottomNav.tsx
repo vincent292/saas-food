@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { Home, Search, ShoppingCart } from "lucide-react";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
 export function MobileBottomNav({ restaurantSlug }: { restaurantSlug: string }) {
   const items = [
-    { label: "Inicio", href: `/r/${restaurantSlug}`, icon: Home },
-    { label: "Buscar", href: `/r/${restaurantSlug}#menu`, icon: Search },
-    { label: "Carrito", href: `/r/${restaurantSlug}/checkout`, icon: ShoppingCart },
+    { label: "Inicio", href: publicRestaurantPath(restaurantSlug), icon: Home },
+    { label: "Buscar", href: `${publicRestaurantPath(restaurantSlug)}#menu`, icon: Search },
+    { label: "Carrito", href: publicRestaurantPath(restaurantSlug, "checkout"), icon: ShoppingCart },
   ];
 
   return (

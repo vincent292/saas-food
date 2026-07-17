@@ -32,6 +32,10 @@ type ProfileRow = {
   email: string | null;
 };
 
+type PublicPresenceRow = {
+  restaurant_id: string;
+};
+
 type SupportAttachmentRow = {
   id: string;
   ticket_id: string;
@@ -76,6 +80,48 @@ function emptyDashboard(): SuperAdminDashboardSummary {
 
 function restaurantNameMap(restaurants: Restaurant[]) {
   return new Map(restaurants.map((restaurant) => [restaurant.id, restaurant.name]));
+}
+
+function countRowsByRestaurant(rows: PublicPresenceRow[] | null | undefined) {
+  const counts = new Map<string, number>();
+  for (const row of rows ?? []) {
+    counts.set(row.restaurant_id, (counts.get(row.restaurant_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function publicPresenceForRestaurant(restaurant: Restaurant, productCount: number, categoryCount: number) {
+  const issues: string[] = [];
+  const hasLogo = Boolean(restaurant.logoUrl && restaurant.logoUrl.startsWith("http"));
+  const hasBanner = Boolean(restaurant.bannerUrl && restaurant.bannerUrl.startsWith("http"));
+  const hasWhatsapp = Boolean(restaurant.whatsapp?.trim());
+  const hasAddress = Boolean(restaurant.address?.trim() || restaurant.city?.trim());
+  const hasMapsLocation = Boolean(restaurant.mapsUrl?.trim() || (typeof restaurant.latitude === "number" && typeof restaurant.longitude === "number"));
+  const hasPublicMenu = restaurant.activeModules?.includes("public_menu") ?? false;
+
+  if (!hasLogo) issues.push("Sin logo real");
+  if (!hasBanner) issues.push("Sin banner");
+  if (!productCount) issues.push("Sin productos");
+  if (!categoryCount) issues.push("Sin categorias");
+  if (!hasWhatsapp) issues.push("Sin WhatsApp");
+  if (!hasAddress) issues.push("Sin direccion/ciudad");
+  if (!hasMapsLocation) issues.push("Ubicacion Google pendiente");
+  if (!hasPublicMenu) issues.push("Menu publico desactivado");
+
+  const checks = [hasLogo, hasBanner, productCount > 0, categoryCount > 0, hasWhatsapp, hasAddress, hasMapsLocation, hasPublicMenu];
+  const publicPresenceScore = Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  const publicPresenceStatus: RestaurantOperationSummary["publicPresenceStatus"] = !hasPublicMenu || !productCount ? "critical" : publicPresenceScore >= 75 ? "ready" : "warning";
+
+  return {
+    hasLogo,
+    hasBanner,
+    hasWhatsapp,
+    hasAddress,
+    hasMapsLocation,
+    publicPresenceScore,
+    publicPresenceStatus,
+    publicPresenceIssues: issues,
+  };
 }
 
 function mapTicket(row: {
@@ -242,11 +288,24 @@ export const superadminService = {
       orderStatsSince(daysAgoIso(30)),
       this.listAccessSessions("active"),
     ]);
+    const supabase = await createClient();
+    const restaurantIds = restaurants.map((restaurant) => restaurant.id);
+    const [{ data: products }, { data: categories }] = restaurantIds.length
+      ? await Promise.all([
+          supabase.from("products").select("restaurant_id").in("restaurant_id", restaurantIds).eq("is_available", true),
+          supabase.from("categories").select("restaurant_id").in("restaurant_id", restaurantIds).eq("is_active", true),
+        ])
+      : [{ data: [] }, { data: [] }];
+    const productCounts = countRowsByRestaurant(products as PublicPresenceRow[]);
+    const categoryCounts = countRowsByRestaurant(categories as PublicPresenceRow[]);
 
     return restaurants.map((restaurant) => {
       const restaurantOrders = orders30d.filter((order) => order.restaurant_id === restaurant.id);
       const paidOrders = restaurantOrders.filter((order) => order.payment_status === "paid");
       const lastOrder = restaurantOrders.sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+      const productCount = productCounts.get(restaurant.id) ?? 0;
+      const categoryCount = categoryCounts.get(restaurant.id) ?? 0;
+      const publicPresence = publicPresenceForRestaurant(restaurant, productCount, categoryCount);
 
       return {
         id: restaurant.id,
@@ -259,6 +318,9 @@ export const superadminService = {
         publicCategory: restaurant.publicCategory,
         planKey: restaurant.planKey,
         activeModules: restaurant.activeModules?.length ?? 0,
+        productCount,
+        categoryCount,
+        ...publicPresence,
         orders30d: restaurantOrders.length,
         revenue30d: paidOrders.reduce((sum, order) => sum + Number(order.total), 0),
         lastOrderAt: lastOrder?.created_at,

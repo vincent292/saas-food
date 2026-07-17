@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { RestaurantTable } from "@/types/order.types";
 import type { Restaurant } from "@/types/restaurant.types";
 
@@ -22,7 +23,7 @@ type TableStatusMessage = {
 
 function tableUrl(origin: string, restaurantSlug: string, tableCode: string) {
   const baseUrl = origin || "";
-  return `${baseUrl}/r/${restaurantSlug}/mesa/${encodeURIComponent(tableCode)}`;
+  return `${baseUrl}${publicRestaurantPath(restaurantSlug, `mesa/${encodeURIComponent(tableCode)}`)}`;
 }
 
 function subscribeToOrigin() {
@@ -83,7 +84,7 @@ export function TableManagementClient({
                     <h2 className="mt-2 truncate text-xl font-black text-[var(--text)]">{table.name}</h2>
                     <p className="text-sm font-semibold text-[var(--muted)]">{table.code}</p>
                     <a className="mt-2 line-clamp-3 block break-all text-sm font-semibold text-[var(--primary-dark)] underline" href={url} rel="noreferrer" target="_blank">
-                      {url || `/r/${restaurant.slug}/mesa/${table.code}`}
+                      {url || publicRestaurantPath(restaurant.slug, `mesa/${table.code}`)}
                     </a>
                   </div>
                 </div>

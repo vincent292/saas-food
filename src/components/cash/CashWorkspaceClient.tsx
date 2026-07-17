@@ -19,6 +19,7 @@ import { businessCatalogLabelTitle, businessOrderStatusLabel, businessPreparatio
 import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils/dates";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import { createClient } from "@/lib/supabase/client";
 import type { CashMovement, CashSessionReport, CashSummary } from "@/types/cash.types";
 import type { Order } from "@/types/order.types";
@@ -175,7 +176,7 @@ export function CashWorkspaceClient({
   const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType);
   const trackingUrl =
     status.posOrderId && status.posTrackingToken && typeof window !== "undefined"
-      ? `${window.location.origin}/r/${restaurant.slug}/pedido/${status.posOrderId}?token=${status.posTrackingToken}`
+      ? `${window.location.origin}${publicRestaurantPath(restaurant.slug, `pedido/${status.posOrderId}`)}?token=${status.posTrackingToken}`
       : "";
   const whatsappHref =
     posWhatsAppPhone.replace(/\D/g, "") && trackingUrl

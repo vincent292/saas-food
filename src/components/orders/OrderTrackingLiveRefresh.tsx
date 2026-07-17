@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { businessPickupReadyLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { Order, OrderDeliveryDispatch, OrderQueueState, OrderStatus, OrderTrackingStatus } from "@/types/order.types";
 import type { BusinessType } from "@/types/restaurant.types";
 
@@ -273,7 +274,7 @@ export function OrderTrackingLiveRefresh({
   const [order, setOrder] = useState<Order & { businessType: BusinessType }>({ ...initialOrder, businessType });
   const statusUrl = useMemo(() => {
     const params = token ? `?token=${encodeURIComponent(token)}` : "";
-    return `/r/${restaurantSlug}/pedido/${initialOrder.id}/status${params}`;
+    return `${publicRestaurantPath(restaurantSlug, `pedido/${initialOrder.id}/status`)}${params}`;
   }, [initialOrder.id, restaurantSlug, token]);
   const isTerminal = isTerminalStatus(order.status);
   const { steps, currentStep } = trackingSteps(order);

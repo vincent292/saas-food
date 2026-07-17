@@ -13,7 +13,9 @@ import { businessCatalogItemsLabel, businessCatalogLabel } from "@/lib/restauran
 import { readCart, writeCart } from "@/lib/utils/cart";
 import { DEFAULT_RESTAURANT_TIME_ZONE, getBusinessStatus, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
 import { cn } from "@/lib/utils/cn";
+import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
 import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantSettings } from "@/types/restaurant.types";
 
@@ -33,7 +35,7 @@ type CartItem = {
   notes?: string;
 };
 
-const defaultImage = "/imagendefault.jpeg";
+const defaultImage = defaultProductImage;
 
 function isDisplayImage(value?: string | null) {
   return Boolean(value && (value.startsWith("http") || value.startsWith("/")) && !value.includes("imagendefault"));
@@ -125,7 +127,7 @@ export function PublicRestaurantOrderClient({
     const featured = products.filter((product) => product.isAutoFeatured || product.isFeatured);
     return (featured.length ? featured : products).slice(0, 3);
   }, [products]);
-  const bannerHeightClass = restaurant.publicBannerSize === "large" ? "min-h-[280px] sm:min-h-[380px]" : restaurant.publicBannerSize === "standard" ? "min-h-[220px] sm:min-h-[320px]" : "min-h-[180px] sm:min-h-[260px]";
+  const bannerHeightClass = restaurant.publicBannerSize === "large" ? "min-h-[210px] sm:min-h-[380px]" : restaurant.publicBannerSize === "standard" ? "min-h-[190px] sm:min-h-[320px]" : "min-h-[164px] sm:min-h-[260px]";
   const publicBackgroundStyle: CSSProperties = isDisplayImage(restaurant.menuBackgroundImageUrl)
     ? {
         backgroundImage: `linear-gradient(var(--color-menu-background-scrim), var(--color-menu-background-scrim)), url(${restaurant.menuBackgroundImageUrl})`,
@@ -184,7 +186,7 @@ export function PublicRestaurantOrderClient({
     <main className="min-h-screen bg-[linear-gradient(180deg,var(--color-surface)_0%,#FFFFFF_44%,var(--color-surface)_100%)] text-[var(--text)]" style={publicBackgroundStyle}>
       <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-white/92 text-[var(--text)] shadow-[0_12px_34px_rgb(18_53_91_/_0.08)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-3 sm:px-6 lg:px-8">
-          <Link className="flex min-w-0 items-center" href={`/r/${restaurant.slug}`}>
+          <Link className="flex min-w-0 items-center" href={publicRestaurantPath(restaurant.slug)}>
             <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] p-1 text-base font-black text-[var(--color-on-primary)] shadow-sm">
               {hasLogoImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -210,7 +212,7 @@ export function PublicRestaurantOrderClient({
               <Clock3 className="h-3.5 w-3.5" />
               {activeClosure ? "Cerrado hoy" : "Abierto hoy"}
             </span>
-            <Link className="hidden rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:inline-flex" href={`/r/${restaurant.slug}/seguimiento`}>
+            <Link className="hidden rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:inline-flex" href={publicRestaurantPath(restaurant.slug, "seguimiento")}>
               Rastrear pedido
             </Link>
             <button className="relative inline-flex h-11 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)]" onClick={openDrawer} type="button">
@@ -224,7 +226,7 @@ export function PublicRestaurantOrderClient({
 
       <div className="mx-auto max-w-6xl px-3 pb-28 pt-5 sm:px-6 lg:px-8 lg:pb-8">
         <section className="min-w-0">
-          <div className="relative mb-5 overflow-hidden rounded-[2rem] bg-[var(--primary)] shadow-[0_28px_70px_rgb(8_36_65_/_0.22)]">
+          <div className="relative mb-4 overflow-hidden rounded-[1.5rem] bg-[var(--primary)] shadow-[0_18px_44px_rgb(8_36_65_/_0.18)] sm:mb-5 sm:rounded-[2rem] sm:shadow-[0_28px_70px_rgb(8_36_65_/_0.22)]">
             <div className={cn("relative", bannerHeightClass)}>
               {isDisplayImage(heroImage) ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -233,29 +235,29 @@ export function PublicRestaurantOrderClient({
                 <BusinessVisual businessType={restaurant.businessType} className="absolute inset-0 h-full w-full" label={restaurant.name} mode="hero" />
               )}
               <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(8_36_65_/_0.16)_0%,rgb(8_36_65_/_0.34)_42%,rgb(8_36_65_/_0.88)_100%)]" />
-              <div className="absolute left-4 right-4 top-4 z-20 flex items-center justify-between gap-3">
-                <Link className="grid h-12 w-12 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" href="/">
+              <div className="absolute left-3 right-3 top-3 z-20 flex items-center justify-between gap-3 sm:left-4 sm:right-4 sm:top-4">
+                <Link className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl sm:h-12 sm:w-12" href="/">
                   <ArrowRight className="h-5 w-5 rotate-180" />
                 </Link>
                 <div className="flex items-center gap-2">
-                  <button className="grid h-12 w-12 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" type="button">
+                  <button className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl sm:h-12 sm:w-12" type="button">
                     <Share2 className="h-5 w-5" />
                   </button>
-                  <button className="grid h-12 w-12 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" type="button">
+                  <button className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl sm:h-12 sm:w-12" type="button">
                     <Heart className="h-5 w-5" />
                   </button>
                 </div>
               </div>
-              <div className={cn("relative z-10 flex max-w-2xl flex-col justify-end p-5 pb-6 text-[var(--color-on-primary)] sm:p-8", bannerHeightClass)}>
-                <span className="mb-3 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--accent)] px-3 py-1.5 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
+              <div className={cn("relative z-10 flex max-w-2xl flex-col justify-end p-4 pb-5 text-[var(--color-on-primary)] sm:p-8", bannerHeightClass)}>
+                <span className="mb-2 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--accent)] px-2.5 py-1 text-[11px] font-black text-[var(--primary)] shadow-[var(--shadow-glow)] sm:mb-3 sm:px-3 sm:py-1.5 sm:text-xs">
                   <Star className="h-3.5 w-3.5 fill-current" />
                   4.8
                 </span>
-                <h1 className="max-w-[12ch] text-[2.6rem] font-black leading-none sm:max-w-2xl sm:text-6xl">{restaurant.name}</h1>
-                <p className="mt-3 line-clamp-2 max-w-md text-sm font-semibold leading-6 text-white/86 sm:line-clamp-none sm:text-base">
+                <h1 className="max-w-[13ch] text-[2.15rem] font-black leading-[0.94] sm:max-w-2xl sm:text-6xl">{restaurant.name}</h1>
+                <p className="mt-2 line-clamp-2 max-w-md text-sm font-semibold leading-5 text-white/88 sm:mt-3 sm:line-clamp-none sm:leading-6 sm:text-base">
                   {restaurant.description || "Elige tus productos, confirma tu pedido y el equipo lo recibe al instante."}
                 </p>
-                <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-black text-white sm:gap-3 sm:text-sm">
+                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-black text-white sm:mt-4 sm:gap-3 sm:text-sm">
                   <span className="inline-flex items-center gap-1">
                     <Clock3 className="h-4 w-4" />
                     25-35 min
@@ -302,23 +304,23 @@ export function PublicRestaurantOrderClient({
           ) : null}
 
           {topOrderedProducts.length ? (
-            <div className="mb-4 rounded-[1.65rem] border border-[var(--border)] bg-white p-4 shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]">
+            <div className="mb-4 rounded-[1.35rem] border border-[var(--border)] bg-white p-3 shadow-[0_14px_34px_rgb(18_53_91_/_0.07)] sm:rounded-[1.65rem] sm:p-4 sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-black uppercase text-[var(--primary)]">Favoritos</p>
-                  <h2 className="text-xl font-black">Top picks para ti</h2>
+                  <h2 className="text-lg font-black sm:text-xl">Top picks para ti</h2>
                 </div>
               </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <div className="-mx-1 mt-3 flex snap-x gap-2 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-3 sm:gap-3 sm:overflow-visible sm:px-0">
                 {topOrderedProducts.map((product) => (
-                  <button className="grid grid-cols-[78px_1fr_auto] items-center gap-3 rounded-[1.25rem] bg-[var(--color-surface)] p-2 text-left shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)]" key={product.id} onClick={() => setSelectedProduct(product)} type="button">
-                    <ProductVisual businessType={restaurant.businessType} className="h-20 w-[78px] rounded-[1.1rem]" name={product.name} src={product.imageUrl} />
+                  <button className="grid min-w-[82%] snap-start grid-cols-[66px_1fr_38px] items-center gap-3 rounded-[1.1rem] bg-[var(--color-surface)] p-2 text-left shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] sm:min-w-0 sm:grid-cols-[78px_1fr_auto] sm:rounded-[1.25rem]" key={product.id} onClick={() => setSelectedProduct(product)} type="button">
+                    <ProductVisual className="h-16 w-[66px] rounded-[0.95rem] sm:h-20 sm:w-[78px] sm:rounded-[1.1rem]" name={product.name} src={product.imageUrl} />
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-black">{product.name}</span>
                       <span className="block text-xs font-bold text-[var(--muted)]">{product.orderCount ? `${product.orderCount} pedidos` : "Nuevo"}</span>
                     </span>
-                    <span className="grid h-10 w-10 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)]">
-                      <Plus className="h-5 w-5" />
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] sm:h-10 sm:w-10">
+                      <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
                     </span>
                   </button>
                 ))}
@@ -341,13 +343,13 @@ export function PublicRestaurantOrderClient({
                 </button>
               ) : null}
             </label>
-            <Link className="inline-flex rounded-full bg-[var(--primary-light)] px-4 py-2 text-sm font-black text-[var(--primary)] sm:hidden" href={`/r/${restaurant.slug}/seguimiento`}>
+            <Link className="inline-flex rounded-full bg-[var(--primary-light)] px-4 py-2 text-sm font-black text-[var(--primary)] sm:hidden" href={publicRestaurantPath(restaurant.slug, "seguimiento")}>
               Rastrear pedido
             </Link>
             {orderError ? <OrderErrorMessage error={orderError} /> : null}
           </div>
 
-          <div className="sticky top-[73px] z-20 -mx-3 mb-4 border-y border-[var(--border)] bg-[var(--color-card-elevated)] px-3 py-3 shadow-sm backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border" id="catalogo">
+          <div className="sticky top-[73px] z-20 -mx-3 mb-4 border-y border-[var(--border)] bg-[var(--color-card-elevated)] px-3 py-2.5 shadow-sm backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border sm:py-3" id="menu">
             <div className="flex snap-x gap-2 overflow-x-auto pb-1">
               <CategoryButton active={selectedCategory === "all"} label="Todo" onClick={() => setSelectedCategory("all")} />
               {categories.map((category) => (
@@ -373,7 +375,7 @@ export function PublicRestaurantOrderClient({
 
           <div className="grid gap-4 lg:grid-cols-2">
             {filteredProducts.map((product) => (
-              <ProductTile businessType={restaurant.businessType} config={configByProduct[product.id]} key={product.id} onSelect={() => setSelectedProduct(product)} product={product} />
+              <ProductTile config={configByProduct[product.id]} key={product.id} onSelect={() => setSelectedProduct(product)} product={product} />
             ))}
           </div>
 
@@ -385,9 +387,9 @@ export function PublicRestaurantOrderClient({
         </section>
       </div>
 
-      <button className="fixed bottom-3 left-3 right-3 z-40 flex min-h-16 items-center justify-between gap-3 rounded-[1.25rem] bg-[var(--primary)] px-4 py-3 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl ring-1 ring-[var(--color-on-primary-border-strong)] lg:hidden" onClick={openDrawer} type="button">
+      <button className="fixed bottom-3 left-3 right-3 z-40 flex min-h-14 items-center justify-between gap-3 rounded-[1.15rem] bg-[var(--primary)] px-3.5 py-2.5 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl ring-1 ring-[var(--color-on-primary-border-strong)] lg:hidden" onClick={openDrawer} type="button">
         <span className="inline-flex min-w-0 items-center gap-3">
-          <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-[var(--primary)] shadow-sm">
+          <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-[var(--primary)] shadow-sm">
             <ShoppingCart className="h-5 w-5" />
             {cartQuantity ? <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--color-success-strong)] text-[10px] text-[var(--color-on-primary)]">{cartQuantity}</span> : null}
           </span>
@@ -396,7 +398,7 @@ export function PublicRestaurantOrderClient({
             <span className="block text-xs font-semibold text-[var(--color-on-primary-muted)]">{cartQuantity ? `${cartQuantity} producto${cartQuantity === 1 ? "" : "s"}` : "Carrito vacio"}</span>
           </span>
         </span>
-        <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-base text-[var(--primary)]">
+        <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[var(--accent)] px-3.5 py-1.5 text-sm text-[var(--primary)]">
           {formatMoney(total)}
           <ArrowRight className="h-4 w-4" />
         </span>
@@ -441,7 +443,7 @@ export function PublicRestaurantOrderClient({
         </div>
       ) : null}
 
-      {selectedProduct ? <ProductOptionModal businessType={restaurant.businessType} config={configByProduct[selectedProduct.id]} onAdd={addConfiguredProduct} onClose={() => setSelectedProduct(null)} product={selectedProduct} /> : null}
+      {selectedProduct ? <ProductOptionModal config={configByProduct[selectedProduct.id]} onAdd={addConfiguredProduct} onClose={() => setSelectedProduct(null)} product={selectedProduct} /> : null}
     </main>
   );
 }
@@ -517,7 +519,7 @@ function BusinessVisual({ businessType, label, className, mode = "tile" }: { bus
   );
 }
 
-function ProductVisual({ businessType, name, src, className }: { businessType: Restaurant["businessType"]; name: string; src?: string | null; className?: string }) {
+function ProductVisual({ name, src, className }: { name: string; src?: string | null; className?: string }) {
   if (isDisplayImage(src)) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -525,7 +527,10 @@ function ProductVisual({ businessType, name, src, className }: { businessType: R
     );
   }
 
-  return <BusinessVisual businessType={businessType} className={className} label={name} />;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img alt={name} className={cn("object-cover", className)} src={defaultImage} />
+  );
 }
 
 function CategoryButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
@@ -536,13 +541,13 @@ function CategoryButton({ active, label, onClick }: { active: boolean; label: st
   );
 }
 
-function ProductTile({ product, config, businessType, onSelect }: { product: Product; config?: ProductConfigMap[string]; businessType: Restaurant["businessType"]; onSelect: () => void }) {
+function ProductTile({ product, config, onSelect }: { product: Product; config?: ProductConfigMap[string]; onSelect: () => void }) {
   const hasConfiguration = Boolean(config?.variants.length || config?.optionGroups.length);
 
   return (
-    <button className="grid grid-cols-[108px_minmax(0,1fr)_46px] items-center gap-3 rounded-[1.35rem] border border-[var(--border)] bg-white p-2 text-left text-[var(--text)] shadow-[0_18px_48px_rgb(18_53_91_/_0.08)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] hover:shadow-[0_22px_56px_rgb(18_53_91_/_0.12)] sm:grid-cols-[132px_minmax(0,1fr)_52px]" onClick={onSelect} type="button">
-      <span className="relative h-28 overflow-hidden rounded-[1.2rem] bg-[var(--primary-light)] sm:h-32">
-        <ProductVisual businessType={businessType} className="h-full w-full" name={product.name} src={product.imageUrl} />
+    <button className="grid grid-cols-[92px_minmax(0,1fr)_42px] items-center gap-2.5 rounded-[1.15rem] border border-[var(--border)] bg-white p-2 text-left text-[var(--text)] shadow-[0_12px_32px_rgb(18_53_91_/_0.07)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] hover:shadow-[0_22px_56px_rgb(18_53_91_/_0.12)] sm:grid-cols-[132px_minmax(0,1fr)_52px] sm:gap-3 sm:rounded-[1.35rem] sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]" onClick={onSelect} type="button">
+      <span className="relative h-24 overflow-hidden rounded-[1rem] bg-[var(--primary-light)] sm:h-32 sm:rounded-[1.2rem]">
+        <ProductVisual className="h-full w-full" name={product.name} src={product.imageUrl} />
         {product.isAutoFeatured || product.isFeatured ? <span className="absolute left-2 top-2 rounded-full bg-[var(--accent)] px-2 py-1 text-[10px] font-black text-[var(--primary)]">Top</span> : null}
       </span>
       <span className="min-w-0 py-1">
@@ -550,18 +555,18 @@ function ProductTile({ product, config, businessType, onSelect }: { product: Pro
           {hasConfiguration ? <span className="rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]">Personalizable</span> : null}
           {product.isPromotion ? <span className="rounded-full bg-[var(--color-warning-soft)] px-2 py-1 text-[10px] font-black text-[var(--color-warning-strong)]">Promo</span> : null}
         </span>
-        <span className="mt-1 block line-clamp-2 text-lg font-black leading-5">{product.name}</span>
-        <span className="mt-1 block line-clamp-2 text-sm leading-5 text-[var(--muted)]">{product.description || "Listo para pedir."}</span>
-        <span className="mt-3 flex items-center gap-3 text-sm font-black">
-          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--primary-light)] px-2 py-1 text-[var(--primary)]">
+        <span className="mt-1 block line-clamp-2 text-base font-black leading-5 sm:text-lg">{product.name}</span>
+        <span className="mt-1 hidden line-clamp-2 text-sm leading-5 text-[var(--muted)] min-[420px]:block">{product.description || "Listo para pedir."}</span>
+        <span className="mt-2 flex items-center gap-2 text-sm font-black sm:mt-3 sm:gap-3">
+          <span className="hidden items-center gap-1 rounded-full bg-[var(--primary-light)] px-2 py-1 text-[var(--primary)] min-[420px]:inline-flex">
             <Star className="h-3.5 w-3.5 fill-current" />
             4.{Math.min(9, Math.max(3, product.orderCount || 6))}
           </span>
           <span className="text-base text-[var(--primary)]">{formatMoney(product.price)}</span>
         </span>
       </span>
-      <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] sm:h-12 sm:w-12">
-        <Plus className="h-6 w-6" />
+      <span className="grid h-10 w-10 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] sm:h-12 sm:w-12">
+        <Plus className="h-5 w-5 sm:h-6 sm:w-6" />
       </span>
     </button>
   );
@@ -570,13 +575,11 @@ function ProductTile({ product, config, businessType, onSelect }: { product: Pro
 function ProductOptionModal({
   product,
   config,
-  businessType,
   onClose,
   onAdd,
 }: {
   product: Product;
   config?: ProductConfigMap[string];
-  businessType: Restaurant["businessType"];
   onClose: () => void;
   onAdd: (product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) => void;
 }) {
@@ -653,7 +656,7 @@ function ProductOptionModal({
     <div className="fixed inset-0 z-[60] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4" onClick={requestClose}>
       <div className={cn("relative isolate max-h-[94dvh] w-full overflow-y-auto overscroll-contain rounded-t-[2rem] bg-[var(--surface)] shadow-2xl sm:max-h-[94vh] sm:max-w-3xl sm:rounded-[2rem]", isClosing ? "public-sheet-exit" : "public-sheet-enter")} onClick={(event) => event.stopPropagation()}>
         <div className="relative z-0 h-72 overflow-hidden bg-[var(--primary)] sm:h-80">
-          <ProductVisual businessType={businessType} className="pointer-events-none h-full w-full" name={product.name} src={product.imageUrl} />
+          <ProductVisual className="pointer-events-none h-full w-full" name={product.name} src={product.imageUrl} />
           <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/42 to-transparent" />
           <div className="pointer-events-none absolute left-4 right-4 top-[calc(1rem+env(safe-area-inset-top))] z-40 flex items-center justify-between">
             <button aria-label="Volver" className="pointer-events-auto grid h-12 w-12 shrink-0 touch-manipulation place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl transition hover:scale-105 active:scale-95" data-product-modal-close="" onClick={requestClose} type="button">

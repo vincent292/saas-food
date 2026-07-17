@@ -94,6 +94,16 @@ export type RestaurantOperationSummary = {
   publicCategory: string;
   planKey?: PlanKey;
   activeModules: number;
+  hasLogo: boolean;
+  hasBanner: boolean;
+  hasWhatsapp: boolean;
+  hasAddress: boolean;
+  hasMapsLocation: boolean;
+  productCount: number;
+  categoryCount: number;
+  publicPresenceScore: number;
+  publicPresenceStatus: "ready" | "warning" | "critical";
+  publicPresenceIssues: string[];
   orders30d: number;
   revenue30d: number;
   lastOrderAt?: string;

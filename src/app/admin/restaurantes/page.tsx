@@ -10,6 +10,7 @@ import { restaurantBusinessTypeLabel, restaurantCategoryLabel } from "@/lib/rest
 import { superadminService } from "@/lib/services/superadmin.service";
 import { formatShortDate } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { RestaurantStatus } from "@/types/restaurant.types";
 
 export default async function RestaurantsPage() {
@@ -30,12 +31,12 @@ export default async function RestaurantsPage() {
       <div className="mt-6">
         <DataTable
           emptyMessage="Todavia no hay restaurantes creados."
-          headers={["Restaurante", "Responsable", "Plan", "Uso 30d", "Estado", "Sesiones", "Acciones"]}
+          headers={["Restaurante", "Responsable", "Plan", "Presencia", "Uso 30d", "Estado", "Sesiones", "Acciones"]}
           rows={restaurants.map((restaurant) => [
             <div key={`${restaurant.id}-name`}>
               <p className="font-black">{restaurant.name}</p>
               <p className="text-xs text-[var(--color-secondary-text)]">
-                /r/{restaurant.slug}
+                {publicRestaurantPath(restaurant.slug)}
                 {restaurant.city ? ` · ${restaurant.city}` : ""}
                 {restaurant.businessType ? ` · ${restaurantBusinessTypeLabel(restaurant.businessType)}` : ""}
                 {restaurant.publicCategory ? ` · ${restaurantCategoryLabel(restaurant.publicCategory)}` : ""}
@@ -43,6 +44,12 @@ export default async function RestaurantsPage() {
             </div>,
             restaurant.ownerEmail || "Sin responsable",
             restaurant.planKey ?? "sin plan",
+            <div key={`${restaurant.id}-presence`}>
+              <p className={restaurant.publicPresenceStatus === "ready" ? "font-black text-[var(--color-success-strong)]" : restaurant.publicPresenceStatus === "critical" ? "font-black text-[var(--color-danger-strong)]" : "font-black text-[var(--color-warning-strong)]"}>
+                {restaurant.publicPresenceScore}% listo
+              </p>
+              <p className="line-clamp-2 text-xs text-[var(--color-secondary-text)]">{restaurant.publicPresenceIssues.slice(0, 2).join(" | ") || "Lista para vender"}</p>
+            </div>,
             <div key={`${restaurant.id}-usage`}>
               <p className="font-bold">{restaurant.orders30d} pedidos</p>
               <p className="text-xs text-[var(--color-secondary-text)]">

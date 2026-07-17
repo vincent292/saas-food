@@ -5,6 +5,7 @@ import { Clock3, ShoppingBag, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { clearCart, cartUpdatedEventName, listPendingCarts, type PendingCartSummary } from "@/lib/utils/cart";
 import { formatMoney } from "@/lib/utils/money";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
 export function PendingCartNotice() {
   const [carts, setCarts] = useState<PendingCartSummary[]>([]);
@@ -58,7 +59,7 @@ export function PendingCartNotice() {
                     <X className="h-4 w-4" />
                   </button>
                 </div>
-                <Link className="inline-flex min-h-10 items-center justify-center rounded-full bg-[var(--primary)] px-4 text-sm font-black text-white transition hover:bg-[var(--primary-dark)]" href={`/r/${cart.restaurantSlug}`}>
+                <Link className="inline-flex min-h-10 items-center justify-center rounded-full bg-[var(--primary)] px-4 text-sm font-black text-white transition hover:bg-[var(--primary-dark)]" href={publicRestaurantPath(cart.restaurantSlug)}>
                   Continuar pedido
                 </Link>
               </div>

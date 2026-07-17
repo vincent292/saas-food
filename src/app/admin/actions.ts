@@ -18,6 +18,7 @@ import { platformBillingService } from "@/lib/services/platform-billing.service"
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { moduleCatalog } from "@/lib/modules";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import { toSlug } from "@/lib/utils/slug";
 import type { Json } from "@/types/database.types";
 import type { ModuleKey, PlanKey } from "@/types/restaurant.types";
@@ -904,6 +905,8 @@ async function revalidateOrderDecisionPaths(restaurantId: string, restaurantSlug
 
   if (restaurantSlug) {
     revalidatePath(`/cocina/${restaurantSlug}`);
+    revalidatePath(publicRestaurantPath(restaurantSlug));
+    revalidatePath(publicRestaurantPath(restaurantSlug, "seguimiento"));
     revalidatePath(`/r/${restaurantSlug}`);
     revalidatePath(`/r/${restaurantSlug}/seguimiento`);
   }
@@ -1851,6 +1854,8 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
+  revalidatePath(publicRestaurantPath(parsed.data.currentSlug));
+  revalidatePath(publicRestaurantPath(slug));
   revalidatePath(`/r/${parsed.data.currentSlug}`);
   revalidatePath(`/r/${slug}`);
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=${returnTab}&saved=1`);
@@ -2277,6 +2282,7 @@ function revalidateAnnouncementPaths(restaurantId: string, restaurantSlug?: stri
   revalidatePath("/");
   revalidatePath(`/admin/restaurantes/${restaurantId}/configuracion`);
   if (restaurantSlug) {
+    revalidatePath(publicRestaurantPath(restaurantSlug));
     revalidatePath(`/r/${restaurantSlug}`);
   }
 }
@@ -2415,6 +2421,7 @@ export async function createCategoryAction(formData: FormData) {
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/categorias`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/productos`);
+  revalidatePath("/", "layout");
   revalidatePath(`/r`, "layout");
   if (formData.get("returnTo") === "products") {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?categoryCreated=1`);
@@ -2530,6 +2537,7 @@ export async function createProductAction(formData: FormData) {
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/productos`);
+  revalidatePath("/", "layout");
   revalidatePath(`/r`, "layout");
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?created=1`);
 }
@@ -2660,6 +2668,7 @@ export async function updateProductAction(formData: FormData) {
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/productos`);
+  revalidatePath("/", "layout");
   revalidatePath(`/r`, "layout");
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?updated=1`);
 }
@@ -2729,6 +2738,7 @@ export async function updateTableAction(formData: FormData) {
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/mesas`);
+  revalidatePath("/", "layout");
   revalidatePath(`/r`, "layout");
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/mesas?updated=1`);
 }
@@ -2757,6 +2767,7 @@ export async function deleteTableAction(formData: FormData) {
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/mesas`);
+  revalidatePath("/", "layout");
   revalidatePath(`/r`, "layout");
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/mesas?deleted=1`);
 }
@@ -2837,6 +2848,8 @@ export async function updateOrderStatusAction(formData: FormData) {
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
   if (parsed.data.restaurantSlug) {
     revalidatePath(`/cocina/${parsed.data.restaurantSlug}`);
+    revalidatePath(publicRestaurantPath(parsed.data.restaurantSlug));
+    revalidatePath(publicRestaurantPath(parsed.data.restaurantSlug, "seguimiento"));
     revalidatePath(`/r/${parsed.data.restaurantSlug}`);
     revalidatePath(`/r/${parsed.data.restaurantSlug}/seguimiento`);
   }

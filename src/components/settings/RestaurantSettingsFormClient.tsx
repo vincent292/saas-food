@@ -45,6 +45,7 @@ import {
   restaurantLocationOptions,
 } from "@/lib/restaurant-directory-options";
 import { cn } from "@/lib/utils/cn";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type {
   BusinessHour,
   ModuleKey,
@@ -381,7 +382,7 @@ export function RestaurantSettingsFormClient({
             <CompressedImageInput help="Recomendado: cuadrado 800 x 800 px. Se subira optimizado en WebP." label="Logo" name="logoFile" previewClassName="aspect-square" />
             <CompressedImageInput help="Recomendado: 1600 x 900 px o similar. Evita texto pequeno dentro de la imagen." label="Banner" name="bannerFile" />
             <div className="rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
-              El {catalogLabelTitle.toLowerCase()} publico <strong>/r/{restaurant.slug}</strong> solo recibe pedidos cuando el negocio esta activo.
+              El {catalogLabelTitle.toLowerCase()} publico <strong>{publicRestaurantPath(restaurant.slug)}</strong> solo recibe pedidos cuando el negocio esta activo.
             </div>
           </Card>
 
@@ -390,7 +391,7 @@ export function RestaurantSettingsFormClient({
             <PreviewMedia label="Logo" title={restaurant.name} url={logoIsImage ? restaurant.logoUrl : ""} fallback={restaurant.name.slice(0, 2).toUpperCase()} square />
             <PreviewMedia label="Banner" title={`${restaurant.name} banner`} url={bannerIsImage ? restaurant.bannerUrl : ""} fallback="Sin banner" />
             <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-              <p>Menu: /r/{restaurant.slug}</p>
+              <p>Menu: {publicRestaurantPath(restaurant.slug)}</p>
               <p className="mt-2">Cocina: /cocina/{restaurant.slug}</p>
               <p className="mt-2">Caja: /caja/{restaurant.slug}</p>
             </div>

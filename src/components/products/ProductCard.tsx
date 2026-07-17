@@ -2,6 +2,7 @@ import { Pencil, Package, SlidersHorizontal, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import type { Category, Product } from "@/types/product.types";
 
@@ -22,7 +23,7 @@ export function ProductCard({
     <Card className="group overflow-hidden p-0 transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="relative aspect-[16/10] overflow-hidden bg-[var(--primary-light)]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img alt={product.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" src={product.imageUrl || "/imagendefault.jpeg"} />
+        <img alt={product.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" src={product.imageUrl || defaultProductImage} />
         <div className="absolute left-3 top-3 flex flex-wrap gap-2">
           <Badge className={product.isAvailable ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]"}>
             {product.isAvailable ? "Disponible" : "Inactivo"}

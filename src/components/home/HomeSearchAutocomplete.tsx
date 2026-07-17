@@ -7,9 +7,11 @@ import { type FormEvent, type ReactNode, useCallback, useDeferredValue, useEffec
 import { createPortal } from "react-dom";
 import type { PublicBusinessTypeCard, PublicCategoryCard, PublicDishCard, PublicRestaurantCard } from "@/lib/services/public-directory.service";
 import { cn } from "@/lib/utils/cn";
+import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
-const defaultImage = "/imagendefault.jpeg";
+const defaultImage = defaultProductImage;
 type ActivePublicTheme = "light" | "dark";
 
 function normalize(value: string) {
@@ -333,7 +335,7 @@ export function HomeSearchAutocomplete({
                   <div className="grid gap-4">
                     <SearchSection title={needle ? "Restaurantes" : "Restaurantes mas visitados"} count={filteredRestaurants.length}>
                       {filteredRestaurants.map((card) => (
-                        <Link className="grid grid-cols-[64px_minmax(0,1fr)_32px] items-center gap-3 rounded-[1.25rem] bg-[var(--surface)] p-2 text-[var(--color-heading)] shadow-sm ring-1 ring-[var(--border)] transition hover:bg-[var(--color-hover)]" href={`/r/${card.restaurant.slug}`} key={card.restaurant.id} onClick={() => setIsOpen(false)}>
+                        <Link className="grid grid-cols-[64px_minmax(0,1fr)_32px] items-center gap-3 rounded-[1.25rem] bg-[var(--surface)] p-2 text-[var(--color-heading)] shadow-sm ring-1 ring-[var(--border)] transition hover:bg-[var(--color-hover)]" href={publicRestaurantPath(card.restaurant.slug)} key={card.restaurant.id} onClick={() => setIsOpen(false)}>
                           <span className="grid h-16 w-16 place-items-center overflow-hidden rounded-2xl bg-[var(--primary)] text-sm font-black text-white">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img alt={card.restaurant.name} className="h-full w-full object-cover" src={imageSrc(card.restaurant.logoUrl || card.restaurant.bannerUrl)} />
@@ -354,7 +356,7 @@ export function HomeSearchAutocomplete({
 
                     <SearchSection title={needle ? "Platos" : "Platos mas pedidos"} count={filteredDishes.length}>
                       {filteredDishes.map((dish) => (
-                        <Link className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-3 rounded-[1.35rem] bg-[var(--surface)] p-2 text-[var(--color-heading)] shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)]" href={`/r/${dish.restaurantSlug}`} key={dish.id} onClick={() => setIsOpen(false)}>
+                        <Link className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-3 rounded-[1.35rem] bg-[var(--surface)] p-2 text-[var(--color-heading)] shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)]" href={publicRestaurantPath(dish.restaurantSlug)} key={dish.id} onClick={() => setIsOpen(false)}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img alt={dish.name} className="h-20 w-[88px] rounded-[1.15rem] object-cover" src={imageSrc(dish.imageUrl)} />
                           <span className="min-w-0">

@@ -11,9 +11,19 @@ import { publicDirectoryService } from "@/lib/services/public-directory.service"
 import { superadminService } from "@/lib/services/superadmin.service";
 import { formatShortDate, formatShortTime } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
 export async function SuperAdminDashboard() {
-  const [summary, profile, directory] = await Promise.all([superadminService.getDashboardSummary(), authService.getCurrentProfile(), publicDirectoryService.getDirectory()]);
+  const [summary, profile, directory, operations] = await Promise.all([
+    superadminService.getDashboardSummary(),
+    authService.getCurrentProfile(),
+    publicDirectoryService.getDirectory(),
+    superadminService.listRestaurantOperations(),
+  ]);
+  const presenceWatchlist = [...operations]
+    .filter((restaurant) => restaurant.publicPresenceStatus !== "ready")
+    .sort((left, right) => left.publicPresenceScore - right.publicPresenceScore)
+    .slice(0, 6);
 
   return (
     <div className="space-y-6">
@@ -64,6 +74,31 @@ export async function SuperAdminDashboard() {
         </Card>
       </div>
 
+      <section className="space-y-3">
+        <SectionTitle
+          action={<Link className={buttonClasses("secondary")} href="/admin/restaurantes">Ver todos</Link>}
+          description="Semaforo de tiendas publicas: identidad, catalogo, contacto y ubicacion antes de vender."
+          title="Presencia publica"
+        />
+        <DataTable
+          emptyMessage="Todas las tiendas activas tienen presencia publica lista."
+          headers={["Restaurante", "Identidad", "Catalogo", "Ubicacion", "Estado", "Accion"]}
+          rows={presenceWatchlist.map((restaurant) => [
+            <div key={`${restaurant.id}-presence-name`}>
+              <p className="font-black">{restaurant.name}</p>
+              <p className="text-xs text-[var(--color-secondary-text)]">{publicRestaurantPath(restaurant.slug)}</p>
+            </div>,
+            <PresenceCell key={`${restaurant.id}-identity`} items={[restaurant.hasLogo ? "Logo" : "Sin logo", restaurant.hasBanner ? "Banner" : "Sin banner"]} ok={restaurant.hasLogo && restaurant.hasBanner} />,
+            <PresenceCell key={`${restaurant.id}-catalog`} items={[`${restaurant.productCount} productos`, `${restaurant.categoryCount} categorias`]} ok={restaurant.productCount > 0 && restaurant.categoryCount > 0} />,
+            <PresenceCell key={`${restaurant.id}-maps`} items={[restaurant.hasAddress ? "Direccion" : "Sin direccion", restaurant.hasMapsLocation ? "Maps listo" : "Google Maps pendiente"]} ok={restaurant.hasAddress && restaurant.hasMapsLocation} />,
+            <PresenceStatus key={`${restaurant.id}-status`} score={restaurant.publicPresenceScore} status={restaurant.publicPresenceStatus} />,
+            <Link className={buttonClasses("secondary")} href={`/admin/restaurantes/${restaurant.id}/configuracion`} key={`${restaurant.id}-action`}>
+              Revisar
+            </Link>,
+          ])}
+        />
+      </section>
+
       <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <SectionTitle title="Mas visitados" description="Visitas publicas de los ultimos 7 dias." />
@@ -85,7 +120,7 @@ export async function SuperAdminDashboard() {
           <SectionTitle title="Platos top" description="Productos con mas pedidos acumulados." />
           <div className="mt-4 space-y-2">
             {directory.mostOrderedDishes.slice(0, 5).map((item, index) => (
-              <AdminRankRow href={`/r/${item.restaurantSlug}`} key={item.id} label={item.name} metric={`${item.orderCount} pedidos | ${item.restaurantName}`} rank={index + 1} />
+              <AdminRankRow href={publicRestaurantPath(item.restaurantSlug)} key={item.id} label={item.name} metric={`${item.orderCount} pedidos | ${item.restaurantName}`} rank={index + 1} />
             ))}
           </div>
         </Card>
@@ -103,7 +138,7 @@ export async function SuperAdminDashboard() {
           rows={summary.topRestaurants.map((restaurant) => [
             <div key={`${restaurant.id}-name`}>
               <p className="font-black">{restaurant.name}</p>
-              <p className="text-xs text-[var(--color-secondary-text)]">/r/{restaurant.slug}</p>
+              <p className="text-xs text-[var(--color-secondary-text)]">{publicRestaurantPath(restaurant.slug)}</p>
             </div>,
             restaurant.orders30d,
             formatMoney(restaurant.revenue30d),
@@ -136,6 +171,29 @@ export async function SuperAdminDashboard() {
       </div>
     </div>
   );
+}
+
+function PresenceCell({ items, ok }: { items: string[]; ok: boolean }) {
+  return (
+    <div className="space-y-1">
+      {items.map((item) => (
+        <p className={ok ? "text-xs font-bold text-[var(--color-success-strong)]" : "text-xs font-bold text-[var(--color-warning-strong)]"} key={item}>
+          {item}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function PresenceStatus({ score, status }: { score: number; status: "ready" | "warning" | "critical" }) {
+  const className =
+    status === "ready"
+      ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]"
+      : status === "critical"
+        ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]"
+        : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]";
+
+  return <Badge className={className}>{score}% listo</Badge>;
 }
 
 function AdminRankRow({ rank, label, metric, href }: { rank: number; label: string; metric: string; href: string }) {

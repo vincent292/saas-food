@@ -48,10 +48,11 @@ npm run build
 - `/admin/restaurantes/[restaurantId]/caja`
 - `/admin/restaurantes/[restaurantId]/inventario`
 - `/admin/restaurantes/[restaurantId]/configuracion`
-- `/r/[restaurantSlug]`
-- `/r/[restaurantSlug]/checkout`
-- `/r/[restaurantSlug]/mesa/[tableCode]`
-- `/r/[restaurantSlug]/pedido/[orderId]?token=[trackingToken]`
+- `/[restaurantSlug]`
+- `/[restaurantSlug]/checkout`
+- `/[restaurantSlug]/mesa/[tableCode]`
+- `/[restaurantSlug]/pedido/[orderId]?token=[trackingToken]`
+- `/r/[restaurantSlug]` (compatibilidad con links anteriores)
 - `/cocina/[restaurantSlug]`
 - `/caja/[restaurantSlug]`
 
@@ -91,7 +92,7 @@ values ('AUTH_USER_UUID', 'Superadmin', 'admin@tu-dominio.com', 'superadmin');
 5. Crea categorías en `/admin/restaurantes/[restaurantId]/categorias`.
 6. Crea productos con imagen en `/admin/restaurantes/[restaurantId]/productos`.
 7. Crea mesas en `/admin/restaurantes/[restaurantId]/mesas`.
-8. Abre `/r/[restaurantSlug]`, agrega productos al carrito y confirma en checkout.
+8. Abre `/[restaurantSlug]`, agrega productos al carrito y confirma en checkout.
 9. Revisa pedidos en `/admin/restaurantes/[restaurantId]/pedidos`.
 10. Gestiona cocina en `/cocina/[restaurantSlug]`.
 

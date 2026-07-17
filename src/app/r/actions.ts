@@ -8,6 +8,7 @@ import { announcementService } from "@/lib/services/announcement.service";
 import { uploadPublicImage } from "@/lib/supabase/storage";
 import { businessTypeSupportsTableQr, normalizeRestaurantBusinessType } from "@/lib/restaurant-directory-options";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTimeWithinBusinessHours, localDateTimeInputToIso } from "@/lib/utils/business-hours";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { BusinessHour, BusinessType } from "@/types/restaurant.types";
 
 const cartItemSchema = z.object({
@@ -285,7 +286,7 @@ export async function createPublicOrderAction(formData: FormData) {
   try {
     cart = JSON.parse(rawCart);
   } catch {
-    redirect(`/r/${formData.get("restaurantSlug")}/checkout?error=invalid`);
+    redirect(`${publicRestaurantPath(String(formData.get("restaurantSlug") || ""), "checkout")}?error=invalid`);
   }
   const parsed = orderSchema.safeParse({
     restaurantId: formData.get("restaurantId"),
@@ -310,10 +311,10 @@ export async function createPublicOrderAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/r/${formData.get("restaurantSlug")}/checkout?error=invalid`);
+    redirect(`${publicRestaurantPath(String(formData.get("restaurantSlug") || ""), "checkout")}?error=invalid`);
   }
 
-  const failPath = parsed.data.tableCode ? `/r/${parsed.data.restaurantSlug}/mesa/${parsed.data.tableCode}` : `/r/${parsed.data.restaurantSlug}`;
+  const failPath = parsed.data.tableCode ? publicRestaurantPath(parsed.data.restaurantSlug, `mesa/${parsed.data.tableCode}`) : publicRestaurantPath(parsed.data.restaurantSlug);
   const supabase = await createClient();
   const writeClient = createAdminClient();
   if (!writeClient) {
@@ -333,7 +334,7 @@ export async function createPublicOrderAction(formData: FormData) {
   ]);
 
   if (!settings) {
-    redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=settings`);
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=settings`);
   }
 
   if (await announcementService.hasActiveClosure(parsed.data.restaurantId)) {
@@ -361,7 +362,7 @@ export async function createPublicOrderAction(formData: FormData) {
     (parsed.data.orderType === "table" && settings.table_orders_enabled && businessTypeSupportsTableQr(businessType));
 
   if (!orderTypeEnabled) {
-    redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=disabled`);
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=disabled`);
   }
 
   if (parsed.data.orderType === "delivery" && !parsed.data.customerAddress?.trim()) {
@@ -377,7 +378,7 @@ export async function createPublicOrderAction(formData: FormData) {
   }
 
   if (subtotal < Number(settings.min_order_amount)) {
-    redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=minimum`);
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=minimum`);
   }
 
   const paymentReceiptFile = formData.get("paymentReceiptFile") as File | null;
@@ -452,7 +453,7 @@ export async function createPublicOrderAction(formData: FormData) {
     .single();
 
   if (error || !order) {
-    redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=create`);
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=create`);
   }
 
   const { error: itemsError } = await writeClient.from("order_items").insert(
@@ -469,10 +470,10 @@ export async function createPublicOrderAction(formData: FormData) {
 
   if (itemsError) {
     await writeClient.from("orders").delete().eq("id", order.id);
-    redirect(`/r/${parsed.data.restaurantSlug}/checkout?error=create-items`);
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=create-items`);
   }
 
-  redirect(`/r/${parsed.data.restaurantSlug}/pedido/${order.id}?token=${order.tracking_token}`);
+  redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `pedido/${order.id}`)}?token=${order.tracking_token}`);
 }
 
 export async function trackPublicOrderAction(formData: FormData) {
@@ -484,7 +485,7 @@ export async function trackPublicOrderAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/r/${formData.get("restaurantSlug")}/seguimiento?error=invalid`);
+    redirect(`${publicRestaurantPath(String(formData.get("restaurantSlug") || ""), "seguimiento")}?error=invalid`);
   }
 
   const supabase = await createClient();
@@ -496,8 +497,8 @@ export async function trackPublicOrderAction(formData: FormData) {
   const payload = data as TrackingLookupPayload | null;
 
   if (error || !payload?.id || !payload.tracking_token) {
-    redirect(`/r/${parsed.data.restaurantSlug}/seguimiento?error=not-found`);
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "seguimiento")}?error=not-found`);
   }
 
-  redirect(`/r/${parsed.data.restaurantSlug}/pedido/${payload.id}?token=${payload.tracking_token}`);
+  redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `pedido/${payload.id}`)}?token=${payload.tracking_token}`);
 }

@@ -7,6 +7,7 @@ import { CompressedImageInput } from "@/components/settings/CompressedImageInput
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
+import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import type { RestaurantTable } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
@@ -25,7 +26,7 @@ type CartItem = {
 type ProductConfigMap = Record<string, { variants: ProductVariant[]; optionGroups: ProductOptionGroup[] }>;
 type SelectedOptions = Record<string, string[]>;
 
-const defaultImage = "/imagendefault.jpeg";
+const defaultImage = defaultProductImage;
 
 export function TableOrderClient({
   restaurant,

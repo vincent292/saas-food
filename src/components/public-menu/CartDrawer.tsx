@@ -8,6 +8,7 @@ import { buttonClasses } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { formatMoney } from "@/lib/utils/money";
 import { readCart, type CartProduct } from "@/lib/utils/cart";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
 export function CartDrawer({ restaurantSlug }: { restaurantSlug: string }) {
   const [items, setItems] = useState<CartProduct[]>([]);
@@ -61,7 +62,7 @@ export function CartDrawer({ restaurantSlug }: { restaurantSlug: string }) {
         <span>Total</span>
         <span>{formatMoney(total)}</span>
       </div>
-      <Link className={buttonClasses("primary", "mt-5 w-full")} href={`/r/${restaurantSlug}/checkout`}>
+      <Link className={buttonClasses("primary", "mt-5 w-full")} href={publicRestaurantPath(restaurantSlug, "checkout")}>
         Ir al checkout
       </Link>
     </Drawer>

@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { authService } from "@/lib/services/auth.service";
 import { createClient } from "@/lib/supabase/server";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
 export default async function AdminPage() {
   const profile = await authService.getCurrentProfile();
@@ -67,7 +68,7 @@ export default async function AdminPage() {
                 <div>
                   <p className="text-lg font-black">{restaurant.name}</p>
                   <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">
-                    /r/{restaurant.slug}
+                    {publicRestaurantPath(restaurant.slug)}
                     {restaurant.city ? ` - ${restaurant.city}` : ""}
                   </p>
                   <p className="mt-2 text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">{rolesByRestaurant.get(restaurant.id) ?? "restaurant_admin"}</p>

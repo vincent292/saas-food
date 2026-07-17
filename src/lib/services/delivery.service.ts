@@ -25,6 +25,8 @@ type DeliveryOrderPayload = {
   customer_phone?: string | null;
   customer_address?: string | null;
   delivery_address_detail?: string | null;
+  delivery_latitude?: number | null;
+  delivery_longitude?: number | null;
   delivery_maps_url?: string | null;
   requested_fulfillment_at?: string | null;
   notes?: string | null;
@@ -81,6 +83,8 @@ function mapDeliveryOrder(payload: DeliveryOrderPayload): DeliveryOrder | null {
     customerPhone: payload.customer_phone ?? "",
     customerAddress: payload.customer_address ?? "",
     deliveryAddressDetail: payload.delivery_address_detail ?? undefined,
+    deliveryLatitude: payload.delivery_latitude === null || payload.delivery_latitude === undefined ? undefined : Number(payload.delivery_latitude),
+    deliveryLongitude: payload.delivery_longitude === null || payload.delivery_longitude === undefined ? undefined : Number(payload.delivery_longitude),
     deliveryMapsUrl: payload.delivery_maps_url ?? undefined,
     requestedFulfillmentAt: payload.requested_fulfillment_at ?? undefined,
     notes: payload.notes ?? undefined,

@@ -93,6 +93,19 @@ export type RestaurantSettings = {
   printLogo?: boolean;
 };
 
+export type RestaurantDeliveryZone = {
+  id: string;
+  restaurantId: string;
+  name: string;
+  city: string;
+  centerLatitude?: number;
+  centerLongitude?: number;
+  radiusKm: number;
+  deliveryFee: number;
+  minOrderAmount: number;
+  isActive: boolean;
+};
+
 export type BusinessHour = {
   dayOfWeek: number;
   opensAt: string;

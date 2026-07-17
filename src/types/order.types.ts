@@ -47,6 +47,8 @@ export type Order = {
   customerEmail?: string;
   customerAddress?: string;
   deliveryAddressDetail?: string;
+  deliveryLatitude?: number;
+  deliveryLongitude?: number;
   deliveryMapsUrl?: string;
   requestedFulfillmentAt?: string;
   orderType: OrderType;

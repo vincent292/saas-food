@@ -18,6 +18,7 @@ import { platformBillingService } from "@/lib/services/platform-billing.service"
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { moduleCatalog } from "@/lib/modules";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
+import { directionsToMapsUrl, hasValidCoordinates } from "@/lib/utils/google-maps";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import { toSlug } from "@/lib/utils/slug";
 import type { Json } from "@/types/database.types";
@@ -35,7 +36,11 @@ const createRestaurantSchema = z.object({
   description: z.string().optional(),
   whatsapp: z.string().optional(),
   address: z.string().optional(),
+  addressReference: z.string().optional(),
   city: z.string().optional(),
+  latitude: z.coerce.number().min(-90).max(90).optional(),
+  longitude: z.coerce.number().min(-180).max(180).optional(),
+  mapsUrl: z.string().optional(),
   businessType: z.enum(restaurantBusinessTypeValues).default("food"),
   publicCategory: z.string().optional(),
   primaryColor: z.string().default(defaultRestaurantPalette.primaryColor),
@@ -232,6 +237,23 @@ const createDeliveryLinkSchema = z.object({
   orderId: z.string().uuid(),
   deliveryPhone: z.string().optional(),
   deliveryName: z.string().optional(),
+});
+
+const deliveryZoneSchema = z.object({
+  restaurantId: z.string().uuid(),
+  zoneId: z.string().uuid().optional(),
+  name: z.string().min(2),
+  city: z.string().optional(),
+  centerLatitude: z.coerce.number().min(-90).max(90).optional(),
+  centerLongitude: z.coerce.number().min(-180).max(180).optional(),
+  radiusKm: z.coerce.number().positive().max(200).default(3),
+  deliveryFee: z.coerce.number().nonnegative().default(0),
+  minOrderAmount: z.coerce.number().nonnegative().default(0),
+});
+
+const deliveryZoneIdSchema = z.object({
+  restaurantId: z.string().uuid(),
+  zoneId: z.string().uuid(),
 });
 
 const paymentMethodSchema = z.enum(["cash", "qr", "bank_transfer", "card", "other"]);
@@ -1466,7 +1488,11 @@ export async function createRestaurantAction(formData: FormData) {
     description: formData.get("description") || undefined,
     whatsapp: formData.get("whatsapp") || undefined,
     address: formData.get("address") || undefined,
+    addressReference: formData.get("addressReference") || undefined,
     city: formData.get("city") || undefined,
+    latitude: formData.get("latitude") || undefined,
+    longitude: formData.get("longitude") || undefined,
+    mapsUrl: formData.get("mapsUrl") || undefined,
     businessType: formData.get("businessType") || "food",
     publicCategory: formData.get("publicCategory") || undefined,
     primaryColor: formData.get("primaryColor") || defaultRestaurantPalette.primaryColor,
@@ -1514,7 +1540,11 @@ export async function createRestaurantAction(formData: FormData) {
       banner_url: bannerUrl,
       whatsapp: parsed.data.whatsapp,
       address: parsed.data.address,
+      address_reference: parsed.data.addressReference,
       city: parsed.data.city,
+      latitude: parsed.data.latitude ?? null,
+      longitude: parsed.data.longitude ?? null,
+      maps_url: parsed.data.mapsUrl ?? null,
       business_type: businessType,
       public_category: publicCategory,
       owner_user_id: owner.id,
@@ -2911,7 +2941,7 @@ export async function createDeliveryLinkAction(input: {
   const { supabase } = await requireRestaurantMemberOrSuperadmin(parsed.data.restaurantId);
   const { data: order, error: orderError } = await supabase
     .from("orders")
-    .select("id, restaurant_id, order_number, order_type, status, customer_name, customer_phone, customer_address, delivery_address_detail, delivery_maps_url")
+    .select("id, restaurant_id, order_number, order_type, status, customer_name, customer_phone, customer_address, delivery_address_detail, delivery_latitude, delivery_longitude, delivery_maps_url")
     .eq("restaurant_id", parsed.data.restaurantId)
     .eq("id", parsed.data.orderId)
     .maybeSingle();
@@ -2956,6 +2986,14 @@ export async function createDeliveryLinkAction(input: {
   }
 
   const deliveryUrl = `${await currentPublicOrigin()}/delivery/${deliveryToken}`;
+  const deliveryMapsUrl = hasValidCoordinates(order.delivery_latitude, order.delivery_longitude)
+    ? directionsToMapsUrl({
+        address: order.customer_address,
+        latitude: Number(order.delivery_latitude),
+        longitude: Number(order.delivery_longitude),
+      })
+    : order.delivery_maps_url;
+
   const message = encodeURIComponent(
     [
       `Pedido ${order.order_number} para entregar.`,
@@ -2963,7 +3001,7 @@ export async function createDeliveryLinkAction(input: {
       order.customer_phone ? `Telefono: ${order.customer_phone}` : "",
       order.customer_address ? `Direccion: ${order.customer_address}` : "",
       order.delivery_address_detail ? `Referencia: ${order.delivery_address_detail}` : "",
-      order.delivery_maps_url ? `Google Maps: ${order.delivery_maps_url}` : "",
+      deliveryMapsUrl ? `Google Maps: ${deliveryMapsUrl}` : "",
       `Abrir datos y marcar entrega: ${deliveryUrl}`,
     ]
       .filter(Boolean)
@@ -2983,6 +3021,112 @@ export async function createDeliveryLinkAction(input: {
     deliveryPhone,
     expiresAt,
   };
+}
+
+export async function saveDeliveryZoneAction(formData: FormData) {
+  const parsed = deliveryZoneSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    zoneId: formData.get("zoneId") || undefined,
+    name: formData.get("zoneName"),
+    city: formData.get("zoneCity") || undefined,
+    centerLatitude: formData.get("zoneLatitude") || undefined,
+    centerLongitude: formData.get("zoneLongitude") || undefined,
+    radiusKm: formData.get("zoneRadiusKm") || 3,
+    deliveryFee: formData.get("zoneDeliveryFee") || 0,
+    minOrderAmount: formData.get("zoneMinOrderAmount") || 0,
+  });
+
+  const restaurantId = String(formData.get("restaurantId") || "");
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${restaurantId}/configuracion?tab=ubicacion&error=invalid-zone`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion`);
+  const { supabase } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+
+  const payload = {
+    restaurant_id: parsed.data.restaurantId,
+    name: parsed.data.name,
+    city: parsed.data.city ?? null,
+    center_latitude: parsed.data.centerLatitude ?? null,
+    center_longitude: parsed.data.centerLongitude ?? null,
+    radius_km: parsed.data.radiusKm,
+    delivery_fee: parsed.data.deliveryFee,
+    min_order_amount: parsed.data.minOrderAmount,
+    is_active: true,
+  };
+
+  const response = parsed.data.zoneId
+    ? await supabase.from("restaurant_delivery_zones").update(payload).eq("restaurant_id", parsed.data.restaurantId).eq("id", parsed.data.zoneId)
+    : await supabase.from("restaurant_delivery_zones").insert(payload);
+
+  if (response.error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&error=${response.error.code}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&zone=1`);
+}
+
+export async function toggleDeliveryZoneAction(formData: FormData) {
+  const parsed = deliveryZoneIdSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    zoneId: formData.get("zoneId"),
+  });
+
+  const restaurantId = String(formData.get("restaurantId") || "");
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${restaurantId}/configuracion?tab=ubicacion&error=invalid-zone`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion`);
+  const { supabase } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  const { data: zone } = await supabase
+    .from("restaurant_delivery_zones")
+    .select("is_active")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("id", parsed.data.zoneId)
+    .maybeSingle();
+
+  const { error } = await supabase
+    .from("restaurant_delivery_zones")
+    .update({ is_active: !(zone?.is_active ?? true) })
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("id", parsed.data.zoneId);
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&error=${error.code}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&zone=1`);
+}
+
+export async function deleteDeliveryZoneAction(formData: FormData) {
+  const parsed = deliveryZoneIdSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    zoneId: formData.get("zoneId"),
+  });
+
+  const restaurantId = String(formData.get("restaurantId") || "");
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${restaurantId}/configuracion?tab=ubicacion&error=invalid-zone`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion`);
+  const { supabase } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  const { error } = await supabase
+    .from("restaurant_delivery_zones")
+    .delete()
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("id", parsed.data.zoneId);
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&error=${error.code}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&zone=1`);
 }
 
 export async function openCashSessionAction(formData: FormData) {

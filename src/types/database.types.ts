@@ -85,6 +85,20 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      restaurant_delivery_zones: Row<{
+        id: string;
+        restaurant_id: string;
+        name: string;
+        city: string | null;
+        center_latitude: number | null;
+        center_longitude: number | null;
+        radius_km: number;
+        delivery_fee: number;
+        min_order_amount: number;
+        is_active: boolean;
+        created_at: string;
+        updated_at: string;
+      }>;
       restaurant_memberships: Row<{
         id: string;
         restaurant_id: string;

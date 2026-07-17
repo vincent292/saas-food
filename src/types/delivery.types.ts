@@ -32,6 +32,8 @@ export type DeliveryOrder = {
   customerPhone: string;
   customerAddress: string;
   deliveryAddressDetail?: string;
+  deliveryLatitude?: number;
+  deliveryLongitude?: number;
   deliveryMapsUrl?: string;
   requestedFulfillmentAt?: string;
   notes?: string;

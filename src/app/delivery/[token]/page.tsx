@@ -8,18 +8,11 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { deliveryService } from "@/lib/services/delivery.service";
 import { formatShortTime } from "@/lib/utils/dates";
+import { directionsToMapsUrl, hasValidCoordinates } from "@/lib/utils/google-maps";
 import { formatMoney } from "@/lib/utils/money";
 
 function digitsOnly(value: string) {
   return value.replace(/\D/g, "");
-}
-
-function mapsHref(address: string, mapsUrl?: string) {
-  if (mapsUrl?.trim()) {
-    return mapsUrl;
-  }
-
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 }
 
 function whatsappHref(phone: string, orderNumber: string) {
@@ -48,7 +41,13 @@ export default async function DeliveryOrderPage({
   const canMarkArrived = order.orderStatus !== "delivered" && order.linkStatus === "active";
   const canMarkDelivered = order.orderStatus !== "delivered" && ["active", "arrived"].includes(order.linkStatus);
   const deliveryStatusLabel = order.orderStatus === "delivered" ? "Entregado" : order.linkStatus === "arrived" ? "En ubicacion" : "En entrega";
-  const mapUrl = mapsHref(order.customerAddress, order.deliveryMapsUrl);
+  const mapUrl = hasValidCoordinates(order.deliveryLatitude, order.deliveryLongitude)
+    ? directionsToMapsUrl({
+        address: order.customerAddress,
+        latitude: order.deliveryLatitude,
+        longitude: order.deliveryLongitude,
+      })
+    : order.deliveryMapsUrl?.trim() || directionsToMapsUrl({ address: order.customerAddress });
   const phoneDigits = digitsOnly(order.customerPhone);
   const waUrl = whatsappHref(order.customerPhone, order.orderNumber);
 

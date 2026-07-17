@@ -3,6 +3,7 @@
 import { Bike, Store, Table2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
+import { DeliveryLocationFields } from "@/components/location/DeliveryLocationFields";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -12,7 +13,7 @@ import { SectionTitle } from "@/components/ui/SectionTitle";
 import { businessCatalogLabel, businessTypeSupportsTableQr } from "@/lib/restaurant-directory-options";
 import { readCart, type CartProduct } from "@/lib/utils/cart";
 import { formatMoney } from "@/lib/utils/money";
-import type { BusinessType, RestaurantSettings } from "@/types/restaurant.types";
+import type { BusinessType, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
 type OrderType = "table" | "delivery" | "pickup";
 
@@ -22,12 +23,14 @@ export function CheckoutClient({
   error,
   settings,
   businessType,
+  deliveryZones,
 }: {
   restaurantId: string;
   restaurantSlug: string;
   error?: string;
   settings: RestaurantSettings | null;
   businessType: BusinessType;
+  deliveryZones: RestaurantDeliveryZone[];
 }) {
   const [cart] = useState<CartProduct[]>(() => readCart(restaurantSlug));
   const [selectedOrderType, setSelectedOrderType] = useState<OrderType>(() => {
@@ -73,6 +76,8 @@ export function CheckoutClient({
             ? "Falta configurar las reglas operativas del restaurante."
             : error === "invalid"
               ? "Faltan datos obligatorios o el carrito no tiene el formato correcto."
+              : error === "delivery-address"
+                ? "Para delivery debes indicar direccion o compartir tu ubicacion."
               : error === "product-not-found"
                 ? "Uno de los productos ya no esta disponible. Actualiza el menu e intenta nuevamente."
                 : error === "product-configuration"
@@ -125,7 +130,19 @@ export function CheckoutClient({
               <option value="bank_transfer">Transferencia</option>
               <option value="card">Tarjeta futuro</option>
             </Select>
-            <Input className="md:col-span-2" name="customerAddress" placeholder="Dirección si es delivery" />
+            <DeliveryLocationFields visible={selectedOrderType === "delivery"} />
+            {selectedOrderType === "delivery" && deliveryZones.length ? (
+              <div className="md:col-span-2 rounded-2xl bg-[var(--primary-light)] p-3">
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Zonas de cobertura</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {deliveryZones.map((zone) => (
+                    <span className="rounded-full bg-[var(--surface)] px-3 py-1 text-xs font-black text-[var(--text)]" key={zone.id}>
+                      {zone.name} · {zone.radiusKm} km · {formatMoney(zone.deliveryFee, settings?.currency)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <Textarea className="md:col-span-2" name="notes" placeholder="Notas del pedido" />
           </Card>
           <div className="grid gap-3 md:grid-cols-3">

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { createRestaurantAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -70,6 +71,10 @@ export default async function NewRestaurantPage({ searchParams }: { searchParams
           </FieldSelect>
 
           <Input name="address" placeholder="Direccion" />
+          <Input name="addressReference" placeholder="Referencia o zona" />
+          <div className="md:col-span-2">
+            <GoogleLocationFields label="Ubicacion del negocio" />
+          </div>
           <Select defaultValue="basic" name="planKey">
             {plans.map((plan) => (
               <option key={plan.key} value={plan.key}>

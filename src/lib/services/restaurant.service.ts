@@ -4,7 +4,7 @@ import { createPublicServerClient } from "@/lib/supabase/public-server";
 import { inferRestaurantCategory, normalizeRestaurantBusinessType, normalizeRestaurantCategory } from "@/lib/restaurant-directory-options";
 import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
-import type { ModuleKey, PlanKey, Restaurant, RestaurantSettings } from "@/types/restaurant.types";
+import type { ModuleKey, PlanKey, Restaurant, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
 const legacyGreenBrandColors = new Set(["#1d8844", "#146333", "#15803d", "#22c55e"]);
 
@@ -173,6 +173,32 @@ function mapSettings(row: {
     printFormat: row.print_format ?? "thermal_80",
     autoPrintKitchen: row.auto_print_kitchen ?? false,
     printLogo: row.print_logo ?? true,
+  };
+}
+
+function mapDeliveryZone(row: {
+  id: string;
+  restaurant_id: string;
+  name: string;
+  city: string | null;
+  center_latitude: number | null;
+  center_longitude: number | null;
+  radius_km: number;
+  delivery_fee: number;
+  min_order_amount: number;
+  is_active: boolean;
+}): RestaurantDeliveryZone {
+  return {
+    id: row.id,
+    restaurantId: row.restaurant_id,
+    name: row.name,
+    city: row.city ?? "",
+    centerLatitude: row.center_latitude === null ? undefined : Number(row.center_latitude),
+    centerLongitude: row.center_longitude === null ? undefined : Number(row.center_longitude),
+    radiusKm: Number(row.radius_km),
+    deliveryFee: Number(row.delivery_fee),
+    minOrderAmount: Number(row.min_order_amount),
+    isActive: row.is_active,
   };
 }
 
@@ -459,5 +485,49 @@ export const restaurantService = {
     }
 
     return mapSettings(data);
+  },
+
+  async listDeliveryZones(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("restaurant_delivery_zones")
+      .select("*")
+      .eq("restaurant_id", restaurantId)
+      .order("is_active", { ascending: false })
+      .order("name", { ascending: true });
+
+    if (error || !data?.length) {
+      return [];
+    }
+
+    return data.map(mapDeliveryZone);
+  },
+
+  async listPublicDeliveryZones(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const supabase = createPublicServerClient();
+    if (!supabase) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from("restaurant_delivery_zones")
+      .select("*")
+      .eq("restaurant_id", restaurantId)
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+
+    if (error || !data?.length) {
+      return [];
+    }
+
+    return data.map(mapDeliveryZone);
   },
 };

@@ -21,15 +21,19 @@ import {
   approveOwnerChangeRequestAction,
   closeRestaurantTodayAction,
   createOwnerChangeRequestAction,
+  deleteDeliveryZoneAction,
   createRestaurantAnnouncementAction,
   deactivateRestaurantAnnouncementAction,
   markPlatformPaymentPaidAction,
   rejectOwnerChangeRequestAction,
+  saveDeliveryZoneAction,
   submitPlatformPaymentProofAction,
+  toggleDeliveryZoneAction,
   updatePlatformBillingSettingsAction,
   updateRestaurantConfigurationAction,
   verifyPlatformPaymentProofAction,
 } from "@/app/admin/actions";
+import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { ModuleToggle } from "@/components/settings/ModuleToggle";
 import { Button } from "@/components/ui/Button";
@@ -52,6 +56,7 @@ import type {
   OwnerChangePolicy,
   PlatformBilling,
   Restaurant,
+  RestaurantDeliveryZone,
   RestaurantAnnouncement,
   RestaurantOwnerChangeRequest,
   RestaurantSettings,
@@ -98,6 +103,7 @@ const errorMessages: Record<string, string> = {
   "owner-change-cooldown": "Todavia no se puede pedir otro cambio de responsable por la ventana de seguridad.",
   "invalid-owner-resolution": "No se pudo resolver la solicitud de cambio de responsable.",
   "owner-request-missing": "La solicitud ya no existe o ya fue resuelta.",
+  "invalid-zone": "Revisa los datos de la zona de delivery.",
 };
 
 type SettingsTab = (typeof tabs)[number]["key"];
@@ -234,6 +240,8 @@ export function RestaurantSettingsFormClient({
   ownerRequest,
   ownerApproved,
   ownerRejected,
+  zoneSaved,
+  deliveryZones,
   initialTab,
   canManagePlan,
   ownerChangePolicy,
@@ -257,6 +265,8 @@ export function RestaurantSettingsFormClient({
   ownerRequest?: string;
   ownerApproved?: string;
   ownerRejected?: string;
+  zoneSaved?: string;
+  deliveryZones: RestaurantDeliveryZone[];
   initialTab?: string;
   canManagePlan: boolean;
   ownerChangePolicy: OwnerChangePolicy;
@@ -303,6 +313,7 @@ export function RestaurantSettingsFormClient({
       {ownerRequest ? <Banner tone="success">Solicitud de cambio de responsable enviada.</Banner> : null}
       {ownerApproved ? <Banner tone="success">Solicitud aprobada. El acceso principal ya fue actualizado.</Banner> : null}
       {ownerRejected ? <Banner tone="success">Solicitud rechazada.</Banner> : null}
+      {zoneSaved ? <Banner tone="success">Zona de delivery actualizada.</Banner> : null}
       {error ? <Banner tone="danger">{errorMessages[error] ?? `No se pudo guardar la configuracion: ${error}.`}</Banner> : null}
 
       <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
@@ -704,20 +715,72 @@ export function RestaurantSettingsFormClient({
       </div>
 
       <div className={cn(activeTab === "ubicacion" ? "block" : "hidden")}>
-        <Card className="grid gap-4 md:grid-cols-2">
-          <SectionTitle title="Ubicacion" description="Direccion del local, referencia y enlace de Google Maps para recojo." />
-          <div className="md:col-span-2" />
-          <Input className="md:col-span-2" defaultValue={restaurant.address} name="address" placeholder="Direccion del local" />
-          <Input className="md:col-span-2" defaultValue={restaurant.addressReference} name="addressReference" placeholder="Referencia, piso, zona o indicaciones" />
-          <Input defaultValue={restaurant.latitude ?? ""} name="latitude" placeholder="Latitud" step="0.0000001" type="number" />
-          <Input defaultValue={restaurant.longitude ?? ""} name="longitude" placeholder="Longitud" step="0.0000001" type="number" />
-          <Input className="md:col-span-2" defaultValue={restaurant.mapsUrl} name="mapsUrl" placeholder="Link de Google Maps" />
-          {restaurant.mapsUrl ? (
-            <a className="font-black text-[var(--primary)] md:col-span-2" href={restaurant.mapsUrl} rel="noreferrer" target="_blank">
-              Abrir ubicacion actual
-            </a>
-          ) : null}
-        </Card>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <Card className="grid gap-4 md:grid-cols-2">
+            <SectionTitle title="Ubicacion" description="Direccion del local, referencia y punto de Google Maps para recojo y calculos futuros." />
+            <div className="md:col-span-2" />
+            <Input className="md:col-span-2" defaultValue={restaurant.address} name="address" placeholder="Direccion del local" />
+            <Input className="md:col-span-2" defaultValue={restaurant.addressReference} name="addressReference" placeholder="Referencia, piso, zona o indicaciones" />
+            <GoogleLocationFields defaultLatitude={restaurant.latitude} defaultLongitude={restaurant.longitude} defaultMapsUrl={restaurant.mapsUrl} label={restaurant.name} />
+          </Card>
+
+          <Card className="space-y-4">
+            <SectionTitle title="Nueva zona" description="Define ciudad, radio aproximado y costo operativo de delivery." />
+            <Input name="zoneName" placeholder="Nombre de zona, ej: Centro" />
+            <Input defaultValue={restaurant.city} name="zoneCity" placeholder="Ciudad" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input name="zoneLatitude" placeholder="Latitud centro" step="0.0000001" type="number" />
+              <Input name="zoneLongitude" placeholder="Longitud centro" step="0.0000001" type="number" />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Input defaultValue="3" name="zoneRadiusKm" placeholder="Radio km" step="0.1" type="number" />
+              <Input defaultValue={settings?.deliveryFee ?? 0} name="zoneDeliveryFee" placeholder="Costo envio" step="0.01" type="number" />
+              <Input defaultValue={settings?.minOrderAmount ?? 0} name="zoneMinOrderAmount" placeholder="Pedido minimo" step="0.01" type="number" />
+            </div>
+            <Button formAction={saveDeliveryZoneAction} type="submit">
+              <MapPin className="h-4 w-4" />
+              Guardar zona
+            </Button>
+          </Card>
+
+          <Card className="space-y-4 xl:col-span-2">
+            <SectionTitle title="Zonas delivery" description="Base para segmentar cobertura y luego calcular costo por zona o distancia." />
+            {deliveryZones.length ? (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {deliveryZones.map((zone) => (
+                  <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4" key={zone.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-black text-[var(--color-heading)]">{zone.name}</p>
+                        <p className="mt-1 text-xs font-semibold text-[var(--color-secondary-text)]">{zone.city || restaurant.city || "Sin ciudad"}</p>
+                      </div>
+                      <span className={cn("rounded-full px-2.5 py-1 text-[10px] font-black", zone.isActive ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]")}>
+                        {zone.isActive ? "Activa" : "Pausada"}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-bold text-[var(--color-body)]">
+                      <span className="rounded-xl bg-[var(--color-surface)] p-2">{zone.radiusKm} km</span>
+                      <span className="rounded-xl bg-[var(--color-surface)] p-2">Bs {zone.deliveryFee}</span>
+                      <span className="rounded-xl bg-[var(--color-surface)] p-2">Min {zone.minOrderAmount}</span>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <Button className="min-h-10 flex-1 text-xs" formAction={toggleDeliveryZoneAction} name="zoneId" type="submit" value={zone.id} variant="secondary">
+                        {zone.isActive ? "Pausar" : "Activar"}
+                      </Button>
+                      <Button className="min-h-10 flex-1 text-xs" formAction={deleteDeliveryZoneAction} name="zoneId" type="submit" value={zone.id} variant="secondary">
+                        Eliminar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-secondary-text)]">
+                Todavia no hay zonas. Puedes empezar con una zona general por ciudad y despues separar barrios o radios.
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
 
       <div className={cn(activeTab === "horarios" ? "block" : "hidden")}>

@@ -29,10 +29,11 @@ export default async function SettingsPage({
     ownerRequest?: string;
     ownerApproved?: string;
     ownerRejected?: string;
+    zone?: string;
   }>;
 }) {
   const { restaurantId } = await params;
-  const { saved, error, tab, announcement, closed, disabled, billingSaved, paymentUploaded, paymentVerified, paymentPaid, ownerRequest, ownerApproved, ownerRejected } = await searchParams;
+  const { saved, error, tab, announcement, closed, disabled, billingSaved, paymentUploaded, paymentVerified, paymentPaid, ownerRequest, ownerApproved, ownerRejected, zone } = await searchParams;
   const restaurant = await restaurantService.getById(restaurantId);
 
   if (!restaurant) {
@@ -41,7 +42,7 @@ export default async function SettingsPage({
 
   await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/configuracion`);
 
-  const [settings, businessHours, plans, profile, announcements, billingSnapshot, ownerChangePolicy, ownerChangeRequests] = await Promise.all([
+  const [settings, businessHours, plans, profile, announcements, billingSnapshot, ownerChangePolicy, ownerChangeRequests, deliveryZones] = await Promise.all([
     restaurantService.getSettings(restaurant.id),
     settingsService.listBusinessHours(restaurant.id),
     planService.listPlans(),
@@ -50,6 +51,7 @@ export default async function SettingsPage({
     platformBillingService.getBillingSnapshot(restaurant.id, restaurant.status),
     platformBillingService.getOwnerChangePolicy(restaurant.id),
     platformBillingService.listOwnerChangeRequests(restaurant.id),
+    restaurantService.listDeliveryZones(restaurant.id),
   ]);
 
   return (
@@ -84,6 +86,8 @@ export default async function SettingsPage({
         restaurant={restaurant}
         saved={saved}
         settings={settings}
+        zoneSaved={zone}
+        deliveryZones={deliveryZones}
       />
     </AdminLayout>
   );

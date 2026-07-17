@@ -17,11 +17,14 @@ export default async function CheckoutPage({
     notFound();
   }
 
-  const settings = await restaurantService.getSettings(restaurant.id);
+  const [settings, deliveryZones] = await Promise.all([
+    restaurantService.getSettings(restaurant.id),
+    restaurantService.listPublicDeliveryZones(restaurant.id),
+  ]);
 
   return (
     <RestaurantLayout restaurant={restaurant}>
-      <CheckoutClient businessType={restaurant.businessType} error={error} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} settings={settings} />
+      <CheckoutClient businessType={restaurant.businessType} deliveryZones={deliveryZones} error={error} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} settings={settings} />
     </RestaurantLayout>
   );
 }

@@ -39,7 +39,7 @@ export default async function CashPage({
 
   const activeTab = normalizeTab(status.tab);
   const needsPosCatalog = activeTab === "venta";
-  const needsOperationalOrders = activeTab === "pedidos" || activeTab === "delivery" || activeTab === "recojo" || activeTab === "movimientos";
+  const needsOperationalOrders = true;
   const needsMovements = activeTab === "movimientos";
   const needsReports = activeTab === "reportes";
 

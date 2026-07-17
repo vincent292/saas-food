@@ -32,6 +32,7 @@ export type OrderDeliveryDispatch = {
   status: OrderDeliveryDispatchStatus;
   deliveryPhone?: string;
   deliveryName?: string;
+  dispatchedAt?: string;
   openedAt?: string;
   arrivedAt?: string;
   deliveredAt?: string;
@@ -111,5 +112,5 @@ export type OrderTrackingStatus = {
   cancelledAt?: string;
   cancellationReason?: string;
   updatedAt: string;
-  deliveryDispatch?: Pick<OrderDeliveryDispatch, "status" | "openedAt" | "arrivedAt" | "deliveredAt">;
+  deliveryDispatch?: Pick<OrderDeliveryDispatch, "status" | "deliveryPhone" | "deliveryName" | "dispatchedAt" | "openedAt" | "arrivedAt" | "deliveredAt">;
 };

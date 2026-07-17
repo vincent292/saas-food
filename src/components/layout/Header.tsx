@@ -14,20 +14,20 @@ export function Header({ restaurant, cartCount = 0, showCart = true }: { restaur
   return (
     <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--color-card-elevated)] shadow-[var(--shadow-card)] backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-        <Link className="flex items-center gap-3" href={publicRestaurantPath(restaurant.slug)}>
+        <Link className="flex min-w-0 flex-1 items-center gap-3" href={publicRestaurantPath(restaurant.slug)}>
           <span className="relative grid h-11 w-11 overflow-hidden rounded-2xl bg-[var(--primary)] text-sm font-black text-[var(--color-on-primary)] ring-1 ring-[var(--border)]">
             {hasLogoImage ? <Image alt={restaurant.name} className="object-cover" fill sizes="44px" src={restaurant.logoUrl} /> : <span className="grid place-items-center">{restaurant.logoUrl}</span>}
           </span>
-          <span>
-            <span className="block text-sm font-bold text-[var(--text)]">{restaurant.name}</span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-bold text-[var(--text)]">{restaurant.name}</span>
             <span className="flex items-center gap-1 text-xs text-[var(--muted)]">
               <Store className="h-3 w-3" />
-              {restaurant.city}
+              <span className="truncate">{restaurant.city}</span>
             </span>
           </span>
         </Link>
-        <div className="flex items-center gap-2">
-          <Link aria-label="Volver a yopido.shop" className="hidden rounded-xl border border-[var(--border)] bg-white px-2.5 py-2 shadow-sm transition hover:-translate-y-0.5 lg:inline-flex" href="/">
+        <div className="flex shrink-0 items-center gap-2">
+          <Link aria-label="Volver a yopido.shop" className="hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 shadow-sm transition hover:-translate-y-0.5 lg:inline-flex" href="/">
             <BrandLogo className="h-5 w-auto" variant="light" />
           </Link>
           <PublicThemeToggle compact />

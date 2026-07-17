@@ -9,6 +9,7 @@ import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
 import { DeliveryDispatchPanel } from "@/components/delivery/DeliveryDispatchPanel";
+import { NewOrderSoundAlert } from "@/components/orders/NewOrderSoundAlert";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -139,7 +140,7 @@ export function CashWorkspaceClient({
       refreshTimeoutRef.current = window.setTimeout(() => {
         router.refresh();
         refreshTimeoutRef.current = null;
-      }, 900);
+      }, 250);
     };
     const supabase = createClient();
     const channel = supabase
@@ -156,6 +157,25 @@ export function CashWorkspaceClient({
     };
   }, [restaurant.id, router]);
 
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      router.refresh();
+    };
+
+    const interval = window.setInterval(refreshIfVisible, 5000);
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [router]);
+
   const todaysOrders = useMemo(() => orders.filter((order) => isSameBusinessDay(order.createdAt)), [orders]);
   const pendingOrders = useMemo(() => todaysOrders.filter((order) => order.status === "pending" && order.orderType !== "delivery" && order.orderType !== "pickup"), [todaysOrders]);
   const deliveryOrders = useMemo(
@@ -169,7 +189,7 @@ export function CashWorkspaceClient({
   const ordersById = useMemo(() => new Map(todaysOrders.map((order) => [order.id, order])), [todaysOrders]);
   const latestReport = reports[0];
   const banner = statusMessage(status, restaurant.businessType);
-  const hasOperationalCounts = loadedTab === "pedidos" || loadedTab === "delivery" || loadedTab === "recojo" || loadedTab === "movimientos";
+  const hasOperationalCounts = true;
   const activeTabIsLoaded = activeTab === loadedTab;
   const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
   const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
@@ -200,6 +220,15 @@ export function CashWorkspaceClient({
     startTabTransition(() => {
       router.replace(`${url.pathname}?${url.searchParams.toString()}`, { scroll: false });
     });
+  }
+
+  function openAlertOrders(alertOrders: Order[]) {
+    const targetTab = alertOrders.some((order) => order.orderType === "delivery")
+      ? "delivery"
+      : alertOrders.some((order) => order.orderType === "pickup")
+        ? "recojo"
+        : "pedidos";
+    switchTab(targetTab);
   }
 
   return (
@@ -265,6 +294,14 @@ export function CashWorkspaceClient({
       ) : null}
 
       {isTabPending ? <div className="rounded-2xl bg-[var(--color-info-soft)] p-3 text-sm font-bold text-[var(--color-info-strong)]">Actualizando datos de caja...</div> : null}
+
+      <NewOrderSoundAlert
+        description="Caja recibio un pedido nuevo. Revisa pedidos, delivery o recojo para aprobarlo."
+        onOpenAlerts={openAlertOrders}
+        orders={todaysOrders}
+        title="Pedido nuevo en caja"
+        watchOrderTypes={["table", "pos", "delivery", "pickup"]}
+      />
 
       {showPosCreatedModal && status.posOrderNumber ? (
         <div className="fixed inset-0 z-[85] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">

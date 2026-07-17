@@ -1,7 +1,7 @@
 "use client";
 
-import { LocateFixed, MapPinned, Navigation } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { LocateFixed, MapPinned } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { coordinatesToMapsUrl, hasValidCoordinates } from "@/lib/utils/google-maps";
@@ -66,6 +66,11 @@ export function GoogleLocationFields({
   defaultLongitude,
   defaultMapsUrl,
   label = "Ubicacion GPS",
+  showMapByDefault = false,
+  hideCoordinateInputs = false,
+  hideMapsUrlInput = false,
+  mapHeightClassName = "h-72",
+  onCoordinatesChange,
 }: {
   latitudeName?: string;
   longitudeName?: string;
@@ -74,12 +79,17 @@ export function GoogleLocationFields({
   defaultLongitude?: number;
   defaultMapsUrl?: string;
   label?: string;
+  showMapByDefault?: boolean;
+  hideCoordinateInputs?: boolean;
+  hideMapsUrlInput?: boolean;
+  mapHeightClassName?: string;
+  onCoordinatesChange?: (coordinates: { latitude: number; longitude: number; mapsUrl: string }) => void;
 }) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_API_KEY || "";
   const [latitude, setLatitude] = useState(defaultLatitude?.toString() ?? "");
   const [longitude, setLongitude] = useState(defaultLongitude?.toString() ?? "");
   const [mapsUrl, setMapsUrl] = useState(defaultMapsUrl ?? "");
-  const [mapOpen, setMapOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(showMapByDefault);
   const [mapError, setMapError] = useState("");
   const [gpsStatus, setGpsStatus] = useState("");
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -92,13 +102,15 @@ export function GoogleLocationFields({
     return hasValidCoordinates(lat, lng) ? { latitude: lat, longitude: lng } : null;
   }, [latitude, longitude]);
 
-  function updateCoordinates(nextLatitude: number, nextLongitude: number) {
+  const updateCoordinates = useCallback((nextLatitude: number, nextLongitude: number) => {
     const nextLat = nextLatitude.toFixed(7);
     const nextLng = nextLongitude.toFixed(7);
+    const nextMapsUrl = coordinatesToMapsUrl(nextLatitude, nextLongitude);
     setLatitude(nextLat);
     setLongitude(nextLng);
-    setMapsUrl(coordinatesToMapsUrl(nextLatitude, nextLongitude));
-  }
+    setMapsUrl(nextMapsUrl);
+    onCoordinatesChange?.({ latitude: nextLatitude, longitude: nextLongitude, mapsUrl: nextMapsUrl });
+  }, [onCoordinatesChange]);
 
   function useCurrentLocation() {
     setGpsStatus("");
@@ -177,15 +189,26 @@ export function GoogleLocationFields({
     return () => {
       cancelled = true;
     };
-  }, [apiKey, coords, label, mapOpen]);
+  }, [apiKey, coords, label, mapOpen, updateCoordinates]);
 
   return (
     <div className="grid gap-3 md:col-span-2">
-      <div className="grid gap-3 md:grid-cols-2">
-        <Input name={latitudeName} onChange={(event) => setLatitude(event.target.value)} placeholder="Latitud" step="0.0000001" type="number" value={latitude} />
-        <Input name={longitudeName} onChange={(event) => setLongitude(event.target.value)} placeholder="Longitud" step="0.0000001" type="number" value={longitude} />
-      </div>
-      <Input name={mapsUrlName} onChange={(event) => setMapsUrl(event.target.value)} placeholder="Link de Google Maps" value={mapsUrl} />
+      {hideCoordinateInputs ? (
+        <>
+          <input name={latitudeName} type="hidden" value={latitude} />
+          <input name={longitudeName} type="hidden" value={longitude} />
+        </>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2">
+          <Input name={latitudeName} onChange={(event) => setLatitude(event.target.value)} placeholder="Latitud" step="0.0000001" type="number" value={latitude} />
+          <Input name={longitudeName} onChange={(event) => setLongitude(event.target.value)} placeholder="Longitud" step="0.0000001" type="number" value={longitude} />
+        </div>
+      )}
+      {hideMapsUrlInput ? (
+        <input name={mapsUrlName} type="hidden" value={mapsUrl} />
+      ) : (
+        <Input name={mapsUrlName} onChange={(event) => setMapsUrl(event.target.value)} placeholder="Link de Google Maps" value={mapsUrl} />
+      )}
       <div className="flex flex-col gap-2 sm:flex-row">
         <Button onClick={useCurrentLocation} type="button" variant="secondary">
           <LocateFixed className="h-4 w-4" />
@@ -195,17 +218,16 @@ export function GoogleLocationFields({
           <MapPinned className="h-4 w-4" />
           {mapOpen ? "Ocultar mapa" : "Elegir en mapa"}
         </Button>
-        {coords ? (
-          <a className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-black text-[var(--color-on-primary)]" href={coordinatesToMapsUrl(coords.latitude, coords.longitude)} rel="noreferrer" target="_blank">
-            <Navigation className="h-4 w-4" />
-            Abrir Maps
-          </a>
-        ) : null}
       </div>
       {!apiKey ? <p className="text-xs font-semibold text-[var(--muted)]">Configura NEXT_PUBLIC_GOOGLE_MAPS_API_KEY para activar el selector visual. GPS/manual sigue funcionando.</p> : null}
+      {mapOpen && apiKey ? (
+        <div className="rounded-2xl bg-[var(--primary-light)] p-3 text-xs font-black text-[var(--primary)]">
+          Toca el mapa o arrastra el pin para guardar la ubicacion.
+        </div>
+      ) : null}
       {gpsStatus ? <p className="text-xs font-black text-[var(--primary)]">{gpsStatus}</p> : null}
       {mapError ? <p className="text-xs font-black text-[var(--color-danger-strong)]">{mapError}</p> : null}
-      {mapOpen && apiKey ? <div className="h-72 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--color-surface)]" ref={mapRef} /> : null}
+      {mapOpen && apiKey ? <div className={`${mapHeightClassName} overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--color-surface)]`} ref={mapRef} /> : null}
     </div>
   );
 }

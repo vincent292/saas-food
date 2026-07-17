@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateOrderStatusAction } from "@/app/admin/actions";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
+import { NewOrderSoundAlert } from "@/components/orders/NewOrderSoundAlert";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { elapsedLabel, minutesSince, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
 import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
@@ -108,7 +109,7 @@ export function OrdersReceptionClient({
         router.refresh();
         window.setTimeout(() => setIsRefreshing(false), 800);
         refreshTimeoutRef.current = null;
-      }, 900);
+      }, 250);
     };
     const supabase = createClient();
     const channel = supabase
@@ -134,7 +135,7 @@ export function OrdersReceptionClient({
       window.setTimeout(() => setIsRefreshing(false), 800);
     };
 
-    const interval = window.setInterval(refreshIfVisible, 30000);
+    const interval = window.setInterval(refreshIfVisible, 5000);
     window.addEventListener("focus", refreshIfVisible);
     document.addEventListener("visibilitychange", refreshIfVisible);
 
@@ -145,16 +146,14 @@ export function OrdersReceptionClient({
     };
   }, [router]);
 
+  const todayOrders = useMemo(() => orders.filter((order) => isSameBusinessDay(order.createdAt)), [orders]);
   const groups = useMemo(
-    () => {
-      const todayOrders = orders.filter((order) => isSameBusinessDay(order.createdAt));
-      return {
-        nuevos: todayOrders.filter((order) => order.status === "pending"),
-        cocina: todayOrders.filter((order) => ["accepted", "preparing", "ready"].includes(order.status)),
-        historial: todayOrders.filter((order) => ["delivered", "cancelled"].includes(order.status)).slice(0, 40),
-      };
-    },
-    [orders],
+    () => ({
+      nuevos: todayOrders.filter((order) => order.status === "pending"),
+      cocina: todayOrders.filter((order) => ["accepted", "preparing", "ready"].includes(order.status)),
+      historial: todayOrders.filter((order) => ["delivered", "cancelled"].includes(order.status)).slice(0, 40),
+    }),
+    [todayOrders],
   );
 
   const banner = statusMessage(status, restaurant);
@@ -210,6 +209,13 @@ export function OrdersReceptionClient({
       {banner ? (
         <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>{banner.text}</div>
       ) : null}
+
+      <NewOrderSoundAlert
+        description="Recepcion tiene un pedido nuevo pendiente de aprobar."
+        onOpenAlerts={() => setActiveTab("nuevos")}
+        orders={todayOrders}
+        title="Pedido nuevo en recepcion"
+      />
 
       <section className="grid gap-3 md:grid-cols-3">
         <SummaryCard count={groups.nuevos.length} icon={<Clock className="h-5 w-5" />} label="Nuevos por aprobar" />

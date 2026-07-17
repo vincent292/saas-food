@@ -721,17 +721,31 @@ export function RestaurantSettingsFormClient({
             <div className="md:col-span-2" />
             <Input className="md:col-span-2" defaultValue={restaurant.address} name="address" placeholder="Direccion del local" />
             <Input className="md:col-span-2" defaultValue={restaurant.addressReference} name="addressReference" placeholder="Referencia, piso, zona o indicaciones" />
-            <GoogleLocationFields defaultLatitude={restaurant.latitude} defaultLongitude={restaurant.longitude} defaultMapsUrl={restaurant.mapsUrl} label={restaurant.name} />
+            <GoogleLocationFields
+              defaultLatitude={restaurant.latitude}
+              defaultLongitude={restaurant.longitude}
+              defaultMapsUrl={restaurant.mapsUrl}
+              hideCoordinateInputs
+              hideMapsUrlInput
+              label={restaurant.name}
+              showMapByDefault
+            />
           </Card>
 
           <Card className="space-y-4">
             <SectionTitle title="Nueva zona" description="Define ciudad, radio aproximado y costo operativo de delivery." />
             <Input name="zoneName" placeholder="Nombre de zona, ej: Centro" />
             <Input defaultValue={restaurant.city} name="zoneCity" placeholder="Ciudad" />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Input name="zoneLatitude" placeholder="Latitud centro" step="0.0000001" type="number" />
-              <Input name="zoneLongitude" placeholder="Longitud centro" step="0.0000001" type="number" />
-            </div>
+            <GoogleLocationFields
+              hideCoordinateInputs
+              hideMapsUrlInput
+              label="Centro de zona"
+              latitudeName="zoneLatitude"
+              longitudeName="zoneLongitude"
+              mapHeightClassName="h-64"
+              mapsUrlName="zoneMapsUrl"
+              showMapByDefault
+            />
             <div className="grid gap-3 sm:grid-cols-3">
               <Input defaultValue="3" name="zoneRadiusKm" placeholder="Radio km" step="0.1" type="number" />
               <Input defaultValue={settings?.deliveryFee ?? 0} name="zoneDeliveryFee" placeholder="Costo envio" step="0.01" type="number" />

@@ -1,0 +1,184 @@
+"use client";
+
+import { BellRing, Eye, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { buttonClasses } from "@/components/ui/Button";
+import { cn } from "@/lib/utils/cn";
+import type { Order, OrderType } from "@/types/order.types";
+
+const ORDER_ALERT_AUDIO_SRC = "/sounds/new-order.mp3";
+const ORDER_ALERT_REPEAT_MS = 4500;
+
+function sameOrderIds(left: Order[], right: Order[]) {
+  return left.length === right.length && left.every((order, index) => order.id === right[index]?.id);
+}
+
+export function NewOrderSoundAlert({
+  orders,
+  title = "Pedido nuevo",
+  description = "Hay pedidos nuevos esperando revision.",
+  watchOrderTypes,
+  onOpenAlerts,
+}: {
+  orders: Order[];
+  title?: string;
+  description?: string;
+  watchOrderTypes?: OrderType[];
+  onOpenAlerts?: (orders: Order[]) => void;
+}) {
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundBlocked, setSoundBlocked] = useState(false);
+  const [unseenOrders, setUnseenOrders] = useState<Order[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const knownOrderIdsRef = useRef<Set<string> | null>(null);
+  const unseenOrdersRef = useRef<Order[]>([]);
+
+  function ensureAudio() {
+    if (!audioRef.current) {
+      audioRef.current = new Audio(ORDER_ALERT_AUDIO_SRC);
+      audioRef.current.preload = "auto";
+      audioRef.current.volume = 0.78;
+    }
+    return audioRef.current;
+  }
+
+  const alertCandidates = useMemo(
+    () =>
+      orders.filter((order) => {
+        if (order.status !== "pending") {
+          return false;
+        }
+        return watchOrderTypes?.length ? watchOrderTypes.includes(order.orderType) : true;
+      }),
+    [orders, watchOrderTypes],
+  );
+
+  useEffect(() => {
+    const candidateIds = new Set(alertCandidates.map((order) => order.id));
+
+    if (!knownOrderIdsRef.current) {
+      knownOrderIdsRef.current = candidateIds;
+      return;
+    }
+
+    const knownOrderIds = knownOrderIdsRef.current;
+    const incomingOrders = alertCandidates.filter((order) => !knownOrderIds.has(order.id));
+    alertCandidates.forEach((order) => knownOrderIds.add(order.id));
+
+    const stillPending = unseenOrdersRef.current.filter((order) => candidateIds.has(order.id));
+    const nextUnseen = [...stillPending, ...incomingOrders].filter((order, index, list) => list.findIndex((item) => item.id === order.id) === index);
+
+    if (sameOrderIds(unseenOrdersRef.current, nextUnseen)) {
+      return;
+    }
+
+    unseenOrdersRef.current = nextUnseen;
+    setUnseenOrders(nextUnseen);
+  }, [alertCandidates]);
+
+  useEffect(() => {
+    if (!unseenOrders.length || !soundEnabled) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const playAlert = () => {
+      if (cancelled) {
+        return;
+      }
+
+      const audio = ensureAudio();
+      audio.currentTime = 0;
+      void audio.play().then(
+        () => setSoundBlocked(false),
+        () => setSoundBlocked(true),
+      );
+    };
+
+    playAlert();
+    const interval = window.setInterval(playAlert, ORDER_ALERT_REPEAT_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [soundEnabled, unseenOrders.length]);
+
+  async function enableSound() {
+    const audio = ensureAudio();
+    setSoundEnabled(true);
+    setSoundBlocked(false);
+
+    try {
+      const previousVolume = audio.volume;
+      audio.volume = 0.01;
+      await audio.play();
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = previousVolume;
+    } catch {
+      setSoundBlocked(true);
+    }
+  }
+
+  function acknowledge() {
+    unseenOrdersRef.current = [];
+    setUnseenOrders([]);
+  }
+
+  function openAlerts() {
+    const ordersToOpen = unseenOrdersRef.current;
+    acknowledge();
+    onOpenAlerts?.(ordersToOpen);
+  }
+
+  if (!unseenOrders.length) {
+    return (
+      <div className="flex justify-end">
+        <button
+          className={buttonClasses(
+            "secondary",
+            cn("min-h-9 px-3 text-xs", soundEnabled && !soundBlocked ? "text-[var(--color-success-strong)]" : "text-[var(--muted)]"),
+          )}
+          onClick={enableSound}
+          type="button"
+        >
+          {soundEnabled && !soundBlocked ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          {soundEnabled && !soundBlocked ? "Sonido activo" : "Activar sonido"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-[1.25rem] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-4 text-[var(--color-warning-strong)] shadow-sm lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--surface)]">
+          <BellRing className="h-5 w-5 animate-pulse" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-base font-black">
+            {title}: {unseenOrders.length}
+          </p>
+          <p className="mt-1 text-sm font-bold leading-5">{soundBlocked ? "El navegador bloqueo el audio. Pulsa Activar sonido una vez." : description}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {!soundEnabled || soundBlocked ? (
+          <button className={buttonClasses("secondary", "bg-[var(--surface)]")} onClick={enableSound} type="button">
+            <Volume2 className="h-4 w-4" />
+            Activar sonido
+          </button>
+        ) : null}
+        <button className={buttonClasses("primary")} onClick={openAlerts} type="button">
+          <Eye className="h-4 w-4" />
+          Ver pedidos
+        </button>
+        <button className={buttonClasses("ghost")} onClick={acknowledge} type="button">
+          Ya lo vi
+        </button>
+      </div>
+    </div>
+  );
+}

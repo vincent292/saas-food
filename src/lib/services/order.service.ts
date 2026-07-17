@@ -57,6 +57,7 @@ type DeliveryLinkRow = {
   delivery_phone: string | null;
   delivery_name: string | null;
   status: OrderDeliveryDispatch["status"];
+  created_at?: string | null;
   opened_at: string | null;
   arrived_at: string | null;
   delivered_at: string | null;
@@ -67,6 +68,7 @@ type PublicOrderPayload = OrderRow & {
   delivery_dispatch_status?: OrderDeliveryDispatch["status"] | null;
   delivery_dispatch_phone?: string | null;
   delivery_dispatch_name?: string | null;
+  delivery_dispatched_at?: string | null;
   delivery_opened_at?: string | null;
   delivery_arrived_at?: string | null;
   delivery_delivered_at?: string | null;
@@ -111,6 +113,9 @@ type OrderTrackingStatusRow = {
 
 type DeliveryTrackingStatusRow = {
   status: OrderDeliveryDispatch["status"];
+  delivery_phone?: string | null;
+  delivery_name?: string | null;
+  created_at?: string | null;
   opened_at: string | null;
   arrived_at: string | null;
   delivered_at: string | null;
@@ -139,6 +144,7 @@ function mapDeliveryLink(row?: DeliveryLinkRow | null): OrderDeliveryDispatch | 
     status: row.status,
     deliveryPhone: row.delivery_phone ?? undefined,
     deliveryName: row.delivery_name ?? undefined,
+    dispatchedAt: row.created_at ?? undefined,
     openedAt: row.opened_at ?? undefined,
     arrivedAt: row.arrived_at ?? undefined,
     deliveredAt: row.delivered_at ?? undefined,
@@ -154,6 +160,7 @@ function mapPublicDelivery(payload: PublicOrderPayload): OrderDeliveryDispatch |
     status: payload.delivery_dispatch_status,
     deliveryPhone: payload.delivery_dispatch_phone ?? undefined,
     deliveryName: payload.delivery_dispatch_name ?? undefined,
+    dispatchedAt: payload.delivery_dispatched_at ?? undefined,
     openedAt: payload.delivery_opened_at ?? undefined,
     arrivedAt: payload.delivery_arrived_at ?? undefined,
     deliveredAt: payload.delivery_delivered_at ?? undefined,
@@ -248,6 +255,9 @@ function mapTrackingStatus(row: OrderTrackingStatusRow, deliveryDispatch?: Deliv
     deliveryDispatch: deliveryDispatch?.status
       ? {
           status: deliveryDispatch.status,
+          deliveryPhone: deliveryDispatch.delivery_phone ?? undefined,
+          deliveryName: deliveryDispatch.delivery_name ?? undefined,
+          dispatchedAt: deliveryDispatch.created_at ?? undefined,
           openedAt: deliveryDispatch.opened_at ?? undefined,
           arrivedAt: deliveryDispatch.arrived_at ?? undefined,
           deliveredAt: deliveryDispatch.delivered_at ?? undefined,
@@ -272,6 +282,9 @@ function mapOrderToTrackingStatus(order: Order): OrderTrackingStatus {
     deliveryDispatch: order.deliveryDispatch
       ? {
           status: order.deliveryDispatch.status,
+          deliveryPhone: order.deliveryDispatch.deliveryPhone,
+          deliveryName: order.deliveryDispatch.deliveryName,
+          dispatchedAt: order.deliveryDispatch.dispatchedAt,
           openedAt: order.deliveryDispatch.openedAt,
           arrivedAt: order.deliveryDispatch.arrivedAt,
           deliveredAt: order.deliveryDispatch.deliveredAt,
@@ -354,7 +367,7 @@ export const orderService = {
     const orderIds = orders.map((order) => order.id);
     const [{ data: items }, { data: deliveryLinks }] = await Promise.all([
       supabase.from("order_items").select("id,order_id,product_id,product_name,unit_price,quantity,subtotal,notes").in("order_id", orderIds),
-      supabase.from("order_delivery_links").select("order_id,delivery_phone,delivery_name,status,opened_at,arrived_at,delivered_at").in("order_id", orderIds),
+      supabase.from("order_delivery_links").select("order_id,delivery_phone,delivery_name,status,created_at,opened_at,arrived_at,delivered_at").in("order_id", orderIds),
     ]);
 
     return orders.map((order) =>
@@ -429,7 +442,7 @@ export const orderService = {
 
     const { data: deliveryLink } = await supabase
       .from("order_delivery_links")
-      .select("status,opened_at,arrived_at,delivered_at,updated_at")
+      .select("status,delivery_phone,delivery_name,created_at,opened_at,arrived_at,delivered_at,updated_at")
       .eq("order_id", order.id)
       .maybeSingle();
 
@@ -462,7 +475,7 @@ export const orderService = {
 
     const { data: deliveryLink } = await admin
       .from("order_delivery_links")
-      .select("status,opened_at,arrived_at,delivered_at,updated_at")
+      .select("status,delivery_phone,delivery_name,created_at,opened_at,arrived_at,delivered_at,updated_at")
       .eq("order_id", order.id)
       .maybeSingle();
 

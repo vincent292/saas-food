@@ -73,7 +73,7 @@ export default async function NewRestaurantPage({ searchParams }: { searchParams
           <Input name="address" placeholder="Direccion" />
           <Input name="addressReference" placeholder="Referencia o zona" />
           <div className="md:col-span-2">
-            <GoogleLocationFields label="Ubicacion del negocio" />
+            <GoogleLocationFields hideCoordinateInputs hideMapsUrlInput label="Ubicacion del negocio" showMapByDefault />
           </div>
           <Select defaultValue="basic" name="planKey">
             {plans.map((plan) => (

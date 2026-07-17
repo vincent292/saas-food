@@ -54,7 +54,7 @@ export function KitchenBoardClient({
         router.refresh();
         window.setTimeout(() => setIsRefreshing(false), 800);
         refreshTimeoutRef.current = null;
-      }, 900);
+      }, 250);
     };
     const supabase = createClient();
     const channel = supabase
@@ -80,7 +80,7 @@ export function KitchenBoardClient({
       window.setTimeout(() => setIsRefreshing(false), 800);
     };
 
-    const interval = window.setInterval(refreshIfVisible, 30000);
+    const interval = window.setInterval(refreshIfVisible, 5000);
     window.addEventListener("focus", refreshIfVisible);
     document.addEventListener("visibilitychange", refreshIfVisible);
 

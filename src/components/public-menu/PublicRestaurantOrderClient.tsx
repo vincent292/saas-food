@@ -2,8 +2,9 @@
 
 import { AlertTriangle, ArrowRight, Bike, Briefcase, CalendarClock, Check, Clock3, CreditCard, Flame, Heart, House, MapPin, Minus, Package, Pill, Plus, ReceiptText, Search, Share2, Shirt, ShoppingBag, ShoppingCart, Sparkles, Star, Store, UserRound, X } from "lucide-react";
 import Link from "next/link";
-import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
+import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { BrandLogo } from "@/components/brand/BrandLogo";
@@ -81,15 +82,18 @@ export function PublicRestaurantOrderClient({
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [productQuery, setProductQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [cart, setCart] = useState<CartItem[]>(() => readCart(restaurant.slug) as CartItem[]);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartHydrated, setCartHydrated] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerClosing, setDrawerClosing] = useState(false);
+  const [visibleAnnouncementId, setVisibleAnnouncementId] = useState(() => announcements[0]?.id ?? "");
   const businessStatus = useMemo(() => getBusinessStatus(businessHours, new Date(), DEFAULT_RESTAURANT_TIME_ZONE), [businessHours]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "qr">("cash");
   const [requiresInvoice, setRequiresInvoice] = useState(false);
   const [fulfillmentMode, setFulfillmentMode] = useState<"now" | "scheduled">(() => (businessStatus.hasSchedule && !businessStatus.isOpen ? "scheduled" : "now"));
   const [orderType, setOrderType] = useState<PublicOrderType>(() => (settings?.pickupEnabled === false && settings?.deliveryEnabled ? "delivery" : "pickup"));
   const activeClosure = announcements.find((announcement) => announcement.type === "closure");
+  const visibleAnnouncement = announcements.find((announcement) => announcement.id === visibleAnnouncementId);
 
   const configByProduct = useMemo<ProductConfigMap>(() => {
     const map: ProductConfigMap = {};
@@ -137,12 +141,25 @@ export function PublicRestaurantOrderClient({
     : {};
 
   useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setCart(readCart(restaurant.slug) as CartItem[]);
+      setCartHydrated(true);
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [restaurant.slug]);
+
+  useEffect(() => {
+    if (!cartHydrated) {
+      return;
+    }
+
     writeCart(cart, {
       restaurantId: restaurant.id,
       restaurantName: restaurant.name,
       restaurantSlug: restaurant.slug,
     });
-  }, [cart, restaurant.id, restaurant.name, restaurant.slug]);
+  }, [cart, cartHydrated, restaurant.id, restaurant.name, restaurant.slug]);
 
   function addConfiguredProduct(product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) {
     const price = product.price + (variant?.priceDelta ?? 0) + selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
@@ -183,8 +200,8 @@ export function PublicRestaurantOrderClient({
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,var(--color-surface)_0%,#FFFFFF_44%,var(--color-surface)_100%)] text-[var(--text)]" style={publicBackgroundStyle}>
-      <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-white/92 text-[var(--text)] shadow-[0_12px_34px_rgb(18_53_91_/_0.08)] backdrop-blur-xl">
+    <main className="min-h-screen bg-[linear-gradient(180deg,var(--color-surface)_0%,var(--background)_44%,var(--color-surface)_100%)] text-[var(--text)]" style={publicBackgroundStyle}>
+      <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--color-card-elevated)] text-[var(--text)] shadow-[0_12px_34px_rgb(18_53_91_/_0.08)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-3 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center" href={publicRestaurantPath(restaurant.slug)}>
             <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] p-1 text-base font-black text-[var(--color-on-primary)] shadow-sm">
@@ -205,7 +222,7 @@ export function PublicRestaurantOrderClient({
           </Link>
 
           <div className="flex shrink-0 items-center justify-end gap-2">
-            <Link aria-label="Explorar yopido.shop" className="hidden rounded-xl border border-[var(--border)] bg-white px-2.5 py-2 shadow-sm transition hover:-translate-y-0.5 xl:inline-flex" href="/">
+            <Link aria-label="Explorar yopido.shop" className="hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 shadow-sm transition hover:-translate-y-0.5 xl:inline-flex" href="/">
               <BrandLogo className="h-5 w-auto" variant="light" />
             </Link>
             <span className="hidden items-center gap-1 rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-black text-[var(--primary)] md:inline-flex">
@@ -223,6 +240,40 @@ export function PublicRestaurantOrderClient({
           </div>
         </div>
       </header>
+
+      {visibleAnnouncement ? (
+        <div className="fixed inset-0 z-[90] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4" role="dialog" aria-modal="true" aria-label={visibleAnnouncement.title}>
+          <div className="w-full max-w-lg overflow-hidden rounded-t-[1.5rem] border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:rounded-[1.5rem]">
+            {visibleAnnouncement.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img alt={visibleAnnouncement.title} className="h-44 w-full object-cover sm:h-56" src={visibleAnnouncement.imageUrl} />
+            ) : null}
+            <div className="p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black",
+                      visibleAnnouncement.type === "closure" ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--primary-light)] text-[var(--primary)]",
+                    )}
+                  >
+                    {visibleAnnouncement.type === "closure" ? <AlertTriangle className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    {visibleAnnouncement.type === "closure" ? "Cierre temporal" : "Comunicado"}
+                  </span>
+                  <h2 className="mt-3 text-2xl font-black leading-tight text-[var(--text)]">{visibleAnnouncement.title}</h2>
+                </div>
+                <button className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-surface)] text-[var(--text)]" onClick={() => setVisibleAnnouncementId("")} type="button" aria-label="Cerrar aviso">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              {visibleAnnouncement.body ? <p className="mt-3 text-sm font-semibold leading-6 text-[var(--muted)]">{visibleAnnouncement.body}</p> : null}
+              <Button className="mt-5 w-full" onClick={() => setVisibleAnnouncementId("")} type="button">
+                Entendido
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mx-auto max-w-6xl px-3 pb-28 pt-5 sm:px-6 lg:px-8 lg:pb-8">
         <section className="min-w-0">
@@ -283,28 +334,8 @@ export function PublicRestaurantOrderClient({
             </div>
           </div>
 
-          {announcements.length ? (
-            <div className="mb-4 grid gap-3">
-              {announcements.map((announcement) => (
-                <div className={cn("overflow-hidden rounded-[1.45rem] border p-4 shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]", announcement.type === "closure" ? "border-[var(--color-warning-strong)]/30 bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "border-[var(--border)] bg-white text-[var(--text)]")} key={announcement.id}>
-                  <div className="grid gap-3 sm:grid-cols-[120px_1fr] sm:items-center">
-                    {announcement.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img alt={announcement.title} className="h-28 w-full rounded-[1rem] object-cover sm:h-24" src={announcement.imageUrl} />
-                    ) : null}
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.14em]">{announcement.type === "closure" ? "Cierre temporal" : "Comunicado"}</p>
-                      <h2 className="mt-1 text-xl font-black">{announcement.title}</h2>
-                      {announcement.body ? <p className="mt-1 text-sm font-semibold leading-6 opacity-85">{announcement.body}</p> : null}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
           {topOrderedProducts.length ? (
-            <div className="mb-4 rounded-[1.35rem] border border-[var(--border)] bg-white p-3 shadow-[0_14px_34px_rgb(18_53_91_/_0.07)] sm:rounded-[1.65rem] sm:p-4 sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]">
+            <div className="mb-4 rounded-[1.35rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_14px_34px_rgb(18_53_91_/_0.07)] sm:rounded-[1.65rem] sm:p-4 sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-black uppercase text-[var(--primary)]">Favoritos</p>
@@ -329,7 +360,7 @@ export function PublicRestaurantOrderClient({
           ) : null}
 
           <div className="mb-4 grid gap-3 md:grid-cols-[1fr_auto]">
-            <label className="flex min-h-14 items-center gap-3 rounded-[1.35rem] border border-[var(--border)] bg-white px-4 shadow-[0_18px_48px_rgb(18_53_91_/_0.08)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[var(--accent-ring)]">
+            <label className="flex min-h-14 items-center gap-3 rounded-[1.35rem] border border-[var(--border)] bg-[var(--surface)] px-4 shadow-[0_18px_48px_rgb(18_53_91_/_0.08)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[var(--accent-ring)]">
               <Search className="h-5 w-5 text-[var(--muted)]" />
               <input
                 className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none placeholder:text-[var(--color-placeholder)]"
@@ -407,7 +438,7 @@ export function PublicRestaurantOrderClient({
       {drawerOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden bg-[var(--color-overlay)] px-2 pb-2 pt-16 backdrop-blur-sm sm:items-center sm:p-4" onClick={requestCloseDrawer}>
           <div className={cn("max-h-[min(92dvh,820px)] w-full max-w-[min(100%,620px)] overflow-hidden rounded-t-[2rem] bg-[var(--surface)] text-[var(--text)] shadow-2xl sm:rounded-[2rem]", drawerClosing ? "public-sheet-exit" : "public-sheet-enter")} data-order-sheet onClick={(event) => event.stopPropagation()}>
-            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--border)] bg-white/95 px-4 py-4 backdrop-blur">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--color-card-elevated)] px-4 py-4 backdrop-blur">
               <div>
                 <h2 className="min-w-0 truncate text-xl font-black sm:text-2xl">Tu pedido</h2>
                 <p className="text-sm font-semibold text-[var(--muted)]">{cartQuantity} item{cartQuantity === 1 ? "" : "s"}</p>
@@ -545,7 +576,7 @@ function ProductTile({ product, config, onSelect }: { product: Product; config?:
   const hasConfiguration = Boolean(config?.variants.length || config?.optionGroups.length);
 
   return (
-    <button className="grid grid-cols-[92px_minmax(0,1fr)_42px] items-center gap-2.5 rounded-[1.15rem] border border-[var(--border)] bg-white p-2 text-left text-[var(--text)] shadow-[0_12px_32px_rgb(18_53_91_/_0.07)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] hover:shadow-[0_22px_56px_rgb(18_53_91_/_0.12)] sm:grid-cols-[132px_minmax(0,1fr)_52px] sm:gap-3 sm:rounded-[1.35rem] sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]" onClick={onSelect} type="button">
+    <button className="grid grid-cols-[92px_minmax(0,1fr)_42px] items-center gap-2.5 rounded-[1.15rem] border border-[var(--border)] bg-[var(--surface)] p-2 text-left text-[var(--text)] shadow-[0_12px_32px_rgb(18_53_91_/_0.07)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] hover:shadow-[0_22px_56px_rgb(18_53_91_/_0.12)] sm:grid-cols-[132px_minmax(0,1fr)_52px] sm:gap-3 sm:rounded-[1.35rem] sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]" onClick={onSelect} type="button">
       <span className="relative h-24 overflow-hidden rounded-[1rem] bg-[var(--primary-light)] sm:h-32 sm:rounded-[1.2rem]">
         <ProductVisual className="h-full w-full" name={product.name} src={product.imageUrl} />
         {product.isAutoFeatured || product.isFeatured ? <span className="absolute left-2 top-2 rounded-full bg-[var(--accent)] px-2 py-1 text-[10px] font-black text-[var(--primary)]">Top</span> : null}
@@ -755,7 +786,7 @@ function ProductOptionModal({
           })}
         </div>
 
-        <div className="sticky bottom-0 z-30 grid gap-3 border-t border-[var(--border)] bg-white/95 p-4 backdrop-blur sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="sticky bottom-0 z-30 grid gap-3 border-t border-[var(--border)] bg-[var(--color-card-elevated)] p-4 backdrop-blur sm:grid-cols-[1fr_auto] sm:items-center">
           <div>
             <p className="text-xs font-black uppercase text-[var(--muted)]">Total producto</p>
             <p className="text-2xl font-black text-[var(--primary)]">{formatMoney(total)}</p>
@@ -830,7 +861,11 @@ function PublicOrderPanel({
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
   const [deliveryAddressDetail, setDeliveryAddressDetail] = useState("");
-  const [deliveryMapsUrl, setDeliveryMapsUrl] = useState("");
+  const [, setDeliveryMapsUrl] = useState("");
+  const handleDeliveryCoordinatesChange = useCallback(({ mapsUrl }: { latitude: number; longitude: number; mapsUrl: string }) => {
+    setDeliveryMapsUrl(mapsUrl);
+    setCustomerAddress((currentAddress) => (currentAddress.trim() ? currentAddress : "Ubicacion marcada en el mapa"));
+  }, []);
   const [requestedFulfillmentAt, setRequestedFulfillmentAt] = useState(() => (!businessStatus.isOpen && businessStatus.hasSchedule ? businessStatus.nextOpeningInputValue : ""));
   const [invoiceDocumentType, setInvoiceDocumentType] = useState("nit");
   const [invoiceDocumentNumber, setInvoiceDocumentNumber] = useState("");
@@ -1066,10 +1101,17 @@ function PublicOrderPanel({
             Numero de casa, apartamento o aclaracion
             <Input className="mt-2" name="deliveryAddressDetail" onChange={(event) => setDeliveryAddressDetail(event.target.value)} value={deliveryAddressDetail} />
           </label>
-          <label className="block text-sm font-black">
-            Link de Google Maps
-            <Input className="mt-2" name="deliveryMapsUrl" onChange={(event) => setDeliveryMapsUrl(event.target.value)} placeholder="https://maps.google.com/..." value={deliveryMapsUrl} />
-          </label>
+          <GoogleLocationFields
+            hideCoordinateInputs
+            hideMapsUrlInput
+            label="Ubicacion de entrega"
+            latitudeName="deliveryLatitude"
+            longitudeName="deliveryLongitude"
+            mapHeightClassName="h-[320px]"
+            mapsUrlName="deliveryMapsUrl"
+            onCoordinatesChange={handleDeliveryCoordinatesChange}
+            showMapByDefault
+          />
         </div>
         <div className={cn(orderType === "pickup" && (restaurant.mapsUrl || restaurant.address) ? "rounded-2xl bg-[var(--primary-light)]/55 p-3 text-sm font-semibold text-[var(--muted)]" : "hidden")}>
           <p className="font-black text-[var(--text)]">Recojo en local</p>
@@ -1139,7 +1181,7 @@ function PublicOrderPanel({
         <div className="space-y-2">
           {cart.length ? (
             cart.map((item) => (
-              <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 rounded-[1.25rem] bg-white p-3 shadow-sm ring-1 ring-[var(--border)]" key={item.cartId}>
+              <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 rounded-[1.25rem] bg-[var(--surface)] p-3 shadow-sm ring-1 ring-[var(--border)]" key={item.cartId}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img alt={item.name} className="h-[72px] w-[72px] rounded-[1rem] object-cover" src={item.imageUrl || defaultImage} />
                 <div className="min-w-0">
@@ -1151,7 +1193,7 @@ function PublicOrderPanel({
                     </div>
                     <strong className="shrink-0 text-sm">{formatMoney(item.price * item.quantity, settings?.currency)}</strong>
                   </div>
-                  <div className="mt-3 inline-flex overflow-hidden rounded-full border border-[var(--border)] bg-white">
+                  <div className="mt-3 inline-flex overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)]">
                     <button className="grid h-9 w-10 place-items-center" onClick={() => changeQuantity(item.cartId, -1)} type="button">
                       <Minus className="h-4 w-4" />
                     </button>
@@ -1248,7 +1290,7 @@ function ChoiceCard({ active, disabled = false, icon, label, text, onClick }: { 
     <button
       className={cn(
         "flex min-h-24 items-start gap-3 rounded-[1.25rem] border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-45",
-        active ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-white text-[var(--text)] hover:border-[var(--primary-light)]",
+        active ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)] text-[var(--text)] hover:border-[var(--primary-light)]",
       )}
       disabled={disabled}
       onClick={onClick}

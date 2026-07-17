@@ -128,6 +128,12 @@ const announcementIdSchema = z.object({
   announcementId: z.string().uuid(),
 });
 
+const announcementDeactivateInputSchema = z.object({
+  restaurantId: z.string().uuid().optional(),
+  restaurantSlug: z.string().min(1).optional(),
+  announcementId: z.string().uuid(),
+});
+
 const setRestaurantStatusSchema = z.object({
   restaurantId: z.string().uuid(),
   status: z.enum(["active", "inactive", "suspended"]),
@@ -2393,14 +2399,33 @@ export async function closeRestaurantTodayAction(formData: FormData) {
 }
 
 export async function deactivateRestaurantAnnouncementAction(formData: FormData) {
-  const parsed = announcementIdSchema.safeParse({
+  const parsedInput = announcementDeactivateInputSchema.safeParse({
     restaurantId: formData.get("restaurantId"),
     restaurantSlug: formData.get("restaurantSlug") || undefined,
     announcementId: formData.get("announcementId"),
   });
 
-  if (!parsed.success) {
+  if (!parsedInput.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=avisos&error=invalid-announcement`);
+  }
+
+  let restaurantId = parsedInput.data.restaurantId;
+  if (!restaurantId) {
+    const admin = createAdminClient();
+    if (admin) {
+      const { data: announcement } = await admin.from("restaurant_announcements").select("restaurant_id").eq("id", parsedInput.data.announcementId).maybeSingle();
+      restaurantId = announcement?.restaurant_id;
+    }
+  }
+
+  const parsed = announcementIdSchema.safeParse({
+    restaurantId,
+    restaurantSlug: parsedInput.data.restaurantSlug,
+    announcementId: parsedInput.data.announcementId,
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${restaurantId ?? formData.get("restaurantId")}/configuracion?tab=avisos&error=invalid-announcement`);
   }
 
   await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos`);

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PublicRestaurantOrderClient } from "@/components/public-menu/PublicRestaurantOrderClient";
 import { RestaurantThemeProvider } from "@/components/restaurant/RestaurantThemeProvider";
@@ -6,7 +7,9 @@ import { announcementService } from "@/lib/services/announcement.service";
 import { productService } from "@/lib/services/product.service";
 import { publicDirectoryService } from "@/lib/services/public-directory.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
+import { absoluteUrl } from "@/lib/seo/site-url";
 import { settingsService } from "@/lib/services/settings.service";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { ProductConfiguration } from "@/types/product.types";
 import type { ProductStockAvailability } from "@/types/product.types";
 import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantSettings } from "@/types/restaurant.types";
@@ -52,6 +55,53 @@ async function getPublicRestaurantPageData(restaurantSlug: string) {
   publicRestaurantPageCache.set(restaurantSlug, { expiresAt: Date.now() + PUBLIC_RESTAURANT_PAGE_TTL_MS, data });
 
   return data;
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ restaurantSlug: string }>;
+}): Promise<Metadata> {
+  const { restaurantSlug } = await params;
+  const pageData = await getPublicRestaurantPageData(restaurantSlug);
+
+  if (!pageData) {
+    return {
+      title: "Tienda no disponible",
+      robots: {
+        index: false,
+        follow: false,
+      },
+    };
+  }
+
+  const { restaurant } = pageData;
+  const path = publicRestaurantPath(restaurant.slug);
+  const title = `${restaurant.name} - Pedidos online`;
+  const description = restaurant.description || `Haz tu pedido online en ${restaurant.name}${restaurant.city ? `, ${restaurant.city}` : ""}.`;
+  const imageUrl = restaurant.bannerUrl || restaurant.logoUrl || "/brand/yopido-social-cover.png";
+
+  return {
+    title,
+    description,
+    alternates: {
+      canonical: absoluteUrl(path),
+    },
+    openGraph: {
+      type: "website",
+      url: absoluteUrl(path),
+      title,
+      description,
+      siteName: "yopido.shop",
+      images: [{ url: imageUrl, width: 1200, height: 630, alt: restaurant.name }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [imageUrl],
+    },
+  };
 }
 
 export default async function RestaurantPublicPage({

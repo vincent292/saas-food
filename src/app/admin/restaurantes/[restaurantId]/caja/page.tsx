@@ -41,7 +41,7 @@ export default async function CashPage({
   const needsPosCatalog = activeTab === "venta";
   const needsOperationalOrders = true;
   const needsMovements = activeTab === "movimientos";
-  const needsReports = activeTab === "reportes";
+  const needsReports = activeTab === "cierre" || activeTab === "reportes";
 
   const [summary, products, categories, configuration, movements, orders, reports] = await Promise.all([
     cashService.getSummary(restaurant.id),

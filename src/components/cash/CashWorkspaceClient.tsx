@@ -1,8 +1,8 @@
 "use client";
 
-import { Banknote, Bike, Calculator, Copy, CreditCard, ExternalLink, FileText, History, MessageCircle, PackageSearch, ReceiptText, ShoppingBag, Store, X, type LucideIcon } from "lucide-react";
+import { Banknote, Bike, Calculator, Copy, CreditCard, ExternalLink, FileText, History, MessageCircle, PackageSearch, ReceiptText, Search, ShoppingBag, Store, X, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, updateOrderStatusAction } from "@/app/admin/actions";
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
@@ -28,6 +28,8 @@ import type { Category, Product, ProductConfiguration } from "@/types/product.ty
 import type { Restaurant } from "@/types/restaurant.types";
 
 type CashTab = "venta" | "pedidos" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
+
+const CASH_REFRESH_INTERVAL_MS = 5000;
 
 function normalizeTab(value: string | undefined): CashTab {
   if (value === "pedidos" || value === "delivery" || value === "recojo" || value === "movimientos" || value === "egresos" || value === "cierre" || value === "reportes") {
@@ -124,8 +126,15 @@ export function CashWorkspaceClient({
   const [isTabPending, startTabTransition] = useTransition();
   const [showPosCreatedModal, setShowPosCreatedModal] = useState(Boolean(status.pos && status.posOrderId && status.posTrackingToken));
   const [posWhatsAppPhone, setPosWhatsAppPhone] = useState(status.posCustomerPhone ?? "");
+  const [orderSearch, setOrderSearch] = useState("");
   const [copied, setCopied] = useState(false);
+  const [clientOrigin, setClientOrigin] = useState("");
   const refreshTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setClientOrigin(window.location.origin), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const refresh = () => {
@@ -165,7 +174,7 @@ export function CashWorkspaceClient({
       router.refresh();
     };
 
-    const interval = window.setInterval(refreshIfVisible, 5000);
+    const interval = window.setInterval(refreshIfVisible, CASH_REFRESH_INTERVAL_MS);
     window.addEventListener("focus", refreshIfVisible);
     document.addEventListener("visibilitychange", refreshIfVisible);
 
@@ -178,6 +187,7 @@ export function CashWorkspaceClient({
 
   const todaysOrders = useMemo(() => orders.filter((order) => isSameBusinessDay(order.createdAt)), [orders]);
   const pendingOrders = useMemo(() => todaysOrders.filter((order) => order.status === "pending" && order.orderType !== "delivery" && order.orderType !== "pickup"), [todaysOrders]);
+  const activeTableOrders = useMemo(() => todaysOrders.filter((order) => order.orderType === "table" && ["accepted", "preparing", "ready"].includes(order.status)), [todaysOrders]);
   const deliveryOrders = useMemo(
     () => todaysOrders.filter((order) => order.orderType === "delivery" && ["pending", "accepted", "preparing", "ready", "delivered"].includes(order.status)),
     [todaysOrders],
@@ -186,6 +196,22 @@ export function CashWorkspaceClient({
     () => todaysOrders.filter((order) => order.orderType === "pickup" && ["pending", "accepted", "preparing", "ready", "delivered"].includes(order.status)),
     [todaysOrders],
   );
+  const normalizedOrderSearch = orderSearch.trim().toLowerCase();
+  const matchesOrderSearch = useCallback((order: Order) => {
+    if (!normalizedOrderSearch) {
+      return true;
+    }
+
+    const haystack = [order.orderNumber, order.customerName, order.customerPhone, order.notes, order.customerAddress]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalizedOrderSearch);
+  }, [normalizedOrderSearch]);
+  const visiblePendingOrders = useMemo(() => pendingOrders.filter(matchesOrderSearch), [pendingOrders, matchesOrderSearch]);
+  const visibleActiveTableOrders = useMemo(() => activeTableOrders.filter(matchesOrderSearch), [activeTableOrders, matchesOrderSearch]);
+  const visibleDeliveryOrders = useMemo(() => deliveryOrders.filter(matchesOrderSearch), [deliveryOrders, matchesOrderSearch]);
+  const visiblePickupOrders = useMemo(() => pickupOrders.filter(matchesOrderSearch), [pickupOrders, matchesOrderSearch]);
   const ordersById = useMemo(() => new Map(todaysOrders.map((order) => [order.id, order])), [todaysOrders]);
   const latestReport = reports[0];
   const banner = statusMessage(status, restaurant.businessType);
@@ -195,8 +221,8 @@ export function CashWorkspaceClient({
   const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
   const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType);
   const trackingUrl =
-    status.posOrderId && status.posTrackingToken && typeof window !== "undefined"
-      ? `${window.location.origin}${publicRestaurantPath(restaurant.slug, `pedido/${status.posOrderId}`)}?token=${status.posTrackingToken}`
+    status.posOrderId && status.posTrackingToken && clientOrigin
+      ? `${clientOrigin}${publicRestaurantPath(restaurant.slug, `pedido/${status.posOrderId}`)}?token=${status.posTrackingToken}`
       : "";
   const whatsappHref =
     posWhatsAppPhone.replace(/\D/g, "") && trackingUrl
@@ -204,7 +230,7 @@ export function CashWorkspaceClient({
       : "";
   const tabs: { key: CashTab; label: string; icon: LucideIcon; count?: number }[] = [
     { key: "venta", label: "Venta POS", icon: Store },
-    { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: hasOperationalCounts ? pendingOrders.length : undefined },
+    { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: hasOperationalCounts ? pendingOrders.length + activeTableOrders.length : undefined },
     { key: "delivery", label: "Delivery", icon: Bike, count: hasOperationalCounts ? deliveryOrders.length : undefined },
     { key: "recojo", label: "Recojo", icon: ShoppingBag, count: hasOperationalCounts ? pickupOrders.length : undefined },
     { key: "movimientos", label: "Movimientos", icon: History, count: loadedTab === "movimientos" ? movements.length : undefined },
@@ -231,9 +257,42 @@ export function CashWorkspaceClient({
     switchTab(targetTab);
   }
 
+  const sessionText = summary.session
+    ? `Desde ${formatShortTime(summary.session.openedAt)}${summary.session.openedByName ? ` por ${summary.session.openedByName}` : ""}`
+    : latestReport
+      ? `Ultimo cierre ${formatShortDate(latestReport.session.closedAt ?? latestReport.session.openedAt)}`
+      : "Abre caja en Cierre";
+
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+    <div className="space-y-4">
+      <section className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-full", summary.session ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]")}>
+              {summary.session ? <Banknote className="h-5 w-5" /> : <Calculator className="h-5 w-5" />}
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">Caja / POS</p>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <h2 className="text-xl font-black text-[var(--text)] sm:text-2xl">{summary.session ? "Caja abierta" : "Caja cerrada"}</h2>
+                <span className="rounded-full bg-[var(--color-neutral-100)] px-2.5 py-1 text-xs font-black text-[var(--color-secondary-text)]">{sessionText}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:flex lg:items-center">
+            <CompactCashMetric amount={summary.expectedCash} label="Efectivo" tone={summary.session ? "success" : "neutral"} />
+            <CompactCashMetric amount={summary.salesTotal} label="Ventas" />
+            <CompactCashMetric amount={summary.digitalTotal} label="Digital" />
+            <Button className="min-h-12 whitespace-nowrap px-4" onClick={() => switchTab("cierre")} type="button" variant={summary.session ? "secondary" : "primary"}>
+              {summary.session ? "Cerrar turno" : "Abrir caja"}
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {activeTab === "cierre" ? (
+      <section className="hidden">
         <Card className="p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -288,6 +347,7 @@ export function CashWorkspaceClient({
           )}
         </Card>
       </section>
+      ) : null}
 
       {banner ? (
         <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>{banner.text}</div>
@@ -383,18 +443,31 @@ export function CashWorkspaceClient({
         ))}
       </div>
 
+      {activeTab === "pedidos" || activeTab === "delivery" || activeTab === "recojo" ? (
+        <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-sm">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
+            <Input className="pl-11" onChange={(event) => setOrderSearch(event.target.value)} placeholder="Buscar por numero de pedido, nombre o WhatsApp" value={orderSearch} />
+          </label>
+        </div>
+      ) : null}
+
       {activeTab === "venta" ? (
         <section className="space-y-4">
           <SectionTitle title="Venta POS" description={`${catalogLabelTitle} real del negocio, con imagenes, variantes y opciones.`} />
-          <POSProductGrid
-            businessType={restaurant.businessType}
-            categories={categories}
-            configuration={configuration}
-            disabled={!summary.session}
-            products={products}
-            restaurantId={restaurant.id}
-            restaurantSlug={restaurant.slug}
-          />
+          {!activeTabIsLoaded ? (
+            <TabLoadingState />
+          ) : (
+            <POSProductGrid
+              businessType={restaurant.businessType}
+              categories={categories}
+              configuration={configuration}
+              disabled={!summary.session}
+              products={products}
+              restaurantId={restaurant.id}
+              restaurantSlug={restaurant.slug}
+            />
+          )}
         </section>
       ) : null}
 
@@ -403,10 +476,13 @@ export function CashWorkspaceClient({
           <SectionTitle title="Pedidos del dia" description={hasKitchenFlow ? "Mesa y POS pendientes para aprobar, cobrar o rechazar." : "Pedidos pendientes para aprobar, cobrar o rechazar."} />
           {!activeTabIsLoaded ? (
             <TabLoadingState />
-          ) : pendingOrders.length ? (
+          ) : visiblePendingOrders.length || visibleActiveTableOrders.length ? (
             <div className="grid gap-3">
-              {pendingOrders.map((order) => (
+              {visiblePendingOrders.map((order) => (
                 <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
+              ))}
+              {visibleActiveTableOrders.map((order) => (
+                <TableServiceOrderCard businessType={restaurant.businessType} key={order.id} order={order} restaurantSlug={restaurant.slug} />
               ))}
             </div>
           ) : (
@@ -420,9 +496,9 @@ export function CashWorkspaceClient({
           <SectionTitle title="Delivery del dia" description={hasKitchenFlow ? "Pedidos con envio. Caja los aprueba y, cuando cocina marca listo, genera el QR para la moto." : "Pedidos con envio. Caja los aprueba y, cuando el pedido queda listo, habilita el despacho."} />
           {!activeTabIsLoaded ? (
             <TabLoadingState />
-          ) : deliveryOrders.length ? (
+          ) : visibleDeliveryOrders.length ? (
             <div className="grid gap-3">
-              {deliveryOrders.map((order) =>
+              {visibleDeliveryOrders.map((order) =>
                 order.status === "pending" ? (
                   <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
@@ -441,9 +517,9 @@ export function CashWorkspaceClient({
           <SectionTitle title="Recojo del dia" description="Pedidos para recoger en tienda, separados del delivery para que caja los ubique rapido." />
           {!activeTabIsLoaded ? (
             <TabLoadingState />
-          ) : pickupOrders.length ? (
+          ) : visiblePickupOrders.length ? (
             <div className="grid gap-3">
-              {pickupOrders.map((order) =>
+              {visiblePickupOrders.map((order) =>
                 order.status === "pending" ? (
                   <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
@@ -500,6 +576,7 @@ export function CashWorkspaceClient({
 
       {activeTab === "cierre" ? (
         <section className="space-y-6">
+          <CashSessionControl latestReport={latestReport} restaurantId={restaurant.id} summary={summary} />
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <CashSummaryCard amount={summary.expectedCash} detail="Apertura + efectivo - egresos" label="Efectivo esperado" />
             <CashSummaryCard amount={summary.cashTotal} label="Ventas efectivo" />
@@ -539,6 +616,69 @@ export function CashWorkspaceClient({
 
 function TabLoadingState() {
   return <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-6 text-sm font-bold text-[var(--muted)]">Cargando datos...</div>;
+}
+
+function CompactCashMetric({ label, amount, tone = "neutral" }: { label: string; amount: number; tone?: "neutral" | "success" }) {
+  return (
+    <div className={cn("min-w-0 rounded-2xl px-3 py-2", tone === "success" ? "bg-[var(--color-success-soft)]" : "bg-[var(--color-neutral-100)]")}>
+      <p className={cn("truncate text-[10px] font-black uppercase tracking-[0.12em]", tone === "success" ? "text-[var(--color-success-strong)]" : "text-[var(--color-secondary-text)]")}>{label}</p>
+      <p className={cn("truncate text-sm font-black sm:text-base", tone === "success" ? "text-[var(--color-success-strong)]" : "text-[var(--color-heading)]")}>{formatMoney(amount)}</p>
+    </div>
+  );
+}
+
+function CashSessionControl({ restaurantId, summary, latestReport }: { restaurantId: string; summary: CashSummary; latestReport?: CashSessionReport }) {
+  return (
+    <Card className="p-4 sm:p-5">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Control de turno</p>
+          <h2 className="mt-1 text-2xl font-black text-[var(--text)]">{summary.session ? "Caja abierta" : "Caja cerrada"}</h2>
+          <p className="mt-2 max-w-2xl text-sm font-semibold text-[var(--muted)]">
+            {summary.session
+              ? `Abierta el ${formatShortDate(summary.session.openedAt)} a las ${formatShortTime(summary.session.openedAt)}${summary.session.openedByName ? ` por ${summary.session.openedByName}` : ""}.`
+              : latestReport
+                ? `Ultimo cierre: ${formatShortDate(latestReport.session.closedAt ?? latestReport.session.openedAt)} a las ${formatShortTime(latestReport.session.closedAt ?? latestReport.session.openedAt)}.`
+                : "Abre la caja primero. Sin caja abierta no se pueden aprobar pedidos ni cobrar POS."}
+          </p>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <SessionMetric amount={summary.salesTotal} detail={`${summary.orderCount} cobros`} label="Ventas turno" />
+            <SessionMetric amount={summary.cashTotal} label="Ventas efectivo" />
+            <SessionMetric amount={summary.digitalTotal} label="Cobros digitales" />
+            <SessionMetric amount={summary.cashExpenses} danger label="Egresos efectivo" />
+          </div>
+        </div>
+
+        <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-surface)] p-3">
+          <SectionTitle title={summary.session ? "Cierre rapido" : "Apertura"} description={summary.session ? "Cuenta solo el efectivo fisico." : "Registra el monto inicial de billetes y monedas."} />
+          {summary.session ? (
+            <form action={closeCashSessionAction} className="mt-4 space-y-3">
+              <input name="restaurantId" type="hidden" value={restaurantId} />
+              <div className="rounded-2xl bg-[var(--surface)] p-3">
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Debe haber en efectivo</p>
+                <p className="text-2xl font-black text-[var(--color-heading)]">{formatMoney(summary.expectedCash)}</p>
+              </div>
+              <Input min={0} name="countedAmount" placeholder="Efectivo contado al cierre" required step="0.01" type="number" />
+              <Textarea name="notes" placeholder="Notas de cierre" />
+              <Button className="w-full" type="submit" variant="danger">
+                Cerrar caja
+              </Button>
+            </form>
+          ) : (
+            <form action={openCashSessionAction} className="mt-4 space-y-3">
+              <input name="restaurantId" type="hidden" value={restaurantId} />
+              <Input min={0} name="openingAmount" placeholder="Monto inicial de apertura" required step="0.01" type="number" />
+              <Textarea name="notes" placeholder="Notas de apertura" />
+              <Button className="w-full" type="submit">
+                Abrir caja
+              </Button>
+            </form>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 function DeliveryOrderCard({ order, restaurantSlug, businessType }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"] }) {
@@ -597,6 +737,33 @@ function PickupOrderCard({ order, restaurantSlug, businessType }: { order: Order
         ) : (
           <div className="rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-bold text-[var(--color-warning-strong)]">
             {businessTypeSupportsKitchen(businessType) ? "Aun no esta listo para entregar al cliente." : "Aun no esta listo para retirar o entregar al cliente."}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function TableServiceOrderCard({ order, restaurantSlug, businessType }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"] }) {
+  return (
+    <Card className="rounded-[1.25rem] p-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start">
+        <OrderOperationalSummary businessType={businessType} order={order} title="Mesa" />
+        {order.status === "ready" ? (
+          <form action={updateOrderStatusAction} className="rounded-2xl border border-[var(--border)] p-3">
+            <input name="restaurantId" type="hidden" value={order.restaurantId} />
+            <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
+            <input name="orderId" type="hidden" value={order.id} />
+            <input name="source" type="hidden" value="caja" />
+            <input name="tab" type="hidden" value="pedidos" />
+            <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">Cuando el pedido ya fue entregado a la mesa, marcalo como servido para cerrar el seguimiento.</p>
+            <Button className="w-full" name="status" type="submit" value="delivered">
+              Marcar servido
+            </Button>
+          </form>
+        ) : (
+          <div className="rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-bold text-[var(--color-warning-strong)]">
+            {businessTypeSupportsKitchen(businessType) ? "Aun esta en cocina." : "Aun esta en preparacion."} Cuando quede listo podras marcarlo como servido.
           </div>
         )}
       </div>

@@ -2,10 +2,12 @@
 
 import {
   CalendarClock,
+  CheckCircle2,
   Clock3,
   CreditCard,
   ExternalLink,
   ImageIcon,
+  Loader2,
   Megaphone,
   MapPin,
   Power,
@@ -16,23 +18,9 @@ import {
   Upload,
   UserRound,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
-import {
-  approveOwnerChangeRequestAction,
-  closeRestaurantTodayAction,
-  createOwnerChangeRequestAction,
-  deleteDeliveryZoneAction,
-  createRestaurantAnnouncementAction,
-  deactivateRestaurantAnnouncementAction,
-  markPlatformPaymentPaidAction,
-  rejectOwnerChangeRequestAction,
-  saveDeliveryZoneAction,
-  submitPlatformPaymentProofAction,
-  toggleDeliveryZoneAction,
-  updatePlatformBillingSettingsAction,
-  updateRestaurantConfigurationAction,
-  verifyPlatformPaymentProofAction,
-} from "@/app/admin/actions";
+import { useEffect, useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useFormStatus } from "react-dom";
+import { updateRestaurantConfigurationAction } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { ModuleToggle } from "@/components/settings/ModuleToggle";
@@ -221,6 +209,48 @@ function ownerPolicyMessage(policy: OwnerChangePolicy) {
   return "Hay una solicitud pendiente o una ventana de seguridad activa.";
 }
 
+function savedMessage({
+  saved,
+  announcementCreated,
+  closureCreated,
+  announcementDisabled,
+  billingSaved,
+  paymentUploaded,
+  paymentVerified,
+  paymentPaid,
+  ownerRequest,
+  ownerApproved,
+  ownerRejected,
+  zoneSaved,
+}: {
+  saved?: string;
+  announcementCreated?: string;
+  closureCreated?: string;
+  announcementDisabled?: string;
+  billingSaved?: string;
+  paymentUploaded?: string;
+  paymentVerified?: string;
+  paymentPaid?: string;
+  ownerRequest?: string;
+  ownerApproved?: string;
+  ownerRejected?: string;
+  zoneSaved?: string;
+}) {
+  if (saved) return "Configuracion general guardada.";
+  if (announcementCreated) return "Comunicado publicado.";
+  if (closureCreated) return "Cierre temporal publicado para hoy.";
+  if (announcementDisabled) return "Aviso desactivado.";
+  if (billingSaved) return "Facturacion de plataforma actualizada.";
+  if (paymentUploaded) return "Comprobante subido. Queda pendiente de verificacion.";
+  if (paymentVerified) return "Comprobante verificado.";
+  if (paymentPaid) return "Pago confirmado y restaurante actualizado.";
+  if (ownerRequest) return "Solicitud de cambio de responsable enviada.";
+  if (ownerApproved) return "Cambio de responsable aprobado.";
+  if (ownerRejected) return "Solicitud de responsable rechazada.";
+  if (zoneSaved) return "Zona de delivery actualizada.";
+  return "";
+}
+
 export function RestaurantSettingsFormClient({
   restaurant,
   settings,
@@ -274,6 +304,21 @@ export function RestaurantSettingsFormClient({
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeTab(initialTab));
   const [selectedPlanKey, setSelectedPlanKey] = useState(() => restaurant.planKey ?? plans[0]?.key ?? "basic");
+  const successMessage = savedMessage({
+    saved,
+    announcementCreated,
+    closureCreated,
+    announcementDisabled,
+    billingSaved,
+    paymentUploaded,
+    paymentVerified,
+    paymentPaid,
+    ownerRequest,
+    ownerApproved,
+    ownerRejected,
+    zoneSaved,
+  });
+  const [showSuccessModal, setShowSuccessModal] = useState(Boolean(successMessage));
 
   const selectedPlan = useMemo(() => plans.find((plan) => plan.key === selectedPlanKey), [plans, selectedPlanKey]);
   const planModules = useMemo(() => new Set<ModuleKey>(selectedPlan?.modules ?? []), [selectedPlan]);
@@ -292,8 +337,23 @@ export function RestaurantSettingsFormClient({
   const supportsKitchen = businessTypeSupportsKitchen(restaurant.businessType);
   const supportsTableQr = businessTypeSupportsTableQr(restaurant.businessType);
 
+  useEffect(() => {
+    if (!successMessage) {
+      return;
+    }
+
+    const showTimer = window.setTimeout(() => setShowSuccessModal(true), 0);
+    const hideTimer = window.setTimeout(() => setShowSuccessModal(false), 2800);
+    return () => {
+      window.clearTimeout(showTimer);
+      window.clearTimeout(hideTimer);
+    };
+  }, [successMessage]);
+
   return (
     <form action={updateRestaurantConfigurationAction} className="space-y-6">
+      <SettingsSavingOverlay />
+      {showSuccessModal && successMessage ? <SettingsSavedModal message={successMessage} onClose={() => setShowSuccessModal(false)} /> : null}
       <input name="restaurantId" type="hidden" value={restaurant.id} />
       <input name="currentSlug" type="hidden" value={restaurant.slug} />
       <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
@@ -535,10 +595,10 @@ export function RestaurantSettingsFormClient({
                 </div>
                 <Textarea className="md:col-span-2" defaultValue={billing?.platformQrNote ?? ""} name="platformQrNote" placeholder="Indicaciones de pago, alias, cuenta o condiciones de validacion" />
                 <div className="md:col-span-2 flex justify-end">
-                  <Button formAction={updatePlatformBillingSettingsAction} type="submit">
+                  <SettingsSubmitButton name="settingsIntent" pendingLabel="Guardando facturacion..." value="save-platform-billing">
                     <ShieldCheck className="h-4 w-4" />
                     Guardar facturacion
-                  </Button>
+                  </SettingsSubmitButton>
                 </div>
               </Card>
             ) : null}
@@ -557,10 +617,10 @@ export function RestaurantSettingsFormClient({
               </div>
               <Textarea className="md:col-span-2" defaultValue={billing?.currentCycle?.notes ?? ""} name="platformPaymentNotes" placeholder="Referencia, banco, numero de transaccion o detalle para validacion" />
               <div className="md:col-span-2 flex justify-end">
-                <Button disabled={!billing?.isConfigured || Boolean(billing?.currentCycle?.paidAt)} formAction={submitPlatformPaymentProofAction} type="submit">
+                <SettingsSubmitButton disabled={!billing?.isConfigured || Boolean(billing?.currentCycle?.paidAt)} name="settingsIntent" pendingLabel="Subiendo comprobante..." value="submit-platform-proof">
                   <Upload className="h-4 w-4" />
                   Subir comprobante
-                </Button>
+                </SettingsSubmitButton>
               </div>
             </Card>
 
@@ -583,12 +643,12 @@ export function RestaurantSettingsFormClient({
                 </div>
                 <Textarea className="md:col-span-2" defaultValue={billing.currentCycle.notes ?? ""} name="platformResolutionNotes" placeholder="Notas internas de verificacion o confirmacion de pago" />
                 <div className="md:col-span-2 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                  <Button disabled={!billing.currentCycle.proofUrl || Boolean(billing.currentCycle.proofVerifiedAt)} formAction={verifyPlatformPaymentProofAction} type="submit" variant="secondary">
+                  <SettingsSubmitButton disabled={!billing.currentCycle.proofUrl || Boolean(billing.currentCycle.proofVerifiedAt)} name="settingsIntent" pendingLabel="Verificando..." value="verify-platform-proof" variant="secondary">
                     Verificar comprobante
-                  </Button>
-                  <Button disabled={!billing.currentCycle.proofUrl || Boolean(billing.currentCycle.paidAt)} formAction={markPlatformPaymentPaidAction} type="submit">
+                  </SettingsSubmitButton>
+                  <SettingsSubmitButton disabled={!billing.currentCycle.proofUrl || Boolean(billing.currentCycle.paidAt)} name="settingsIntent" pendingLabel="Confirmando pago..." value="mark-platform-paid">
                     Marcar como pagado
-                  </Button>
+                  </SettingsSubmitButton>
                 </div>
               </Card>
             ) : null}
@@ -751,10 +811,10 @@ export function RestaurantSettingsFormClient({
               <Input defaultValue={settings?.deliveryFee ?? 0} name="zoneDeliveryFee" placeholder="Costo envio" step="0.01" type="number" />
               <Input defaultValue={settings?.minOrderAmount ?? 0} name="zoneMinOrderAmount" placeholder="Pedido minimo" step="0.01" type="number" />
             </div>
-            <Button formAction={saveDeliveryZoneAction} type="submit">
+            <SettingsSubmitButton name="settingsIntent" pendingLabel="Guardando zona..." value="save-delivery-zone">
               <MapPin className="h-4 w-4" />
               Guardar zona
-            </Button>
+            </SettingsSubmitButton>
           </Card>
 
           <Card className="space-y-4 xl:col-span-2">
@@ -778,12 +838,12 @@ export function RestaurantSettingsFormClient({
                       <span className="rounded-xl bg-[var(--color-surface)] p-2">Min {zone.minOrderAmount}</span>
                     </div>
                     <div className="mt-3 flex gap-2">
-                      <Button className="min-h-10 flex-1 text-xs" formAction={toggleDeliveryZoneAction} name="zoneId" type="submit" value={zone.id} variant="secondary">
+                      <SettingsSubmitButton className="min-h-10 flex-1 text-xs" name="settingsIntent" pendingLabel="Actualizando..." value={`toggle-delivery-zone:${zone.id}`} variant="secondary">
                         {zone.isActive ? "Pausar" : "Activar"}
-                      </Button>
-                      <Button className="min-h-10 flex-1 text-xs" formAction={deleteDeliveryZoneAction} name="zoneId" type="submit" value={zone.id} variant="secondary">
+                      </SettingsSubmitButton>
+                      <SettingsSubmitButton className="min-h-10 flex-1 text-xs" name="settingsIntent" pendingLabel="Eliminando..." value={`delete-delivery-zone:${zone.id}`} variant="secondary">
                         Eliminar
-                      </Button>
+                      </SettingsSubmitButton>
                     </div>
                   </div>
                 ))}
@@ -832,10 +892,10 @@ export function RestaurantSettingsFormClient({
               <Input defaultValue={endOfTodayInputValue} name="closurePreviewEndsAt" readOnly type="datetime-local" />
               <Textarea className="md:col-span-2" defaultValue="No recibiremos pedidos hasta el proximo horario disponible." name="closureBody" placeholder="Mensaje para clientes" />
               <div className="md:col-span-2 flex justify-end">
-                <Button formAction={closeRestaurantTodayAction} type="submit">
+                <SettingsSubmitButton name="settingsIntent" pendingLabel="Publicando cierre..." value="close-today">
                   <Power className="h-4 w-4" />
                   Cerrar por hoy
-                </Button>
+                </SettingsSubmitButton>
               </div>
             </Card>
 
@@ -854,10 +914,10 @@ export function RestaurantSettingsFormClient({
                 <CompressedImageInput help="Opcional. Recomendado: 1200 x 700 px, sin texto pequeno." label="Imagen del comunicado" name="announcementImageFile" />
               </div>
               <div className="md:col-span-2 flex justify-end">
-                <Button formAction={createRestaurantAnnouncementAction} type="submit">
+                <SettingsSubmitButton name="settingsIntent" pendingLabel="Publicando aviso..." value="create-announcement">
                   <Megaphone className="h-4 w-4" />
                   Publicar aviso
-                </Button>
+                </SettingsSubmitButton>
               </div>
             </Card>
           </div>
@@ -899,9 +959,9 @@ export function RestaurantSettingsFormClient({
                       {formatDateTime(announcement.startsAt)} - {announcement.endsAt ? formatDateTime(announcement.endsAt) : "sin fin"}
                     </p>
                     {announcement.isActive ? (
-                      <Button className="mt-3 w-full" formAction={deactivateRestaurantAnnouncementAction} name="announcementId" type="submit" value={announcement.id} variant="secondary">
+                      <SettingsSubmitButton className="mt-3 w-full" name="settingsIntent" pendingLabel="Desactivando..." value={`deactivate-announcement:${announcement.id}`} variant="secondary">
                         Desactivar aviso
-                      </Button>
+                      </SettingsSubmitButton>
                     ) : null}
                   </div>
                 ))}
@@ -941,10 +1001,10 @@ export function RestaurantSettingsFormClient({
                 </div>
               ) : null}
               <div className="md:col-span-2 flex justify-end">
-                <Button disabled={!ownerChangePolicy.canRequestNow || Boolean(pendingOwnerRequest)} formAction={createOwnerChangeRequestAction} type="submit">
+                <SettingsSubmitButton disabled={!ownerChangePolicy.canRequestNow || Boolean(pendingOwnerRequest)} name="settingsIntent" pendingLabel="Enviando solicitud..." value="create-owner-request">
                   <UserRound className="h-4 w-4" />
                   Enviar solicitud
-                </Button>
+                </SettingsSubmitButton>
               </div>
             </Card>
 
@@ -961,12 +1021,12 @@ export function RestaurantSettingsFormClient({
                 </div>
                 <Textarea className="md:col-span-2" defaultValue={pendingOwnerRequest.resolutionNotes ?? ""} name="ownerResolutionNotes" placeholder="Notas internas de aprobacion o rechazo" />
                 <div className="md:col-span-2 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                  <Button formAction={rejectOwnerChangeRequestAction} type="submit" variant="secondary">
+                  <SettingsSubmitButton name="settingsIntent" pendingLabel="Rechazando..." value="reject-owner-request" variant="secondary">
                     Rechazar solicitud
-                  </Button>
-                  <Button formAction={approveOwnerChangeRequestAction} type="submit">
+                  </SettingsSubmitButton>
+                  <SettingsSubmitButton name="settingsIntent" pendingLabel="Aprobando..." value="approve-owner-request">
                     Aprobar cambio
-                  </Button>
+                  </SettingsSubmitButton>
                 </div>
               </Card>
             ) : null}
@@ -1003,10 +1063,74 @@ export function RestaurantSettingsFormClient({
 
       {showStickySave ? (
         <div className="sticky bottom-4 z-10 flex justify-end">
-          <Button type="submit">Guardar configuracion</Button>
+          <SettingsSubmitButton pendingLabel="Guardando configuracion...">Guardar configuracion</SettingsSubmitButton>
         </div>
       ) : null}
     </form>
+  );
+}
+
+function SettingsSubmitButton({
+  children,
+  disabled,
+  pendingLabel = "Guardando...",
+  variant = "primary",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  pendingLabel?: string;
+  variant?: "primary" | "secondary" | "ghost" | "danger";
+}) {
+  const { pending } = useFormStatus();
+
+  return (
+    <Button disabled={pending || disabled} type="submit" variant={variant} {...props}>
+      {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+      {pending ? pendingLabel : children}
+    </Button>
+  );
+}
+
+function SettingsSavingOverlay() {
+  const { pending } = useFormStatus();
+
+  if (!pending) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-[1.35rem] border border-[var(--border)] bg-[var(--surface)] p-6 text-center shadow-[var(--shadow-panel)]">
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[var(--primary-light)] text-[var(--primary)]">
+          <Loader2 className="h-7 w-7 animate-spin" />
+        </div>
+        <h2 className="mt-4 text-xl font-black text-[var(--color-heading)]">Guardando cambios</h2>
+        <p className="mt-2 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">Espera un momento. Estamos aplicando la configuracion y evitando envios duplicados.</p>
+      </div>
+    </div>
+  );
+}
+
+function SettingsSavedModal({ message, onClose }: { message: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Cambios guardados">
+      <div className="w-full max-w-sm rounded-[1.35rem] border border-[var(--border)] bg-[var(--surface)] p-6 text-center shadow-[var(--shadow-panel)]">
+        <div
+          className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[var(--color-success-soft)] text-[var(--color-success-strong)]"
+          style={{ animation: "settings-check-pop 420ms cubic-bezier(0.2, 0.9, 0.2, 1) both" }}
+        >
+          <CheckCircle2 className="h-9 w-9" />
+        </div>
+        <h2 className="mt-4 text-xl font-black text-[var(--color-heading)]">Cambios guardados</h2>
+        <p className="mt-2 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">{message}</p>
+        <button
+          className="mt-5 inline-flex min-h-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] px-5 text-sm font-black text-[var(--text)] shadow-sm transition hover:bg-[var(--primary-light)]"
+          onClick={onClose}
+          type="button"
+        >
+          Entendido
+        </button>
+      </div>
+    </div>
   );
 }
 

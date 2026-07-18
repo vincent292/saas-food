@@ -1609,8 +1609,64 @@ export async function createRestaurantAction(formData: FormData) {
   redirect(`/admin/restaurantes/${restaurant.id}/dashboard`);
 }
 
+async function dispatchRestaurantSettingsIntent(rawIntent: string, formData: FormData, returnTab: string) {
+  const [intent, entityId] = rawIntent.split(":");
+  const restaurantId = String(formData.get("restaurantId") || "");
+  const configPath = `/admin/restaurantes/${restaurantId}/configuracion?tab=${returnTab}`;
+
+  switch (intent) {
+    case "save-platform-billing":
+      return updatePlatformBillingSettingsAction(formData);
+    case "submit-platform-proof":
+      return submitPlatformPaymentProofAction(formData);
+    case "verify-platform-proof":
+      return verifyPlatformPaymentProofAction(formData);
+    case "mark-platform-paid":
+      return markPlatformPaymentPaidAction(formData);
+    case "save-delivery-zone":
+      return saveDeliveryZoneAction(formData);
+    case "toggle-delivery-zone":
+      if (entityId) {
+        formData.set("zoneId", entityId);
+        return toggleDeliveryZoneAction(formData);
+      }
+      break;
+    case "delete-delivery-zone":
+      if (entityId) {
+        formData.set("zoneId", entityId);
+        return deleteDeliveryZoneAction(formData);
+      }
+      break;
+    case "close-today":
+      return closeRestaurantTodayAction(formData);
+    case "create-announcement":
+      return createRestaurantAnnouncementAction(formData);
+    case "deactivate-announcement":
+      if (entityId) {
+        formData.set("announcementId", entityId);
+        return deactivateRestaurantAnnouncementAction(formData);
+      }
+      break;
+    case "create-owner-request":
+      return createOwnerChangeRequestAction(formData);
+    case "reject-owner-request":
+      return rejectOwnerChangeRequestAction(formData);
+    case "approve-owner-request":
+      return approveOwnerChangeRequestAction(formData);
+  }
+
+  redirect(`${configPath}&error=invalid`);
+}
+
 export async function updateRestaurantConfigurationAction(formData: FormData) {
   const returnTab = String(formData.get("tab") || "general");
+  const settingsIntent = String(formData.get("settingsIntent") || "");
+
+  if (settingsIntent) {
+    await dispatchRestaurantSettingsIntent(settingsIntent, formData, returnTab);
+    return;
+  }
+
   const parsed = updateRestaurantConfigurationSchema.safeParse({
     restaurantId: formData.get("restaurantId"),
     currentSlug: formData.get("currentSlug"),

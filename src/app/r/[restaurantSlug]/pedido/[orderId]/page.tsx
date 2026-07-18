@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { RestaurantLayout } from "@/components/layout/RestaurantLayout";
 import { OrderTrackingLiveRefresh } from "@/components/orders/OrderTrackingLiveRefresh";
 import { ClearCartOnOrderSuccess } from "@/components/public-menu/ClearCartOnOrderSuccess";
+import { TablePaymentNotice } from "@/components/tables/TablePaymentNotice";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { businessPickupReadyLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
@@ -22,9 +23,9 @@ export default async function TrackingPage({
   searchParams,
 }: {
   params: Promise<{ restaurantSlug: string; orderId: string }>;
-  searchParams: Promise<{ token?: string }>;
+  searchParams: Promise<{ token?: string; tablePending?: string }>;
 }) {
-  const [{ restaurantSlug, orderId }, { token }] = await Promise.all([params, searchParams]);
+  const [{ restaurantSlug, orderId }, { token, tablePending }] = await Promise.all([params, searchParams]);
   const restaurant = await restaurantService.getBySlug(restaurantSlug);
 
   if (!restaurant) {
@@ -43,6 +44,7 @@ export default async function TrackingPage({
   return (
     <RestaurantLayout restaurant={restaurant} showCart={false} showMobileNav={false}>
       <ClearCartOnOrderSuccess enabled={Boolean(token)} restaurantSlug={restaurantSlug} />
+      {order.orderType === "table" && tablePending ? <TablePaymentNotice orderNumber={order.orderNumber} /> : null}
       <main className="mx-auto grid max-w-6xl gap-4 px-4 pb-16 pt-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 lg:px-8 lg:pt-8">
         <section className="min-w-0">
           <OrderTrackingLiveRefresh businessType={restaurant.businessType} initialOrder={order} initialQueue={queueState} restaurantSlug={restaurantSlug} token={token} />
@@ -63,6 +65,8 @@ export default async function TrackingPage({
                   ? `Cuando el estado sea ${businessPickupReadyLabel(restaurant.businessType).toLowerCase()}, pasa por el local con este numero.`
                   : order.orderType === "delivery"
                     ? "El estado te avisara cuando el pedido salga para entrega."
+                    : order.orderType === "table"
+                      ? "Para que el pedido se procese, caja debe confirmar el pago primero."
                     : businessTypeSupportsKitchen(restaurant.businessType)
                       ? "El restaurante actualizara el avance del pedido aqui."
                       : "La tienda actualizara el avance del pedido aqui."}

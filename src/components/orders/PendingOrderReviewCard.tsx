@@ -18,9 +18,13 @@ import type { BusinessType } from "@/types/restaurant.types";
 
 type PendingOrderContext = "pedidos" | "caja";
 
-function whatsappHref(phone: string, orderNumber: string) {
+function whatsappHref(order: Order) {
+  const phone = order.customerPhone;
   const digits = phone.replace(/\D/g, "");
-  const message = encodeURIComponent(`Hola, te escribimos por tu pedido ${orderNumber}. No pudimos aprobarlo. Escribenos para ayudarte.`);
+  const message =
+    order.orderType === "table" && order.status === "pending"
+      ? encodeURIComponent(`Hola ${order.customerName || ""}, tu pedido ${order.orderNumber} esta pendiente. Para que se procese, por favor acercate a caja y confirma el pago indicando tu numero de pedido.`)
+      : encodeURIComponent(`Hola, te escribimos por tu pedido ${order.orderNumber}. No pudimos aprobarlo. Escribenos para ayudarte.`);
   return digits ? `https://wa.me/${digits}?text=${message}` : "";
 }
 
@@ -39,7 +43,7 @@ export function PendingOrderReviewCard({
 }) {
   const [paymentMethod, setPaymentMethod] = useState<Order["paymentMethod"]>(order.paymentMethod);
   const [showReject, setShowReject] = useState(false);
-  const whatsappUrl = whatsappHref(order.customerPhone, order.orderNumber);
+  const whatsappUrl = whatsappHref(order);
   const pendingLabel = context === "pedidos" ? "Pendiente por aprobar" : "Pendiente de caja";
   const hasReceiptEvidence = Boolean(order.paymentReceiptUrl || order.paymentReceiptReference);
   const preparationArea = businessPreparationAreaLabel(businessType);
@@ -142,7 +146,7 @@ export function PendingOrderReviewCard({
               onClick={() => setShowReject((current) => !current)}
               type="button"
             >
-              Rechazar pedido
+              Quitar de vista / cancelar
               <ChevronDown className={cn("h-4 w-4 transition", showReject ? "rotate-180" : "")} />
             </button>
             {showReject ? (
@@ -151,9 +155,9 @@ export function PendingOrderReviewCard({
                 <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
                 <input name="orderId" type="hidden" value={order.id} />
                 <input name="source" type="hidden" value={context} />
-                <Textarea name="reason" placeholder="Motivo del rechazo" required />
+                <Textarea name="reason" placeholder="Motivo obligatorio para cancelar o quitar de vista" required />
                 <Button className="w-full" type="submit" variant="danger">
-                  Confirmar rechazo
+                  Confirmar cancelacion
                 </Button>
               </form>
             ) : null}
@@ -161,7 +165,7 @@ export function PendingOrderReviewCard({
 
           {whatsappUrl ? (
             <a className={cn(buttonClasses("secondary"), "w-full")} href={whatsappUrl} rel="noreferrer" target="_blank">
-              Avisar por WhatsApp
+              {order.orderType === "table" && order.status === "pending" ? "Recordar pago por WhatsApp" : "Avisar por WhatsApp"}
             </a>
           ) : (
             <span className="rounded-full bg-[var(--color-neutral-100)] px-4 py-2 text-center text-sm font-bold text-[var(--color-secondary-text)]">Sin WhatsApp</span>

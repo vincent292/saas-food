@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChefHat, ClipboardCheck, MessageCircle, PackageCheck, Phone, ShoppingBag, Store, Truck, XCircle } from "lucide-react";
+import { CheckCircle2, ChefHat, ClipboardCheck, MessageCircle, PackageCheck, Phone, ReceiptText, ShoppingBag, Store, Truck, XCircle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { SectionTitle } from "@/components/ui/SectionTitle";
@@ -35,6 +35,15 @@ const pickupLabels: Record<OrderStatus, string> = {
   cancelled: "Cancelado",
 };
 
+const tableLabels: Record<OrderStatus, string> = {
+  pending: "Pendiente de pago",
+  accepted: "Pagado",
+  preparing: "Preparando",
+  ready: "Listo",
+  delivered: "Servido",
+  cancelled: "Cancelado",
+};
+
 type DeliveryChangePayload = {
   status?: OrderDeliveryDispatch["status"];
   delivery_phone?: string | null;
@@ -65,6 +74,10 @@ function isTerminalOrder(order: Order) {
 }
 
 function trackingLabel(order: Order & { businessType?: BusinessType }) {
+  if (order.orderType === "table") {
+    return tableLabels[order.status];
+  }
+
   if (order.orderType === "pickup") {
     if (order.status === "ready") {
       return businessPickupReadyLabel(order.businessType ?? "food");
@@ -163,6 +176,30 @@ function trackingHeroCopy(order: Order, businessType: BusinessType) {
     };
   }
 
+  if (order.orderType === "table") {
+    if (order.status === "pending") {
+      return {
+        title: "Pendiente de pago en caja",
+        description: "Acercate a caja con tu numero de pedido para que el equipo lo confirme y pase a cocina.",
+        mode: "Pedido en mesa",
+      };
+    }
+
+    if (order.status === "delivered") {
+      return {
+        title: "Pedido servido",
+        description: "Tu pedido quedo completado en mesa. Gracias por visitarnos.",
+        mode: "Mesa atendida",
+      };
+    }
+
+    return {
+      title: "Seguimiento de mesa",
+      description: "Veras cuando caja confirme, cocina prepare y el pedido quede listo para servir.",
+      mode: "Pedido en mesa",
+    };
+  }
+
   return {
     title: order.status === "delivered" ? "Pedido completado" : "Seguimiento por estados",
     description: "El restaurante actualizara el avance del pedido aqui.",
@@ -226,6 +263,7 @@ function mergeDeliveryChange<T extends Order>(order: T, payload: DeliveryChangeP
 function trackingSteps(order: Order & { businessType?: BusinessType }) {
   const isDelivery = order.orderType === "delivery";
   const isPickup = order.orderType === "pickup";
+  const isTable = order.orderType === "table";
   const isFood = businessTypeSupportsKitchen(order.businessType);
   const preparingDescription = isFood ? "Cocina esta trabajando." : "Estamos preparando tu pedido.";
   const pickupReadyLabel = businessPickupReadyLabel(order.businessType ?? "food");
@@ -246,6 +284,14 @@ function trackingSteps(order: Order & { businessType?: BusinessType }) {
           { label: pickupReadyLabel, description: "Ya puedes pasar por el local.", icon: ShoppingBag },
           { label: "Retirado", description: "Pedido completado.", icon: Store },
         ]
+      : isTable
+        ? [
+            { label: "Pendiente de pago", description: "Acercate a caja para confirmar.", icon: ReceiptText },
+            { label: "Pagado", description: "Caja confirmo tu pedido.", icon: ClipboardCheck },
+            { label: "Preparando", description: preparingDescription, icon: isFood ? ChefHat : ShoppingBag },
+            { label: "Listo", description: "El pedido ya esta listo para servir.", icon: PackageCheck },
+            { label: "Servido", description: "Pedido completado en mesa.", icon: Store },
+          ]
       : [
           { label: "Recibido", description: "El restaurante recibio tu pedido.", icon: CheckCircle2 },
           { label: "Confirmado", description: "El equipo lo aprobo.", icon: ClipboardCheck },

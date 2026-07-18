@@ -373,6 +373,10 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${failPath}?error=delivery-address`);
   }
 
+  if (parsed.data.orderType === "table" && (parsed.data.customerPhone ?? "").replace(/\D/g, "").length < 4) {
+    redirect(`${failPath}?error=phone-required`);
+  }
+
   if (parsed.data.invoiceRequired && (!parsed.data.invoiceDocumentType || !parsed.data.invoiceDocumentNumber?.trim() || !parsed.data.invoiceName?.trim())) {
     redirect(`${failPath}?error=invoice`);
   }
@@ -390,7 +394,7 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${failPath}?error=qr-unavailable`);
   }
 
-  if (parsed.data.paymentMethod === "qr" && (!paymentReceiptFile || paymentReceiptFile.size === 0)) {
+  if (parsed.data.orderType !== "table" && parsed.data.paymentMethod === "qr" && (!paymentReceiptFile || paymentReceiptFile.size === 0)) {
     redirect(`${failPath}?error=receipt-required`);
   }
 
@@ -479,7 +483,8 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=create-items`);
   }
 
-  redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `pedido/${order.id}`)}?token=${order.tracking_token}`);
+  const tableNotice = parsed.data.orderType === "table" ? "&tablePending=1" : "";
+  redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `pedido/${order.id}`)}?token=${order.tracking_token}${tableNotice}`);
 }
 
 export async function trackPublicOrderAction(formData: FormData) {

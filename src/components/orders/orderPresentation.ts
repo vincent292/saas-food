@@ -74,13 +74,6 @@ export function timerTone(minutes: number) {
     };
   }
 
-  if (minutes >= 20) {
-    return {
-      label: "Urgente",
-      className: "border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]",
-    };
-  }
-
   if (minutes >= 15) {
     return {
       label: "Demorado",

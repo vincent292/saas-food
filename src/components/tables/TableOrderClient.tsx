@@ -16,6 +16,8 @@ import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
 type CartItem = {
   cartId: string;
   productId: string;
+  variantId?: string;
+  optionIds: string[];
   name: string;
   price: number;
   quantity: number;
@@ -75,7 +77,7 @@ export function TableOrderClient({
   const cartQuantity = cart.reduce((total, item) => total + item.quantity, 0);
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const orderNotes = `${table.name} (${table.code})${requiresInvoice ? " - Requiere factura" : ""}`;
-  const cartJson = JSON.stringify(cart.map(({ productId, name, price, quantity, notes }) => ({ productId, name, price, quantity, notes })));
+  const cartJson = JSON.stringify(cart.map(({ productId, variantId, optionIds, name, price, quantity, notes }) => ({ productId, variantId, optionIds, name, price, quantity, notes })));
 
   function addConfiguredProduct(product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) {
     const price = product.price + (variant?.priceDelta ?? 0) + selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
@@ -95,6 +97,8 @@ export function TableOrderClient({
         {
           cartId,
           productId: product.id,
+          variantId: variant?.id,
+          optionIds: selectedOptions.map((option) => option.id),
           name,
           price,
           quantity: 1,
@@ -115,16 +119,48 @@ export function TableOrderClient({
   }
 
   return (
-    <main className="min-h-screen bg-[var(--primary-dark)] text-[var(--color-on-primary)]">
+    <main className="min-h-screen bg-[var(--background)] text-[var(--text)]">
+      <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--surface)]/95 px-4 py-3 shadow-sm backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-[var(--primary)] text-sm font-black text-[var(--color-on-primary)]">
+              {restaurant.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img alt={restaurant.name} className="h-full w-full object-cover" src={restaurant.logoUrl} />
+              ) : (
+                restaurant.name.slice(0, 2).toUpperCase()
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-black text-[var(--text)]">{restaurant.name}</p>
+              <p className="truncate text-xs font-bold text-[var(--muted)]">Mesa {table.name.replace(/^mesa\s*/i, "")}</p>
+            </div>
+          </div>
+          <button className="relative grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--primary-light)] text-[var(--primary)]" onClick={() => setDrawerOpen(true)} type="button">
+            <ShoppingCart className="h-5 w-5" />
+            {cartQuantity ? <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--accent)] text-[10px] font-black text-[var(--primary-dark)]">{cartQuantity}</span> : null}
+          </button>
+        </div>
+      </header>
+
       <div className="mx-auto grid max-w-7xl gap-6 px-3 pb-28 pt-5 sm:px-6 lg:grid-cols-[1fr_360px] lg:px-8 lg:pb-8 lg:pt-8">
         <section className="min-w-0">
-          <div className="mb-5">
-            <h1 className="text-5xl font-black leading-none tracking-normal sm:text-6xl">Mesa {table.name.replace(/^mesa\s*/i, "")}</h1>
-            <p className="mt-3 max-w-2xl text-sm font-bold text-[var(--color-on-primary-muted)] sm:text-base">Elige tus productos, personaliza variantes y confirma tu pedido directo al equipo.</p>
+          <div className="mb-5 overflow-hidden rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-card)]">
+            <div className="relative min-h-[11rem] p-5 sm:min-h-[14rem] sm:p-7">
+              {restaurant.bannerUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img alt={restaurant.name} className="absolute inset-0 h-full w-full object-cover opacity-35" src={restaurant.bannerUrl} />
+              ) : null}
+              <div className="relative max-w-2xl">
+                <span className="inline-flex rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-black text-[var(--primary-dark)]">Pedido en mesa</span>
+                <h1 className="mt-4 text-4xl font-black leading-none tracking-normal text-[var(--text)] sm:text-6xl">Mesa {table.name.replace(/^mesa\s*/i, "")}</h1>
+                <p className="mt-3 max-w-[18rem] text-sm font-bold leading-6 text-[var(--muted)] sm:max-w-2xl sm:text-base">Elige tus productos. Para procesarlo, confirma el pago en caja.</p>
+              </div>
+            </div>
             {orderError ? <OrderErrorMessage error={orderError} /> : null}
           </div>
 
-          <div className="sticky top-0 z-20 -mx-3 mb-3 border-y border-[var(--surface)]/10 bg-[var(--primary-dark)]/95 px-3 py-3 backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border sm:bg-[var(--surface)] sm:text-[var(--text)]">
+          <div className="sticky top-[68px] z-20 -mx-3 mb-3 border-y border-[var(--border)] bg-[var(--surface)]/95 px-3 py-3 backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border">
             <div className="flex gap-2 overflow-x-auto pb-1">
               <CategoryButton active={selectedCategory === "all"} label="Todo" onClick={() => setSelectedCategory("all")} />
               {categories.map((category) => (
@@ -231,6 +267,8 @@ function OrderErrorMessage({ error }: { error: string }) {
   const message =
     error === "no-open-cash"
       ? "La caja esta cerrada. El restaurante debe abrir caja para recibir pedidos."
+      : error === "phone-required"
+        ? "Para pedidos en mesa el WhatsApp es obligatorio. Lo usamos para avisarte si no pasaste por caja."
       : error === "receipt-required"
         ? "Para pago QR debes subir el comprobante antes de confirmar."
         : "No se pudo confirmar el pedido. Revisa los datos e intenta nuevamente.";
@@ -464,6 +502,7 @@ function OrderPanel({
       <input name="tableCode" type="hidden" value={table.code} />
       <input name="orderType" type="hidden" value="table" />
       <input name="paymentMethod" type="hidden" value={paymentMethod} />
+      <input name="invoiceRequired" type="hidden" value={requiresInvoice ? "on" : ""} />
       <input name="notes" type="hidden" value={notes} />
       <input name="cartJson" type="hidden" value={cartJson} />
 
@@ -504,8 +543,9 @@ function OrderPanel({
         <Input className="mt-2" name="customerName" required />
       </label>
       <label className="mt-3 block text-sm font-black">
-        WhatsApp
-        <Input className="mt-2" name="customerPhone" type="tel" />
+        WhatsApp *
+        <Input className="mt-2" name="customerPhone" placeholder="Ej: 70707070" required type="tel" />
+        <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--muted)]">Obligatorio para avisarte si el pedido queda pendiente de pago en caja.</span>
       </label>
 
       <label className="mt-4 flex items-center justify-between text-sm font-black">
@@ -528,22 +568,16 @@ function OrderPanel({
           <img alt="QR de pago" className="h-24 w-24 rounded-2xl border border-[var(--border)] object-cover" src={settings.qrPaymentUrl} />
           <div>
             <p className="text-sm font-black text-[var(--text)]">Escanea el QR del restaurante</p>
-            <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Paga desde tu celular y sube el comprobante para que caja lo confirme.</p>
+            <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Puedes pagar con QR y caja lo validara antes de mandar el pedido a cocina.</p>
           </div>
         </div>
       ) : null}
 
       {paymentMethod === "qr" ? (
-        <CompressedImageInput acceptPdf className="mt-3" help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." label="Comprobante QR" name="paymentReceiptFile" required />
+        <CompressedImageInput acceptPdf className="mt-3" help="Opcional en mesa. Si no lo subes aqui, caja puede registrar la referencia cuando pagues." label="Comprobante QR opcional" name="paymentReceiptFile" />
       ) : null}
 
-      <p className="mt-4 rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">
-        {paymentMethod === "cash"
-          ? "Para procesar tu pedido, por favor acércate a caja y realiza el pago."
-          : settings?.qrPaymentUrl
-            ? "Seleccionaste pago QR. El equipo confirmará el pago antes de preparar el pedido."
-            : "Seleccionaste pago QR. El equipo te indicará el QR disponible para completar el pago."}
-      </p>
+      <p className="mt-4 rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">`r`n        Para procesar tu pedido, por favor acercate a caja y confirma el pago indicando tu numero de pedido y mesa.`r`n      </p>
 
       <Button className="mt-5 min-h-13 w-full" disabled={!cart.length} type="submit">
         Confirmar pedido

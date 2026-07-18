@@ -1,11 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type {
+  InventoryBranchTarget,
+  InventoryBranchTransfer,
   InventoryCategory,
   InventoryCount,
   InventoryCountLine,
   InventoryCountReport,
   InventoryItem,
+  InventoryItemKind,
+  InventoryLot,
   InventoryItemZone,
   InventoryMovement,
   InventorySupplier,
@@ -13,11 +18,13 @@ import type {
   ProductIngredient,
   ProductSupplier,
 } from "@/types/inventory.types";
+import type { Restaurant } from "@/types/restaurant.types";
 
 type InventoryItemRow = {
   id: string;
   restaurant_id: string;
   name: string;
+  item_kind?: InventoryItemKind | null;
   unit: InventoryItem["unit"];
   current_stock: number;
   min_stock: number;
@@ -29,6 +36,32 @@ type InventoryItemRow = {
   purchase_to_stock_factor: number;
   supplier_id: string | null;
   is_active: boolean;
+};
+
+type InventoryLotRow = {
+  id: string;
+  restaurant_id: string;
+  inventory_item_id: string;
+  supplier_id: string | null;
+  lot_code: string | null;
+  expires_on: string | null;
+  initial_quantity: number;
+  remaining_quantity: number;
+  notes: string | null;
+  received_at: string;
+  is_active: boolean;
+};
+
+type InventoryBranchTransferRow = {
+  id: string;
+  from_restaurant_id: string;
+  to_restaurant_id: string;
+  from_inventory_item_id: string;
+  to_inventory_item_id: string;
+  quantity: number;
+  reason: string;
+  status: InventoryBranchTransfer["status"];
+  created_at: string;
 };
 
 type InventoryMovementRow = {
@@ -128,11 +161,30 @@ type ProfileRow = {
   email: string | null;
 };
 
+type DynamicQueryResult = {
+  data: unknown[] | null;
+  error: { message?: string; code?: string } | null;
+};
+
+type DynamicQuery = PromiseLike<DynamicQueryResult> & {
+  select: (columns: string) => DynamicQuery;
+  eq: (column: string, value: unknown) => DynamicQuery;
+  gt: (column: string, value: unknown) => DynamicQuery;
+  or: (filter: string) => DynamicQuery;
+  order: (column: string, options?: Record<string, unknown>) => DynamicQuery;
+  limit: (count: number) => DynamicQuery;
+};
+
+type DynamicSupabaseClient = {
+  from: (table: string) => DynamicQuery;
+};
+
 function mapItem(row: InventoryItemRow): InventoryItem {
   return {
     id: row.id,
     restaurantId: row.restaurant_id,
     name: row.name,
+    itemKind: row.item_kind ?? "ingredient",
     unit: row.unit,
     currentStock: Number(row.current_stock),
     minStock: Number(row.min_stock),
@@ -143,6 +195,25 @@ function mapItem(row: InventoryItemRow): InventoryItem {
     purchaseUnit: row.purchase_unit ?? undefined,
     purchaseToStockFactor: Number(row.purchase_to_stock_factor ?? 1),
     supplierId: row.supplier_id ?? undefined,
+    isActive: row.is_active,
+  };
+}
+
+function mapLot(row: InventoryLotRow, items: Map<string, InventoryItem>, suppliers: Map<string, InventorySupplier>): InventoryLot {
+  const supplier = row.supplier_id ? suppliers.get(row.supplier_id) : undefined;
+  return {
+    id: row.id,
+    restaurantId: row.restaurant_id,
+    inventoryItemId: row.inventory_item_id,
+    inventoryItemName: items.get(row.inventory_item_id)?.name ?? "Item",
+    supplierId: row.supplier_id ?? undefined,
+    supplierName: supplier?.name,
+    lotCode: row.lot_code ?? undefined,
+    expiresOn: row.expires_on ?? undefined,
+    initialQuantity: Number(row.initial_quantity),
+    remainingQuantity: Number(row.remaining_quantity),
+    notes: row.notes ?? undefined,
+    receivedAt: row.received_at,
     isActive: row.is_active,
   };
 }
@@ -354,6 +425,123 @@ export const inventoryService = {
     }
 
     return data.map((row) => mapSupplier(row as InventorySupplierRow));
+  },
+
+  async listLots(restaurantId: string): Promise<InventoryLot[]> {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const supabase = await createClient();
+    const client = supabase as unknown as DynamicSupabaseClient;
+    const [items, suppliers, { data, error }] = await Promise.all([
+      this.listItems(restaurantId),
+      this.listSuppliers(restaurantId),
+      client
+        .from("inventory_lots")
+        .select("*")
+        .eq("restaurant_id", restaurantId)
+        .eq("is_active", true)
+        .gt("remaining_quantity", 0)
+        .order("expires_on", { ascending: true, nullsFirst: false })
+        .order("received_at", { ascending: true })
+        .limit(80),
+    ]);
+
+    if (error || !data?.length) {
+      return [];
+    }
+
+    const itemsById = new Map(items.map((item) => [item.id, item]));
+    const suppliersById = new Map(suppliers.map((supplier) => [supplier.id, supplier]));
+    return (data as InventoryLotRow[]).map((row) => mapLot(row, itemsById, suppliersById));
+  },
+
+  async listBranchTransfers(restaurantId: string): Promise<InventoryBranchTransfer[]> {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const supabase = await createClient();
+    const client = supabase as unknown as DynamicSupabaseClient;
+    const { data, error } = await client
+      .from("inventory_branch_transfers")
+      .select("*")
+      .or(`from_restaurant_id.eq.${restaurantId},to_restaurant_id.eq.${restaurantId}`)
+      .order("created_at", { ascending: false })
+      .limit(40);
+
+    if (error || !data?.length) {
+      return [];
+    }
+
+    const rows = data as InventoryBranchTransferRow[];
+    const restaurantIds = Array.from(new Set(rows.flatMap((row) => [row.from_restaurant_id, row.to_restaurant_id])));
+    const { data: restaurants } = await supabase.from("restaurants").select("id,name").in("id", restaurantIds);
+    const names = new Map((restaurants ?? []).map((restaurant) => [restaurant.id, restaurant.name]));
+
+    return rows.map((row) => ({
+      id: row.id,
+      fromRestaurantId: row.from_restaurant_id,
+      toRestaurantId: row.to_restaurant_id,
+      fromRestaurantName: names.get(row.from_restaurant_id) ?? "Sucursal origen",
+      toRestaurantName: names.get(row.to_restaurant_id) ?? "Sucursal destino",
+      fromInventoryItemId: row.from_inventory_item_id,
+      toInventoryItemId: row.to_inventory_item_id,
+      quantity: Number(row.quantity),
+      reason: row.reason,
+      status: row.status,
+      createdAt: row.created_at,
+    }));
+  },
+
+  async listBranchTransferTargets(restaurant: Restaurant): Promise<InventoryBranchTarget[]> {
+    if (!hasSupabaseEnv() || (!restaurant.ownerUserId && !restaurant.ownerEmail) || !restaurant.city) {
+      return [];
+    }
+
+    const admin = createAdminClient();
+    if (!admin) {
+      return [];
+    }
+
+    let query = admin
+      .from("restaurants")
+      .select("id,name,city,address,owner_user_id,owner_email,status,deleted_at")
+      .neq("id", restaurant.id)
+      .eq("status", "active")
+      .is("deleted_at", null)
+      .eq("city", restaurant.city);
+
+    query = restaurant.ownerUserId ? query.eq("owner_user_id", restaurant.ownerUserId) : query.eq("owner_email", restaurant.ownerEmail ?? "");
+
+    const { data: restaurants, error } = await query.order("name", { ascending: true });
+    if (error || !restaurants?.length) {
+      return [];
+    }
+
+    const restaurantIds = restaurants.map((item) => item.id);
+    const { data: items } = await admin
+      .from("inventory_items")
+      .select("*")
+      .in("restaurant_id", restaurantIds)
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+
+    const itemsByRestaurant = new Map<string, InventoryItem[]>();
+    for (const item of (items ?? []) as InventoryItemRow[]) {
+      const list = itemsByRestaurant.get(item.restaurant_id) ?? [];
+      list.push(mapItem(item));
+      itemsByRestaurant.set(item.restaurant_id, list);
+    }
+
+    return restaurants.map((branch) => ({
+      restaurantId: branch.id,
+      restaurantName: branch.name,
+      city: branch.city ?? "",
+      address: branch.address ?? undefined,
+      items: itemsByRestaurant.get(branch.id) ?? [],
+    }));
   },
 
   async listProductIngredients(restaurantId: string): Promise<ProductIngredient[]> {

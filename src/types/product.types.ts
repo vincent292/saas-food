@@ -67,3 +67,18 @@ export type ProductConfiguration = {
   variants: ProductVariant[];
   optionGroups: ProductOptionGroup[];
 };
+
+export type BranchProductAlternative = {
+  restaurantId: string;
+  restaurantName: string;
+  restaurantSlug: string;
+  city: string;
+  address?: string;
+};
+
+export type ProductStockAvailability = {
+  productId: string;
+  isAvailableHere: boolean;
+  reason?: "stock";
+  alternatives: BranchProductAlternative[];
+};

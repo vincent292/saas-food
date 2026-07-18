@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
-import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
+import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductStockAvailability, ProductVariant } from "@/types/product.types";
 import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantSettings } from "@/types/restaurant.types";
 
 type PublicOrderType = "delivery" | "pickup";
@@ -68,6 +68,7 @@ export function PublicRestaurantOrderClient({
   businessHours,
   announcements,
   configuration,
+  stockAvailability,
   orderError,
 }: {
   restaurant: Restaurant;
@@ -77,6 +78,7 @@ export function PublicRestaurantOrderClient({
   businessHours: BusinessHour[];
   announcements: RestaurantAnnouncement[];
   configuration: ProductConfiguration;
+  stockAvailability: ProductStockAvailability[];
   orderError?: string;
 }) {
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -107,6 +109,7 @@ export function PublicRestaurantOrderClient({
     }
     return map;
   }, [configuration.optionGroups, configuration.variants, products]);
+  const stockByProduct = useMemo(() => new Map(stockAvailability.map((availability) => [availability.productId, availability])), [stockAvailability]);
 
   const filteredProducts = useMemo(() => {
     const queryNeedle = normalize(productQuery);
@@ -129,8 +132,8 @@ export function PublicRestaurantOrderClient({
   const heroImage = restaurant.bannerUrl || products.find((product) => product.isFeatured && product.imageUrl)?.imageUrl || products.find((product) => product.imageUrl)?.imageUrl || defaultImage;
   const topOrderedProducts = useMemo(() => {
     const featured = products.filter((product) => product.isAutoFeatured || product.isFeatured);
-    return (featured.length ? featured : products).slice(0, 3);
-  }, [products]);
+    return (featured.length ? featured : products).filter((product) => stockByProduct.get(product.id)?.isAvailableHere ?? true).slice(0, 3);
+  }, [products, stockByProduct]);
   const bannerHeightClass = restaurant.publicBannerSize === "large" ? "min-h-[210px] sm:min-h-[380px]" : restaurant.publicBannerSize === "standard" ? "min-h-[190px] sm:min-h-[320px]" : "min-h-[164px] sm:min-h-[260px]";
   const publicBackgroundStyle: CSSProperties = isDisplayImage(restaurant.menuBackgroundImageUrl)
     ? {
@@ -406,7 +409,7 @@ export function PublicRestaurantOrderClient({
 
           <div className="grid gap-4 lg:grid-cols-2">
             {filteredProducts.map((product) => (
-              <ProductTile config={configByProduct[product.id]} key={product.id} onSelect={() => setSelectedProduct(product)} product={product} />
+              <ProductTile availability={stockByProduct.get(product.id)} config={configByProduct[product.id]} key={product.id} onSelect={() => setSelectedProduct(product)} product={product} />
             ))}
           </div>
 
@@ -572,14 +575,17 @@ function CategoryButton({ active, label, onClick }: { active: boolean; label: st
   );
 }
 
-function ProductTile({ product, config, onSelect }: { product: Product; config?: ProductConfigMap[string]; onSelect: () => void }) {
+function ProductTile({ product, config, availability, onSelect }: { product: Product; config?: ProductConfigMap[string]; availability?: ProductStockAvailability; onSelect: () => void }) {
   const hasConfiguration = Boolean(config?.variants.length || config?.optionGroups.length);
+  const isStockAvailable = availability?.isAvailableHere ?? true;
+  const firstAlternative = availability?.alternatives[0];
 
   return (
-    <button className="grid grid-cols-[92px_minmax(0,1fr)_42px] items-center gap-2.5 rounded-[1.15rem] border border-[var(--border)] bg-[var(--surface)] p-2 text-left text-[var(--text)] shadow-[0_12px_32px_rgb(18_53_91_/_0.07)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] hover:shadow-[0_22px_56px_rgb(18_53_91_/_0.12)] sm:grid-cols-[132px_minmax(0,1fr)_52px] sm:gap-3 sm:rounded-[1.35rem] sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]" onClick={onSelect} type="button">
+    <div className={cn("grid grid-cols-[92px_minmax(0,1fr)_42px] items-center gap-2.5 rounded-[1.15rem] border border-[var(--border)] bg-[var(--surface)] p-2 text-left text-[var(--text)] shadow-[0_12px_32px_rgb(18_53_91_/_0.07)] transition sm:grid-cols-[132px_minmax(0,1fr)_52px] sm:gap-3 sm:rounded-[1.35rem] sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]", isStockAvailable ? "hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] hover:shadow-[0_22px_56px_rgb(18_53_91_/_0.12)]" : "opacity-80")}>
       <span className="relative h-24 overflow-hidden rounded-[1rem] bg-[var(--primary-light)] sm:h-32 sm:rounded-[1.2rem]">
         <ProductVisual className="h-full w-full" name={product.name} src={product.imageUrl} />
         {product.isAutoFeatured || product.isFeatured ? <span className="absolute left-2 top-2 rounded-full bg-[var(--accent)] px-2 py-1 text-[10px] font-black text-[var(--primary)]">Top</span> : null}
+        {!isStockAvailable ? <span className="absolute inset-x-2 bottom-2 rounded-full bg-[var(--color-danger)] px-2 py-1 text-center text-[10px] font-black text-white">Agotado aqui</span> : null}
       </span>
       <span className="min-w-0 py-1">
         <span className="flex flex-wrap items-center gap-1.5">
@@ -595,11 +601,25 @@ function ProductTile({ product, config, onSelect }: { product: Product; config?:
           </span>
           <span className="text-base text-[var(--primary)]">{formatMoney(product.price)}</span>
         </span>
+        {!isStockAvailable ? (
+          <span className="mt-2 block rounded-xl bg-[var(--color-warning-soft)] px-3 py-2 text-xs font-black text-[var(--color-warning-strong)]">
+            {firstAlternative ? (
+              <>
+                Disponible en{" "}
+                <Link className="underline" href={publicRestaurantPath(firstAlternative.restaurantSlug)}>
+                  {firstAlternative.restaurantName}
+                </Link>
+              </>
+            ) : (
+              "Sin stock en esta sucursal"
+            )}
+          </span>
+        ) : null}
       </span>
-      <span className="grid h-10 w-10 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] sm:h-12 sm:w-12">
+      <button aria-disabled={!isStockAvailable} className={cn("grid h-10 w-10 place-items-center rounded-full shadow-[var(--shadow-glow)] sm:h-12 sm:w-12", isStockAvailable ? "bg-[var(--accent)] text-[var(--primary)]" : "bg-[var(--color-neutral-100)] text-[var(--muted)]")} disabled={!isStockAvailable} onClick={onSelect} type="button">
         <Plus className="h-5 w-5 sm:h-6 sm:w-6" />
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
 

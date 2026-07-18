@@ -1,0 +1,105 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 3481 >>
+stream
+0.02 0.12 0.20 rg 0 760 595 82 re f
+1 1 1 rg BT /F1 22 Tf 48 812 Td (Manual de caja) Tj ET
+0.75 0.92 1 rg BT /F1 12 Tf 48 786 Td (Apertura, cobro, aprobacion y cierre) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 728 Td (Objetivo) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 704 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 704 Td (Caja controla el dinero del turno y aprueba pedidos que necesitan pago.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 679 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 679 Td (Cada cobro debe quedar asociado a una venta, movimiento o pedido.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 654 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 654 Td (La caja abierta es el punto de seguridad antes de procesar pedidos pendientes.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 619 Td (Apertura de caja) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 595 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 595 Td (Abre caja al iniciar turno con el efectivo inicial real.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 570 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 570 Td (No apruebes pedidos si la caja esta cerrada.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 545 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 545 Td (Si ya existe una caja abierta, continua con esa sesion o cierra correctamente antes de) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 530 Td (abrir otra.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 495 Td (Pedidos por aprobar) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 471 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 471 Td (Los pedidos web, recojo, delivery o mesa entran como pendientes.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 446 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 446 Td (Revisa nombre, WhatsApp, total, metodo de pago y detalle del pedido.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 421 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 421 Td (Para pedido de mesa, el cliente debe acercarse a caja si paga efectivo o QR segun) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 406 Td (configuracion.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 381 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 381 Td (Aprueba solo cuando el pago este confirmado. Si no corresponde, rechaza con motivo.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 346 Td (Cobros y comprobantes) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 322 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 322 Td (Efectivo aumenta el efectivo esperado.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 297 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 297 Td (QR, transferencia o tarjeta quedan como cobro digital.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 272 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 272 Td (Si el pago requiere referencia, registra numero de comprobante o evidencia segun el) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 257 Td (flujo configurado.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 222 Td (Movimientos) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 198 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 198 Td (Registra egresos con motivo claro: compra menor, devolucion, ajuste autorizado.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 173 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 173 Td (Evita borrar movimientos. Lo correcto es reversar o registrar un nuevo movimiento) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 158 Td (explicado.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 133 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 133 Td (Los reportes dependen de motivos claros y montos correctos.) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 1429 >>
+stream
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 790 Td (Cierre y arqueo) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 766 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 766 Td (Cuenta el efectivo fisico antes de cerrar.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 741 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 741 Td (Compara con el efectivo esperado.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 716 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 716 Td (Si hay diferencia, deja nota. No ajustes sin explicar.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 691 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 691 Td (Despues del cierre, revisa reportes para detectar diferencias recurrentes.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 656 Td (Buenas practicas) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 632 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 632 Td (Mantener caja abierta solo durante el turno real.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 607 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 607 Td (Aprobar pedidos en cuanto el pago este confirmado.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 582 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 582 Td (No compartir usuarios entre cajeros.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 557 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 557 Td (Usar buscador por numero, nombre o WhatsApp cuando haya muchos pedidos.) Tj ET
+0.45 0.48 0.54 rg BT /F1 9 Tf 48 36 Td (Manual operativo SaaS Food) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000003730 00000 n 
+0000003856 00000 n 
+0000005337 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+5463
+%%EOF

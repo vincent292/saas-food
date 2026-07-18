@@ -28,7 +28,9 @@ import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { signOutAction } from "@/app/admin/actions";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { GlobalOrderSoundAlert } from "@/components/orders/GlobalOrderSoundAlert";
 import { cn } from "@/lib/utils/cn";
+import type { Order } from "@/types/order.types";
 import type { ModuleKey, PlatformBillingAlert, RestaurantStatus } from "@/types/restaurant.types";
 
 type NavItem = {
@@ -70,6 +72,7 @@ export function AdminShellClient({
   billingAlert,
   canAccessSuperadmin = false,
   enabledModules,
+  pendingOrderAlerts = [],
   title,
   active = "dashboard",
 }: {
@@ -80,6 +83,7 @@ export function AdminShellClient({
   billingAlert?: PlatformBillingAlert | null;
   canAccessSuperadmin?: boolean;
   enabledModules?: ModuleKey[];
+  pendingOrderAlerts?: Order[];
   title: string;
   active?: string;
 }) {
@@ -91,6 +95,8 @@ export function AdminShellClient({
 
   return (
     <div className="min-h-screen bg-[var(--color-surface)] text-[var(--color-heading)]">
+      {restaurantId && moduleSet.has("orders") ? <GlobalOrderSoundAlert orders={pendingOrderAlerts} restaurantId={restaurantId} /> : null}
+
       {billingAlert && billingModalOpen ? (
         <div className="fixed inset-0 z-[90] grid place-items-end bg-[var(--color-overlay)] p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
           <div className="w-full max-w-xl rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:rounded-[1.5rem]">

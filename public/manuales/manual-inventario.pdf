@@ -1,0 +1,108 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 3897 >>
+stream
+0.02 0.12 0.20 rg 0 760 595 82 re f
+1 1 1 rg BT /F1 22 Tf 48 812 Td (Manual de inventario) Tj ET
+0.75 0.92 1 rg BT /F1 12 Tf 48 786 Td (Control simple para restaurantes y sucursales) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 728 Td (Objetivo) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 704 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 704 Td (Mantener stock real por sucursal sin convertir el sistema en inventario industrial.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 679 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 679 Td (Usar inventario para saber que hay, que falta, que esta por vencer y que productos se) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 664 Td (pueden vender.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 639 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 639 Td (Cada sucursal maneja su propio stock. Si un producto no esta disponible, la tienda puede) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 624 Td (sugerir otra sucursal compatible.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 589 Td (Conceptos principales) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 565 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 565 Td (Producto terminado: unidades listas para vender, por ejemplo galleta de chocolate o) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 550 Td (cheesecake.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 525 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 525 Td (Insumo: materia prima usada en recetas, por ejemplo pan, carne, queso, leche o harina.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 500 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 500 Td (Material: bolsas, empaques, vasos, servilletas u otros consumibles.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 475 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 475 Td (Receta: relacion entre un producto de venta y los insumos que descuenta al) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 460 Td (aprobar/cobrar el pedido.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 425 Td (Entrada de stock) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 401 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 401 Td (Ingresa cantidad, proveedor si aplica, lote y fecha de vencimiento cuando corresponda.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 376 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 376 Td (Usa notas claras: compra, produccion del dia, ajuste autorizado o transferencia) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 361 Td (recibida.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 336 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 336 Td (Si el item vence, registra la fecha. El sistema lo marca en la vista Por vencer.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 301 Td (Salidas y descuento por venta) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 277 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 277 Td (Las salidas manuales sirven para merma, uso interno o correcciones autorizadas.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 252 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 252 Td (Cuando una venta se registra en caja, el sistema descuenta los insumos ligados por) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 237 Td (receta.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 212 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 212 Td (Si falta stock, la aprobacion puede bloquearse para evitar vender algo que no existe.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 177 Td (Conteos por turno) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 153 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 153 Td (Cuenta el stock fisico al inicio o cierre de turno.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 128 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 128 Td (Registra diferencias con nota obligatoria si hay faltante o sobrante.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 103 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 103 Td (Usa los conteos para detectar errores de produccion, pedidos mal registrados o mermas no) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 88 Td (anotadas.) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 1538 >>
+stream
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 790 Td (Transferencias entre sucursales) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 766 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 766 Td (Solo mueve stock entre sucursales del mismo responsable y ciudad.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 741 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 741 Td (Registra cantidad y motivo. La sucursal origen descuenta y la destino recibe.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 716 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 716 Td (No uses transferencia para ocultar faltantes: si hubo perdida, registra salida o ajuste) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 701 Td (con motivo.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 666 Td (Buenas practicas) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 642 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 642 Td (Revisar bajo minimo al iniciar turno.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 617 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 617 Td (Registrar vencimientos el mismo dia que entra la mercaderia.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 592 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 592 Td (Mantener recetas simples y revisarlas cuando cambie la porcion.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 567 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 567 Td (No editar stock directo si puedes explicar el movimiento con entrada, salida, conteo o) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 552 Td (transferencia.) Tj ET
+0.45 0.48 0.54 rg BT /F1 9 Tf 48 36 Td (Manual operativo SaaS Food) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000004146 00000 n 
+0000004272 00000 n 
+0000005862 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+5988
+%%EOF

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { AdminShellClient } from "@/components/layout/AdminShellClient";
 import { authService } from "@/lib/services/auth.service";
+import { orderService } from "@/lib/services/order.service";
 import { platformBillingService } from "@/lib/services/platform-billing.service";
 import type { ModuleKey, RestaurantStatus } from "@/types/restaurant.types";
 
@@ -34,7 +35,10 @@ export async function AdminLayout({
     }
   }
 
-  const billingAlert = restaurantId && restaurantStatus ? (await platformBillingService.getBillingSnapshot(restaurantId, restaurantStatus)).alert : null;
+  const [billingAlert, pendingOrderAlerts] = await Promise.all([
+    restaurantId && restaurantStatus ? platformBillingService.getBillingSnapshot(restaurantId, restaurantStatus).then((snapshot) => snapshot.alert) : Promise.resolve(null),
+    restaurantId ? orderService.listPendingAlerts(restaurantId) : Promise.resolve([]),
+  ]);
 
   return (
     <AdminShellClient
@@ -45,6 +49,7 @@ export async function AdminLayout({
       restaurantId={restaurantId}
       restaurantName={restaurantName}
       restaurantStatus={restaurantStatus}
+      pendingOrderAlerts={pendingOrderAlerts}
       title={title}
     >
       {children}

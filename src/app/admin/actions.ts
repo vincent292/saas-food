@@ -128,6 +128,22 @@ const announcementIdSchema = z.object({
   announcementId: z.string().uuid(),
 });
 
+const updateAnnouncementSchema = announcementIdSchema.extend({
+  type: z.enum(["announcement", "closure"]).default("announcement"),
+  title: z.string().min(3),
+  body: z.string().optional(),
+  startsAt: z.string().min(1),
+  endsAt: z.string().optional(),
+  isActive: z.boolean().default(true),
+});
+
+const markInvoiceIssuedSchema = z.object({
+  restaurantId: z.string().uuid(),
+  orderId: z.string().uuid(),
+  invoiceNumber: z.string().optional(),
+  invoiceNotes: z.string().optional(),
+});
+
 const announcementDeactivateInputSchema = z.object({
   restaurantId: z.string().uuid().optional(),
   restaurantSlug: z.string().min(1).optional(),
@@ -362,6 +378,7 @@ const resolveOwnerChangeRequestSchema = z.object({
 const createInventoryItemSchema = z.object({
   restaurantId: z.string().uuid(),
   name: z.string().min(2),
+  itemKind: z.enum(["finished", "ingredient", "supply"]).default("ingredient"),
   unit: z.enum(["unidad", "kg", "g", "lb", "oz", "litro", "ml", "caja", "paquete"]),
   currentStock: z.coerce.number().nonnegative().default(0),
   minStock: z.coerce.number().nonnegative().default(0),
@@ -418,6 +435,8 @@ const registerInventoryMovementSchema = z.object({
   fromZoneId: z.string().uuid().optional(),
   toZoneId: z.string().uuid().optional(),
   supplierId: z.string().uuid().optional(),
+  lotCode: z.string().optional(),
+  expiresOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal("")),
 });
 
 const transferInventoryZoneSchema = z.object({
@@ -425,6 +444,15 @@ const transferInventoryZoneSchema = z.object({
   inventoryItemId: z.string().uuid(),
   fromZoneId: z.string().uuid(),
   toZoneId: z.string().uuid(),
+  quantity: z.coerce.number().positive(),
+  reason: z.string().min(2),
+});
+
+const transferInventoryBranchSchema = z.object({
+  restaurantId: z.string().uuid(),
+  targetRestaurantId: z.string().uuid(),
+  inventoryItemId: z.string().uuid(),
+  targetInventoryItemId: z.string().uuid(),
   quantity: z.coerce.number().positive(),
   reason: z.string().min(2),
 });
@@ -1641,10 +1669,22 @@ async function dispatchRestaurantSettingsIntent(rawIntent: string, formData: For
       return closeRestaurantTodayAction(formData);
     case "create-announcement":
       return createRestaurantAnnouncementAction(formData);
+    case "update-announcement":
+      if (entityId) {
+        formData.set("announcementId", entityId);
+        return updateRestaurantAnnouncementAction(formData);
+      }
+      break;
     case "deactivate-announcement":
       if (entityId) {
         formData.set("announcementId", entityId);
         return deactivateRestaurantAnnouncementAction(formData);
+      }
+      break;
+    case "mark-invoice-issued":
+      if (entityId) {
+        formData.set("orderId", entityId);
+        return markInvoiceIssuedAction(formData);
       }
       break;
     case "create-owner-request":
@@ -1758,13 +1798,20 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   const normalizedCategory = normalizeRestaurantCategory(parsed.data.publicCategory, businessType);
   const supportsTableQr = businessTypeSupportsTableQr(businessType);
   const supportsKitchen = businessTypeSupportsKitchen(businessType);
+  const nextRestaurantStatus = isSuperadmin
+    ? parsed.data.status
+    : currentRestaurant.status === "suspended"
+      ? "suspended"
+      : parsed.data.status === "inactive"
+        ? "inactive"
+        : "active";
   const moduleState = {
-    deliveryEnabled: isSuperadmin ? parsed.data.deliveryEnabled : currentSettings?.delivery_enabled ?? true,
-    pickupEnabled: isSuperadmin ? parsed.data.pickupEnabled : currentSettings?.pickup_enabled ?? true,
-    tableOrdersEnabled: supportsTableQr && (isSuperadmin ? parsed.data.tableOrdersEnabled : currentSettings?.table_orders_enabled ?? true),
-    inventoryEnabled: isSuperadmin ? parsed.data.inventoryEnabled : currentSettings?.inventory_enabled ?? true,
-    cashEnabled: isSuperadmin ? parsed.data.cashEnabled : currentSettings?.cash_enabled ?? true,
-    kitchenEnabled: supportsKitchen && (isSuperadmin ? parsed.data.kitchenEnabled : currentSettings?.kitchen_enabled ?? true),
+    deliveryEnabled: currentSettings?.delivery_enabled ?? parsed.data.deliveryEnabled,
+    pickupEnabled: currentSettings?.pickup_enabled ?? parsed.data.pickupEnabled,
+    tableOrdersEnabled: supportsTableQr && isAllowedModule("table_qr"),
+    inventoryEnabled: isAllowedModule("inventory"),
+    cashEnabled: isAllowedModule("cash"),
+    kitchenEnabled: supportsKitchen && isAllowedModule("kitchen"),
   };
 
   if (canChangePlan && parsed.data.planKey) {
@@ -1815,7 +1862,7 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     name: parsed.data.name,
     slug,
     description: parsed.data.description ?? null,
-    status: isSuperadmin ? parsed.data.status : currentRestaurant.status,
+    status: nextRestaurantStatus,
     primary_color: parsed.data.primaryColor,
     secondary_color: parsed.data.secondaryColor,
     background_color: parsed.data.backgroundColor,
@@ -2418,6 +2465,63 @@ export async function createRestaurantAnnouncementAction(formData: FormData) {
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&announcement=1`);
 }
 
+export async function updateRestaurantAnnouncementAction(formData: FormData) {
+  const announcementId = String(formData.get("announcementId") || "");
+  const parsed = updateAnnouncementSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    restaurantSlug: formData.get("restaurantSlug") || undefined,
+    announcementId,
+    type: formData.get(`announcementType_${announcementId}`) || "announcement",
+    title: formData.get(`announcementTitle_${announcementId}`),
+    body: formData.get(`announcementBody_${announcementId}`) || undefined,
+    startsAt: formData.get(`announcementStartsAt_${announcementId}`),
+    endsAt: formData.get(`announcementEndsAt_${announcementId}`) || undefined,
+    isActive: booleanFromForm(formData, `announcementIsActive_${announcementId}`),
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=avisos&error=invalid-announcement`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos`);
+  const { supabase } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  const imageUrl = await uploadPublicImage(formData.get(`announcementImageFile_${announcementId}`) as File | null, `restaurants/${parsed.data.restaurantId}/announcements`);
+
+  const updatePayload: {
+    type: "announcement" | "closure";
+    title: string;
+    body: string | null;
+    starts_at: string;
+    ends_at: string | null;
+    is_active: boolean;
+    image_url?: string;
+  } = {
+    type: parsed.data.type,
+    title: parsed.data.title.trim(),
+    body: parsed.data.body?.trim() || null,
+    starts_at: dateTimeInputToIso(parsed.data.startsAt),
+    ends_at: parsed.data.endsAt ? dateTimeInputToIso(parsed.data.endsAt) : null,
+    is_active: parsed.data.isActive,
+  };
+
+  if (imageUrl) {
+    updatePayload.image_url = imageUrl;
+  }
+
+  const { error } = await supabase
+    .from("restaurant_announcements")
+    .update(updatePayload)
+    .eq("id", parsed.data.announcementId)
+    .eq("restaurant_id", parsed.data.restaurantId);
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&error=${error.code}`);
+  }
+
+  revalidateAnnouncementPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&announcement=updated`);
+}
+
 export async function closeRestaurantTodayAction(formData: FormData) {
   const parsed = closeTodaySchema.safeParse({
     restaurantId: formData.get("restaurantId"),
@@ -2498,6 +2602,41 @@ export async function deactivateRestaurantAnnouncementAction(formData: FormData)
 
   revalidateAnnouncementPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&disabled=1`);
+}
+
+export async function markInvoiceIssuedAction(formData: FormData) {
+  const parsed = markInvoiceIssuedSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    orderId: formData.get("orderId"),
+    invoiceNumber: formData.get(`invoiceNumber_${formData.get("orderId")}`) || undefined,
+    invoiceNotes: formData.get(`invoiceNotes_${formData.get("orderId")}`) || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=facturas&error=invalid-invoice`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=facturas`);
+  const { supabase, user } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  const { error } = await supabase
+    .from("orders")
+    .update({
+      invoice_issued_at: new Date().toISOString(),
+      invoice_issued_by: user.id,
+      invoice_number: parsed.data.invoiceNumber?.trim() || null,
+      invoice_notes: parsed.data.invoiceNotes?.trim() || null,
+    })
+    .eq("id", parsed.data.orderId)
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("invoice_required", true)
+    .is("invoice_issued_at", null);
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=facturas&error=${cashErrorKey(error, "invoice-issued")}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=facturas&invoiceMarked=1`);
 }
 
 export async function createCategoryAction(formData: FormData) {
@@ -3477,6 +3616,7 @@ export async function createInventoryItemAction(formData: FormData) {
   const parsed = createInventoryItemSchema.safeParse({
     restaurantId: formData.get("restaurantId"),
     name: formData.get("name"),
+    itemKind: formData.get("itemKind") || "ingredient",
     unit: formData.get("unit") || "unidad",
     currentStock: formData.get("currentStock") || 0,
     minStock: formData.get("minStock") || 0,
@@ -3501,6 +3641,7 @@ export async function createInventoryItemAction(formData: FormData) {
     .insert({
       restaurant_id: parsed.data.restaurantId,
       name: parsed.data.name,
+      item_kind: parsed.data.itemKind,
       unit: parsed.data.unit,
       current_stock: parsed.data.currentStock,
       min_stock: parsed.data.minStock,
@@ -3702,6 +3843,8 @@ export async function registerInventoryMovementAction(formData: FormData) {
     fromZoneId: formData.get("fromZoneId") || undefined,
     toZoneId: formData.get("toZoneId") || undefined,
     supplierId: formData.get("supplierId") || undefined,
+    lotCode: formData.get("lotCode") || undefined,
+    expiresOn: formData.get("expiresOn") || undefined,
   });
 
   if (!parsed.success) {
@@ -3720,6 +3863,8 @@ export async function registerInventoryMovementAction(formData: FormData) {
     p_from_zone_id: parsed.data.fromZoneId ?? null,
     p_to_zone_id: parsed.data.toZoneId ?? null,
     p_supplier_id: parsed.data.supplierId ?? null,
+    p_lot_code: parsed.data.lotCode || null,
+    p_expires_on: parsed.data.expiresOn || null,
   });
 
   if (error) {
@@ -3763,6 +3908,41 @@ export async function transferInventoryZoneAction(formData: FormData) {
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/inventario`);
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=zonas&transfer=1`);
+}
+
+export async function transferInventoryBranchAction(formData: FormData) {
+  const parsed = transferInventoryBranchSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    targetRestaurantId: formData.get("targetRestaurantId"),
+    inventoryItemId: formData.get("inventoryItemId"),
+    targetInventoryItemId: formData.get("targetInventoryItemId"),
+    quantity: formData.get("quantity"),
+    reason: formData.get("reason"),
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/inventario?tab=transferencias&error=invalid-branch-transfer`);
+  }
+
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=transferencias`);
+
+  const { supabase } = await requireUser();
+  const { error } = await supabase.rpc("transfer_inventory_branch_atomic", {
+    p_from_restaurant_id: parsed.data.restaurantId,
+    p_to_restaurant_id: parsed.data.targetRestaurantId,
+    p_from_inventory_item_id: parsed.data.inventoryItemId,
+    p_to_inventory_item_id: parsed.data.targetInventoryItemId,
+    p_quantity: parsed.data.quantity,
+    p_reason: parsed.data.reason,
+  });
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=transferencias&error=${cashErrorKey(error, "branch-transfer")}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/inventario`);
+  revalidatePath(`/admin/restaurantes/${parsed.data.targetRestaurantId}/inventario`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=transferencias&transfer=1`);
 }
 
 export async function openInventoryCountAction(formData: FormData) {

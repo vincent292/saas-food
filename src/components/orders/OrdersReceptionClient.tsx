@@ -6,7 +6,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateOrderStatusAction } from "@/app/admin/actions";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
-import { NewOrderSoundAlert } from "@/components/orders/NewOrderSoundAlert";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { elapsedLabel, minutesSince, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
 import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
@@ -209,13 +208,6 @@ export function OrdersReceptionClient({
       {banner ? (
         <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>{banner.text}</div>
       ) : null}
-
-      <NewOrderSoundAlert
-        description="Recepcion tiene un pedido nuevo pendiente de aprobar."
-        onOpenAlerts={() => setActiveTab("nuevos")}
-        orders={todayOrders}
-        title="Pedido nuevo en recepcion"
-      />
 
       <section className="grid gap-3 md:grid-cols-3">
         <SummaryCard count={groups.nuevos.length} icon={<Clock className="h-5 w-5" />} label="Nuevos por aprobar" />

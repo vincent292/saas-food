@@ -4,6 +4,7 @@ import { RestaurantSettingsFormClient } from "@/components/settings/RestaurantSe
 import { modulesForAdminLayout } from "@/lib/modules";
 import { authService } from "@/lib/services/auth.service";
 import { announcementService } from "@/lib/services/announcement.service";
+import { orderService } from "@/lib/services/order.service";
 import { planService } from "@/lib/services/plan.service";
 import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
@@ -30,10 +31,11 @@ export default async function SettingsPage({
     ownerApproved?: string;
     ownerRejected?: string;
     zone?: string;
+    invoiceMarked?: string;
   }>;
 }) {
   const { restaurantId } = await params;
-  const { saved, error, tab, announcement, closed, disabled, billingSaved, paymentUploaded, paymentVerified, paymentPaid, ownerRequest, ownerApproved, ownerRejected, zone } = await searchParams;
+  const { saved, error, tab, announcement, closed, disabled, billingSaved, paymentUploaded, paymentVerified, paymentPaid, ownerRequest, ownerApproved, ownerRejected, zone, invoiceMarked } = await searchParams;
   const restaurant = await restaurantService.getById(restaurantId);
 
   if (!restaurant) {
@@ -42,7 +44,7 @@ export default async function SettingsPage({
 
   await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/configuracion`);
 
-  const [settings, businessHours, plans, profile, announcements, billingSnapshot, ownerChangePolicy, ownerChangeRequests, deliveryZones] = await Promise.all([
+  const [settings, businessHours, plans, profile, announcements, billingSnapshot, ownerChangePolicy, ownerChangeRequests, deliveryZones, invoiceRequests] = await Promise.all([
     restaurantService.getSettings(restaurant.id),
     settingsService.listBusinessHours(restaurant.id),
     planService.listPlans(),
@@ -52,6 +54,7 @@ export default async function SettingsPage({
     platformBillingService.getOwnerChangePolicy(restaurant.id),
     platformBillingService.listOwnerChangeRequests(restaurant.id),
     restaurantService.listDeliveryZones(restaurant.id),
+    orderService.listInvoiceRequests(restaurant.id),
   ]);
 
   return (
@@ -74,6 +77,8 @@ export default async function SettingsPage({
         announcementDisabled={disabled}
         error={error}
         initialTab={tab}
+        invoiceRequests={invoiceRequests}
+        invoiceMarked={invoiceMarked}
         ownerApproved={ownerApproved}
         ownerChangePolicy={ownerChangePolicy}
         ownerChangeRequests={ownerChangeRequests}

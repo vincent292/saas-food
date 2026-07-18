@@ -6,7 +6,7 @@ import { buttonClasses } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
 import type { Order, OrderType } from "@/types/order.types";
 
-const ORDER_ALERT_AUDIO_SRC = "/sounds/new-order.mp3";
+const ORDER_ALERT_AUDIO_SRC = "/notificaciones/notificaiones.mp3";
 const ORDER_ALERT_REPEAT_MS = 4500;
 
 function sameOrderIds(left: Order[], right: Order[]) {
@@ -19,12 +19,18 @@ export function NewOrderSoundAlert({
   description = "Hay pedidos nuevos esperando revision.",
   watchOrderTypes,
   onOpenAlerts,
+  actionLabel = "Ver pedidos",
+  className,
+  idleClassName,
 }: {
   orders: Order[];
   title?: string;
   description?: string;
   watchOrderTypes?: OrderType[];
   onOpenAlerts?: (orders: Order[]) => void;
+  actionLabel?: string;
+  className?: string;
+  idleClassName?: string;
 }) {
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [soundBlocked, setSoundBlocked] = useState(false);
@@ -135,7 +141,7 @@ export function NewOrderSoundAlert({
 
   if (!unseenOrders.length) {
     return (
-      <div className="flex justify-end">
+      <div className={cn("flex justify-end", idleClassName)}>
         <button
           className={buttonClasses(
             "secondary",
@@ -152,7 +158,7 @@ export function NewOrderSoundAlert({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-[1.25rem] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-4 text-[var(--color-warning-strong)] shadow-sm lg:flex-row lg:items-center lg:justify-between">
+    <div className={cn("flex flex-col gap-3 rounded-[1.25rem] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-4 text-[var(--color-warning-strong)] shadow-sm lg:flex-row lg:items-center lg:justify-between", className)}>
       <div className="flex min-w-0 items-start gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--surface)]">
           <BellRing className="h-5 w-5 animate-pulse" />
@@ -173,7 +179,7 @@ export function NewOrderSoundAlert({
         ) : null}
         <button className={buttonClasses("primary")} onClick={openAlerts} type="button">
           <Eye className="h-4 w-4" />
-          Ver pedidos
+          {actionLabel}
         </button>
         <button className={buttonClasses("ghost")} onClick={acknowledge} type="button">
           Ya lo vi

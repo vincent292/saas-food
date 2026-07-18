@@ -1,0 +1,112 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 3389 >>
+stream
+0.02 0.12 0.20 rg 0 760 595 82 re f
+1 1 1 rg BT /F1 22 Tf 48 812 Td (Manual de pedidos) Tj ET
+0.75 0.92 1 rg BT /F1 12 Tf 48 786 Td (Recepcion, preparacion, despacho y seguimiento) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 728 Td (Objetivo) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 704 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 704 Td (Pedidos centraliza lo que entra desde tienda virtual, QR de mesa, recojo, delivery y) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 689 Td (POS.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 664 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 664 Td (El objetivo es aprobar rapido, evitar pedidos perdidos y mantener seguimiento claro para) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 649 Td (el cliente.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 614 Td (Estados principales) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 590 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 590 Td (Pendiente: pedido recibido, falta aprobacion de caja o revision.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 565 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 565 Td (Aceptado: pedido aprobado y listo para preparacion.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 540 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 540 Td (Preparando: cocina o area operativa esta trabajando.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 515 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 515 Td (Listo: el pedido esta listo para recoger, servir o despachar.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 490 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 490 Td (Entregado: ciclo terminado. Ya no necesita refresco ni alerta.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 465 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 465 Td (Cancelado: pedido rechazado o anulado con motivo.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 430 Td (Flujo web, recojo y delivery) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 406 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 406 Td (El cliente crea el pedido desde la tienda.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 381 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 381 Td (Caja revisa pago y aprueba.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 356 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 356 Td (Cocina prepara y marca listo.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 331 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 331 Td (Para delivery, se asigna repartidor con QR/enlace y el seguimiento muestra su avance.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 306 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 306 Td (Cuando se entrega, el pedido sale del flujo activo y queda en historial/reportes.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 271 Td (Pedidos desde mesa) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 247 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 247 Td (El cliente escanea el QR de mesa y arma su pedido.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 222 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 222 Td (No se pide mapa ni direccion.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 197 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 197 Td (Si requiere pago en caja, el sistema muestra aviso para acercarse a confirmar.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 172 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 172 Td (Caja puede aprobar o eliminar de vista con motivo si el pedido fue incorrecto o nunca) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 157 Td (pagaron.) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 2114 >>
+stream
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 790 Td (Alertas) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 766 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 766 Td (Cuando llega un pedido nuevo, el panel muestra alerta global en cualquier modulo) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 751 Td (administrativo.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 726 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 726 Td (El sonido se repite hasta que el operador abre la alerta o marca que ya lo vio.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 701 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 701 Td (Por seguridad del navegador, una persona debe pulsar Activar sonido una vez al abrir el) Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 686 Td (panel.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 651 Td (Cocina y despacho) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 627 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 627 Td (Cocina trabaja en una vista limpia por estados.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 602 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 602 Td (Los colores de tiempo ayudan a priorizar: verde a tiempo, amarillo demorado, rojo tarde.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 577 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 577 Td (Al despachar o entregar, el pedido pasa a historial para mantener la pantalla limpia.) Tj ET
+0.02 0.12 0.20 rg BT /F1 16 Tf 48 542 Td (Buenas practicas) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 518 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 518 Td (No dejar pedidos pendientes sin revisar.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 493 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 493 Td (Usar WhatsApp del cliente si falta confirmacion.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 468 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 468 Td (Mantener abierta la pantalla de pedidos o cualquier modulo admin con sonido activo.) Tj ET
+0.50 0.68 0.00 rg BT /F1 11 Tf 58 443 Td () Tj ET
+0.20 0.24 0.30 rg BT /F1 10.5 Tf 76 443 Td (Cerrar el ciclo del pedido cuando realmente fue entregado o retirado.) Tj ET
+0.45 0.48 0.54 rg BT /F1 9 Tf 48 36 Td (Manual operativo SaaS Food) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000003638 00000 n 
+0000003764 00000 n 
+0000005930 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+6056
+%%EOF

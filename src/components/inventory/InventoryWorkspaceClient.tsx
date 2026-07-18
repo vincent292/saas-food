@@ -14,6 +14,7 @@ import {
   openInventoryCountAction,
   recordInventoryCountLineAction,
   registerInventoryMovementAction,
+  transferInventoryBranchAction,
   transferInventoryZoneAction,
 } from "@/app/admin/actions";
 import { InventoryItemRow } from "@/components/inventory/InventoryItemRow";
@@ -26,11 +27,11 @@ import { SectionTitle } from "@/components/ui/SectionTitle";
 import { cn } from "@/lib/utils/cn";
 import { formatShortDate, formatShortTime } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
-import type { InventoryCategory, InventoryCountReport, InventoryItem, InventoryItemZone, InventoryMovement, InventorySupplier, InventoryZone, ProductIngredient, ProductSupplier } from "@/types/inventory.types";
+import type { InventoryBranchTarget, InventoryBranchTransfer, InventoryCategory, InventoryCountReport, InventoryItem, InventoryItemZone, InventoryLot, InventoryMovement, InventorySupplier, InventoryZone, ProductIngredient, ProductSupplier } from "@/types/inventory.types";
 import type { Product } from "@/types/product.types";
 
-type InventoryTab = "resumen" | "catalogo" | "kardex" | "zonas" | "recetas" | "conteo" | "proveedores";
-type ModalKey = "item" | "category" | "movement" | "transfer" | "recipe" | "countLine" | "supplier" | "productSupplier" | "zone" | null;
+type InventoryTab = "resumen" | "catalogo" | "kardex" | "zonas" | "recetas" | "conteo" | "transferencias" | "proveedores";
+type ModalKey = "item" | "category" | "movement" | "transfer" | "branchTransfer" | "recipe" | "countLine" | "supplier" | "productSupplier" | "zone" | null;
 
 const unitOptions = [
   ["unidad", "Unidad"],
@@ -65,6 +66,10 @@ export function InventoryWorkspaceClient({
   products,
   zones,
   itemZones,
+  lots,
+  branchTargets,
+  branchTransfers,
+  expiringBeforeDate,
   initialTab,
 }: {
   restaurantId: string;
@@ -79,11 +84,17 @@ export function InventoryWorkspaceClient({
   products: Product[];
   zones: InventoryZone[];
   itemZones: InventoryItemZone[];
+  lots: InventoryLot[];
+  branchTargets: InventoryBranchTarget[];
+  branchTransfers: InventoryBranchTransfer[];
+  expiringBeforeDate: string;
   initialTab?: string;
 }) {
   const [activeTab, setActiveTab] = useState<InventoryTab>(isTab(initialTab) ? initialTab : "resumen");
   const [modal, setModal] = useState<ModalKey>(null);
   const lowStock = items.filter((item) => item.currentStock <= item.minStock);
+  const finishedItems = items.filter((item) => item.itemKind === "finished");
+  const expiringLots = lots.filter((lot) => lot.expiresOn && lot.expiresOn <= expiringBeforeDate);
   const inventoryValue = items.reduce((sum, item) => sum + item.currentStock * item.unitCost, 0);
   const itemOptions = toItemOptions(items);
   const productOptions = products.map((product) => ({ value: product.id, label: product.name, detail: formatMoney(product.price) }));
@@ -97,6 +108,7 @@ export function InventoryWorkspaceClient({
     { key: "zonas", label: "Zonas", icon: Boxes, count: zones.length },
     { key: "recetas", label: "Recetas", icon: Utensils, count: ingredients.length },
     { key: "conteo", label: "Conteo", icon: ClipboardCheck, count: openCount?.lines.length },
+    { key: "transferencias", label: "Transferir", icon: Truck, count: branchTransfers.length },
     { key: "proveedores", label: "Proveedores", icon: Truck, count: suppliers.length },
   ];
 
@@ -109,9 +121,11 @@ export function InventoryWorkspaceClient({
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard label="Valor inventario" value={formatMoney(inventoryValue)} />
-        <MetricCard label="Insumos activos" value={String(items.length)} />
+        <MetricCard label="Items activos" value={String(items.length)} />
+        <MetricCard label="Terminados" value={String(finishedItems.length)} />
+        <MetricCard danger={expiringLots.length > 0} label="Por vencer" value={String(expiringLots.length)} />
         <MetricCard danger={lowStock.length > 0} label="Bajo mínimo" value={String(lowStock.length)} />
         <MetricCard label="Recetas ligadas" value={String(ingredients.length)} />
       </section>
@@ -141,7 +155,10 @@ export function InventoryWorkspaceClient({
               Nuevo insumo
             </Button>
             <Button onClick={() => setModal("movement")} type="button" variant="secondary">
-              Movimiento
+              Entrada / salida
+            </Button>
+            <Button onClick={() => setModal("branchTransfer")} type="button" variant="secondary">
+              Transferir sucursal
             </Button>
             <Button onClick={() => setActiveTab("recetas")} type="button" variant="secondary">
               Ver recetas
@@ -329,6 +346,67 @@ export function InventoryWorkspaceClient({
         </section>
       ) : null}
 
+      {activeTab === "transferencias" ? (
+        <section className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setModal("branchTransfer")} type="button">
+              Transferir a otra sucursal
+            </Button>
+            <Button onClick={() => setModal("movement")} type="button" variant="secondary">
+              Registrar entrada con vencimiento
+            </Button>
+          </div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Card>
+              <SectionTitle title="Vencimientos activos" description="Entradas con lote o fecha de vencimiento. Se consume primero lo que vence antes." />
+              <div className="mt-4 space-y-3">
+                {lots.length ? (
+                  lots.map((lot) => (
+                    <div className="grid gap-2 rounded-2xl bg-[var(--color-surface)] p-3 sm:grid-cols-[1fr_auto] sm:items-center" key={lot.id}>
+                      <div className="min-w-0">
+                        <p className="font-black text-[var(--color-heading)]">{lot.inventoryItemName}</p>
+                        <p className="text-sm font-semibold text-[var(--color-secondary-text)]">
+                          {lot.lotCode ? `Lote ${lot.lotCode}` : "Sin codigo de lote"}{lot.supplierName ? ` - ${lot.supplierName}` : ""}
+                        </p>
+                      </div>
+                      <div className="text-left sm:text-right">
+                        <p className="font-black text-[var(--color-heading)]">{lot.remainingQuantity}</p>
+                        <p className={cn("text-xs font-bold", lot.expiresOn && lot.expiresOn <= expiringBeforeDate ? "text-[var(--color-warning-strong)]" : "text-[var(--color-secondary-text)]")}>
+                          {lot.expiresOn ? `Vence ${formatShortDate(lot.expiresOn)}` : "Sin vencimiento"}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <EmptyState title="Sin vencimientos" description="Cuando registres una entrada con lote o vencimiento aparecera aqui." />
+                )}
+              </div>
+            </Card>
+
+            <Card>
+              <SectionTitle title="Entre sucursales" description="Salidas y entradas entre locales de la misma ciudad y responsable." />
+              <div className="mt-4 space-y-3">
+                {branchTransfers.length ? (
+                  branchTransfers.map((transfer) => (
+                    <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={transfer.id}>
+                      <p className="font-black text-[var(--color-heading)]">
+                        {transfer.fromRestaurantName} {"->"} {transfer.toRestaurantName}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">
+                        {transfer.quantity} unidades - {transfer.reason}
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">{formatShortDate(transfer.createdAt)} {formatShortTime(transfer.createdAt)}</p>
+                    </div>
+                  ))
+                ) : (
+                  <EmptyState title="Sin transferencias" description="Cuando muevas stock entre sucursales quedara registrado aqui." />
+                )}
+              </div>
+            </Card>
+          </div>
+        </section>
+      ) : null}
+
       {activeTab === "proveedores" ? (
         <section className="space-y-4">
           <div className="flex flex-wrap gap-2">
@@ -377,6 +455,9 @@ export function InventoryWorkspaceClient({
       <ActionModal onClose={() => setModal(null)} open={modal === "transfer"} title="Mover entre zonas">
         <TransferForm items={itemOptions} restaurantId={restaurantId} zones={zoneOptions} />
       </ActionModal>
+      <ActionModal onClose={() => setModal(null)} open={modal === "branchTransfer"} title="Transferir a sucursal">
+        <BranchTransferForm branchTargets={branchTargets} items={itemOptions} restaurantId={restaurantId} />
+      </ActionModal>
       <ActionModal onClose={() => setModal(null)} open={modal === "recipe"} title="Ligar receta">
         <RecipeForm items={itemOptions} products={productOptions} restaurantId={restaurantId} />
       </ActionModal>
@@ -394,7 +475,7 @@ export function InventoryWorkspaceClient({
 }
 
 function isTab(value: string | undefined): value is InventoryTab {
-  return value === "resumen" || value === "catalogo" || value === "kardex" || value === "zonas" || value === "recetas" || value === "conteo" || value === "proveedores";
+  return value === "resumen" || value === "catalogo" || value === "kardex" || value === "zonas" || value === "recetas" || value === "conteo" || value === "transferencias" || value === "proveedores";
 }
 
 function MetricCard({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
@@ -445,7 +526,12 @@ function InventoryItemForm({ restaurantId, suppliers, categories }: { restaurant
   return (
     <form action={createInventoryItemAction} className="space-y-3">
       <input name="restaurantId" type="hidden" value={restaurantId} />
-      <Input name="name" placeholder="Nombre del insumo" required />
+      <Input name="name" placeholder="Nombre del item" required />
+      <Select name="itemKind" defaultValue="ingredient">
+        <option value="finished">Producto terminado</option>
+        <option value="ingredient">Insumo de receta</option>
+        <option value="supply">Material o empaque</option>
+      </Select>
       <SearchableSelect name="categoryId" options={categories} placeholder="Buscar categoría" />
       <Input name="category" placeholder="Categoría rápida si no está creada" />
       <Select name="unit" defaultValue="unidad">
@@ -486,10 +572,49 @@ function MovementForm({ restaurantId, items, zones, suppliers }: { restaurantId:
       <SearchableSelect name="toZoneId" options={zones} placeholder="Zona destino si aplica" />
       <SearchableSelect name="supplierId" options={suppliers} placeholder="Proveedor si aplica" />
       <Input min={0} name="quantity" placeholder="Cantidad" required step="0.001" type="number" />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Input name="lotCode" placeholder="Lote o tanda opcional" />
+        <Input name="expiresOn" placeholder="Vencimiento" type="date" />
+      </div>
       <Input name="reason" placeholder="Motivo" required />
       <Button className="w-full" type="submit">
         Registrar movimiento
       </Button>
+    </form>
+  );
+}
+
+function BranchTransferForm({ restaurantId, items, branchTargets }: { restaurantId: string; items: SearchOption[]; branchTargets: InventoryBranchTarget[] }) {
+  const targetOptions = branchTargets.map((branch) => ({
+    value: branch.restaurantId,
+    label: branch.restaurantName,
+    detail: [branch.city, branch.address].filter(Boolean).join(" - "),
+  }));
+  const targetItemOptions = branchTargets.flatMap((branch) =>
+    branch.items.map((item) => ({
+      value: item.id,
+      label: `${item.name} - ${branch.restaurantName}`,
+      detail: `${item.currentStock} ${item.unit} disponible`,
+    })),
+  );
+
+  return (
+    <form action={transferInventoryBranchAction} className="space-y-3">
+      <input name="restaurantId" type="hidden" value={restaurantId} />
+      {branchTargets.length ? (
+        <>
+          <SearchableSelect name="inventoryItemId" options={items} placeholder="Item que sale de esta sucursal" required />
+          <SearchableSelect name="targetRestaurantId" options={targetOptions} placeholder="Sucursal destino" required />
+          <SearchableSelect name="targetInventoryItemId" options={targetItemOptions} placeholder="Item equivalente en destino" required />
+          <Input min={0.001} name="quantity" placeholder="Cantidad a transferir" required step="0.001" type="number" />
+          <Input name="reason" placeholder="Motivo, ej. reposicion sucursal norte" required />
+          <Button className="w-full" type="submit">
+            Transferir stock
+          </Button>
+        </>
+      ) : (
+        <EmptyState title="Sin sucursales compatibles" description="Necesitas otra sucursal activa en la misma ciudad y con el mismo responsable." />
+      )}
     </form>
   );
 }

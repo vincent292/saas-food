@@ -1,7 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createPublicServerClient } from "@/lib/supabase/public-server";
-import type { Product, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { Product, ProductOption, ProductOptionGroup, ProductStockAvailability, ProductVariant } from "@/types/product.types";
+import type { Restaurant } from "@/types/restaurant.types";
 
 function mapProduct(row: {
   id: string;
@@ -34,6 +36,14 @@ function mapProduct(row: {
     lastOrderedAt: row.last_ordered_at ?? undefined,
     sortOrder: row.sort_order,
   };
+}
+
+function normalizeProductName(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function mapVariant(row: {
@@ -170,6 +180,136 @@ export const productService = {
     );
 
     return data.map((product) => mapProduct(product, mostOrderedIds.has(product.id)));
+  },
+
+  async listPublicStockAvailability(restaurant: Restaurant, products: Product[]): Promise<ProductStockAvailability[]> {
+    if (!hasSupabaseEnv() || !products.length) {
+      return [];
+    }
+
+    const admin = createAdminClient();
+    if (!admin) {
+      return products.map((product) => ({ productId: product.id, isAvailableHere: true, alternatives: [] }));
+    }
+
+    const productIds = products.map((product) => product.id);
+    const { data: ingredients } = await admin
+      .from("product_ingredients")
+      .select("restaurant_id,product_id,inventory_item_id,quantity,waste_factor")
+      .eq("restaurant_id", restaurant.id)
+      .in("product_id", productIds);
+    const itemIds = Array.from(new Set((ingredients ?? []).map((ingredient) => ingredient.inventory_item_id)));
+    const { data: items } = itemIds.length
+      ? await admin.from("inventory_items").select("id,current_stock,is_active").in("id", itemIds)
+      : { data: [] };
+
+    const itemsById = new Map((items ?? []).map((item) => [item.id, { currentStock: Number(item.current_stock), isActive: item.is_active }]));
+    const ingredientsByProduct = new Map<string, typeof ingredients>();
+    for (const ingredient of ingredients ?? []) {
+      const list = ingredientsByProduct.get(ingredient.product_id) ?? [];
+      list.push(ingredient);
+      ingredientsByProduct.set(ingredient.product_id, list);
+    }
+
+    function hasStockFor(productId: string, ingredientList = ingredientsByProduct.get(productId) ?? []) {
+      if (!ingredientList.length) {
+        return true;
+      }
+      return ingredientList.every((ingredient) => {
+        const item = itemsById.get(ingredient.inventory_item_id);
+        const required = Number(ingredient.quantity) * (1 + Number(ingredient.waste_factor ?? 0) / 100);
+        return item ? item.isActive && item.currentStock >= required : false;
+      });
+    }
+
+    const baseAvailability = products.map((product) => ({
+      productId: product.id,
+      isAvailableHere: hasStockFor(product.id),
+      alternatives: [],
+    })) satisfies ProductStockAvailability[];
+    const unavailableProducts = products.filter((product) => !baseAvailability.find((item) => item.productId === product.id)?.isAvailableHere);
+
+    if (!unavailableProducts.length || !restaurant.city || (!restaurant.ownerUserId && !restaurant.ownerEmail)) {
+      return baseAvailability;
+    }
+
+    let branchQuery = admin
+      .from("restaurants")
+      .select("id,name,slug,city,address,owner_user_id,owner_email,status,deleted_at")
+      .neq("id", restaurant.id)
+      .eq("status", "active")
+      .is("deleted_at", null)
+      .eq("city", restaurant.city);
+
+    branchQuery = restaurant.ownerUserId ? branchQuery.eq("owner_user_id", restaurant.ownerUserId) : branchQuery.eq("owner_email", restaurant.ownerEmail ?? "");
+
+    const { data: branches } = await branchQuery;
+    if (!branches?.length) {
+      return baseAvailability;
+    }
+
+    const branchIds = branches.map((branch) => branch.id);
+    const { data: branchProducts } = await admin
+      .from("products")
+      .select("id,restaurant_id,name,is_available")
+      .in("restaurant_id", branchIds)
+      .eq("is_available", true);
+    const branchProductIds = (branchProducts ?? []).map((product) => product.id);
+    const { data: branchIngredients } = branchProductIds.length
+      ? await admin.from("product_ingredients").select("restaurant_id,product_id,inventory_item_id,quantity,waste_factor").in("product_id", branchProductIds)
+      : { data: [] };
+    const branchItemIds = Array.from(new Set((branchIngredients ?? []).map((ingredient) => ingredient.inventory_item_id)));
+    const { data: branchItems } = branchItemIds.length
+      ? await admin.from("inventory_items").select("id,current_stock,is_active").in("id", branchItemIds)
+      : { data: [] };
+
+    const branchItemsById = new Map((branchItems ?? []).map((item) => [item.id, { currentStock: Number(item.current_stock), isActive: item.is_active }]));
+    const branchIngredientsByProduct = new Map<string, typeof branchIngredients>();
+    for (const ingredient of branchIngredients ?? []) {
+      const list = branchIngredientsByProduct.get(ingredient.product_id) ?? [];
+      list.push(ingredient);
+      branchIngredientsByProduct.set(ingredient.product_id, list);
+    }
+    const branchesById = new Map(branches.map((branch) => [branch.id, branch]));
+
+    function branchHasStock(productId: string) {
+      const ingredientList = branchIngredientsByProduct.get(productId) ?? [];
+      if (!ingredientList.length) {
+        return true;
+      }
+      return ingredientList.every((ingredient) => {
+        const item = branchItemsById.get(ingredient.inventory_item_id);
+        const required = Number(ingredient.quantity) * (1 + Number(ingredient.waste_factor ?? 0) / 100);
+        return item ? item.isActive && item.currentStock >= required : false;
+      });
+    }
+
+    return baseAvailability.map((availability) => {
+      if (availability.isAvailableHere) {
+        return availability;
+      }
+
+      const product = products.find((item) => item.id === availability.productId);
+      const productName = normalizeProductName(product?.name ?? "");
+      const alternatives = (branchProducts ?? [])
+        .filter((branchProduct) => normalizeProductName(branchProduct.name) === productName && branchHasStock(branchProduct.id))
+        .map((branchProduct) => {
+          const branch = branchesById.get(branchProduct.restaurant_id);
+          return branch
+            ? {
+                restaurantId: branch.id,
+                restaurantName: branch.name,
+                restaurantSlug: branch.slug,
+                city: branch.city ?? "",
+                address: branch.address ?? undefined,
+              }
+            : null;
+        })
+        .filter(Boolean)
+        .slice(0, 3) as ProductStockAvailability["alternatives"];
+
+      return { ...availability, reason: "stock", alternatives };
+    });
   },
 
   async listFeaturedByRestaurant(restaurantId: string) {

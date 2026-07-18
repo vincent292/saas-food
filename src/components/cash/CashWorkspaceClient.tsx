@@ -9,7 +9,6 @@ import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
 import { DeliveryDispatchPanel } from "@/components/delivery/DeliveryDispatchPanel";
-import { NewOrderSoundAlert } from "@/components/orders/NewOrderSoundAlert";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -248,15 +247,6 @@ export function CashWorkspaceClient({
     });
   }
 
-  function openAlertOrders(alertOrders: Order[]) {
-    const targetTab = alertOrders.some((order) => order.orderType === "delivery")
-      ? "delivery"
-      : alertOrders.some((order) => order.orderType === "pickup")
-        ? "recojo"
-        : "pedidos";
-    switchTab(targetTab);
-  }
-
   const sessionText = summary.session
     ? `Desde ${formatShortTime(summary.session.openedAt)}${summary.session.openedByName ? ` por ${summary.session.openedByName}` : ""}`
     : latestReport
@@ -354,14 +344,6 @@ export function CashWorkspaceClient({
       ) : null}
 
       {isTabPending ? <div className="rounded-2xl bg-[var(--color-info-soft)] p-3 text-sm font-bold text-[var(--color-info-strong)]">Actualizando datos de caja...</div> : null}
-
-      <NewOrderSoundAlert
-        description="Caja recibio un pedido nuevo. Revisa pedidos, delivery o recojo para aprobarlo."
-        onOpenAlerts={openAlertOrders}
-        orders={todaysOrders}
-        title="Pedido nuevo en caja"
-        watchOrderTypes={["table", "pos", "delivery", "pickup"]}
-      />
 
       {showPosCreatedModal && status.posOrderNumber ? (
         <div className="fixed inset-0 z-[85] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">

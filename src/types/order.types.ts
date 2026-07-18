@@ -52,6 +52,14 @@ export type Order = {
   deliveryLongitude?: number;
   deliveryMapsUrl?: string;
   requestedFulfillmentAt?: string;
+  invoiceRequired?: boolean;
+  invoiceDocumentType?: string;
+  invoiceDocumentNumber?: string;
+  invoiceName?: string;
+  invoiceIssuedAt?: string;
+  invoiceIssuedBy?: string;
+  invoiceNumber?: string;
+  invoiceNotes?: string;
   orderType: OrderType;
   orderOrigin: OrderOrigin;
   status: OrderStatus;

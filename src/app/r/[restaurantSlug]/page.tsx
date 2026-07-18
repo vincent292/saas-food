@@ -8,6 +8,7 @@ import { publicDirectoryService } from "@/lib/services/public-directory.service"
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { settingsService } from "@/lib/services/settings.service";
 import type { ProductConfiguration } from "@/types/product.types";
+import type { ProductStockAvailability } from "@/types/product.types";
 import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantSettings } from "@/types/restaurant.types";
 
 type PublicRestaurantPageData = {
@@ -16,6 +17,7 @@ type PublicRestaurantPageData = {
   businessHours: BusinessHour[];
   categories: Awaited<ReturnType<typeof categoryService.listPublicByRestaurant>>;
   products: Awaited<ReturnType<typeof productService.listPublicAvailableByRestaurant>>;
+  stockAvailability: ProductStockAvailability[];
   configuration: ProductConfiguration;
   announcements: RestaurantAnnouncement[];
 };
@@ -44,8 +46,9 @@ async function getPublicRestaurantPageData(restaurantSlug: string) {
     productService.listPublicConfigurationsByRestaurant(restaurant.id),
     announcementService.listCurrentPublic(restaurant.id),
   ]);
+  const stockAvailability = await productService.listPublicStockAvailability(restaurant, products);
 
-  const data = { restaurant, settings, businessHours, categories, products, configuration, announcements };
+  const data = { restaurant, settings, businessHours, categories, products, stockAvailability, configuration, announcements };
   publicRestaurantPageCache.set(restaurantSlug, { expiresAt: Date.now() + PUBLIC_RESTAURANT_PAGE_TTL_MS, data });
 
   return data;
@@ -65,12 +68,12 @@ export default async function RestaurantPublicPage({
     notFound();
   }
 
-  const { restaurant, settings, businessHours, categories, products, configuration, announcements } = pageData;
+  const { restaurant, settings, businessHours, categories, products, stockAvailability, configuration, announcements } = pageData;
   publicDirectoryService.recordVisit(restaurant.id).catch(() => null);
 
   return (
     <RestaurantThemeProvider>
-      <PublicRestaurantOrderClient announcements={announcements} businessHours={businessHours} categories={categories} configuration={configuration} orderError={error} products={products} restaurant={restaurant} settings={settings} />
+      <PublicRestaurantOrderClient announcements={announcements} businessHours={businessHours} categories={categories} configuration={configuration} orderError={error} products={products} restaurant={restaurant} settings={settings} stockAvailability={stockAvailability} />
     </RestaurantThemeProvider>
   );
 }

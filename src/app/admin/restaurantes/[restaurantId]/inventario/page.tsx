@@ -7,6 +7,12 @@ import { productService } from "@/lib/services/product.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
+function getExpiringBeforeDate() {
+  const date = new Date();
+  date.setDate(date.getDate() + 7);
+  return date.toISOString().slice(0, 10);
+}
+
 export default async function InventoryPage({
   params,
   searchParams,
@@ -22,8 +28,9 @@ export default async function InventoryPage({
   }
 
   await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/inventario`);
+  const expiringBeforeDate = getExpiringBeforeDate();
 
-  const [items, suppliers, ingredients, movements, openCount, countReports, products, categories, zones, itemZones, productSuppliers] = await Promise.all([
+  const [items, suppliers, ingredients, movements, openCount, countReports, products, categories, zones, itemZones, productSuppliers, lots, branchTargets, branchTransfers] = await Promise.all([
     inventoryService.listItems(restaurant.id),
     inventoryService.listSuppliers(restaurant.id),
     inventoryService.listProductIngredients(restaurant.id),
@@ -35,6 +42,9 @@ export default async function InventoryPage({
     inventoryService.listZones(restaurant.id),
     inventoryService.listItemZones(restaurant.id),
     inventoryService.listProductSuppliers(restaurant.id),
+    inventoryService.listLots(restaurant.id),
+    inventoryService.listBranchTransferTargets(restaurant),
+    inventoryService.listBranchTransfers(restaurant.id),
   ]);
 
   return (
@@ -53,6 +63,10 @@ export default async function InventoryPage({
         initialTab={status.tab}
         itemZones={itemZones}
         items={items}
+        branchTargets={branchTargets}
+        branchTransfers={branchTransfers}
+        expiringBeforeDate={expiringBeforeDate}
+        lots={lots}
         movements={movements}
         openCount={openCount}
         productSuppliers={productSuppliers}

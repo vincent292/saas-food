@@ -17,6 +17,14 @@ type OrderRow = {
   delivery_longitude?: number | null;
   delivery_maps_url?: string | null;
   requested_fulfillment_at?: string | null;
+  invoice_required?: boolean | null;
+  invoice_document_type?: string | null;
+  invoice_document_number?: string | null;
+  invoice_name?: string | null;
+  invoice_issued_at?: string | null;
+  invoice_issued_by?: string | null;
+  invoice_number?: string | null;
+  invoice_notes?: string | null;
   order_type: Order["orderType"];
   order_origin?: Order["orderOrigin"] | null;
   status: Order["status"];
@@ -184,6 +192,14 @@ function mapOrder(row: OrderRow, items: OrderItem[], deliveryDispatch?: OrderDel
     deliveryLongitude: row.delivery_longitude === null || row.delivery_longitude === undefined ? undefined : Number(row.delivery_longitude),
     deliveryMapsUrl: row.delivery_maps_url ?? undefined,
     requestedFulfillmentAt: row.requested_fulfillment_at ?? undefined,
+    invoiceRequired: row.invoice_required ?? false,
+    invoiceDocumentType: row.invoice_document_type ?? undefined,
+    invoiceDocumentNumber: row.invoice_document_number ?? undefined,
+    invoiceName: row.invoice_name ?? undefined,
+    invoiceIssuedAt: row.invoice_issued_at ?? undefined,
+    invoiceIssuedBy: row.invoice_issued_by ?? undefined,
+    invoiceNumber: row.invoice_number ?? undefined,
+    invoiceNotes: row.invoice_notes ?? undefined,
     orderType: row.order_type,
     orderOrigin,
     status: row.status,
@@ -377,6 +393,56 @@ export const orderService = {
         mapDeliveryLink((deliveryLinks ?? []).find((link) => link.order_id === order.id) as DeliveryLinkRow | undefined),
       ),
     );
+  },
+
+  async listPendingAlerts(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const supabase = await createClient();
+    const { data: orders, error } = await supabase
+      .from("orders")
+      .select(
+        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,requested_fulfillment_at,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,subtotal,delivery_fee,discount_total,total,notes,created_at,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
+      )
+      .eq("restaurant_id", restaurantId)
+      .gte("created_at", startOfBusinessDayIso())
+      .eq("status", "pending")
+      .in("order_type", ["table", "delivery", "pickup"])
+      .order("created_at", { ascending: false })
+      .limit(30);
+
+    if (error || !orders?.length) {
+      return [];
+    }
+
+    return orders.map((order) => mapOrder(order as OrderRow, []));
+  },
+
+  async listInvoiceRequests(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const supabase = await createClient();
+    const { data: orders, error } = await supabase
+      .from("orders")
+      .select(
+        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,requested_fulfillment_at,invoice_required,invoice_document_type,invoice_document_number,invoice_name,invoice_issued_at,invoice_issued_by,invoice_number,invoice_notes,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,subtotal,delivery_fee,discount_total,total,notes,created_at,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
+      )
+      .eq("restaurant_id", restaurantId)
+      .eq("invoice_required", true)
+      .neq("status", "cancelled")
+      .order("invoice_issued_at", { ascending: true, nullsFirst: true })
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (error || !orders?.length) {
+      return [];
+    }
+
+    return orders.map((order) => mapOrder(order as OrderRow, []));
   },
 
   async listByStatus(restaurantId: string, status: OrderStatus) {

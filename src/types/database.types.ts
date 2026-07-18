@@ -218,6 +218,10 @@ export type Database = {
         invoice_document_type: string | null;
         invoice_document_number: string | null;
         invoice_name: string | null;
+        invoice_issued_at: string | null;
+        invoice_issued_by: string | null;
+        invoice_number: string | null;
+        invoice_notes: string | null;
         order_type: "table" | "delivery" | "pickup" | "pos";
         order_origin: Database["public"]["Enums"]["order_origin"];
         status: "pending" | "accepted" | "preparing" | "ready" | "delivered" | "cancelled";
@@ -304,6 +308,7 @@ export type Database = {
         id: string;
         restaurant_id: string;
         name: string;
+        item_kind: "finished" | "ingredient" | "supply";
         unit: string;
         current_stock: number;
         min_stock: number;
@@ -684,6 +689,8 @@ export type Database = {
         Args: {
           p_from_zone_id?: string | null;
           p_inventory_item_id: string;
+          p_lot_code?: string | null;
+          p_expires_on?: string | null;
           p_quantity: number;
           p_reason: string;
           p_restaurant_id: string;
@@ -708,6 +715,17 @@ export type Database = {
           p_reason: string;
           p_restaurant_id: string;
           p_to_zone_id: string;
+        };
+        Returns: string;
+      };
+      transfer_inventory_branch_atomic: {
+        Args: {
+          p_from_inventory_item_id: string;
+          p_from_restaurant_id: string;
+          p_quantity: number;
+          p_reason: string;
+          p_to_inventory_item_id: string;
+          p_to_restaurant_id: string;
         };
         Returns: string;
       };

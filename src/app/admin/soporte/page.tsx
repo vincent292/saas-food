@@ -1,7 +1,9 @@
 import { LockOpen } from "lucide-react";
+import Link from "next/link";
 import { createSupportTicketAction, releaseAccessSessionByIdAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
+import { SupportManualsPanel } from "@/components/support/SupportManualsPanel";
 import { SupportTicketList } from "@/components/support/SupportTicketList";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -22,17 +24,17 @@ const priorityOptions = [
 const messages: Record<string, string> = {
   ticket: "Ticket creado correctamente.",
   updated: "Ticket actualizado.",
-  released: "Sesión liberada.",
+  released: "Sesion liberada.",
   "invalid-ticket": "Revisa los datos del ticket.",
   "invalid-ticket-update": "No se pudo actualizar el ticket.",
-  "invalid-attachment": "Los adjuntos deben ser imágenes de hasta 5 MB.",
+  "invalid-attachment": "Los adjuntos deben ser imagenes de hasta 5 MB.",
   "restaurant-required": "Debes asociar el ticket a un restaurante o crearlo como plataforma desde superadmin.",
 };
 
 export default async function SupportPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ticket?: string; updated?: string; released?: string; error?: string }>;
+  searchParams: Promise<{ tab?: string; ticket?: string; updated?: string; released?: string; error?: string }>;
 }) {
   const [params, tickets, restaurants, accessSessions] = await Promise.all([
     searchParams,
@@ -41,97 +43,113 @@ export default async function SupportPage({
     superadminService.listAccessSessions("active"),
   ]);
 
+  const activeTab = params.tab === "manuales" ? "manuales" : "tickets";
   const openTickets = tickets.filter((ticket) => ["open", "in_progress", "waiting_customer"].includes(ticket.status));
   const urgentTickets = openTickets.filter((ticket) => ticket.priority === "urgent");
   const waitingCustomerTickets = tickets.filter((ticket) => ticket.status === "waiting_customer");
-  const feedback = params.error ? messages[params.error] ?? `No se pudo completar la acción: ${params.error}.` : params.ticket ? messages.ticket : params.updated ? messages.updated : params.released ? messages.released : "";
+  const feedback = params.error ? messages[params.error] ?? `No se pudo completar la accion: ${params.error}.` : params.ticket ? messages.ticket : params.updated ? messages.updated : params.released ? messages.released : "";
   const feedbackTone = params.error ? "danger" : "success";
 
   return (
     <AdminLayout active="/admin/soporte" title="Soporte">
       <div className="space-y-6">
-        <SectionTitle description="Casos de ayuda, screenshots, bloqueos de acceso y seguimiento operativo." title="Soporte" />
+        <SectionTitle description="Casos de ayuda, screenshots, bloqueos de acceso y manuales operativos." title="Soporte" />
+
+        <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
+          <Link className={buttonClasses(activeTab === "tickets" ? "primary" : "ghost", "shrink-0")} href="/admin/soporte">
+            Tickets
+          </Link>
+          <Link className={buttonClasses(activeTab === "manuales" ? "primary" : "ghost", "shrink-0")} href="/admin/soporte?tab=manuales">
+            Manuales
+          </Link>
+        </div>
 
         {feedback ? <Banner tone={feedbackTone}>{feedback}</Banner> : null}
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="Tickets abiertos" value={String(openTickets.length)} />
-          <MetricCard label="Urgentes" value={String(urgentTickets.length)} />
-          <MetricCard label="Esperando cliente" value={String(waitingCustomerTickets.length)} />
-          <MetricCard label="Sesiones activas" value={String(accessSessions.length)} />
-        </div>
-
-        <Card>
-          <SectionTitle title="Nuevo ticket" description="Úsalo para registrar incidentes internos o casos operativos de un restaurante." />
-          <form action={createSupportTicketAction} className="mt-4 grid gap-3 lg:grid-cols-2">
-            <Select name="restaurantId">
-              <option value="">Plataforma</option>
-              {restaurants.map((restaurant) => (
-                <option key={restaurant.id} value={restaurant.id}>
-                  {restaurant.name}
-                </option>
-              ))}
-            </Select>
-            <Input name="title" placeholder="Título del caso" required />
-            <Select name="category">
-              <option value="access">Acceso</option>
-              <option value="billing">Facturación</option>
-              <option value="orders">Pedidos</option>
-              <option value="cash">Caja</option>
-              <option value="inventory">Inventario</option>
-              <option value="incident">Incidencia</option>
-              <option value="other">Otro</option>
-            </Select>
-            <Select defaultValue="medium" name="priority">
-              {priorityOptions.map((priority) => (
-                <option key={priority.value} value={priority.value}>
-                  {priority.label}
-                </option>
-              ))}
-            </Select>
-            <Textarea className="lg:col-span-2" name="description" placeholder="Detalle del caso" />
-            <div className="space-y-2 text-sm font-semibold text-[var(--color-body)] lg:col-span-2">
-              Screenshots
-              <CompressedImageInput help="Hasta 5 imagenes. Se convertiran a WebP antes de subir." label="Screenshots" multiple name="attachments" />
-              <span className="block text-xs text-[var(--color-secondary-text)]">Hasta 5 imágenes de 5 MB cada una.</span>
+        {activeTab === "manuales" ? (
+          <SupportManualsPanel />
+        ) : (
+          <>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard label="Tickets abiertos" value={String(openTickets.length)} />
+              <MetricCard label="Urgentes" value={String(urgentTickets.length)} />
+              <MetricCard label="Esperando cliente" value={String(waitingCustomerTickets.length)} />
+              <MetricCard label="Sesiones activas" value={String(accessSessions.length)} />
             </div>
-            <div className="lg:col-span-2">
-              <button className={buttonClasses("primary")} type="submit">
-                Crear ticket
-              </button>
-            </div>
-          </form>
-        </Card>
 
-        <section className="space-y-3">
-          <SectionTitle title="Tickets" description="Todos los casos creados por soporte y por los restaurantes." />
-          <SupportTicketList allowUpdate emptyMessage="No hay tickets registrados." returnTo="/admin/soporte" showRestaurant tickets={tickets} />
-        </section>
+            <Card>
+              <SectionTitle title="Nuevo ticket" description="Usalo para registrar incidentes internos o casos operativos de un restaurante." />
+              <form action={createSupportTicketAction} className="mt-4 grid gap-3 lg:grid-cols-2">
+                <Select name="restaurantId">
+                  <option value="">Plataforma</option>
+                  {restaurants.map((restaurant) => (
+                    <option key={restaurant.id} value={restaurant.id}>
+                      {restaurant.name}
+                    </option>
+                  ))}
+                </Select>
+                <Input name="title" placeholder="Titulo del caso" required />
+                <Select name="category">
+                  <option value="access">Acceso</option>
+                  <option value="billing">Facturacion</option>
+                  <option value="orders">Pedidos</option>
+                  <option value="cash">Caja</option>
+                  <option value="inventory">Inventario</option>
+                  <option value="incident">Incidencia</option>
+                  <option value="other">Otro</option>
+                </Select>
+                <Select defaultValue="medium" name="priority">
+                  {priorityOptions.map((priority) => (
+                    <option key={priority.value} value={priority.value}>
+                      {priority.label}
+                    </option>
+                  ))}
+                </Select>
+                <Textarea className="lg:col-span-2" name="description" placeholder="Detalle del caso" />
+                <div className="space-y-2 text-sm font-semibold text-[var(--color-body)] lg:col-span-2">
+                  Screenshots
+                  <CompressedImageInput help="Hasta 5 imagenes. Se convertiran a WebP antes de subir." label="Screenshots" multiple name="attachments" />
+                  <span className="block text-xs text-[var(--color-secondary-text)]">Hasta 5 imagenes de 5 MB cada una.</span>
+                </div>
+                <div className="lg:col-span-2">
+                  <button className={buttonClasses("primary")} type="submit">
+                    Crear ticket
+                  </button>
+                </div>
+              </form>
+            </Card>
 
-        <section className="space-y-3">
-          <SectionTitle description="Usuarios admin/caja que tienen una sucursal tomada en este momento." title="Sesiones activas por restaurante" />
-          <DataTable
-            emptyMessage="No hay sesiones activas."
-            headers={["Usuario", "Restaurante", "Rol", "IP", "Última actividad", "Acción"]}
-            rows={accessSessions.map((session) => [
-              <div key={`${session.id}-user`}>
-                <p className="font-black">{session.userName}</p>
-                <p className="text-xs text-[var(--color-secondary-text)]">{session.userEmail}</p>
-              </div>,
-              session.restaurantName,
-              session.role,
-              session.ipAddress || "Sin IP",
-              `${formatShortDate(session.lastSeenAt)} ${formatShortTime(session.lastSeenAt)}`,
-              <form action={releaseAccessSessionByIdAction} key={session.id}>
-                <input name="sessionId" type="hidden" value={session.id} />
-                <button className={buttonClasses("secondary")} type="submit">
-                  <LockOpen className="h-4 w-4" />
-                  Liberar
-                </button>
-              </form>,
-            ])}
-          />
-        </section>
+            <section className="space-y-3">
+              <SectionTitle title="Tickets" description="Todos los casos creados por soporte y por los restaurantes." />
+              <SupportTicketList allowUpdate emptyMessage="No hay tickets registrados." returnTo="/admin/soporte" showRestaurant tickets={tickets} />
+            </section>
+
+            <section className="space-y-3">
+              <SectionTitle description="Usuarios admin/caja que tienen una sucursal tomada en este momento." title="Sesiones activas por restaurante" />
+              <DataTable
+                emptyMessage="No hay sesiones activas."
+                headers={["Usuario", "Restaurante", "Rol", "IP", "Ultima actividad", "Accion"]}
+                rows={accessSessions.map((session) => [
+                  <div key={`${session.id}-user`}>
+                    <p className="font-black">{session.userName}</p>
+                    <p className="text-xs text-[var(--color-secondary-text)]">{session.userEmail}</p>
+                  </div>,
+                  session.restaurantName,
+                  session.role,
+                  session.ipAddress || "Sin IP",
+                  `${formatShortDate(session.lastSeenAt)} ${formatShortTime(session.lastSeenAt)}`,
+                  <form action={releaseAccessSessionByIdAction} key={session.id}>
+                    <input name="sessionId" type="hidden" value={session.id} />
+                    <button className={buttonClasses("secondary")} type="submit">
+                      <LockOpen className="h-4 w-4" />
+                      Liberar
+                    </button>
+                  </form>,
+                ])}
+              />
+            </section>
+          </>
+        )}
       </div>
     </AdminLayout>
   );

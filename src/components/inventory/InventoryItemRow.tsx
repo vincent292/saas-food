@@ -2,6 +2,12 @@ import { Badge } from "@/components/ui/Badge";
 import { formatMoney } from "@/lib/utils/money";
 import type { InventoryItem } from "@/types/inventory.types";
 
+const kindLabels: Record<InventoryItem["itemKind"], string> = {
+  finished: "Producto terminado",
+  ingredient: "Insumo",
+  supply: "Material",
+};
+
 export function InventoryItemRow({ item }: { item: InventoryItem }) {
   const isLow = item.currentStock <= item.minStock;
 
@@ -10,14 +16,14 @@ export function InventoryItemRow({ item }: { item: InventoryItem }) {
       <div className="min-w-0">
         <p className="font-bold text-[var(--color-heading)]">{item.name}</p>
         <p className="text-sm text-[var(--color-secondary-text)]">
-          {item.category || "Insumo"} · unidad base: {item.unit}
+          {kindLabels[item.itemKind]} - {item.category || "Sin categoria"} - unidad base: {item.unit}
         </p>
       </div>
       <p className="font-semibold">
         {item.currentStock} {item.unit}
       </p>
       <p className="text-sm text-[var(--color-secondary-text)]">
-        mín. {item.minStock} {item.unit}
+        min. {item.minStock} {item.unit}
       </p>
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-semibold">{formatMoney(item.unitCost)}</span>

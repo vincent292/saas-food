@@ -1,10 +1,12 @@
 export type InventoryMovementType = "in" | "out" | "adjustment" | "waste" | "sale_usage";
 export type InventoryCountStatus = "open" | "closed";
+export type InventoryItemKind = "finished" | "ingredient" | "supply";
 
 export type InventoryItem = {
   id: string;
   restaurantId: string;
   name: string;
+  itemKind: InventoryItemKind;
   unit: "unidad" | "kg" | "g" | "lb" | "oz" | "litro" | "ml" | "caja" | "paquete";
   currentStock: number;
   minStock: number;
@@ -16,6 +18,44 @@ export type InventoryItem = {
   purchaseToStockFactor: number;
   supplierId?: string;
   isActive: boolean;
+};
+
+export type InventoryLot = {
+  id: string;
+  restaurantId: string;
+  inventoryItemId: string;
+  inventoryItemName: string;
+  supplierId?: string;
+  supplierName?: string;
+  lotCode?: string;
+  expiresOn?: string;
+  initialQuantity: number;
+  remainingQuantity: number;
+  notes?: string;
+  receivedAt: string;
+  isActive: boolean;
+};
+
+export type InventoryBranchTarget = {
+  restaurantId: string;
+  restaurantName: string;
+  city: string;
+  address?: string;
+  items: InventoryItem[];
+};
+
+export type InventoryBranchTransfer = {
+  id: string;
+  fromRestaurantId: string;
+  toRestaurantId: string;
+  fromRestaurantName: string;
+  toRestaurantName: string;
+  fromInventoryItemId: string;
+  toInventoryItemId: string;
+  quantity: number;
+  reason: string;
+  status: "completed" | "cancelled";
+  createdAt: string;
 };
 
 export type InventoryMovement = {

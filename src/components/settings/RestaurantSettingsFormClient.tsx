@@ -12,6 +12,7 @@ import {
   MapPin,
   Power,
   Printer,
+  ReceiptText,
   Settings2,
   ShieldCheck,
   Store,
@@ -50,6 +51,7 @@ import type {
   RestaurantSettings,
   SubscriptionPlan,
 } from "@/types/restaurant.types";
+import type { Order } from "@/types/order.types";
 
 const days = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
 
@@ -57,6 +59,7 @@ const tabs = [
   { key: "general", label: "General", icon: Store },
   { key: "estilo", label: "Imagenes", icon: ImageIcon },
   { key: "pagos", label: "Pagos", icon: CreditCard },
+  { key: "facturas", label: "Facturas", icon: ReceiptText },
   { key: "plataforma", label: "Plataforma", icon: ShieldCheck },
   { key: "operacion", label: "Operacion", icon: Settings2 },
   { key: "impresion", label: "Impresion", icon: Printer },
@@ -92,6 +95,7 @@ const errorMessages: Record<string, string> = {
   "invalid-owner-resolution": "No se pudo resolver la solicitud de cambio de responsable.",
   "owner-request-missing": "La solicitud ya no existe o ya fue resuelta.",
   "invalid-zone": "Revisa los datos de la zona de delivery.",
+  "invalid-invoice": "No se pudo marcar la factura.",
 };
 
 type SettingsTab = (typeof tabs)[number]["key"];
@@ -222,6 +226,7 @@ function savedMessage({
   ownerApproved,
   ownerRejected,
   zoneSaved,
+  invoiceMarked,
 }: {
   saved?: string;
   announcementCreated?: string;
@@ -235,8 +240,10 @@ function savedMessage({
   ownerApproved?: string;
   ownerRejected?: string;
   zoneSaved?: string;
+  invoiceMarked?: string;
 }) {
   if (saved) return "Configuracion general guardada.";
+  if (announcementCreated === "updated") return "Aviso actualizado.";
   if (announcementCreated) return "Comunicado publicado.";
   if (closureCreated) return "Cierre temporal publicado para hoy.";
   if (announcementDisabled) return "Aviso desactivado.";
@@ -248,6 +255,7 @@ function savedMessage({
   if (ownerApproved) return "Cambio de responsable aprobado.";
   if (ownerRejected) return "Solicitud de responsable rechazada.";
   if (zoneSaved) return "Zona de delivery actualizada.";
+  if (invoiceMarked) return "Factura marcada como emitida.";
   return "";
 }
 
@@ -271,7 +279,9 @@ export function RestaurantSettingsFormClient({
   ownerApproved,
   ownerRejected,
   zoneSaved,
+  invoiceMarked,
   deliveryZones,
+  invoiceRequests,
   initialTab,
   canManagePlan,
   ownerChangePolicy,
@@ -296,7 +306,9 @@ export function RestaurantSettingsFormClient({
   ownerApproved?: string;
   ownerRejected?: string;
   zoneSaved?: string;
+  invoiceMarked?: string;
   deliveryZones: RestaurantDeliveryZone[];
+  invoiceRequests: Order[];
   initialTab?: string;
   canManagePlan: boolean;
   ownerChangePolicy: OwnerChangePolicy;
@@ -317,6 +329,7 @@ export function RestaurantSettingsFormClient({
     ownerApproved,
     ownerRejected,
     zoneSaved,
+    invoiceMarked,
   });
   const [showSuccessModal, setShowSuccessModal] = useState(Boolean(successMessage));
 
@@ -329,13 +342,22 @@ export function RestaurantSettingsFormClient({
   const qrIsImage = isImageUrl(settings?.qrPaymentUrl);
   const platformQrIsImage = isImageUrl(billing?.platformQrUrl);
   const canUseModule = (moduleKey: ModuleKey) => planModules.has(moduleKey);
+  const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
+  const supportsKitchen = businessTypeSupportsKitchen(restaurant.businessType);
+  const supportsTableQr = businessTypeSupportsTableQr(restaurant.businessType);
+  const pendingInvoiceRequests = invoiceRequests.filter((order) => !order.invoiceIssuedAt);
+  const moduleReadState = {
+    deliveryEnabled: settings?.deliveryEnabled ?? true,
+    pickupEnabled: settings?.pickupEnabled ?? true,
+    tableOrdersEnabled: canUseModule("table_qr") && supportsTableQr,
+    inventoryEnabled: canUseModule("inventory"),
+    cashEnabled: canUseModule("cash"),
+    kitchenEnabled: canUseModule("kitchen") && supportsKitchen,
+  };
   const nowInputValue = toDateTimeLocalInput(new Date());
   const endOfTodayInputValue = toDateTimeLocalInput(endOfToday());
   const defaultBillingDate = billing?.nextDueDate ?? toDateInput(new Date());
   const showStickySave = saveableTabs.has(activeTab);
-  const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
-  const supportsKitchen = businessTypeSupportsKitchen(restaurant.businessType);
-  const supportsTableQr = businessTypeSupportsTableQr(restaurant.businessType);
 
   useEffect(() => {
     if (!successMessage) {
@@ -361,9 +383,15 @@ export function RestaurantSettingsFormClient({
       <input name="currentPlatformQrUrl" type="hidden" value={billing?.platformQrUrl ?? ""} />
       <input name="currentMenuBackgroundImageUrl" type="hidden" value={restaurant.menuBackgroundImageUrl} />
       <input name="tab" type="hidden" value={activeTab} />
+      {moduleReadState.deliveryEnabled ? <input name="deliveryEnabled" type="hidden" value="on" /> : null}
+      {moduleReadState.pickupEnabled ? <input name="pickupEnabled" type="hidden" value="on" /> : null}
+      {moduleReadState.tableOrdersEnabled ? <input name="tableOrdersEnabled" type="hidden" value="on" /> : null}
+      {moduleReadState.inventoryEnabled ? <input name="inventoryEnabled" type="hidden" value="on" /> : null}
+      {moduleReadState.cashEnabled ? <input name="cashEnabled" type="hidden" value="on" /> : null}
+      {moduleReadState.kitchenEnabled ? <input name="kitchenEnabled" type="hidden" value="on" /> : null}
 
       {saved ? <Banner tone="success">Configuracion general guardada.</Banner> : null}
-      {announcementCreated ? <Banner tone="success">Comunicado publicado.</Banner> : null}
+      {announcementCreated ? <Banner tone="success">{announcementCreated === "updated" ? "Aviso actualizado." : "Comunicado publicado."}</Banner> : null}
       {closureCreated ? <Banner tone="success">Cierre temporal publicado para hoy.</Banner> : null}
       {announcementDisabled ? <Banner tone="success">Aviso desactivado.</Banner> : null}
       {billingSaved ? <Banner tone="success">Facturacion de plataforma actualizada.</Banner> : null}
@@ -374,6 +402,7 @@ export function RestaurantSettingsFormClient({
       {ownerApproved ? <Banner tone="success">Solicitud aprobada. El acceso principal ya fue actualizado.</Banner> : null}
       {ownerRejected ? <Banner tone="success">Solicitud rechazada.</Banner> : null}
       {zoneSaved ? <Banner tone="success">Zona de delivery actualizada.</Banner> : null}
+      {invoiceMarked ? <Banner tone="success">Factura marcada como emitida.</Banner> : null}
       {error ? <Banner tone="danger">{errorMessages[error] ?? `No se pudo guardar la configuracion: ${error}.`}</Banner> : null}
 
       <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
@@ -432,23 +461,35 @@ export function RestaurantSettingsFormClient({
                 ))}
               </Select>
             </FieldSelect>
-            <Select defaultValue={restaurant.status} disabled={!canManagePlan} name="status">
-              <option value="active">Activo</option>
-              <option value="inactive">Inactivo</option>
-              <option value="suspended">Suspendido</option>
-            </Select>
-            <Select
-              disabled={!canManagePlan}
-              name="planKey"
-              onChange={(event) => setSelectedPlanKey(event.target.value as typeof selectedPlanKey)}
-              value={selectedPlanKey}
-            >
-              {plans.map((plan) => (
-                <option key={plan.key} value={plan.key}>
-                  {plan.name} - Bs {plan.priceMonthly}/mes
-                </option>
-              ))}
-            </Select>
+            <FieldSelect label="Estado publico">
+              {restaurant.status === "suspended" && !canManagePlan ? (
+                <div className="rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] px-4 py-3 text-sm font-black text-[var(--color-danger-strong)]">
+                  Suspendido por plataforma
+                  <input name="status" type="hidden" value="suspended" />
+                </div>
+              ) : (
+                <Select defaultValue={restaurant.status === "suspended" ? "suspended" : restaurant.status} name="status">
+                  <option value="active">Activo: visible y recibe pedidos</option>
+                  <option value="inactive">Inactivo: visible/cerrado sin recibir pedidos</option>
+                  {canManagePlan ? <option value="suspended">Suspendido por plataforma</option> : null}
+                </Select>
+              )}
+            </FieldSelect>
+            <FieldSelect label="Plan asignado">
+              {canManagePlan ? (
+                <Select name="planKey" onChange={(event) => setSelectedPlanKey(event.target.value as typeof selectedPlanKey)} value={selectedPlanKey}>
+                  {plans.map((plan) => (
+                    <option key={plan.key} value={plan.key}>
+                      {plan.name} - Bs {plan.priceMonthly}/mes
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] px-4 py-3 text-sm font-black text-[var(--color-heading)]">
+                  {selectedPlan?.name ?? "Plan asignado por plataforma"}
+                </div>
+              )}
+            </FieldSelect>
             <Textarea className="md:col-span-2" defaultValue={restaurant.description} name="description" placeholder="Descripcion del negocio" />
             <CompressedImageInput help="Recomendado: cuadrado 800 x 800 px. Se subira optimizado en WebP." label="Logo" name="logoFile" previewClassName="aspect-square" />
             <CompressedImageInput help="Recomendado: 1600 x 900 px o similar. Evita texto pequeno dentro de la imagen." label="Banner" name="bannerFile" />
@@ -525,28 +566,18 @@ export function RestaurantSettingsFormClient({
           <Card className="grid gap-4 md:grid-cols-2">
             <SectionTitle title="Pedidos y pagos" description="Delivery, pedido minimo y QR real del restaurante." />
             <div className="md:col-span-2" />
-            <Input defaultValue={settings?.deliveryFee ?? 0} min="0" name="deliveryFee" placeholder="Costo delivery" step="0.01" type="number" />
-            <Input defaultValue={settings?.freeDeliveryFrom || ""} min="0" name="freeDeliveryFrom" placeholder="Envio gratis desde" step="0.01" type="number" />
-            <Input defaultValue={settings?.minOrderAmount ?? 0} min="0" name="minOrderAmount" placeholder="Pedido minimo" step="0.01" type="number" />
-            <Select defaultValue={settings?.currency ?? "BOB"} name="currency">
-              <option value="BOB">BOB</option>
-              <option value="USD">USD</option>
-            </Select>
+            <Input defaultValue={settings?.deliveryFee ?? 0} min="0" name="deliveryFee" placeholder="Costo base de delivery en Bs" step="0.01" type="number" />
+            <Input defaultValue={settings?.freeDeliveryFrom || ""} min="0" name="freeDeliveryFrom" placeholder="Envio gratis desde Bs" step="0.01" type="number" />
+            <Input defaultValue={settings?.minOrderAmount ?? 0} min="0" name="minOrderAmount" placeholder="Pedido minimo para aceptar" step="0.01" type="number" />
+            <input name="currency" type="hidden" value={settings?.currency ?? "BOB"} />
+            <input name="qrAccountType" type="hidden" value={settings?.qrAccountType ?? ""} />
+            <input name="qrCurrency" type="hidden" value={settings?.qrCurrency ?? settings?.currency ?? "BOB"} />
             <div className="md:col-span-2">
               <ModuleToggle enabled={settings?.invoiceEnabled ?? false} label="Mostrar solicitud de factura en pedidos publicos" name="invoiceEnabled" />
             </div>
             <Input defaultValue={settings?.qrAccountName} name="qrAccountName" placeholder="Titular de cuenta QR" />
             <Input defaultValue={settings?.qrAccountDocument} name="qrAccountDocument" placeholder="CI / NIT del titular" />
             <Input defaultValue={settings?.qrBankName} name="qrBankName" placeholder="Banco" />
-            <Select defaultValue={settings?.qrAccountType || ""} name="qrAccountType">
-              <option value="">Tipo de cuenta</option>
-              <option value="savings">Caja de ahorro</option>
-              <option value="checking">Cuenta corriente</option>
-            </Select>
-            <Select defaultValue={settings?.qrCurrency ?? settings?.currency ?? "BOB"} name="qrCurrency">
-              <option value="BOB">QR en bolivianos</option>
-              <option value="USD">QR en dolares</option>
-            </Select>
             <div className="md:col-span-2">
               <CompressedImageInput help="Recomendado: QR cuadrado, nitido y sin bordes cortados. Se subira como WebP." label="QR de pago" name="qrPaymentFile" previewClassName="aspect-square" />
             </div>
@@ -558,6 +589,73 @@ export function RestaurantSettingsFormClient({
           <Card className="space-y-4">
             <SectionTitle title="QR actual" description="El equipo y los clientes veran este QR al elegir pago QR." />
             <PreviewMedia label="QR de pago" title="QR de pago" url={qrIsImage ? settings?.qrPaymentUrl ?? "" : ""} fallback="Sin QR" square />
+          </Card>
+        </div>
+      </div>
+
+      <div className={cn(activeTab === "facturas" ? "block" : "hidden")}>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <Card className="space-y-4">
+            <SectionTitle title="Solicitudes de factura" description="Pedidos donde el cliente pidio factura. Marca emitido cuando ya generaste la factura para no duplicar." />
+            {invoiceRequests.length ? (
+              <div className="space-y-3">
+                {invoiceRequests.map((order) => {
+                  const issued = Boolean(order.invoiceIssuedAt);
+                  return (
+                    <div className={cn("rounded-2xl border p-4", issued ? "border-[var(--border)] bg-[var(--color-surface)]" : "border-[var(--color-warning)] bg-[var(--color-warning-soft)]")} key={order.id}>
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-base font-black text-[var(--color-heading)]">Pedido {order.orderNumber}</p>
+                            <span className={cn("rounded-full px-2.5 py-1 text-[10px] font-black", issued ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning)] text-[var(--color-on-primary)]")}>
+                              {issued ? "Facturada" : "Pendiente"}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">{formatDateTime(order.createdAt)} · Bs {order.total.toFixed(2)}</p>
+                          <div className="mt-3 grid gap-2 text-sm font-semibold text-[var(--color-body)] sm:grid-cols-2">
+                            <p><span className="text-[var(--color-secondary-text)]">Nombre/Razon:</span> {order.invoiceName || "Sin dato"}</p>
+                            <p><span className="text-[var(--color-secondary-text)]">Documento:</span> {order.invoiceDocumentNumber || "Sin dato"}</p>
+                            <p><span className="text-[var(--color-secondary-text)]">Tipo:</span> {(order.invoiceDocumentType || "nit").toUpperCase()}</p>
+                            <p><span className="text-[var(--color-secondary-text)]">WhatsApp:</span> {order.customerPhone || "Sin telefono"}</p>
+                          </div>
+                          {issued ? (
+                            <p className="mt-3 text-xs font-bold text-[var(--color-success-strong)]">
+                              Emitida {order.invoiceIssuedAt ? formatDateTime(order.invoiceIssuedAt) : ""}{order.invoiceNumber ? ` · Nro ${order.invoiceNumber}` : ""}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {!issued ? (
+                        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                          <Input name={`invoiceNumber_${order.id}`} placeholder="Numero de factura o codigo" />
+                          <Input name={`invoiceNotes_${order.id}`} placeholder="Notas internas opcionales" />
+                          <SettingsSubmitButton className="min-h-11" name="settingsIntent" pendingLabel="Marcando..." value={`mark-invoice-issued:${order.id}`}>
+                            <CheckCircle2 className="h-4 w-4" />
+                            Marcar emitida
+                          </SettingsSubmitButton>
+                        </div>
+                      ) : order.invoiceNotes ? (
+                        <p className="mt-3 rounded-2xl bg-[var(--surface)] p-3 text-xs font-semibold text-[var(--color-secondary-text)]">{order.invoiceNotes}</p>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-secondary-text)]">
+                Todavia no hay pedidos con solicitud de factura.
+              </div>
+            )}
+          </Card>
+
+          <Card className="space-y-4">
+            <SectionTitle title="Control rapido" description="Resumen para evitar duplicados." />
+            <InfoMetric label="Pendientes" value={String(pendingInvoiceRequests.length)} />
+            <InfoMetric label="Emitidas" value={String(invoiceRequests.length - pendingInvoiceRequests.length)} />
+            <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+              La solicitud de factura nace desde el pedido publico o QR de mesa. Esta vista solo controla si ya se genero para evitar hacerla dos veces.
+            </div>
           </Card>
         </div>
       </div>
@@ -689,37 +787,13 @@ export function RestaurantSettingsFormClient({
                 Este rubro usa catalogo, POS, delivery y seguimiento de pedidos. Mesas QR y cocina solo se habilitan para negocios gastronomicos.
               </div>
             ) : null}
-            <div className="mt-4 space-y-3">
-              <ModuleToggle disabled={!canManagePlan} enabled={settings?.deliveryEnabled ?? true} label="Envio a domicilio" name="deliveryEnabled" />
-              <ModuleToggle disabled={!canManagePlan} enabled={settings?.pickupEnabled ?? true} label="Recojo" name="pickupEnabled" />
-              <ModuleToggle
-                disabled={!canManagePlan || !canUseModule("table_qr") || !supportsTableQr}
-                enabled={(settings?.tableOrdersEnabled ?? true) && canUseModule("table_qr") && supportsTableQr}
-                key={`table_qr-${selectedPlanKey}`}
-                label="Pedidos en mesa"
-                name="tableOrdersEnabled"
-              />
-              <ModuleToggle
-                disabled={!canManagePlan || !canUseModule("inventory")}
-                enabled={(settings?.inventoryEnabled ?? true) && canUseModule("inventory")}
-                key={`inventory-${selectedPlanKey}`}
-                label="Inventario"
-                name="inventoryEnabled"
-              />
-              <ModuleToggle
-                disabled={!canManagePlan || !canUseModule("cash")}
-                enabled={(settings?.cashEnabled ?? true) && canUseModule("cash")}
-                key={`cash-${selectedPlanKey}`}
-                label="Caja / POS"
-                name="cashEnabled"
-              />
-              <ModuleToggle
-                disabled={!canManagePlan || !canUseModule("kitchen") || !supportsKitchen}
-                enabled={(settings?.kitchenEnabled ?? true) && canUseModule("kitchen") && supportsKitchen}
-                key={`kitchen-${selectedPlanKey}`}
-                label="Cocina / preparacion"
-                name="kitchenEnabled"
-              />
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <ModuleStatusCard enabled={moduleReadState.deliveryEnabled} label="Envio a domicilio" note="Depende de la operacion y cobertura configurada." />
+              <ModuleStatusCard enabled={moduleReadState.pickupEnabled} label="Recojo" note="Disponible para pedidos que retira el cliente." />
+              <ModuleStatusCard enabled={moduleReadState.tableOrdersEnabled} label="Pedidos en mesa" note={supportsTableQr ? "Segun plan asignado." : "No aplica para este rubro."} />
+              <ModuleStatusCard enabled={moduleReadState.inventoryEnabled} label="Inventario" note="Segun plan asignado." />
+              <ModuleStatusCard enabled={moduleReadState.cashEnabled} label="Caja / POS" note="Segun plan asignado." />
+              <ModuleStatusCard enabled={moduleReadState.kitchenEnabled} label="Cocina / preparacion" note={supportsKitchen ? "Segun plan asignado." : "No aplica para este rubro."} />
             </div>
           </Card>
 
@@ -733,7 +807,7 @@ export function RestaurantSettingsFormClient({
               </div>
               <div className={cn("inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black", canManagePlan ? "bg-[var(--primary-light)] text-[var(--primary)]" : "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]")}>
                 <ShieldCheck className="h-4 w-4" />
-                {canManagePlan ? "Aqui puedes administrar plan, modulos y estado." : "El plan, los modulos y el estado general solo los cambia superadmin."}
+                Los modulos no se activan aqui: se muestran segun el plan asignado y el rubro del negocio.
               </div>
             </Card>
 
@@ -793,9 +867,12 @@ export function RestaurantSettingsFormClient({
           </Card>
 
           <Card className="space-y-4">
-            <SectionTitle title="Nueva zona" description="Define ciudad, radio aproximado y costo operativo de delivery." />
-            <Input name="zoneName" placeholder="Nombre de zona, ej: Centro" />
-            <Input defaultValue={restaurant.city} name="zoneCity" placeholder="Ciudad" />
+            <SectionTitle title="Nueva zona de delivery" description="Sirve para explicar cobertura: desde que punto se mide, hasta que radio llega y cuanto cuesta enviar ahi." />
+            <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+              Ejemplo: Centro, radio 3 km, envio Bs 10. Si luego usamos calculo automatico, estas zonas seran la base.
+            </div>
+            <Input name="zoneName" placeholder="Nombre visible, ej: Centro / Norte / Zona Muyurina" />
+            <Input defaultValue={restaurant.city} name="zoneCity" placeholder="Ciudad de esta zona" />
             <GoogleLocationFields
               hideCoordinateInputs
               hideMapsUrlInput
@@ -807,9 +884,9 @@ export function RestaurantSettingsFormClient({
               showMapByDefault
             />
             <div className="grid gap-3 sm:grid-cols-3">
-              <Input defaultValue="3" name="zoneRadiusKm" placeholder="Radio km" step="0.1" type="number" />
-              <Input defaultValue={settings?.deliveryFee ?? 0} name="zoneDeliveryFee" placeholder="Costo envio" step="0.01" type="number" />
-              <Input defaultValue={settings?.minOrderAmount ?? 0} name="zoneMinOrderAmount" placeholder="Pedido minimo" step="0.01" type="number" />
+              <Input defaultValue="3" name="zoneRadiusKm" placeholder="Cobertura en km" step="0.1" type="number" />
+              <Input defaultValue={settings?.deliveryFee ?? 0} name="zoneDeliveryFee" placeholder="Costo envio Bs" step="0.01" type="number" />
+              <Input defaultValue={settings?.minOrderAmount ?? 0} name="zoneMinOrderAmount" placeholder="Minimo pedido Bs" step="0.01" type="number" />
             </div>
             <SettingsSubmitButton name="settingsIntent" pendingLabel="Guardando zona..." value="save-delivery-zone">
               <MapPin className="h-4 w-4" />
@@ -818,7 +895,7 @@ export function RestaurantSettingsFormClient({
           </Card>
 
           <Card className="space-y-4 xl:col-span-2">
-            <SectionTitle title="Zonas delivery" description="Base para segmentar cobertura y luego calcular costo por zona o distancia." />
+            <SectionTitle title="Zonas delivery" description="Cada tarjeta muestra radio de cobertura, precio de envio y minimo requerido para esa zona." />
             {deliveryZones.length ? (
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {deliveryZones.map((zone) => (
@@ -833,9 +910,9 @@ export function RestaurantSettingsFormClient({
                       </span>
                     </div>
                     <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-bold text-[var(--color-body)]">
-                      <span className="rounded-xl bg-[var(--color-surface)] p-2">{zone.radiusKm} km</span>
-                      <span className="rounded-xl bg-[var(--color-surface)] p-2">Bs {zone.deliveryFee}</span>
-                      <span className="rounded-xl bg-[var(--color-surface)] p-2">Min {zone.minOrderAmount}</span>
+                      <span className="rounded-xl bg-[var(--color-surface)] p-2">Radio {zone.radiusKm} km</span>
+                      <span className="rounded-xl bg-[var(--color-surface)] p-2">Envio Bs {zone.deliveryFee}</span>
+                      <span className="rounded-xl bg-[var(--color-surface)] p-2">Minimo Bs {zone.minOrderAmount}</span>
                     </div>
                     <div className="mt-3 flex gap-2">
                       <SettingsSubmitButton className="min-h-10 flex-1 text-xs" name="settingsIntent" pendingLabel="Actualizando..." value={`toggle-delivery-zone:${zone.id}`} variant="secondary">
@@ -958,6 +1035,29 @@ export function RestaurantSettingsFormClient({
                       <CalendarClock className="h-3.5 w-3.5" />
                       {formatDateTime(announcement.startsAt)} - {announcement.endsAt ? formatDateTime(announcement.endsAt) : "sin fin"}
                     </p>
+                    <details className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-3">
+                      <summary className="cursor-pointer text-sm font-black text-[var(--primary)]">Editar aviso</summary>
+                      <div className="mt-3 grid gap-3">
+                        <Select defaultValue={announcement.type} name={`announcementType_${announcement.id}`}>
+                          <option value="announcement">Comunicado informativo</option>
+                          <option value="closure">Cierre temporal</option>
+                        </Select>
+                        <Input defaultValue={announcement.title} name={`announcementTitle_${announcement.id}`} placeholder="Titulo del aviso" />
+                        <Textarea defaultValue={announcement.body} name={`announcementBody_${announcement.id}`} placeholder="Detalle visible para clientes" />
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <Input defaultValue={toDateTimeLocalInput(new Date(announcement.startsAt))} name={`announcementStartsAt_${announcement.id}`} type="datetime-local" />
+                          <Input defaultValue={announcement.endsAt ? toDateTimeLocalInput(new Date(announcement.endsAt)) : ""} name={`announcementEndsAt_${announcement.id}`} type="datetime-local" />
+                        </div>
+                        <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm font-semibold text-[var(--color-body)]">
+                          Aviso activo
+                          <input defaultChecked={announcement.isActive} name={`announcementIsActive_${announcement.id}`} type="checkbox" />
+                        </label>
+                        <CompressedImageInput help="Opcional. Si no subes imagen nueva, se conserva la actual." label="Cambiar imagen" name={`announcementImageFile_${announcement.id}`} />
+                        <SettingsSubmitButton className="w-full" name="settingsIntent" pendingLabel="Guardando aviso..." value={`update-announcement:${announcement.id}`} variant="secondary">
+                          Guardar cambios
+                        </SettingsSubmitButton>
+                      </div>
+                    </details>
                     {announcement.isActive ? (
                       <SettingsSubmitButton className="mt-3 w-full" name="settingsIntent" pendingLabel="Desactivando..." value={`deactivate-announcement:${announcement.id}`} variant="secondary">
                         Desactivar aviso
@@ -1160,6 +1260,22 @@ function BillingStep({ label, detail, completed }: { label: string; detail: stri
         <p className="text-sm font-black text-[var(--color-heading)]">{label}</p>
       </div>
       <p className="mt-2 text-xs font-semibold text-[var(--color-secondary-text)]">{detail}</p>
+    </div>
+  );
+}
+
+function ModuleStatusCard({ label, note, enabled }: { label: string; note: string; enabled: boolean }) {
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-black text-[var(--color-heading)]">{label}</p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">{note}</p>
+        </div>
+        <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black", enabled ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]")}>
+          {enabled ? "Incluido" : "No incluido"}
+        </span>
+      </div>
     </div>
   );
 }

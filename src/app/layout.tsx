@@ -22,6 +22,9 @@ export const metadata: Metadata = {
   description: "Pedidos y comercio digital en una sola plataforma.",
   applicationName: "yopido.shop",
   manifest: "/manifest.webmanifest",
+  verification: {
+    google: "lcx3d7H1jZZ18BQuha-t-VHS9m1E9pJv_1X4ZnGcErc",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

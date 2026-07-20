@@ -241,7 +241,7 @@ export function HomeSearchAutocomplete({
     <div className="relative">
       <div
         className={cn(
-          "fixed inset-x-0 top-0 z-[60] border-b border-white/12 bg-[#12355B] px-4 pb-3 pt-[calc(0.45rem+env(safe-area-inset-top))] text-white shadow-[0_18px_55px_rgb(8_36_65_/_0.26)] transition duration-200 lg:hidden",
+          "fixed inset-x-0 top-0 z-[90] border-b border-white/12 bg-[#12355B] px-4 pb-3 pt-[calc(0.45rem+env(safe-area-inset-top))] text-white shadow-[0_18px_55px_rgb(8_36_65_/_0.26)] transition duration-200 lg:hidden",
           showCompactHeader && !isOpen ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0",
         )}
       >
@@ -302,7 +302,7 @@ export function HomeSearchAutocomplete({
       </form>
 
       {isOpen && typeof document !== "undefined" ? createPortal(
-        <div className="public-brand-theme fixed inset-0 z-[80] bg-[rgb(8_36_65_/_0.78)] p-0 text-[var(--color-heading)] backdrop-blur-md sm:p-6" data-public-theme={publicTheme} role="dialog" aria-modal="true" aria-label="Busqueda de negocios">
+        <div className="public-brand-theme fixed inset-0 z-[100] bg-[rgb(8_36_65_/_0.78)] p-0 text-[var(--color-heading)] backdrop-blur-md sm:p-6" data-public-theme={publicTheme} role="dialog" aria-modal="true" aria-label="Busqueda de negocios">
           <div className={cn("relative mx-auto flex h-dvh w-full flex-col overflow-hidden bg-[var(--color-card)] shadow-[0_30px_90px_rgb(2_10_18_/_0.36)] sm:h-[min(88dvh,820px)] sm:max-w-6xl sm:rounded-[2rem]", isClosing ? "search-tv-exit" : "search-tv-enter")}>
             <span className={cn("search-tv-line pointer-events-none absolute left-1/2 top-1/2 z-50 h-1 w-[72%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--accent)] shadow-[0_0_32px_rgb(199_240_0_/_0.88)]", isClosing && "search-tv-line-out")} />
 

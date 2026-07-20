@@ -62,7 +62,7 @@ export default async function Home({
   const featuredDish = baseDirectory.mostOrderedDishes[0] ?? baseDirectory.dishSuggestions[0];
   const featuredBusinessType = baseDirectory.businessTypeCards[0];
   const featuredHeroHref = featuredRestaurant ? publicRestaurantPath(featuredRestaurant.restaurant.slug) : "#restaurantes";
-  const featuredHeroImage = featuredRestaurant && isDisplayImage(featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl) ? featuredRestaurant.restaurant.bannerUrl || featuredRestaurant.restaurant.logoUrl : "";
+  const featuredHeroImage = featuredRestaurant && isDisplayImage(featuredRestaurant.restaurant.bannerUrl) ? featuredRestaurant.restaurant.bannerUrl : defaultProductImage;
   const featuredHeroTitle = featuredRestaurant?.restaurant.name ?? featuredBusinessType?.label ?? "yopido.shop";
   const featuredHeroSubtitle = featuredRestaurant
     ? featuredRestaurant.currentAnnouncement?.title || featuredRestaurant.popularProducts.slice(0, 2).join(" | ") || featuredRestaurant.categories.slice(0, 2).join(" | ") || featuredRestaurant.restaurant.city || businessCatalogLabelTitle(featuredRestaurant.restaurant.businessType)
@@ -131,11 +131,7 @@ export default async function Home({
                 </Link>
 
                 <Link className="group relative min-h-[360px] overflow-hidden rounded-[2rem] bg-[var(--primary)] shadow-[0_24px_60px_rgb(8_36_65_/_0.18)] transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={featuredHeroHref}>
-                  {featuredHeroImage ? (
-                    <Image alt={featuredHeroTitle} className="object-cover transition duration-500 group-hover:scale-105" fill priority sizes="360px" src={featuredHeroImage} />
-                  ) : (
-                    <BusinessVisual businessType={featuredRestaurant?.restaurant.businessType ?? featuredBusinessType?.value ?? "other"} className="absolute inset-0 h-full w-full transition duration-500 group-hover:scale-105" label={featuredHeroTitle} />
-                  )}
+                  <Image alt={featuredHeroTitle} className="object-cover transition duration-500 group-hover:scale-105" fill priority sizes="360px" src={featuredHeroImage} />
                   <span className="absolute inset-0 bg-[linear-gradient(180deg,rgb(8_36_65_/_0.08)_0%,rgb(8_36_65_/_0.34)_100%)]" />
                   <span className="absolute inset-x-5 bottom-5 rounded-[1.4rem] bg-[var(--color-card-glass)] p-4 text-[var(--color-heading)] shadow-[0_18px_40px_rgb(8_36_65_/_0.18)] backdrop-blur">
                     <span className="block text-sm font-black">Catalogo listo para pedir</span>
@@ -664,18 +660,14 @@ function MobileHeroCarousel({ restaurants }: { restaurants: PublicRestaurantCard
       <div className="public-scrollbar -mx-4 overflow-x-auto px-4 pb-2">
         <div className="flex snap-x snap-mandatory gap-3 pr-4">
           {restaurants.map((card, index) => {
-            const imageSrc = isDisplayImage(card.restaurant.bannerUrl || card.restaurant.logoUrl) ? card.restaurant.bannerUrl || card.restaurant.logoUrl : "";
+            const imageSrc = isDisplayImage(card.restaurant.bannerUrl) ? card.restaurant.bannerUrl : defaultProductImage;
             return (
               <Link
                 className="group relative min-h-[210px] w-[82vw] max-w-[340px] shrink-0 snap-start overflow-hidden rounded-[1.6rem] bg-[var(--primary-dark)] text-[var(--color-on-primary)] shadow-[0_22px_60px_rgb(2_10_18_/_0.26)] ring-1 ring-white/14 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] min-[390px]:min-h-[226px]"
                 href={publicRestaurantPath(card.restaurant.slug)}
                 key={card.restaurant.id}
               >
-                {imageSrc ? (
-                  <Image alt={card.restaurant.name} className="object-cover transition duration-500 group-hover:scale-105" fill priority={index === 0} sizes="85vw" src={imageSrc} />
-                ) : (
-                  <BusinessVisual businessType={card.restaurant.businessType} className="absolute inset-0 h-full w-full transition duration-500 group-hover:scale-105" label={card.restaurant.name} />
-                )}
+                <Image alt={card.restaurant.name} className="object-cover transition duration-500 group-hover:scale-105" fill priority={index === 0} sizes="85vw" src={imageSrc} />
                 <span className="absolute inset-0 bg-[linear-gradient(180deg,rgb(5_17_31_/_0.08)_0%,rgb(5_17_31_/_0.4)_46%,rgb(5_17_31_/_0.88)_100%)]" />
                 <span className="absolute inset-x-0 bottom-0 z-10 p-4">
                   <span className="mb-3 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--accent)] px-3 py-1.5 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
@@ -721,16 +713,12 @@ function RestaurantLogo({ card, size = "md" }: { card: PublicRestaurantCard; siz
 }
 
 function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
-  const imageSrc = isDisplayImage(card.restaurant.bannerUrl || card.restaurant.logoUrl) ? card.restaurant.bannerUrl || card.restaurant.logoUrl : "";
+  const imageSrc = isDisplayImage(card.restaurant.bannerUrl) ? card.restaurant.bannerUrl : defaultProductImage;
 
   return (
     <Card className="flex h-full flex-col overflow-hidden p-0 transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="relative h-44 bg-[var(--primary-light)]">
-        {imageSrc ? (
-          <Image alt={card.restaurant.name} className="object-cover" fill sizes="(min-width:1280px) 33vw, (min-width:768px) 50vw, 100vw" src={imageSrc} />
-        ) : (
-          <BusinessVisual businessType={card.restaurant.businessType} className="absolute inset-0 h-full w-full" label={card.restaurant.name} />
-        )}
+        <Image alt={card.restaurant.name} className="object-cover" fill sizes="(min-width:1280px) 33vw, (min-width:768px) 50vw, 100vw" src={imageSrc} />
         <div className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-strong)] via-[var(--color-image-overlay-medium)] to-transparent" />
         <span className="absolute bottom-3 left-3 max-w-[75%] truncate rounded-full bg-white/92 px-3 py-1 text-xs font-black text-[var(--primary)] backdrop-blur">
           {card.categories[0] || card.restaurant.city || `${businessCatalogLabelTitle(card.restaurant.businessType)} disponible`}

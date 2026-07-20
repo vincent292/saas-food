@@ -147,10 +147,8 @@ export function TableOrderClient({
         <section className="min-w-0">
           <div className="mb-5 overflow-hidden rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-card)]">
             <div className="relative min-h-[11rem] p-5 sm:min-h-[14rem] sm:p-7">
-              {restaurant.bannerUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img alt={restaurant.name} className="absolute inset-0 h-full w-full object-cover opacity-35" src={restaurant.bannerUrl} />
-              ) : null}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img alt={restaurant.name} className="absolute inset-0 h-full w-full object-cover opacity-35" src={restaurant.bannerUrl || defaultImage} />
               <div className="relative max-w-2xl">
                 <span className="inline-flex rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-black text-[var(--primary-dark)]">Pedido en mesa</span>
                 <h1 className="mt-4 text-4xl font-black leading-none tracking-normal text-[var(--text)] sm:text-6xl">Mesa {table.name.replace(/^mesa\s*/i, "")}</h1>

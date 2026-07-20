@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, Bike, Briefcase, CalendarClock, Check, Clock3, CreditCard, Flame, Heart, House, MapPin, Minus, Package, Pill, Plus, ReceiptText, Search, Share2, Shirt, ShoppingBag, ShoppingCart, Sparkles, Star, Store, UserRound, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCard, Flame, Heart, MapPin, Minus, Plus, ReceiptText, Search, Share2, ShoppingCart, Sparkles, Star, Store, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
@@ -130,7 +130,7 @@ export function PublicRestaurantOrderClient({
   const cartJson = JSON.stringify(cart.map(({ productId, variantId, optionIds, name, price, quantity, notes: itemNotes }) => ({ productId, variantId, optionIds, name, price, quantity, notes: itemNotes })));
   const hasLogoImage = isDisplayImage(restaurant.logoUrl);
   const logoText = initials(restaurant.name) || restaurant.name.slice(0, 1).toUpperCase();
-  const heroImage = restaurant.bannerUrl || products.find((product) => product.isFeatured && product.imageUrl)?.imageUrl || products.find((product) => product.imageUrl)?.imageUrl || defaultImage;
+  const heroImage = isDisplayImage(restaurant.bannerUrl) ? restaurant.bannerUrl : defaultImage;
   const topOrderedProducts = useMemo(() => {
     const featured = products.filter((product) => product.isAutoFeatured || product.isFeatured);
     return (featured.length ? featured : products).filter((product) => stockByProduct.get(product.id)?.isAvailableHere ?? true).slice(0, 3);
@@ -305,12 +305,8 @@ export function PublicRestaurantOrderClient({
         <section className="min-w-0">
           <div className="relative mb-4 overflow-hidden rounded-[1.5rem] bg-[var(--primary)] shadow-[0_18px_44px_rgb(8_36_65_/_0.18)] sm:mb-5 sm:rounded-[2rem] sm:shadow-[0_28px_70px_rgb(8_36_65_/_0.22)]">
             <div className={cn("relative", bannerHeightClass)}>
-              {isDisplayImage(heroImage) ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img alt={restaurant.name} className="absolute inset-0 h-full w-full object-cover" src={heroImage} />
-              ) : (
-                <BusinessVisual businessType={restaurant.businessType} className="absolute inset-0 h-full w-full" label={restaurant.name} mode="hero" />
-              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img alt={restaurant.name} className="absolute inset-0 h-full w-full object-cover" src={heroImage} />
               <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(8_36_65_/_0.16)_0%,rgb(8_36_65_/_0.34)_42%,rgb(8_36_65_/_0.88)_100%)]" />
               <div className="absolute left-3 right-3 top-3 z-20 flex items-center justify-between gap-3 sm:left-4 sm:right-4 sm:top-4">
                 <Link className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl sm:h-12 sm:w-12" href="/">
@@ -535,46 +531,6 @@ function OrderErrorMessage({ error }: { error: string }) {
                           : "No se pudo confirmar el pedido. Revisa los datos e intenta nuevamente.";
 
   return <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)] md:col-span-2">{message}</div>;
-}
-
-function businessVisualClasses(businessType: Restaurant["businessType"]) {
-  if (businessType === "fashion") return "from-[#3A1F2B] via-[#A44A6A] to-[#F1B7A4] text-white";
-  if (businessType === "footwear") return "from-[#2B2348] via-[#6F4BC4] to-[#D6C4FF] text-white";
-  if (businessType === "pharmacy") return "from-[#073B35] via-[#0F8A70] to-[#BFF4E8] text-white";
-  if (businessType === "market") return "from-[#204015] via-[#72A51C] to-[#EAF7B4] text-white";
-  if (businessType === "beauty") return "from-[#43142C] via-[#C44E86] to-[#FFD0E5] text-white";
-  if (businessType === "home") return "from-[#3D2517] via-[#B97842] to-[#F7D4A8] text-white";
-  if (businessType === "electronics") return "from-[#071B3A] via-[#1464B4] to-[#A8DAFF] text-white";
-  if (businessType === "services") return "from-[#171B39] via-[#4F5CC7] to-[#CAD4FF] text-white";
-  return "from-[#082441] via-[#12355B] to-[#C7F000] text-white";
-}
-
-function BusinessVisualIcon({ businessType, className = "h-8 w-8" }: { businessType: Restaurant["businessType"]; className?: string }) {
-  if (businessType === "food") return <Store className={className} />;
-  if (businessType === "fashion") return <Shirt className={className} />;
-  if (businessType === "footwear") return <ShoppingBag className={className} />;
-  if (businessType === "pharmacy") return <Pill className={className} />;
-  if (businessType === "market") return <Store className={className} />;
-  if (businessType === "beauty") return <Sparkles className={className} />;
-  if (businessType === "home") return <House className={className} />;
-  if (businessType === "electronics") return <Package className={className} />;
-  if (businessType === "services") return <Briefcase className={className} />;
-  return <Store className={className} />;
-}
-
-function BusinessVisual({ businessType, label, className, mode = "tile" }: { businessType: Restaurant["businessType"]; label: string; className?: string; mode?: "tile" | "hero" }) {
-  return (
-    <span className={cn("relative grid overflow-hidden bg-gradient-to-br", businessVisualClasses(businessType), className)}>
-      <span className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgb(255_255_255_/_0.35),transparent_28%),radial-gradient(circle_at_82%_20%,rgb(255_255_255_/_0.22),transparent_24%),linear-gradient(135deg,transparent_0%,rgb(255_255_255_/_0.16)_48%,transparent_49%)]" />
-      <span className={cn("absolute rounded-full border border-white/24", mode === "hero" ? "-right-16 -top-16 h-52 w-52" : "-right-8 -top-8 h-24 w-24")} />
-      <span className={cn("relative z-10 grid place-items-center", mode === "hero" ? "hidden h-full w-full sm:grid" : "h-full w-full")}>
-        <span className={cn("grid place-items-center rounded-[1.2rem] bg-white/18 shadow-xl ring-1 ring-white/24 backdrop-blur", mode === "hero" ? "absolute bottom-10 right-10 h-24 w-24 sm:h-28 sm:w-28" : "h-12 w-12")}>
-          <BusinessVisualIcon businessType={businessType} className={mode === "hero" ? "h-12 w-12" : "h-6 w-6"} />
-        </span>
-      </span>
-      {mode === "tile" ? <span className="absolute bottom-2 left-4 z-10 text-[9px] font-black uppercase tracking-[0.16em] text-white/58">{initials(label) || "YP"}</span> : null}
-    </span>
-  );
 }
 
 function ProductVisual({ name, src, className }: { name: string; src?: string | null; className?: string }) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { BellRing, Eye, Volume2, VolumeX } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buttonClasses } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
 import type { Order, OrderType } from "@/types/order.types";
@@ -32,21 +32,23 @@ export function NewOrderSoundAlert({
   className?: string;
   idleClassName?: string;
 }) {
-  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundBlocked, setSoundBlocked] = useState(false);
   const [unseenOrders, setUnseenOrders] = useState<Order[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const knownOrderIdsRef = useRef<Set<string> | null>(null);
   const unseenOrdersRef = useRef<Order[]>([]);
+  const soundUnlockedRef = useRef(false);
+  const unlockingRef = useRef(false);
 
-  function ensureAudio() {
+  const ensureAudio = useCallback(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio(ORDER_ALERT_AUDIO_SRC);
       audioRef.current.preload = "auto";
       audioRef.current.volume = 0.78;
     }
     return audioRef.current;
-  }
+  }, []);
 
   const alertCandidates = useMemo(
     () =>
@@ -82,6 +84,51 @@ export function NewOrderSoundAlert({
     setUnseenOrders(nextUnseen);
   }, [alertCandidates]);
 
+  const enableSound = useCallback(async () => {
+    if (unlockingRef.current) {
+      return;
+    }
+
+    unlockingRef.current = true;
+    const audio = ensureAudio();
+    setSoundEnabled(true);
+    setSoundBlocked(false);
+
+    try {
+      const previousVolume = audio.volume;
+      audio.volume = 0.01;
+      await audio.play();
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = previousVolume;
+      soundUnlockedRef.current = true;
+      setSoundBlocked(false);
+    } catch {
+      setSoundBlocked(true);
+    } finally {
+      unlockingRef.current = false;
+    }
+  }, [ensureAudio]);
+
+  useEffect(() => {
+    const unlockFromUserGesture = () => {
+      if (soundUnlockedRef.current) {
+        return;
+      }
+      void enableSound();
+    };
+
+    window.addEventListener("pointerdown", unlockFromUserGesture, { passive: true });
+    window.addEventListener("touchstart", unlockFromUserGesture, { passive: true });
+    window.addEventListener("keydown", unlockFromUserGesture);
+
+    return () => {
+      window.removeEventListener("pointerdown", unlockFromUserGesture);
+      window.removeEventListener("touchstart", unlockFromUserGesture);
+      window.removeEventListener("keydown", unlockFromUserGesture);
+    };
+  }, [enableSound]);
+
   useEffect(() => {
     if (!unseenOrders.length || !soundEnabled) {
       return;
@@ -97,7 +144,10 @@ export function NewOrderSoundAlert({
       const audio = ensureAudio();
       audio.currentTime = 0;
       void audio.play().then(
-        () => setSoundBlocked(false),
+        () => {
+          soundUnlockedRef.current = true;
+          setSoundBlocked(false);
+        },
         () => setSoundBlocked(true),
       );
     };
@@ -109,24 +159,7 @@ export function NewOrderSoundAlert({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [soundEnabled, unseenOrders.length]);
-
-  async function enableSound() {
-    const audio = ensureAudio();
-    setSoundEnabled(true);
-    setSoundBlocked(false);
-
-    try {
-      const previousVolume = audio.volume;
-      audio.volume = 0.01;
-      await audio.play();
-      audio.pause();
-      audio.currentTime = 0;
-      audio.volume = previousVolume;
-    } catch {
-      setSoundBlocked(true);
-    }
-  }
+  }, [ensureAudio, soundEnabled, unseenOrders.length]);
 
   function acknowledge() {
     unseenOrdersRef.current = [];
@@ -151,7 +184,7 @@ export function NewOrderSoundAlert({
           type="button"
         >
           {soundEnabled && !soundBlocked ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-          {soundEnabled && !soundBlocked ? "Sonido activo" : "Activar sonido"}
+          {soundEnabled && !soundBlocked ? "Sonido activo" : "Sonido pendiente"}
         </button>
       </div>
     );
@@ -167,14 +200,14 @@ export function NewOrderSoundAlert({
           <p className="text-base font-black">
             {title}: {unseenOrders.length}
           </p>
-          <p className="mt-1 text-sm font-bold leading-5">{soundBlocked ? "El navegador bloqueo el audio. Pulsa Activar sonido una vez." : description}</p>
+          <p className="mt-1 text-sm font-bold leading-5">{soundBlocked ? "El navegador bloqueo el audio hasta la primera interaccion. Toca el panel una vez." : description}</p>
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
         {!soundEnabled || soundBlocked ? (
           <button className={buttonClasses("secondary", "bg-[var(--surface)]")} onClick={enableSound} type="button">
             <Volume2 className="h-4 w-4" />
-            Activar sonido
+            Probar sonido
           </button>
         ) : null}
         <button className={buttonClasses("primary")} onClick={openAlerts} type="button">

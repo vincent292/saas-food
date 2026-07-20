@@ -500,15 +500,19 @@ function OrderErrorMessage({ error }: { error: string }) {
                 ? "Este restaurante no tiene factura habilitada para pedidos publicos."
                 : error === "delivery-address"
                   ? "Para delivery debes registrar una direccion de entrega."
+                  : error === "invalid-restaurant"
+                    ? "La tienda ya no esta disponible para recibir pedidos."
+                    : error === "invalid-table"
+                      ? "La mesa no esta disponible o no pertenece a esta tienda."
                   : error === "invoice"
-                ? "Completa los datos de factura para confirmar el pedido."
-                : error === "product-not-found"
-                  ? "Uno de los productos ya no esta disponible. Actualiza el catalogo e intenta nuevamente."
-                  : error === "product-configuration"
-                    ? "Uno de los productos necesita opciones validas. Vuelve a agregarlo al pedido."
-                    : error === "service-role-required"
-                      ? "Falta una configuracion segura del servidor para recibir pedidos."
-                    : "No se pudo confirmar el pedido. Revisa los datos e intenta nuevamente.";
+                    ? "Completa los datos de factura para confirmar el pedido."
+                    : error === "product-not-found"
+                      ? "Uno de los productos ya no esta disponible. Actualiza el catalogo e intenta nuevamente."
+                      : error === "product-configuration"
+                        ? "Uno de los productos necesita opciones validas. Vuelve a agregarlo al pedido."
+                        : error === "service-role-required"
+                          ? "Falta una configuracion segura del servidor para recibir pedidos."
+                          : "No se pudo confirmar el pedido. Revisa los datos e intenta nuevamente.";
 
   return <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)] md:col-span-2">{message}</div>;
 }

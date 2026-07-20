@@ -6,7 +6,9 @@
     "dev": "node ./scripts/run-next-with-url.mjs dev",
     "build": "node --use-system-ca ./node_modules/next/dist/bin/next build --webpack",
     "start": "node ./scripts/run-next-with-url.mjs start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "security:check": "node ./scripts/security-checks.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

@@ -22,7 +22,7 @@ const cartItemSchema = z.object({
 });
 
 const orderSchema = z.object({
-  restaurantId: z.string().min(1),
+  restaurantId: z.string().uuid(),
   restaurantSlug: z.string().min(1),
   tableId: z.string().uuid().optional(),
   tableCode: z.string().optional(),
@@ -112,7 +112,7 @@ type OptionPriceRow = {
   is_active: boolean;
 };
 
-async function getOrCreatePublicOrderSettings(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {
+async function getPublicOrderSettings(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {
   const { data: settings } = await supabase
     .from("restaurant_settings")
     .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
@@ -128,28 +128,43 @@ async function getOrCreatePublicOrderSettings(supabase: Awaited<ReturnType<typeo
     return null;
   }
 
-  const { data: createdSettings } = await admin
+  const { data: serverSettings } = await admin
     .from("restaurant_settings")
-    .upsert(
-      {
-        restaurant_id: restaurantId,
-        delivery_enabled: true,
-        pickup_enabled: true,
-        table_orders_enabled: true,
-        inventory_enabled: true,
-        cash_enabled: true,
-        kitchen_enabled: true,
-        delivery_fee: 0,
-        min_order_amount: 0,
-        invoice_enabled: false,
-        currency: "BOB",
-      },
-      { onConflict: "restaurant_id" },
-    )
     .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
+    .eq("restaurant_id", restaurantId)
     .maybeSingle();
 
-  return (createdSettings as PublicOrderSettings | null) ?? null;
+  return (serverSettings as PublicOrderSettings | null) ?? null;
+}
+
+async function validatePublicRestaurant(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string, restaurantSlug: string) {
+  const { data } = await supabase
+    .from("restaurants")
+    .select("id,slug")
+    .eq("id", restaurantId)
+    .eq("slug", restaurantSlug)
+    .eq("status", "active")
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  return Boolean(data);
+}
+
+async function validatePublicTable(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string, tableId?: string, tableCode?: string) {
+  if (!tableId || !tableCode) {
+    return false;
+  }
+
+  const { data } = await supabase
+    .from("tables")
+    .select("id")
+    .eq("id", tableId)
+    .eq("restaurant_id", restaurantId)
+    .eq("code", tableCode.trim().toUpperCase())
+    .eq("is_active", true)
+    .maybeSingle();
+
+  return Boolean(data);
 }
 
 async function getPublicRestaurantBusinessType(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string): Promise<BusinessType> {
@@ -324,6 +339,19 @@ export async function createPublicOrderAction(formData: FormData) {
   if (!writeClient) {
     redirect(`${failPath}?error=service-role-required`);
   }
+
+  const validRestaurant = await validatePublicRestaurant(supabase, parsed.data.restaurantId, parsed.data.restaurantSlug);
+  if (!validRestaurant) {
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=invalid-restaurant`);
+  }
+
+  if (parsed.data.orderType === "table") {
+    const validTable = await validatePublicTable(supabase, parsed.data.restaurantId, parsed.data.tableId, parsed.data.tableCode);
+    if (!validTable) {
+      redirect(`${failPath}?error=invalid-table`);
+    }
+  }
+
   const { data: hasOpenCashSession } = await supabase.rpc("has_open_cash_session_public", {
     p_restaurant_id: parsed.data.restaurantId,
   });
@@ -333,7 +361,7 @@ export async function createPublicOrderAction(formData: FormData) {
   }
 
   const [settings, businessType] = await Promise.all([
-    getOrCreatePublicOrderSettings(supabase, parsed.data.restaurantId),
+    getPublicOrderSettings(supabase, parsed.data.restaurantId),
     getPublicRestaurantBusinessType(supabase, parsed.data.restaurantId),
   ]);
 

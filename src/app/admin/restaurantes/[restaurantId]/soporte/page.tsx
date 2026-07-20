@@ -124,6 +124,24 @@ export default async function RestaurantSupportPage({
               </form>
             </Card>
 
+            <Card>
+              <SectionTitle title="Solicitar nueva sucursal" description="Usa este flujo cuando el negocio abre otro local y quieres mantener cada sucursal separada." />
+              <form action={createSupportTicketAction} className="mt-4 grid gap-3 lg:grid-cols-2">
+                <input name="restaurantId" type="hidden" value={restaurant.id} />
+                <input name="returnTo" type="hidden" value={`/admin/restaurantes/${restaurant.id}/soporte`} />
+                <input name="title" type="hidden" value={`Nueva sucursal para ${restaurant.name}`} />
+                <input name="category" type="hidden" value="billing" />
+                <input name="priority" type="hidden" value="medium" />
+                <Input name="branchName" placeholder="Nombre de la nueva sucursal" />
+                <Input name="branchCity" placeholder="Ciudad" />
+                <Input className="lg:col-span-2" name="branchAddress" placeholder="Direccion o zona" />
+                <Textarea className="lg:col-span-2" name="description" placeholder="Datos utiles: WhatsApp, direccion exacta, plan esperado, si usara el mismo menu o uno distinto, fecha estimada de apertura." required />
+                <div className="lg:col-span-2">
+                  <Button>Enviar solicitud</Button>
+                </div>
+              </form>
+            </Card>
+
             <section className="space-y-3">
               <SectionTitle title="Historial" description="Seguimiento de los tickets enviados por este restaurante." />
               <SupportTicketList emptyMessage="Todavia no hay tickets para este restaurante." tickets={tickets} />

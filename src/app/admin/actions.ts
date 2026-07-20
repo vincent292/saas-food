@@ -16,6 +16,7 @@ import {
 } from "@/lib/restaurant-directory-options";
 import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
+import { membershipService } from "@/lib/services/membership.service";
 import { moduleCatalog } from "@/lib/modules";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import { directionsToMapsUrl, hasValidCoordinates } from "@/lib/utils/google-maps";
@@ -1022,30 +1023,13 @@ export async function signInAction(formData: FormData) {
     redirect("/admin");
   }
 
-  const { data: memberships } = await supabase
-    .from("restaurant_memberships")
-    .select("restaurant_id")
-    .eq("user_id", user.id)
-    .eq("is_active", true);
+  const memberships = await membershipService.listActiveRestaurantsForUser(user.id);
 
-  const restaurantIds = [...new Set((memberships ?? []).map((membership) => membership.restaurant_id))];
-
-  if (restaurantIds.length === 1) {
-    const { data: restaurants } = await supabase
-      .from("restaurants")
-      .select("id")
-      .in("id", restaurantIds)
-      .eq("status", "active")
-      .is("deleted_at", null)
-      .order("created_at", { ascending: true })
-      .limit(1);
-
-    if (restaurants?.[0]) {
-      redirect(`/admin/restaurantes/${restaurants[0].id}/dashboard`);
-    }
+  if (memberships.length === 1) {
+    redirect(`/admin/restaurantes/${memberships[0].restaurant.id}/dashboard`);
   }
 
-  if (restaurantIds.length > 1) {
+  if (memberships.length > 1) {
     redirect("/admin");
   }
 
@@ -1184,10 +1168,20 @@ export async function permanentlyDeleteRestaurantAction(formData: FormData) {
 }
 
 export async function createSupportTicketAction(formData: FormData) {
+  const branchName = String(formData.get("branchName") || "").trim();
+  const branchCity = String(formData.get("branchCity") || "").trim();
+  const branchAddress = String(formData.get("branchAddress") || "").trim();
+  const branchDetails = [
+    branchName ? `Sucursal solicitada: ${branchName}` : "",
+    branchCity ? `Ciudad: ${branchCity}` : "",
+    branchAddress ? `Direccion/zona: ${branchAddress}` : "",
+  ].filter(Boolean);
+  const rawDescription = String(formData.get("description") || "").trim();
+  const description = [...branchDetails, rawDescription].filter(Boolean).join("\n\n");
   const parsed = supportTicketSchema.safeParse({
     restaurantId: formData.get("restaurantId") || undefined,
     title: formData.get("title"),
-    description: formData.get("description") || undefined,
+    description: description || undefined,
     category: formData.get("category") || "other",
     priority: formData.get("priority") || "medium",
   });

@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Manual - Flujo de dueño y sucursales</title>
+    <style>
+      :root {
+        --primary: #12355b;
+        --primary-dark: #082441;
+        --primary-light: #eaf2f8;
+        --accent: #c7f000;
+        --surface: #f8fafc;
+        --card: #ffffff;
+        --text: #1c1c1c;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --success: #15803d;
+        --warning: #b45309;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--surface);
+        color: var(--text);
+        font-family: Arial, Helvetica, sans-serif;
+        line-height: 1.45;
+      }
+
+      @page {
+        size: A4;
+        margin: 14mm;
+      }
+
+      .page {
+        break-after: page;
+        min-height: 265mm;
+      }
+
+      .page:last-child {
+        break-after: auto;
+      }
+
+      .cover {
+        display: grid;
+        min-height: 265mm;
+        align-content: center;
+        gap: 28px;
+        border-radius: 28px;
+        background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+        color: white;
+        padding: 42px;
+      }
+
+      .brand {
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: 0;
+      }
+
+      .brand span {
+        color: var(--accent);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 700px;
+        font-size: 48px;
+        line-height: 1.04;
+      }
+
+      h2 {
+        margin-bottom: 14px;
+        color: var(--primary);
+        font-size: 28px;
+        line-height: 1.15;
+      }
+
+      h3 {
+        margin-bottom: 8px;
+        font-size: 18px;
+      }
+
+      .lead {
+        max-width: 680px;
+        color: rgb(255 255 255 / 0.82);
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .section {
+        padding: 8px 0 18px;
+      }
+
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--card);
+        padding: 18px;
+        box-shadow: 0 16px 42px rgb(18 53 91 / 0.08);
+      }
+
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .grid-2 {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .grid-3 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .pill {
+        display: inline-flex;
+        min-height: 30px;
+        align-items: center;
+        border-radius: 999px;
+        background: var(--accent);
+        color: var(--primary);
+        font-size: 12px;
+        font-weight: 900;
+        padding: 0 12px;
+      }
+
+      .muted {
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr);
+        gap: 12px;
+        align-items: start;
+      }
+
+      .num {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border-radius: 14px;
+        background: var(--primary);
+        color: white;
+        font-weight: 900;
+      }
+
+      .screen {
+        overflow: hidden;
+        border: 1px solid rgb(18 53 91 / 0.14);
+        border-radius: 22px;
+        background: white;
+        box-shadow: 0 18px 52px rgb(18 53 91 / 0.16);
+      }
+
+      .screen-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        background: var(--primary);
+        color: white;
+        padding: 16px;
+      }
+
+      .screen-title {
+        font-size: 18px;
+        font-weight: 900;
+      }
+
+      .screen-body {
+        padding: 18px;
+      }
+
+      .input {
+        min-height: 42px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        padding: 12px;
+      }
+
+      .button {
+        display: inline-flex;
+        min-height: 42px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: var(--accent);
+        color: var(--primary);
+        font-size: 13px;
+        font-weight: 900;
+        padding: 0 16px;
+      }
+
+      .metric {
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: var(--surface);
+        padding: 14px;
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 22px;
+      }
+
+      .branch {
+        display: grid;
+        gap: 12px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: white;
+        padding: 16px;
+      }
+
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+        overflow: hidden;
+        border-radius: 14px;
+        font-size: 12px;
+      }
+
+      .table th {
+        background: var(--primary);
+        color: white;
+        text-align: left;
+      }
+
+      .table th,
+      .table td {
+        border: 1px solid var(--border);
+        padding: 9px;
+        vertical-align: top;
+      }
+
+      .ok {
+        color: var(--success);
+        font-weight: 900;
+      }
+
+      .warn {
+        color: var(--warning);
+        font-weight: 900;
+      }
+
+      .note {
+        border-left: 5px solid var(--accent);
+        border-radius: 14px;
+        background: #f6ffd5;
+        padding: 14px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      ul {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+
+      li {
+        margin: 5px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="page cover">
+      <div class="brand">yopido<span>.shop</span></div>
+      <div>
+        <p class="pill">Manual operativo</p>
+        <h1>Flujo de dueño, negocio inicial y sucursales</h1>
+      </div>
+      <p class="lead">
+        Guia para crear el primer negocio, probar el ingreso del dueño, agregar o solicitar una nueva sucursal y validar que cada sucursal conserve sus operaciones separadas.
+      </p>
+      <p class="muted" style="color: rgb(255 255 255 / 0.72)">Version interna - panel administrativo</p>
+    </section>
+
+    <section class="page">
+      <div class="section">
+        <h2>1. Idea del flujo</h2>
+        <div class="grid grid-2">
+          <div class="card">
+            <h3>Dueño</h3>
+            <p class="muted">Es el usuario creado con el correo y contraseña del responsable. Puede ver su panel de dueño y entrar a sus sucursales.</p>
+          </div>
+          <div class="card">
+            <h3>Sucursal</h3>
+            <p class="muted">Cada sucursal es un restaurante independiente: pedidos, caja, inventario, productos, reportes y configuracion propia.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>2. Flujo general</h2>
+        <div class="grid">
+          <div class="step card">
+            <span class="num">1</span>
+            <div>
+              <h3>Superadmin crea el primer negocio</h3>
+              <p class="muted">Entra a Restaurantes > Nuevo restaurante, llena los datos y asigna el correo del dueño.</p>
+            </div>
+          </div>
+          <div class="step card">
+            <span class="num">2</span>
+            <div>
+              <h3>Dueño inicia sesion</h3>
+              <p class="muted">El dueño entra con su correo y contraseña. Si tiene rol restaurant_admin, ve el panel de dueño.</p>
+            </div>
+          </div>
+          <div class="step card">
+            <span class="num">3</span>
+            <div>
+              <h3>Dueño opera sucursales separadas</h3>
+              <p class="muted">Puede entrar a cada sucursal. Los datos no se mezclan: cada dashboard operativo trabaja con su restaurant_id.</p>
+            </div>
+          </div>
+          <div class="step card">
+            <span class="num">4</span>
+            <div>
+              <h3>Se agrega otra sucursal</h3>
+              <p class="muted">La segunda sucursal se crea como otro restaurante y se vincula al mismo usuario dueño.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <h2>3. Crear el primer negocio</h2>
+      <div class="screen">
+        <div class="screen-top">
+          <div>
+            <div class="brand" style="font-size: 19px">yopido<span>.shop</span></div>
+            <div class="screen-title">Nuevo restaurante</div>
+          </div>
+          <span class="pill">Superadmin</span>
+        </div>
+        <div class="screen-body">
+          <div class="grid grid-2">
+            <div class="input">Nombre comercial: Burger Centro</div>
+            <div class="input">Slug publico: burger-centro</div>
+            <div class="input">Ciudad: Cochabamba</div>
+            <div class="input">Plan: Pro</div>
+            <div class="input">Responsable: Juan Perez</div>
+            <div class="input">Correo: dueno@negocio.com</div>
+            <div class="input">Contraseña inicial: ********</div>
+            <div class="button">Crear negocio</div>
+          </div>
+        </div>
+      </div>
+      <div class="note" style="margin-top: 18px">
+        Importante: el correo del responsable se convierte en el usuario dueño. La membresia que habilita el acceso se crea como restaurant_admin para esa sucursal.
+      </div>
+      <div class="section">
+        <h3>Resultado esperado</h3>
+        <ul>
+          <li>Se crea una fila en restaurants para la sucursal.</li>
+          <li>Se crea o reutiliza el usuario del dueño.</li>
+          <li>Se crea restaurant_memberships con role restaurant_admin.</li>
+          <li>El dueño ya puede entrar al panel con ese correo.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="page">
+      <h2>4. Login del dueño</h2>
+      <div class="screen">
+        <div class="screen-top">
+          <div>
+            <div class="brand" style="font-size: 19px">yopido<span>.shop</span></div>
+            <div class="screen-title">Ingreso administrativo</div>
+          </div>
+          <span class="pill">/admin/login</span>
+        </div>
+        <div class="screen-body">
+          <div class="grid">
+            <div class="input">correo@negocio.com</div>
+            <div class="input">Contraseña</div>
+            <div class="button">Ingresar</div>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <h3>Comportamiento</h3>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Destino</th>
+              <th>Motivo</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Dueño restaurant_admin</td>
+              <td>/admin</td>
+              <td>Ve panel de dueño y resumen de sucursales.</td>
+            </tr>
+            <tr>
+              <td>Empleado de una sucursal</td>
+              <td>Dashboard de su sucursal</td>
+              <td>No necesita panel de dueño.</td>
+            </tr>
+            <tr>
+              <td>Superadmin</td>
+              <td>Dashboard superadmin</td>
+              <td>Administra plataforma completa.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="page">
+      <h2>5. Panel de dueño</h2>
+      <div class="screen">
+        <div class="screen-top">
+          <div>
+            <div class="screen-title">Tus sucursales</div>
+            <p style="font-size: 12px; color: rgb(255 255 255 / 0.72)">dueno@negocio.com</p>
+          </div>
+          <span class="button">Solicitar sucursal</span>
+        </div>
+        <div class="screen-body">
+          <div class="grid grid-3">
+            <div class="metric"><span class="muted">Sucursales</span><strong>2</strong></div>
+            <div class="metric"><span class="muted">Pedidos 30d</span><strong>248</strong></div>
+            <div class="metric"><span class="muted">Ventas 30d</span><strong>Bs 18.420</strong></div>
+          </div>
+          <div class="grid grid-2" style="margin-top: 14px">
+            <div class="branch">
+              <h3>Burger Centro</h3>
+              <p class="muted">/r/burger-centro - Cochabamba</p>
+              <div class="grid grid-2">
+                <div class="metric"><span class="muted">Ventas</span><strong>Bs 10.300</strong></div>
+                <div class="metric"><span class="muted">Bajo stock</span><strong>3</strong></div>
+              </div>
+              <span class="button">Entrar</span>
+            </div>
+            <div class="branch">
+              <h3>Burger Norte</h3>
+              <p class="muted">/r/burger-norte - Cochabamba</p>
+              <div class="grid grid-2">
+                <div class="metric"><span class="muted">Ventas</span><strong>Bs 8.120</strong></div>
+                <div class="metric"><span class="muted">Vence pronto</span><strong>1</strong></div>
+              </div>
+              <span class="button">Entrar</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top: 18px">
+        Los totales de arriba sirven como resumen. Para operar pedidos, caja, productos o inventario se entra a una sucursal especifica.
+      </p>
+    </section>
+
+    <section class="page">
+      <h2>6. Agregar o solicitar una sucursal</h2>
+      <div class="screen">
+        <div class="screen-top">
+          <div class="screen-title">Soporte del restaurante</div>
+          <span class="pill">Solicitud</span>
+        </div>
+        <div class="screen-body">
+          <h3>Solicitar nueva sucursal</h3>
+          <div class="grid grid-2">
+            <div class="input">Nombre de la nueva sucursal</div>
+            <div class="input">Ciudad</div>
+            <div class="input" style="grid-column: 1 / -1">Direccion o zona</div>
+            <div class="input" style="grid-column: 1 / -1; min-height: 90px">
+              WhatsApp, direccion exacta, plan esperado, si usara el mismo menu o uno distinto, fecha estimada de apertura.
+            </div>
+            <div class="button">Enviar solicitud</div>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <h3>Despues de enviar</h3>
+        <ul>
+          <li>Se crea un ticket de soporte asociado a la sucursal actual.</li>
+          <li>Superadmin revisa plan, facturacion y datos.</li>
+          <li>Superadmin crea la nueva sucursal desde Nuevo restaurante.</li>
+          <li>Se usa el mismo correo del dueño para vincularla automaticamente.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="page">
+      <h2>7. Probar que las sucursales son independientes</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Prueba</th>
+            <th>Pasos</th>
+            <th>Resultado esperado</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Login del dueño</td>
+            <td>Entrar con el correo del dueño en /admin/login.</td>
+            <td class="ok">Debe aparecer el panel de dueño con sus sucursales.</td>
+          </tr>
+          <tr>
+            <td>Entrar a sucursal A</td>
+            <td>Abrir Burger Centro y crear un producto o pedido de prueba.</td>
+            <td class="ok">El dato queda solo en Burger Centro.</td>
+          </tr>
+          <tr>
+            <td>Entrar a sucursal B</td>
+            <td>Abrir Burger Norte y revisar productos, caja e inventario.</td>
+            <td class="ok">No debe aparecer el dato creado en Burger Centro.</td>
+          </tr>
+          <tr>
+            <td>Inventario</td>
+            <td>Bajar stock en una sucursal y revisar la otra.</td>
+            <td class="ok">Cada sucursal conserva su stock independiente.</td>
+          </tr>
+          <tr>
+            <td>Caja</td>
+            <td>Abrir/cerrar caja en una sucursal.</td>
+            <td class="ok">El cierre no afecta otra sucursal.</td>
+          </tr>
+          <tr>
+            <td>Sesion activa</td>
+            <td>Intentar operar dos sucursales al mismo tiempo con el mismo usuario.</td>
+            <td class="warn">Puede pedir liberar sesion para evitar operaciones simultaneas.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="note" style="margin-top: 18px">
+        Regla clave: el dueño puede cambiar entre sucursales sin volver a iniciar sesion porque el mismo usuario tiene membresia activa en cada restaurant_id.
+      </div>
+    </section>
+
+    <section class="page">
+      <h2>8. Datos sugeridos para prueba</h2>
+      <div class="grid grid-2">
+        <div class="card">
+          <h3>Sucursal 1</h3>
+          <ul>
+            <li>Nombre: Burger Centro</li>
+            <li>Slug: burger-centro-demo</li>
+            <li>Correo dueño: dueno-demo@yopido.test</li>
+            <li>Plan: Pro</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Sucursal 2</h3>
+          <ul>
+            <li>Nombre: Burger Norte</li>
+            <li>Slug: burger-norte-demo</li>
+            <li>Correo dueño: dueno-demo@yopido.test</li>
+            <li>Plan: Pro</li>
+          </ul>
+        </div>
+      </div>
+      <div class="section">
+        <h3>Checklist final</h3>
+        <ul>
+          <li>El mismo dueño ve ambas sucursales en /admin.</li>
+          <li>Cada tarjeta de sucursal muestra metricas separadas.</li>
+          <li>Entrar a una sucursal abre su dashboard operativo propio.</li>
+          <li>Productos, pedidos, caja e inventario no se cruzan entre sucursales.</li>
+          <li>El flujo de Solicitar nueva sucursal crea ticket para superadmin.</li>
+        </ul>
+      </div>
+    </section>
+  </body>
+</html>

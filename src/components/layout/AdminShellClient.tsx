@@ -71,6 +71,7 @@ export function AdminShellClient({
   restaurantStatus,
   billingAlert,
   canAccessSuperadmin = false,
+  canSwitchBranches = false,
   enabledModules,
   pendingOrderAlerts = [],
   title,
@@ -82,6 +83,7 @@ export function AdminShellClient({
   restaurantStatus?: RestaurantStatus;
   billingAlert?: PlatformBillingAlert | null;
   canAccessSuperadmin?: boolean;
+  canSwitchBranches?: boolean;
   enabledModules?: ModuleKey[];
   pendingOrderAlerts?: Order[];
   title: string;
@@ -175,6 +177,12 @@ export function AdminShellClient({
         </nav>
 
         <div className="mt-4 grid gap-2">
+          {canSwitchBranches ? (
+            <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/admin">
+              <Store className="h-4 w-4" />
+              Sucursales
+            </Link>
+          ) : null}
           <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/">
             <Home className="h-4 w-4" />
             Inicio
@@ -200,10 +208,10 @@ export function AdminShellClient({
             </div>
             <Link
               className="hidden min-h-10 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)] sm:inline-flex"
-              href={canAccessSuperadmin ? "/admin/restaurantes" : restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}
+              href={canAccessSuperadmin ? "/admin/restaurantes" : canSwitchBranches ? "/admin" : restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}
             >
               <BarChart3 className="h-4 w-4" />
-              {canAccessSuperadmin ? "Restaurantes" : "Mi sucursal"}
+              {canAccessSuperadmin ? "Restaurantes" : canSwitchBranches ? "Sucursales" : "Mi sucursal"}
             </Link>
           </div>
         </header>

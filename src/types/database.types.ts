@@ -340,6 +340,21 @@ export type Database = {
         order_id: string | null;
         related_movement_id: string | null;
       }>;
+      inventory_lots: Row<{
+        id: string;
+        restaurant_id: string;
+        inventory_item_id: string;
+        supplier_id: string | null;
+        lot_code: string | null;
+        expires_on: string | null;
+        initial_quantity: number;
+        remaining_quantity: number;
+        notes: string | null;
+        received_at: string;
+        is_active: boolean;
+        created_at: string;
+        updated_at: string;
+      }>;
       inventory_categories: Row<{
         id: string;
         restaurant_id: string;

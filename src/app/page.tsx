@@ -72,11 +72,11 @@ export default async function Home({
 
   return (
     <main className="public-brand-theme min-h-screen bg-[#12355B] text-[var(--color-heading)] lg:bg-[var(--color-background)]">
-      <section className="relative overflow-hidden rounded-b-[2rem] bg-[#12355B] px-4 pb-5 pt-[calc(0.85rem+env(safe-area-inset-top))] text-[var(--color-on-primary)] shadow-[0_28px_80px_rgb(8_36_65_/_0.2)] sm:px-6 sm:pb-7 lg:overflow-visible lg:rounded-b-[2.5rem] lg:bg-[#12355B] lg:px-8 lg:pb-16 lg:pt-6 lg:shadow-none">
+      <section className="relative overflow-hidden rounded-b-[2rem] bg-[#12355B] px-4 pb-5 pt-[calc(0.85rem+env(safe-area-inset-top))] text-[var(--color-on-primary)] shadow-[0_28px_80px_rgb(8_36_65_/_0.2)] sm:px-6 sm:pb-7 lg:overflow-visible lg:rounded-b-[2.5rem] lg:bg-[#12355B] lg:px-8 lg:pb-14 lg:pt-6 lg:shadow-none">
         <div className="relative z-10 mx-auto max-w-7xl">
-          <header className="flex items-center justify-between gap-4">
-            <Link aria-label="Ir al inicio de yopido.shop" className="flex min-w-0 max-w-[172px] items-center rounded-full outline-none transition focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] min-[390px]:max-w-[188px] sm:max-w-none" href="/">
-              <BrandLogo className="h-8 w-auto max-w-[172px] min-[390px]:h-9 min-[390px]:max-w-[188px] sm:h-12 sm:max-w-none" priority variant="dark" />
+          <header className="flex items-center justify-between gap-3 sm:gap-4">
+            <Link aria-label="Ir al inicio de yopido.shop" className="flex min-w-0 max-w-[150px] items-center rounded-full outline-none transition focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] min-[390px]:max-w-[172px] sm:max-w-none" href="/">
+              <BrandLogo className="h-8 w-auto max-w-[150px] min-[390px]:h-9 min-[390px]:max-w-[172px] sm:h-12 sm:max-w-none" priority variant="dark" />
             </Link>
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <Link aria-label="Ingresar al panel" className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/22 bg-white/8 text-white shadow-sm backdrop-blur transition hover:bg-white/14 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:h-12 sm:w-12" href="/admin/login">
@@ -86,7 +86,7 @@ export default async function Home({
             </div>
           </header>
 
-          <div className="mt-4 sm:mt-6 lg:mx-auto lg:mt-8 lg:max-w-6xl lg:rounded-[2.5rem] lg:bg-[var(--color-card)] lg:px-8 lg:pb-6 lg:pt-7 lg:text-[var(--color-heading)] lg:shadow-[0_34px_90px_rgb(8_36_65_/_0.18)]">
+          <div className="mt-4 sm:mt-6 lg:mx-auto lg:mt-8 lg:max-w-6xl">
             <div className="lg:max-w-[760px]">
               <HomeSearchAutocomplete
                 businessTypes={baseDirectory.businessTypeCards}
@@ -100,29 +100,7 @@ export default async function Home({
             </div>
 
             <div className="mt-5 lg:mt-7">
-              <Link className="group relative min-h-[224px] overflow-hidden rounded-[1.75rem] border border-white/10 bg-[var(--primary-dark)] p-5 text-[var(--color-on-primary)] shadow-[0_24px_70px_rgb(2_10_18_/_0.26)] transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:min-h-[300px] sm:rounded-[2rem] sm:p-7 lg:hidden" href={featuredHeroHref}>
-                {featuredHeroImage ? (
-                  <span className="absolute inset-y-0 right-0 w-[58%] overflow-hidden">
-                    <Image alt={featuredHeroTitle} className="object-cover object-right opacity-40 transition duration-500 group-hover:scale-105 sm:opacity-52" fill priority sizes="58vw" src={featuredHeroImage} />
-                    <span className="absolute inset-0 bg-[linear-gradient(270deg,rgb(8_36_65_/_0.08)_0%,rgb(8_36_65_/_0.38)_34%,rgb(8_36_65_/_0.92)_100%)]" />
-                  </span>
-                ) : (
-                  <BusinessVisual businessType={featuredRestaurant?.restaurant.businessType ?? featuredBusinessType?.value ?? "other"} className="absolute inset-y-0 right-0 h-full w-[56%] opacity-50 transition duration-500 group-hover:scale-105" label={featuredHeroTitle} />
-                )}
-                <span className="absolute inset-0 bg-[linear-gradient(180deg,rgb(8_36_65_/_0.08)_0%,rgb(8_36_65_/_0.3)_100%)]" />
-                <span className="relative z-10 flex h-full max-w-[72%] flex-col justify-end sm:max-w-[56%]">
-                  <span className="mb-4 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--accent)] px-3 py-1.5 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Banner
-                  </span>
-                  <span className="block text-2xl font-black leading-tight sm:text-5xl">{featuredHeroTitle}</span>
-                  <span className="mt-3 line-clamp-2 text-sm font-semibold leading-6 text-[var(--color-on-primary-muted)] sm:text-base">{featuredHeroSubtitle}</span>
-                  <span className="mt-5 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
-                    Ver ahora
-                    <ArrowRight className="h-4 w-4" />
-                  </span>
-                </span>
-              </Link>
+              <MobileHeroCarousel restaurants={heroRestaurants.slice(0, 3)} />
 
               <div className="hidden gap-4 lg:grid lg:grid-cols-[minmax(0,1.08fr)_360px] lg:items-stretch">
                 <Link className="group flex h-full flex-col justify-between rounded-[2rem] border border-[var(--border)] bg-[var(--color-surface)] p-8 text-[var(--color-heading)] shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={featuredHeroHref}>
@@ -166,7 +144,7 @@ export default async function Home({
                 </Link>
               </div>
 
-              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
+              <div className="mt-4 hidden gap-4 lg:grid lg:grid-cols-2">
                 <Link className="group grid min-h-32 grid-cols-[minmax(0,1fr)_104px] items-center gap-3 overflow-hidden rounded-[1.5rem] bg-[var(--surface)] p-4 text-[var(--color-heading)] shadow-[0_18px_48px_rgb(18_53_91_/_0.1)] ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:grid-cols-[minmax(0,1fr)_148px] lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_160px] lg:rounded-[1.35rem] lg:px-5 lg:py-4" href={featuredBusinessType ? `/?rubro=${encodeURIComponent(featuredBusinessType.value)}#explorar` : "#explorar"}>
                   <span className="min-w-0">
                     <span className="block text-xl font-black leading-tight sm:text-2xl">{featuredBusinessType?.label ?? "Rubros activos"}</span>
@@ -499,6 +477,63 @@ function BusinessVisual({ businessType, label, className }: { businessType: Busi
       </span>
       <span className="absolute bottom-2 left-3 z-10 text-[9px] font-black uppercase tracking-[0.16em] text-white/58">{initials(label) || "YP"}</span>
     </span>
+  );
+}
+
+function restaurantHeroSubtitle(card: PublicRestaurantCard) {
+  if (card.isTemporarilyClosed) return card.currentAnnouncement?.title || "Cerrado temporalmente";
+  return card.currentAnnouncement?.title || card.popularProducts.slice(0, 2).join(" | ") || card.categories.slice(0, 2).join(" | ") || card.restaurant.city || `${businessCatalogLabelTitle(card.restaurant.businessType)} disponible`;
+}
+
+function MobileHeroCarousel({ restaurants }: { restaurants: PublicRestaurantCard[] }) {
+  if (!restaurants.length) return null;
+
+  return (
+    <div className="lg:hidden">
+      <div className="public-scrollbar -mx-4 overflow-x-auto px-4 pb-2">
+        <div className="flex snap-x snap-mandatory gap-3 pr-4">
+          {restaurants.map((card, index) => {
+            const imageSrc = isDisplayImage(card.restaurant.bannerUrl || card.restaurant.logoUrl) ? card.restaurant.bannerUrl || card.restaurant.logoUrl : "";
+            return (
+              <Link
+                className="group relative min-h-[210px] w-[82vw] max-w-[340px] shrink-0 snap-start overflow-hidden rounded-[1.6rem] bg-[var(--primary-dark)] text-[var(--color-on-primary)] shadow-[0_22px_60px_rgb(2_10_18_/_0.26)] ring-1 ring-white/14 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] min-[390px]:min-h-[226px]"
+                href={publicRestaurantPath(card.restaurant.slug)}
+                key={card.restaurant.id}
+              >
+                {imageSrc ? (
+                  <Image alt={card.restaurant.name} className="object-cover transition duration-500 group-hover:scale-105" fill priority={index === 0} sizes="85vw" src={imageSrc} />
+                ) : (
+                  <BusinessVisual businessType={card.restaurant.businessType} className="absolute inset-0 h-full w-full transition duration-500 group-hover:scale-105" label={card.restaurant.name} />
+                )}
+                <span className="absolute inset-0 bg-[linear-gradient(180deg,rgb(5_17_31_/_0.08)_0%,rgb(5_17_31_/_0.4)_46%,rgb(5_17_31_/_0.88)_100%)]" />
+                <span className="absolute inset-x-0 bottom-0 z-10 p-4">
+                  <span className="mb-3 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--accent)] px-3 py-1.5 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
+                    <TrendingUp className="h-3.5 w-3.5" />
+                    #{index + 1} mas usado
+                  </span>
+                  <span className="flex items-end gap-3">
+                    <RestaurantLogo card={card} size="sm" />
+                    <span className="min-w-0 flex-1 pb-0.5">
+                      <span className="block truncate text-2xl font-black leading-tight">{card.restaurant.name}</span>
+                      <span className="mt-1 block line-clamp-2 text-sm font-semibold leading-5 text-[var(--color-on-primary-muted)]">{restaurantHeroSubtitle(card)}</span>
+                    </span>
+                  </span>
+                  <span className="mt-4 inline-flex w-fit items-center gap-2 rounded-full bg-white/92 px-4 py-2 text-sm font-black text-[var(--primary)] shadow-lg backdrop-blur">
+                    Ver local
+                    <ArrowRight className="h-4 w-4" />
+                  </span>
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+      <div aria-hidden="true" className="mt-2 flex justify-center gap-1.5">
+        {restaurants.map((card, index) => (
+          <span className={cn("h-1.5 rounded-full", index === 0 ? "w-6 bg-[var(--accent)]" : "w-1.5 bg-white/34")} key={card.restaurant.id} />
+        ))}
+      </div>
+    </div>
   );
 }
 

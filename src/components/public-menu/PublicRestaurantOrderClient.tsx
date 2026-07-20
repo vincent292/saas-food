@@ -88,6 +88,7 @@ export function PublicRestaurantOrderClient({
   const [cartHydrated, setCartHydrated] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerClosing, setDrawerClosing] = useState(false);
+  const [shareState, setShareState] = useState<"idle" | "copied">("idle");
   const [visibleAnnouncementId, setVisibleAnnouncementId] = useState(() => announcements[0]?.id ?? "");
   const businessStatus = useMemo(() => getBusinessStatus(businessHours, new Date(), DEFAULT_RESTAURANT_TIME_ZONE), [businessHours]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "qr">("cash");
@@ -202,6 +203,28 @@ export function PublicRestaurantOrderClient({
     }, 210);
   }
 
+  async function shareRestaurant() {
+    const shareData = {
+      title: restaurant.name,
+      text: `Mira el catalogo de ${restaurant.name} en yopido.shop.`,
+      url: window.location.href,
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        return;
+      }
+
+      await navigator.clipboard.writeText(shareData.url);
+      setShareState("copied");
+      window.setTimeout(() => setShareState("idle"), 2200);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setShareState("idle");
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,var(--color-surface)_0%,var(--background)_44%,var(--color-surface)_100%)] text-[var(--text)]" style={publicBackgroundStyle}>
       <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--color-card-elevated)] text-[var(--text)] shadow-[0_12px_34px_rgb(18_53_91_/_0.08)] backdrop-blur-xl">
@@ -294,11 +317,8 @@ export function PublicRestaurantOrderClient({
                   <ArrowRight className="h-5 w-5 rotate-180" />
                 </Link>
                 <div className="flex items-center gap-2">
-                  <button className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl sm:h-12 sm:w-12" type="button">
-                    <Share2 className="h-5 w-5" />
-                  </button>
-                  <button className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl sm:h-12 sm:w-12" type="button">
-                    <Heart className="h-5 w-5" />
+                  <button aria-label={shareState === "copied" ? "Enlace copiado" : "Compartir restaurante"} className={cn("grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl transition sm:h-12 sm:w-12", shareState === "copied" && "bg-[var(--accent)]")} onClick={shareRestaurant} type="button">
+                    {shareState === "copied" ? <Check className="h-5 w-5" /> : <Share2 className="h-5 w-5" />}
                   </button>
                 </div>
               </div>
@@ -421,7 +441,7 @@ export function PublicRestaurantOrderClient({
         </section>
       </div>
 
-      <button className="fixed bottom-3 left-3 right-3 z-40 flex min-h-14 items-center justify-between gap-3 rounded-[1.15rem] bg-[var(--primary)] px-3.5 py-2.5 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl ring-1 ring-[var(--color-on-primary-border-strong)] lg:hidden" onClick={openDrawer} type="button">
+      <button className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom))] left-3 right-3 z-40 flex min-h-14 items-center justify-between gap-3 rounded-[1.15rem] bg-[var(--primary)] px-3.5 py-2.5 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl ring-1 ring-[var(--color-on-primary-border-strong)] lg:hidden" onClick={openDrawer} type="button">
         <span className="inline-flex min-w-0 items-center gap-3">
           <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-[var(--primary)] shadow-sm">
             <ShoppingCart className="h-5 w-5" />

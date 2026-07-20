@@ -66,6 +66,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
+      data-scroll-behavior="smooth"
       lang="es"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >

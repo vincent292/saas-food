@@ -72,6 +72,7 @@ export function HomeSearchAutocomplete({
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [autoLocationStatus, setAutoLocationStatus] = useState<"idle" | "detecting" | "detected" | "unavailable">("idle");
+  const [compactHeaderRoot, setCompactHeaderRoot] = useState<HTMLElement | null>(null);
   const [publicTheme, setPublicTheme] = useState<ActivePublicTheme>("light");
   const [showCompactHeader, setShowCompactHeader] = useState(false);
   const [userChangedLocation, setUserChangedLocation] = useState(Boolean(initialLocation));
@@ -120,6 +121,14 @@ export function HomeSearchAutocomplete({
   }, [businessTypes, categories, dishes]);
 
   const hasResults = filteredRestaurants.length > 0 || filteredDishes.length > 0 || filteredBusinessTypes.length > 0 || filteredCategories.length > 0;
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      setCompactHeaderRoot(document.body);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, []);
 
   const closeSearch = useCallback(() => {
     if (isClosing) return;
@@ -239,32 +248,37 @@ export function HomeSearchAutocomplete({
 
   return (
     <div className="relative">
-      <div
-        className={cn(
-          "fixed inset-x-0 top-0 z-[90] border-b border-white/12 bg-[#12355B] px-4 pb-3 pt-[calc(0.45rem+env(safe-area-inset-top))] text-white shadow-[0_18px_55px_rgb(8_36_65_/_0.26)] transition duration-200 lg:hidden",
-          showCompactHeader && !isOpen ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0",
-        )}
-      >
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
-          <Link aria-label="Ir al inicio de yopido.shop" className="flex min-w-0 flex-1 items-center rounded-full outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/">
-            <BrandLogo className="h-8 w-auto max-w-[148px] min-[390px]:max-w-[164px]" variant="dark" />
-          </Link>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              aria-label="Abrir buscador"
-              className="grid h-10 w-10 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] transition hover:bg-[#d9ff22] active:scale-95"
-              onClick={openSearch}
-              type="button"
+      {compactHeaderRoot
+        ? createPortal(
+            <div
+              className={cn(
+                "fixed inset-x-0 top-0 z-[110] isolate border-b border-white/12 bg-[#12355B] px-4 pb-3 pt-[calc(0.45rem+env(safe-area-inset-top))] text-white shadow-[0_18px_55px_rgb(8_36_65_/_0.34)] transition duration-200 lg:hidden",
+                showCompactHeader && !isOpen ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0",
+              )}
             >
-              <Search className="h-5 w-5" />
-            </button>
-            <Link aria-label="Ingresar al panel" className="grid h-10 w-10 place-items-center rounded-full border border-white/22 bg-white/8 text-white shadow-sm backdrop-blur transition hover:bg-white/14 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/admin/login">
-              <UserRound className="h-5 w-5" />
-            </Link>
-            <PublicThemeToggle compact tone="onPrimary" />
-          </div>
-        </div>
-      </div>
+              <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+                <Link aria-label="Ir al inicio de yopido.shop" className="flex min-w-0 flex-1 items-center rounded-full outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/">
+                  <BrandLogo className="h-8 w-auto max-w-[148px] min-[390px]:max-w-[164px]" variant="dark" />
+                </Link>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    aria-label="Abrir buscador"
+                    className="grid h-10 w-10 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] transition hover:bg-[#d9ff22] active:scale-95"
+                    onClick={openSearch}
+                    type="button"
+                  >
+                    <Search className="h-5 w-5" />
+                  </button>
+                  <Link aria-label="Ingresar al panel" className="grid h-10 w-10 place-items-center rounded-full border border-white/22 bg-white/8 text-white shadow-sm backdrop-blur transition hover:bg-white/14 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/admin/login">
+                    <UserRound className="h-5 w-5" />
+                  </Link>
+                  <PublicThemeToggle compact tone="onPrimary" />
+                </div>
+              </div>
+            </div>,
+            compactHeaderRoot,
+          )
+        : null}
 
       <form className="rounded-[1.3rem] border border-[var(--border)] bg-[var(--color-card)] p-1.5 shadow-[var(--shadow-primary)] sm:rounded-[1.55rem] sm:p-2" onSubmit={(event) => {
         event.preventDefault();

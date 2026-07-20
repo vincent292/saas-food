@@ -116,6 +116,13 @@ html {
   scroll-behavior: smooth;
 }
 
+@supports selector(body:has(.public-brand-theme)) {
+  html:has(.public-brand-theme),
+  body:has(.public-brand-theme) {
+    background: #12355b;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

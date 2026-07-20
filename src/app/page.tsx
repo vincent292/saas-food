@@ -38,7 +38,7 @@ import {
   businessCatalogLabelTitle,
   restaurantBusinessTypeLabel,
 } from "@/lib/restaurant-directory-options";
-import { publicDirectoryService, type PublicBusinessTypeCard, type PublicDishCard, type PublicRestaurantCard } from "@/lib/services/public-directory.service";
+import { publicDirectoryService, type PublicBusinessTypeCard, type PublicCategoryCard, type PublicDishCard, type PublicRestaurantCard } from "@/lib/services/public-directory.service";
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
@@ -182,27 +182,41 @@ export default async function Home({
         <PendingCartNotice />
 
         <section id="explorar">
-          <div className="flex items-end justify-between gap-3">
-            <SectionHeader eyebrow="Rubros" title="Explora por tipo de negocio" />
-            <Link className="shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-sm font-black text-[var(--color-heading)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}` : "/"}>
-              Ver todos
-            </Link>
-          </div>
-          <div className="public-scrollbar -mx-4 mt-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0 lg:overflow-visible lg:px-0 lg:pb-0">
-            <div className="flex snap-x gap-3 pr-3 lg:grid lg:grid-cols-4 lg:gap-4 lg:pr-0">
-              {baseDirectory.businessTypeCards.map((businessType) => {
-                const params = new URLSearchParams();
-                if (q) params.set("q", q);
-                if (ubicacion) params.set("ubicacion", ubicacion);
-                params.set("rubro", businessType.value);
-                return <BusinessTypeCard active={rubro === businessType.value} businessType={businessType} href={`/?${params.toString()}#explorar`} key={businessType.value} />;
-              })}
+          <MobileDirectoryExplorer
+            businessTypes={baseDirectory.businessTypeCards}
+            categories={rubro ? directory.categoryCards : []}
+            categoria={categoria}
+            directory={directory.restaurants}
+            q={q}
+            rubro={rubro}
+            selectedBusinessTypeLabel={selectedBusinessTypeLabel}
+            selectedCategoryLabel={selectedCategoryLabel}
+            ubicacion={ubicacion}
+          />
+
+          <div className="hidden lg:block">
+            <div className="flex items-end justify-between gap-3">
+              <SectionHeader eyebrow="Rubros" title="Explora por tipo de negocio" />
+              <Link className="shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-sm font-black text-[var(--color-heading)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}` : "/"}>
+                Ver todos
+              </Link>
+            </div>
+            <div className="public-scrollbar -mx-4 mt-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0 lg:overflow-visible lg:px-0 lg:pb-0">
+              <div className="flex snap-x gap-3 pr-3 lg:grid lg:grid-cols-4 lg:gap-4 lg:pr-0">
+                {baseDirectory.businessTypeCards.map((businessType) => {
+                  const params = new URLSearchParams();
+                  if (q) params.set("q", q);
+                  if (ubicacion) params.set("ubicacion", ubicacion);
+                  params.set("rubro", businessType.value);
+                  return <BusinessTypeCard active={rubro === businessType.value} businessType={businessType} href={`/?${params.toString()}#explorar`} key={businessType.value} />;
+                })}
+              </div>
             </div>
           </div>
         </section>
 
         {rubro ? (
-          <section>
+          <section className="hidden lg:block">
             <div className="flex items-end justify-between gap-3">
               <SectionHeader eyebrow="Categorias" title={selectedBusinessTypeLabel ? `Categorias en ${selectedBusinessTypeLabel}` : "Explora por categorias"} />
               <Link className="shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-sm font-black text-[var(--color-heading)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}#explorar` : "/#explorar"}>
@@ -225,7 +239,7 @@ export default async function Home({
         ) : null}
 
         {heroRestaurants.length ? (
-          <section className="grid gap-3 rounded-[1.75rem] border border-[var(--border)] bg-[var(--color-surface)] p-3 lg:grid-cols-3">
+          <section className="hidden gap-3 rounded-[1.75rem] border border-[var(--border)] bg-[var(--color-surface)] p-3 lg:grid lg:grid-cols-3">
             {heroRestaurants.slice(0, 3).map((card, index) => (
               <Link className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 rounded-[1.25rem] bg-[var(--surface)] p-3 shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:ring-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={publicRestaurantPath(card.restaurant.slug)} key={card.restaurant.id}>
                 <RestaurantLogo card={card} size="sm" />
@@ -243,7 +257,7 @@ export default async function Home({
           </section>
         ) : null}
 
-        <section className="space-y-4" id="restaurantes">
+        <section className="hidden space-y-4 lg:block" id="restaurantes">
           <SectionHeader eyebrow="Directorio" title={selectedCategoryLabel ? `Negocios de ${selectedCategoryLabel}` : selectedBusinessTypeLabel ? selectedBusinessTypeLabel : "Negocios para pedir"} />
           {directory.restaurants.length ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -287,6 +301,163 @@ function SectionHeader({ eyebrow, title }: { eyebrow: string; title: string }) {
       <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">{eyebrow}</p>
       <h2 className="mt-1 text-2xl font-black sm:text-3xl">{title}</h2>
     </div>
+  );
+}
+
+function MobileDirectoryExplorer({
+  businessTypes,
+  categories,
+  categoria,
+  directory,
+  q,
+  rubro,
+  selectedBusinessTypeLabel,
+  selectedCategoryLabel,
+  ubicacion,
+}: {
+  businessTypes: PublicBusinessTypeCard[];
+  categories: PublicCategoryCard[];
+  categoria: string;
+  directory: PublicRestaurantCard[];
+  q: string;
+  rubro: string;
+  selectedBusinessTypeLabel: string;
+  selectedCategoryLabel: string;
+  ubicacion: string;
+}) {
+  const title = selectedCategoryLabel || selectedBusinessTypeLabel || "Negocios para pedir";
+  const resultLabel = directory.length === 1 ? "1 negocio" : `${directory.length} negocios`;
+  const clearHref = ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}#explorar` : "/#explorar";
+
+  return (
+    <div className="lg:hidden">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">Explorar</p>
+          <h2 className="mt-1 text-2xl font-black leading-tight">Encuentra tu negocio</h2>
+        </div>
+        {rubro || categoria || q ? (
+          <Link className="shrink-0 rounded-full bg-[var(--primary-light)] px-3 py-2 text-xs font-black text-[var(--primary)]" href={clearHref}>
+            Limpiar
+          </Link>
+        ) : null}
+      </div>
+
+      <div className="public-scrollbar -mx-4 mt-4 overflow-x-auto px-4 pb-2">
+        <div className="flex snap-x gap-2 pr-4">
+          {businessTypes.map((businessType) => {
+            const params = new URLSearchParams();
+            if (q) params.set("q", q);
+            if (ubicacion) params.set("ubicacion", ubicacion);
+            params.set("rubro", businessType.value);
+            return <MobileBusinessTypeChip active={rubro === businessType.value} businessType={businessType} href={`/?${params.toString()}#explorar`} key={businessType.value} />;
+          })}
+        </div>
+      </div>
+
+      {rubro ? (
+        <div className="mt-4 rounded-[1.35rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_16px_42px_rgb(18_53_91_/_0.08)]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-black text-[var(--primary)]">{selectedBusinessTypeLabel || "Rubro seleccionado"}</p>
+              <p className="text-xs font-semibold text-[var(--color-secondary-text)]">Elige categoria o mira todos</p>
+            </div>
+            <Link className="shrink-0 rounded-full bg-[var(--accent)] px-3 py-2 text-xs font-black text-[var(--primary)]" href={clearHref}>
+              Todos
+            </Link>
+          </div>
+          {categories.length ? (
+            <div className="public-scrollbar -mx-3 mt-3 overflow-x-auto px-3 pb-1">
+              <div className="flex snap-x gap-2 pr-3">
+                {categories.map((category) => {
+                  const params = new URLSearchParams();
+                  if (q) params.set("q", q);
+                  if (ubicacion) params.set("ubicacion", ubicacion);
+                  if (category.businessType) params.set("rubro", category.businessType);
+                  params.set("categoria", category.value);
+                  return <MobileCategoryChip active={categoria === category.value} category={category} href={`/?${params.toString()}#explorar`} key={category.value} />;
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="mt-5">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">Resultados</p>
+            <h3 className="truncate text-xl font-black">{title}</h3>
+          </div>
+          <span className="shrink-0 rounded-full bg-[var(--color-surface)] px-3 py-1.5 text-xs font-black text-[var(--color-secondary-text)] ring-1 ring-[var(--border)]">{resultLabel}</span>
+        </div>
+
+        {directory.length ? (
+          <div className="grid gap-2 rounded-[1.35rem] border border-[var(--border)] bg-[var(--color-surface)] p-2">
+            {directory.map((card) => (
+              <MobileRestaurantResult card={card} key={card.restaurant.id} />
+            ))}
+          </div>
+        ) : (
+          <Card className="p-5 text-center">
+            <p className="text-base font-black">Sin negocios encontrados</p>
+            <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Prueba otro rubro, categoria o busqueda.</p>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MobileBusinessTypeChip({ active, businessType, href }: { active: boolean; businessType: PublicBusinessTypeCard; href: string }) {
+  return (
+    <Link
+      className={cn(
+        "flex min-h-12 shrink-0 snap-start items-center gap-2 rounded-full border px-3 text-sm font-black shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
+        active ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--primary)]" : "border-[var(--border)] bg-[var(--surface)] text-[var(--color-heading)]",
+      )}
+      href={href}
+    >
+      <span className={cn("grid h-8 w-8 place-items-center rounded-full", active ? "bg-white/65" : "bg-[var(--primary-light)]", businessTypeIconTone(businessType.value))}>
+        <BusinessTypeIcon value={businessType.value} />
+      </span>
+      <span>{businessType.label}</span>
+    </Link>
+  );
+}
+
+function MobileCategoryChip({ active, category, href }: { active: boolean; category: { value: string; label: string; count: number }; href: string }) {
+  return (
+    <Link
+      className={cn(
+        "flex min-h-11 shrink-0 snap-start items-center gap-2 rounded-full border px-3 text-xs font-black shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
+        active ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--primary)]" : "border-[var(--border)] bg-white text-[var(--color-heading)]",
+      )}
+      href={href}
+    >
+      <span className={cn("grid h-7 w-7 place-items-center rounded-full", active ? "bg-white/65" : categoryIconTone(category.value, category.label))}>
+        <CategoryIcon label={category.label} value={category.value} />
+      </span>
+      <span>{category.label}</span>
+      <span className="text-[10px] text-[var(--color-secondary-text)]">{category.count}</span>
+    </Link>
+  );
+}
+
+function MobileRestaurantResult({ card }: { card: PublicRestaurantCard }) {
+  return (
+    <Link className="grid grid-cols-[64px_minmax(0,1fr)_36px] items-center gap-3 rounded-[1.05rem] bg-[var(--surface)] p-3 shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:ring-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={publicRestaurantPath(card.restaurant.slug)}>
+      <RestaurantLogo card={card} size="sm" />
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-black">{card.restaurant.name}</span>
+        <span className="mt-0.5 block truncate text-xs font-semibold text-[var(--color-secondary-text)]">
+          {card.isTemporarilyClosed ? "Cerrado temporalmente" : card.categories.slice(0, 2).join(" | ") || card.restaurant.city || `${businessCatalogLabelTitle(card.restaurant.businessType)} disponible`}
+        </span>
+      </span>
+      <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)]">
+        <ArrowRight className="h-4 w-4" />
+      </span>
+    </Link>
   );
 }
 

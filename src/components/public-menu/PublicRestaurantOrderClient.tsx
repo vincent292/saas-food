@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCard, Flame, Heart, MapPin, Minus, Plus, ReceiptText, Search, Share2, ShoppingCart, Sparkles, Star, Store, UserRound, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCard, Flame, Heart, MapPin, Minus, Plus, ReceiptText, Search, Share2, ShoppingCart, Sparkles, Store, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
@@ -136,7 +136,7 @@ export function PublicRestaurantOrderClient({
     const featured = products.filter((product) => product.isAutoFeatured || product.isFeatured);
     return (featured.length ? featured : products).filter((product) => stockByProduct.get(product.id)?.isAvailableHere ?? true).slice(0, 3);
   }, [products, stockByProduct]);
-  const bannerHeightClass = restaurant.publicBannerSize === "large" ? "min-h-[210px] sm:min-h-[380px]" : restaurant.publicBannerSize === "standard" ? "min-h-[190px] sm:min-h-[320px]" : "min-h-[164px] sm:min-h-[260px]";
+  const bannerHeightClass = restaurant.publicBannerSize === "large" ? "min-h-[300px] sm:min-h-[380px]" : restaurant.publicBannerSize === "standard" ? "min-h-[278px] sm:min-h-[320px]" : "min-h-[250px] sm:min-h-[260px]";
   const publicBackgroundStyle: CSSProperties = isDisplayImage(restaurant.menuBackgroundImageUrl)
     ? {
         backgroundImage: `linear-gradient(var(--color-menu-background-scrim), var(--color-menu-background-scrim)), url(${restaurant.menuBackgroundImageUrl})`,
@@ -229,9 +229,9 @@ export function PublicRestaurantOrderClient({
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,var(--color-surface)_0%,var(--background)_44%,var(--color-surface)_100%)] text-[var(--text)]" style={publicBackgroundStyle}>
       <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--color-card-elevated)] text-[var(--text)] shadow-[0_12px_34px_rgb(18_53_91_/_0.08)] backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-3 sm:px-6 lg:px-8">
-          <Link className="flex min-w-0 items-center" href={publicRestaurantPath(restaurant.slug)}>
-            <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] p-1 text-base font-black text-[var(--color-on-primary)] shadow-sm">
+        <div className="mx-auto flex max-w-6xl items-center gap-2 px-3 py-2 sm:justify-between sm:gap-3 sm:px-6 sm:py-3 lg:px-8">
+          <Link className="flex min-w-0 flex-1 items-center sm:flex-none" href={publicRestaurantPath(restaurant.slug)}>
+            <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] p-1 text-base font-black text-[var(--color-on-primary)] shadow-sm sm:h-12 sm:w-12">
               {hasLogoImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img alt={restaurant.name} className="h-full w-full rounded-full object-cover" src={restaurant.logoUrl} />
@@ -239,27 +239,33 @@ export function PublicRestaurantOrderClient({
                 <span className="grid h-full w-full place-items-center rounded-full bg-[var(--primary)] px-2 text-center leading-none">{logoText}</span>
               )}
             </span>
-            <span className="ml-3 min-w-0">
-              <span className="block truncate text-sm font-black text-[var(--text)] sm:max-w-[260px] sm:text-base">{restaurant.name}</span>
-              <span className="mt-0.5 flex max-w-[46vw] items-center gap-1 truncate text-xs font-semibold text-[var(--muted)] sm:max-w-[320px]">
+            <span className="ml-2 min-w-0 sm:ml-3">
+              <span className="block max-w-[34vw] truncate text-sm font-black text-[var(--text)] min-[390px]:max-w-[40vw] sm:max-w-[260px] sm:text-base">{restaurant.name}</span>
+              <span className="mt-0.5 flex max-w-[34vw] items-center gap-1 truncate text-[11px] font-semibold text-[var(--muted)] min-[390px]:max-w-[40vw] sm:max-w-[320px] sm:text-xs">
                 <MapPin className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
                 {restaurant.city || restaurant.address || "Menu online"}
               </span>
             </span>
           </Link>
 
-          <div className="flex shrink-0 items-center justify-end gap-2">
+          <div className="flex shrink-0 items-center justify-end gap-1.5 sm:gap-2">
+            <Link aria-label="Explorar yopido.shop" className="hidden h-9 min-w-9 shrink-0 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 shadow-sm transition hover:-translate-y-0.5 min-[390px]:grid sm:h-10 sm:min-w-10 xl:hidden" href="/">
+              <BrandLogo className="h-5 w-5 sm:h-6 sm:w-6" compact variant="dark" />
+            </Link>
             <Link aria-label="Explorar yopido.shop" className="hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 shadow-sm transition hover:-translate-y-0.5 xl:inline-flex" href="/">
               <BrandLogo className="h-5 w-auto" variant="light" />
             </Link>
-            <span className="hidden items-center gap-1 rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-black text-[var(--primary)] md:inline-flex">
+            <span className={cn("inline-flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-black sm:h-10 sm:px-3", activeClosure ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--primary-light)] text-[var(--primary)]")}>
               <Clock3 className="h-3.5 w-3.5" />
-              {activeClosure ? "Cerrado hoy" : "Abierto hoy"}
+              <span className="hidden min-[430px]:inline sm:hidden">{activeClosure ? "Cerrado" : "Abierto"}</span>
+              <span className="hidden sm:inline">{activeClosure ? "Cerrado hoy" : "Abierto hoy"}</span>
             </span>
-            <Link className="hidden rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:inline-flex" href={publicRestaurantPath(restaurant.slug, "seguimiento")}>
-              Rastrear pedido
+            <Link aria-label="Rastrear pedido" className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-black text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:h-10 sm:px-3 sm:text-sm" href={publicRestaurantPath(restaurant.slug, "seguimiento")}>
+              <ReceiptText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              <span className="hidden min-[430px]:inline sm:hidden">Rastrear</span>
+              <span className="hidden sm:inline">Rastrear pedido</span>
             </Link>
-            <button className="relative inline-flex h-11 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)]" onClick={openDrawer} type="button">
+            <button aria-label="Tu pedido" className="relative inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 text-[var(--text)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:h-11 sm:px-3" onClick={openDrawer} type="button">
               <ShoppingCart className="h-5 w-5" />
               <span className="hidden text-sm font-black md:inline">Tu pedido</span>
               {cartQuantity ? <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--primary)] text-[10px] font-black text-[var(--color-on-primary)]">{cartQuantity}</span> : null}
@@ -307,8 +313,9 @@ export function PublicRestaurantOrderClient({
           <div className="relative mb-4 overflow-hidden rounded-[1.5rem] bg-[var(--primary)] shadow-[0_18px_44px_rgb(8_36_65_/_0.18)] sm:mb-5 sm:rounded-[2rem] sm:shadow-[0_28px_70px_rgb(8_36_65_/_0.22)]">
             <div className={cn("relative", bannerHeightClass)}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt={restaurant.name} className="absolute inset-0 h-full w-full object-cover" src={heroImage} />
-              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(8_36_65_/_0.16)_0%,rgb(8_36_65_/_0.34)_42%,rgb(8_36_65_/_0.88)_100%)]" />
+              <img alt={restaurant.name} className="absolute inset-0 h-full w-full object-cover object-center" src={heroImage} />
+              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(8_36_65_/_0.08)_0%,rgb(8_36_65_/_0.44)_42%,rgb(8_36_65_/_0.94)_100%)] sm:bg-[linear-gradient(180deg,rgb(8_36_65_/_0.16)_0%,rgb(8_36_65_/_0.34)_42%,rgb(8_36_65_/_0.88)_100%)]" />
+              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgb(8_36_65_/_0.9)_0%,rgb(8_36_65_/_0.66)_44%,rgb(8_36_65_/_0.16)_100%)] sm:bg-[linear-gradient(90deg,rgb(8_36_65_/_0.62)_0%,rgb(8_36_65_/_0.22)_56%,transparent_100%)]" />
               <div className="absolute left-3 right-3 top-3 z-20 flex items-center justify-between gap-3 sm:left-4 sm:right-4 sm:top-4">
                 <Link className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl sm:h-12 sm:w-12" href="/">
                   <ArrowRight className="h-5 w-5 rotate-180" />
@@ -319,16 +326,15 @@ export function PublicRestaurantOrderClient({
                   </button>
                 </div>
               </div>
-              <div className={cn("relative z-10 flex max-w-2xl flex-col justify-end p-4 pb-5 text-[var(--color-on-primary)] sm:p-8", bannerHeightClass)}>
-                <span className="mb-2 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--accent)] px-2.5 py-1 text-[11px] font-black text-[var(--primary)] shadow-[var(--shadow-glow)] sm:mb-3 sm:px-3 sm:py-1.5 sm:text-xs">
-                  <Star className="h-3.5 w-3.5 fill-current" />
-                  4.8
-                </span>
-                <h1 className="max-w-[13ch] text-[2.15rem] font-black leading-[0.94] sm:max-w-2xl sm:text-6xl">{restaurant.name}</h1>
-                <p className="mt-2 line-clamp-2 max-w-md text-sm font-semibold leading-5 text-white/88 sm:mt-3 sm:line-clamp-none sm:leading-6 sm:text-base">
+              <div className={cn("relative z-10 flex max-w-2xl flex-col justify-end px-4 pb-5 pt-20 text-[var(--color-on-primary)] sm:p-8", bannerHeightClass)}>
+                <div className="mb-2 flex flex-wrap items-center gap-2 sm:mb-3">
+                  {typeof restaurant.latitude === "number" && typeof restaurant.longitude === "number" ? <RestaurantDistanceBadge latitude={restaurant.latitude} longitude={restaurant.longitude} variant="hero" /> : null}
+                </div>
+                <h1 className="max-w-[14ch] text-[2rem] font-black leading-[0.98] drop-shadow-[0_2px_14px_rgb(0_0_0_/_0.28)] min-[390px]:text-[2.35rem] sm:max-w-2xl sm:text-6xl">{restaurant.name}</h1>
+                <p className="mt-2 line-clamp-2 max-w-[25rem] text-sm font-semibold leading-5 text-white/90 drop-shadow-sm sm:mt-3 sm:line-clamp-none sm:leading-6 sm:text-base">
                   {restaurant.description || "Elige tus productos, confirma tu pedido y el equipo lo recibe al instante."}
                 </p>
-                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-black text-white sm:mt-4 sm:gap-3 sm:text-sm">
+                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] font-black text-white/95 sm:mt-4 sm:gap-3 sm:text-sm">
                   <span className="inline-flex items-center gap-1">
                     <Clock3 className="h-4 w-4" />
                     25-35 min
@@ -337,12 +343,6 @@ export function PublicRestaurantOrderClient({
                   <span>{settings?.deliveryFee ? `${formatMoney(settings.deliveryFee)} envio` : "Delivery disponible"}</span>
                   <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
                   <span>{products.length} {catalogItemsLabel}</span>
-                  {typeof restaurant.latitude === "number" && typeof restaurant.longitude === "number" ? (
-                    <>
-                      <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
-                      <RestaurantDistanceBadge latitude={restaurant.latitude} longitude={restaurant.longitude} showRequest variant="hero" />
-                    </>
-                  ) : null}
                 </div>
               </div>
               <div className="absolute bottom-5 right-5 z-20 hidden max-w-xs rounded-[1.35rem] bg-[var(--primary)]/92 p-4 text-white shadow-xl ring-1 ring-white/15 backdrop-blur sm:block">
@@ -582,10 +582,7 @@ function ProductTile({ product, config, availability, onSelect }: { product: Pro
         <span className="mt-1 block line-clamp-2 text-base font-black leading-5 sm:text-lg">{product.name}</span>
         <span className="mt-1 hidden line-clamp-2 text-sm leading-5 text-[var(--muted)] min-[420px]:block">{product.description || "Listo para pedir."}</span>
         <span className="mt-2 flex items-center gap-2 text-sm font-black sm:mt-3 sm:gap-3">
-          <span className="hidden items-center gap-1 rounded-full bg-[var(--primary-light)] px-2 py-1 text-[var(--primary)] min-[420px]:inline-flex">
-            <Star className="h-3.5 w-3.5 fill-current" />
-            4.{Math.min(9, Math.max(3, product.orderCount || 6))}
-          </span>
+          {product.orderCount ? <span className="hidden items-center gap-1 rounded-full bg-[var(--primary-light)] px-2 py-1 text-[var(--primary)] min-[420px]:inline-flex">{product.orderCount} pedidos</span> : null}
           <span className="text-base text-[var(--primary)]">{formatMoney(product.price)}</span>
         </span>
         {!isStockAvailable ? (
@@ -718,10 +715,6 @@ function ProductOptionModal({
               <h2 className="mt-1 text-3xl font-black leading-tight">{product.name}</h2>
               <p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-[var(--muted)]">{product.description || "Elige las opciones y agrega este producto a tu pedido."}</p>
             </div>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-2xl bg-[var(--primary-light)] px-3 py-2 text-sm font-black text-[var(--primary)]">
-              <Star className="h-4 w-4 fill-current" />
-              4.6
-            </span>
           </div>
           <div className="grid grid-cols-3 gap-2 border-y border-[var(--border)] py-3 text-center text-xs font-bold text-[var(--muted)]">
             <span>

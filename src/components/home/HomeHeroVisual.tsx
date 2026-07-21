@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useRef } from "react";
-import { ArrowRight, Star } from "lucide-react";
+import { ArrowRight, Flame } from "lucide-react";
 import gsap from "gsap";
 
 export function HomeHeroVisual({ imageSrc, restaurantName }: { imageSrc: string; restaurantName: string }) {
@@ -45,7 +45,7 @@ export function HomeHeroVisual({ imageSrc, restaurantName }: { imageSrc: string;
       <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-[#082441] to-transparent" />
 
       <div className="hero-floater absolute left-5 top-5 z-10 inline-flex items-center gap-2 rounded-full bg-[var(--accent)] px-3 py-2 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
-        <Star className="h-3.5 w-3.5 fill-current" />
+        <Flame className="h-3.5 w-3.5" />
         Destacado
       </div>
 

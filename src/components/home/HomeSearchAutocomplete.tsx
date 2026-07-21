@@ -482,9 +482,7 @@ export function HomeSearchAutocomplete({
                                   {formatDistance(card.distanceKm)}
                                 </span>
                               ) : null}
-                              <span className="inline-flex rounded-full bg-[var(--primary-light)] px-2 py-0.5 text-[10px] font-black text-[var(--primary)]">
-                                {Math.max(4, Math.min(5, 4 + card.orders30d / 100)).toFixed(1)}
-                              </span>
+                              {card.orders30d ? <span className="inline-flex rounded-full bg-[var(--primary-light)] px-2 py-0.5 text-[10px] font-black text-[var(--primary)]">{card.orders30d} pedidos</span> : null}
                             </span>
                           </span>
                           <ArrowRight className="h-4 w-4 text-[var(--accent)]" />

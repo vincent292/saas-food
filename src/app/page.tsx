@@ -21,7 +21,6 @@ import {
   ShoppingBag,
   Soup,
   Sparkles,
-  Star,
   Store,
   Smartphone,
   TrendingUp,
@@ -33,7 +32,6 @@ import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete
 import { PendingCartNotice } from "@/components/home/PendingCartNotice";
 import { RestaurantDistanceBadge } from "@/components/location/RestaurantDistanceBadge";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
-import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import {
   businessCatalogLabelTitle,
@@ -722,7 +720,8 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
   const imageSrc = isDisplayImage(card.restaurant.bannerUrl) ? card.restaurant.bannerUrl : defaultProductImage;
 
   return (
-    <Card className="flex h-full flex-col overflow-hidden p-0 transition hover:-translate-y-0.5 hover:shadow-md">
+    <Link className="group block h-full rounded-[1.35rem] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={publicRestaurantPath(card.restaurant.slug)}>
+    <Card className="flex h-full flex-col overflow-hidden p-0 transition group-hover:-translate-y-0.5 group-hover:shadow-md">
       <div className="relative h-44 bg-[var(--primary-light)]">
         <Image alt={card.restaurant.name} className="object-cover" fill sizes="(min-width:1280px) 33vw, (min-width:768px) 50vw, 100vw" src={imageSrc} />
         <div className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-strong)] via-[var(--color-image-overlay-medium)] to-transparent" />
@@ -735,10 +734,7 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
             <span className="truncate">{card.isTemporarilyClosed ? "Cerrado hoy" : card.currentAnnouncement.title}</span>
           </span>
         ) : null}
-        <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
-          <Star className="h-3.5 w-3.5 fill-current" />
-          {Math.max(4, Math.min(5, 4 + card.orders30d / 100)).toFixed(1)}
-        </span>
+        {card.orders30d ? <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">{card.orders30d} pedidos</span> : null}
       </div>
       <div className="flex flex-1 flex-col p-4">
         <div className="flex items-start gap-3">
@@ -749,7 +745,7 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
               {card.isTemporarilyClosed ? card.currentAnnouncement?.title || "Cerrado temporalmente" : card.restaurant.city || card.restaurant.address || publicRestaurantPath(card.restaurant.slug)}
             </p>
             <div className="mt-2">
-              <RestaurantDistanceBadge latitude={card.restaurant.latitude} longitude={card.restaurant.longitude} showRequest variant="card" />
+              <RestaurantDistanceBadge latitude={card.restaurant.latitude} longitude={card.restaurant.longitude} variant="card" />
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {card.categories.slice(0, 3).map((category) => (
@@ -773,12 +769,13 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
           <span className="rounded-2xl bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]">{card.visits7d} visitas semana</span>
           <span className="rounded-2xl bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]">{card.orders30d} pedidos 30d</span>
         </div>
-        <Link className={buttonClasses("primary", "mt-auto w-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] hover:bg-[#d9ff22] active:bg-[#d9ff22]")} href={publicRestaurantPath(card.restaurant.slug)}>
+        <span className="mt-auto inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 text-sm font-black text-[var(--primary)] shadow-[var(--shadow-glow)] transition group-hover:bg-[#d9ff22]">
           Ver {businessCatalogLabelTitle(card.restaurant.businessType).toLowerCase()}
           <ArrowRight className="h-4 w-4" />
-        </Link>
+        </span>
       </div>
     </Card>
+    </Link>
   );
 }
 
@@ -823,8 +820,8 @@ function DishCard({ dish }: { dish: PublicDishCard }) {
       <div className="relative aspect-[4/3] bg-[var(--primary-light)]">
         <Image alt={dish.name} className="object-cover" fill sizes="(min-width:1024px) 25vw, 50vw" src={imageSrc} />
         <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
-          <Star className="h-3.5 w-3.5 fill-current" />
-          {dish.orderCount}
+          <Flame className="h-3.5 w-3.5" />
+          {dish.orderCount} pedidos
         </span>
       </div>
       <div className="p-4">

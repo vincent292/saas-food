@@ -11,6 +11,7 @@ export type UserRestaurantMembership = {
     slug: string;
     city: string;
     status: RestaurantStatus;
+    ownerUserId?: string;
   };
 };
 
@@ -65,7 +66,7 @@ export const membershipService = {
     const restaurantIds = Array.from(rolesByRestaurant.keys());
     const { data: restaurants, error: restaurantError } = await supabase
       .from("restaurants")
-      .select("id,name,slug,city,status")
+      .select("id,name,slug,city,status,owner_user_id")
       .in("id", restaurantIds)
       .eq("status", "active")
       .is("deleted_at", null)
@@ -84,6 +85,7 @@ export const membershipService = {
         slug: restaurant.slug,
         city: restaurant.city ?? "",
         status: restaurant.status as RestaurantStatus,
+        ownerUserId: restaurant.owner_user_id ?? undefined,
       },
     }));
   },

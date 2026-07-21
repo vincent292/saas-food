@@ -31,6 +31,7 @@ import {
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
 import { PendingCartNotice } from "@/components/home/PendingCartNotice";
+import { RestaurantDistanceBadge } from "@/components/location/RestaurantDistanceBadge";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -449,6 +450,11 @@ function MobileRestaurantResult({ card }: { card: PublicRestaurantCard }) {
         <span className="mt-0.5 block truncate text-xs font-semibold text-[var(--color-secondary-text)]">
           {card.isTemporarilyClosed ? "Cerrado temporalmente" : card.categories.slice(0, 2).join(" | ") || card.restaurant.city || `${businessCatalogLabelTitle(card.restaurant.businessType)} disponible`}
         </span>
+        {typeof card.restaurant.latitude === "number" && typeof card.restaurant.longitude === "number" ? (
+          <span className="mt-1 block">
+            <RestaurantDistanceBadge latitude={card.restaurant.latitude} longitude={card.restaurant.longitude} variant="mini" />
+          </span>
+        ) : null}
       </span>
       <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)]">
         <ArrowRight className="h-4 w-4" />
@@ -742,6 +748,9 @@ function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
             <p className="mt-1 truncate text-sm font-semibold text-[var(--color-secondary-text)]">
               {card.isTemporarilyClosed ? card.currentAnnouncement?.title || "Cerrado temporalmente" : card.restaurant.city || card.restaurant.address || publicRestaurantPath(card.restaurant.slug)}
             </p>
+            <div className="mt-2">
+              <RestaurantDistanceBadge latitude={card.restaurant.latitude} longitude={card.restaurant.longitude} showRequest variant="card" />
+            </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {card.categories.slice(0, 3).map((category) => (
                 <span className="rounded-full bg-[var(--primary-light)] px-2.5 py-1 text-xs font-black text-[var(--primary)]" key={category}>

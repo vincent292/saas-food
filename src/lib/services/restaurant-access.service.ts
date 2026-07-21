@@ -1,5 +1,4 @@
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 
@@ -22,36 +21,6 @@ async function requestFingerprint() {
   const userAgent = headerStore.get("user-agent") || "unknown";
 
   return { ipAddress, userAgent };
-}
-
-function blockUrl(claim: RestaurantAccessClaim, targetRestaurantId: string, returnTo?: string) {
-  const params = new URLSearchParams({
-    restaurantId: targetRestaurantId,
-    restaurantName: claim.restaurantName,
-    message: claim.message,
-  });
-
-  if (claim.activeRestaurantId) {
-    params.set("activeRestaurantId", claim.activeRestaurantId);
-  }
-
-  if (claim.activeRestaurantName) {
-    params.set("activeRestaurantName", claim.activeRestaurantName);
-  }
-
-  if (claim.activeIpAddress) {
-    params.set("activeIpAddress", claim.activeIpAddress);
-  }
-
-  if (claim.activeLastSeenAt) {
-    params.set("activeLastSeenAt", claim.activeLastSeenAt);
-  }
-
-  if (returnTo) {
-    params.set("returnTo", returnTo);
-  }
-
-  return `/admin/acceso-bloqueado?${params.toString()}`;
 }
 
 export const restaurantAccessService = {
@@ -92,12 +61,8 @@ export const restaurantAccessService = {
   },
 
   async claimOrRedirect(restaurantId: string, returnTo?: string) {
+    void returnTo;
     const claim = await this.claim(restaurantId);
-
-    if (claim && !claim.allowed) {
-      redirect(blockUrl(claim, restaurantId, returnTo));
-    }
-
     return claim;
   },
 

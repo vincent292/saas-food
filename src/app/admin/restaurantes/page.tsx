@@ -20,10 +20,16 @@ export default async function RestaurantsPage() {
     <AdminLayout active="/admin/restaurantes" title="Restaurantes">
       <SectionTitle
         action={
-          <Link className={buttonClasses("primary")} href="/admin/restaurantes/nuevo">
-            <Plus className="h-4 w-4" />
-            Nuevo restaurante
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link className={buttonClasses("secondary")} href="/admin/restauracion">
+              <Archive className="h-4 w-4" />
+              Archivados / eliminar
+            </Link>
+            <Link className={buttonClasses("primary")} href="/admin/restaurantes/nuevo">
+              <Plus className="h-4 w-4" />
+              Nuevo dueno
+            </Link>
+          </div>
         }
         description="Control de tenants, estado operativo, uso y acceso."
         title="Restaurantes"
@@ -31,7 +37,7 @@ export default async function RestaurantsPage() {
       <div className="mt-6">
         <DataTable
           emptyMessage="Todavia no hay restaurantes creados."
-          headers={["Restaurante", "Responsable", "Plan", "Presencia", "Uso 30d", "Estado", "Sesiones", "Acciones"]}
+          headers={["Restaurante", "Responsable", "Tarifa", "Presencia", "Uso 30d", "Estado", "Sesiones", "Acciones"]}
           rows={restaurants.map((restaurant) => [
             <div key={`${restaurant.id}-name`}>
               <p className="font-black">{restaurant.name}</p>
@@ -43,7 +49,7 @@ export default async function RestaurantsPage() {
               </p>
             </div>,
             restaurant.ownerEmail || "Sin responsable",
-            restaurant.planKey ?? "sin plan",
+            restaurant.planKey === "premium" ? "Full" : (restaurant.planKey ?? "sin tarifa"),
             <div key={`${restaurant.id}-presence`}>
               <p className={restaurant.publicPresenceStatus === "ready" ? "font-black text-[var(--color-success-strong)]" : restaurant.publicPresenceStatus === "critical" ? "font-black text-[var(--color-danger-strong)]" : "font-black text-[var(--color-warning-strong)]"}>
                 {restaurant.publicPresenceScore}% listo
@@ -85,6 +91,9 @@ function RestaurantActions({ restaurantId, status }: { restaurantId: string; sta
     <div className="flex flex-wrap gap-2">
       <Link className={buttonClasses("secondary")} href={`/admin/restaurantes/${restaurantId}`}>
         Ficha
+      </Link>
+      <Link className={buttonClasses("secondary")} href={`/admin/restaurantes/${restaurantId}/cuenta`}>
+        Cuenta
       </Link>
       <form action={setRestaurantStatusAction}>
         <input name="restaurantId" type="hidden" value={restaurantId} />

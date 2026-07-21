@@ -135,6 +135,7 @@ export type SubscriptionPlan = {
   name: string;
   description: string;
   priceMonthly: number;
+  additionalRestaurantPriceMonthly: number;
   maxRestaurants: number;
   maxUsersPerRestaurant: number;
   isActive: boolean;

@@ -7,14 +7,17 @@ import { type FormEvent, type ReactNode, useCallback, useDeferredValue, useEffec
 import { createPortal } from "react-dom";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
+import { readUserLocation, writeUserLocation } from "@/lib/client/user-location";
 import type { PublicBusinessTypeCard, PublicCategoryCard, PublicDishCard, PublicRestaurantCard } from "@/lib/services/public-directory.service";
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
+import { calculateDistanceKm, formatDistance, type GeoPoint } from "@/lib/utils/geo-distance";
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
 const defaultImage = defaultProductImage;
 type ActivePublicTheme = "light" | "dark";
+type SearchRestaurantCard = PublicRestaurantCard & { distanceKm?: number };
 
 function normalize(value: string) {
   return value
@@ -28,14 +31,24 @@ function imageSrc(value?: string | null) {
   return value && (value.startsWith("http") || value.startsWith("/")) ? value : defaultImage;
 }
 
-function distanceKm(from: { latitude: number; longitude: number }, to: { latitude: number; longitude: number }) {
-  const radius = 6371;
-  const latDelta = ((to.latitude - from.latitude) * Math.PI) / 180;
-  const lonDelta = ((to.longitude - from.longitude) * Math.PI) / 180;
-  const fromLat = (from.latitude * Math.PI) / 180;
-  const toLat = (to.latitude * Math.PI) / 180;
-  const a = Math.sin(latDelta / 2) ** 2 + Math.cos(fromLat) * Math.cos(toLat) * Math.sin(lonDelta / 2) ** 2;
-  return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+function restaurantDistanceKm(userPosition: GeoPoint | null, card: PublicRestaurantCard) {
+  if (!userPosition || typeof card.restaurant.latitude !== "number" || typeof card.restaurant.longitude !== "number") {
+    return undefined;
+  }
+
+  return calculateDistanceKm(userPosition, {
+    latitude: card.restaurant.latitude,
+    longitude: card.restaurant.longitude,
+  });
+}
+
+function compareByDistance(left: SearchRestaurantCard, right: SearchRestaurantCard) {
+  if (typeof left.distanceKm === "number" && typeof right.distanceKm === "number" && left.distanceKm !== right.distanceKm) {
+    return left.distanceKm - right.distanceKm;
+  }
+  if (typeof left.distanceKm === "number" && typeof right.distanceKm !== "number") return -1;
+  if (typeof left.distanceKm !== "number" && typeof right.distanceKm === "number") return 1;
+  return 0;
 }
 
 function directoryHref({ query, location, category, businessType }: { query?: string; location?: string; category?: string; businessType?: string }) {
@@ -71,7 +84,9 @@ export function HomeSearchAutocomplete({
   const [location, setLocation] = useState(initialLocation);
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
-  const [autoLocationStatus, setAutoLocationStatus] = useState<"idle" | "detecting" | "detected" | "unavailable">("idle");
+  const [autoLocationStatus, setAutoLocationStatus] = useState<"idle" | "detecting" | "detected" | "denied" | "unavailable">("idle");
+  const [userPosition, setUserPosition] = useState<GeoPoint | null>(null);
+  const [detectedCity, setDetectedCity] = useState("");
   const [compactHeaderRoot, setCompactHeaderRoot] = useState<HTMLElement | null>(null);
   const [publicTheme, setPublicTheme] = useState<ActivePublicTheme>("light");
   const [showCompactHeader, setShowCompactHeader] = useState(false);
@@ -80,7 +95,7 @@ export function HomeSearchAutocomplete({
   const deferredQuery = useDeferredValue(query);
 
   const needle = normalize(deferredQuery);
-  const filteredRestaurants = useMemo(() => {
+  const filteredRestaurants = useMemo<SearchRestaurantCard[]>(() => {
     const locationNeedle = normalize(location);
     return restaurants
       .filter((card) => {
@@ -88,9 +103,17 @@ export function HomeSearchAutocomplete({
         const searchable = normalize(`${card.restaurant.name} ${card.restaurant.city} ${card.restaurant.businessType} ${card.primaryCategoryLabel} ${card.categories.join(" ")} ${card.popularProducts.join(" ")}`);
         return matchesLocation && (!needle || searchable.includes(needle));
       })
-      .sort((left, right) => (needle ? right.orders30d - left.orders30d : right.visits7d - left.visits7d))
-      .slice(0, needle ? 8 : 4);
-  }, [location, needle, restaurants]);
+      .map((card) => ({
+        ...card,
+        distanceKm: restaurantDistanceKm(userPosition, card),
+      }))
+      .sort((left, right) => {
+        const distanceOrder = compareByDistance(left, right);
+        if (distanceOrder !== 0) return distanceOrder;
+        return needle ? right.orders30d - left.orders30d : right.visits7d - left.visits7d;
+      })
+      .slice(0, userPosition ? 8 : needle ? 8 : 4);
+  }, [location, needle, restaurants, userPosition]);
 
   const filteredBusinessTypes = useMemo(() => {
     return businessTypes
@@ -121,10 +144,34 @@ export function HomeSearchAutocomplete({
   }, [businessTypes, categories, dishes]);
 
   const hasResults = filteredRestaurants.length > 0 || filteredDishes.length > 0 || filteredBusinessTypes.length > 0 || filteredCategories.length > 0;
+  const nearbyStatusLabel =
+    autoLocationStatus === "detecting"
+      ? "Buscando cerca"
+      : autoLocationStatus === "detected"
+        ? detectedCity
+          ? `Cerca de ${detectedCity}`
+          : "GPS activo"
+        : autoLocationStatus === "denied"
+          ? "Permiso bloqueado"
+          : autoLocationStatus === "unavailable"
+            ? "GPS no disponible"
+            : "Cerca de mi";
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
       setCompactHeaderRoot(document.body);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, []);
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      const storedLocation = readUserLocation();
+      if (storedLocation) {
+        setUserPosition(storedLocation);
+        setAutoLocationStatus("detected");
+      }
     });
 
     return () => window.cancelAnimationFrame(frameId);
@@ -206,6 +253,15 @@ export function HomeSearchAutocomplete({
     setIsOpen(true);
   }
 
+  const requestUserLocation = useCallback(() => {
+    if (!("geolocation" in navigator)) {
+      setAutoLocationStatus("unavailable");
+      return;
+    }
+
+    setAutoLocationStatus("detecting");
+  }, []);
+
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const href = directoryHref({ query, location });
@@ -214,12 +270,17 @@ export function HomeSearchAutocomplete({
   }
 
   useEffect(() => {
-    if (!isOpen || userChangedLocation || location || autoLocationStatus !== "detecting") return;
+    if (!isOpen || autoLocationStatus !== "detecting") return;
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        const nextPosition = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
         const restaurantsWithCoords = restaurants.filter((card) => typeof card.restaurant.latitude === "number" && typeof card.restaurant.longitude === "number" && card.restaurant.city);
         if (!restaurantsWithCoords.length) {
+          setUserPosition(nextPosition);
           setAutoLocationStatus("unavailable");
           return;
         }
@@ -227,24 +288,22 @@ export function HomeSearchAutocomplete({
         const closest = restaurantsWithCoords
           .map((card) => ({
             city: card.restaurant.city,
-            distance: distanceKm(
-              { latitude: position.coords.latitude, longitude: position.coords.longitude },
+            distance: calculateDistanceKm(
+              nextPosition,
               { latitude: card.restaurant.latitude ?? 0, longitude: card.restaurant.longitude ?? 0 },
             ),
           }))
           .sort((left, right) => left.distance - right.distance)[0];
 
-        if (closest?.city) {
-          setLocation(closest.city);
-          setAutoLocationStatus("detected");
-        } else {
-          setAutoLocationStatus("unavailable");
-        }
+        setUserPosition(nextPosition);
+        writeUserLocation(nextPosition);
+        setDetectedCity(closest?.city ?? "");
+        setAutoLocationStatus("detected");
       },
-      () => setAutoLocationStatus("unavailable"),
+      (error) => setAutoLocationStatus(error.code === error.PERMISSION_DENIED ? "denied" : "unavailable"),
       { enableHighAccuracy: false, maximumAge: 1000 * 60 * 10, timeout: 4500 },
     );
-  }, [autoLocationStatus, isOpen, location, restaurants, userChangedLocation]);
+  }, [autoLocationStatus, isOpen, restaurants]);
 
   return (
     <div className="relative">
@@ -345,7 +404,7 @@ export function HomeSearchAutocomplete({
                 </form>
               </div>
 
-              <div className="mt-3 grid gap-2 sm:grid-cols-[220px_auto] sm:items-center">
+              <div className="mt-3 grid gap-2 lg:grid-cols-[220px_180px_minmax(0,1fr)] lg:items-center">
                 <label className="flex min-h-12 items-center gap-2 rounded-full border border-white/22 bg-white/12 px-4 text-sm font-black text-white ring-1 ring-white/10">
                   <MapPin className="h-4 w-4 shrink-0" />
                   <select
@@ -364,12 +423,20 @@ export function HomeSearchAutocomplete({
                     ))}
                   </select>
                 </label>
-                <span className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--accent)] px-3 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
+                <button
+                  className={cn(
+                    "inline-flex min-h-12 items-center justify-center gap-2 rounded-full px-4 text-xs font-black shadow-[var(--shadow-glow)] transition active:scale-95",
+                    autoLocationStatus === "denied" || autoLocationStatus === "unavailable" ? "bg-white/14 text-white ring-1 ring-white/18" : "bg-[var(--accent)] text-[var(--primary)]",
+                  )}
+                  disabled={autoLocationStatus === "detecting"}
+                  onClick={requestUserLocation}
+                  type="button"
+                >
                   <LocateFixed className="h-3.5 w-3.5" />
-                  {autoLocationStatus === "detecting" ? "Detectando GPS" : autoLocationStatus === "detected" ? `GPS: ${location}` : "Puedes cambiar ciudad"}
-                </span>
+                  {nearbyStatusLabel}
+                </button>
 
-                <div className="flex gap-2 overflow-x-auto pb-1 sm:justify-end">
+                <div className="flex gap-2 overflow-x-auto pb-1 lg:justify-end">
                   {popularChips.map((chip) => (
                     <button className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/16 bg-white/10 px-3 py-2 text-xs font-black text-white shadow-sm transition hover:bg-white/16" key={chip} onClick={() => setQuery(chip)} type="button">
                       <Clock3 className="h-3.5 w-3.5 text-[var(--accent)]" />
@@ -384,7 +451,7 @@ export function HomeSearchAutocomplete({
               <div className="mb-4 flex items-end justify-between gap-3">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Busqueda en tiempo real</p>
-                  <h2 className="mt-1 text-2xl font-black sm:text-3xl">{needle ? `Resultados para "${query}"` : "Lo mas buscado cerca de ti"}</h2>
+                  <h2 className="mt-1 text-2xl font-black sm:text-3xl">{needle ? `Resultados para "${query}"` : userPosition ? "Restaurantes cerca de ti" : "Lo mas buscado cerca de ti"}</h2>
                 </div>
                 <Link className="hidden rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-black text-[var(--primary)] shadow-[var(--shadow-glow)] sm:inline-flex" href={directoryHref({ query, location })} onClick={() => setIsOpen(false)}>
                   Ver todos
@@ -396,7 +463,7 @@ export function HomeSearchAutocomplete({
               ) : hasResults ? (
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
                   <div className="grid gap-4">
-                    <SearchSection title={needle ? "Restaurantes" : "Restaurantes mas visitados"} count={filteredRestaurants.length}>
+                    <SearchSection title={userPosition ? "Restaurantes mas cercanos" : needle ? "Restaurantes" : "Restaurantes mas visitados"} count={filteredRestaurants.length}>
                       {filteredRestaurants.map((card) => (
                         <Link className="grid grid-cols-[64px_minmax(0,1fr)_32px] items-center gap-3 rounded-[1.25rem] bg-[var(--surface)] p-2 text-[var(--color-heading)] shadow-sm ring-1 ring-[var(--border)] transition hover:bg-[var(--color-hover)]" href={publicRestaurantPath(card.restaurant.slug)} key={card.restaurant.id} onClick={() => setIsOpen(false)}>
                           <span className="grid h-16 w-16 place-items-center overflow-hidden rounded-2xl bg-[var(--primary)] text-sm font-black text-white">
@@ -408,8 +475,16 @@ export function HomeSearchAutocomplete({
                             <span className="mt-0.5 block truncate text-xs font-semibold text-[var(--muted)]">
                               {card.primaryCategoryLabel} {card.restaurant.city ? `- ${card.restaurant.city}` : ""}
                             </span>
-                            <span className="mt-1 inline-flex rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-black text-[var(--primary)]">
-                              {Math.max(4, Math.min(5, 4 + card.orders30d / 100)).toFixed(1)}
+                            <span className="mt-1 flex flex-wrap gap-1.5">
+                              {typeof card.distanceKm === "number" ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-black text-[var(--primary)]">
+                                  <MapPin className="h-3 w-3" />
+                                  {formatDistance(card.distanceKm)}
+                                </span>
+                              ) : null}
+                              <span className="inline-flex rounded-full bg-[var(--primary-light)] px-2 py-0.5 text-[10px] font-black text-[var(--primary)]">
+                                {Math.max(4, Math.min(5, 4 + card.orders30d / 100)).toFixed(1)}
+                              </span>
                             </span>
                           </span>
                           <ArrowRight className="h-4 w-4 text-[var(--accent)]" />

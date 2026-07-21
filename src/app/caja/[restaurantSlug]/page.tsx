@@ -19,6 +19,10 @@ export default async function PublicCashPage({ params }: { params: Promise<{ res
     redirect("/admin/login?error=session");
   }
 
+  if (profile.mustChangePassword) {
+    redirect("/admin/cambiar-contrasena");
+  }
+
   const restaurant = await restaurantService.getOperationalBySlug(restaurantSlug);
 
   if (!restaurant || !hasRestaurantModule(restaurant, "cash")) {

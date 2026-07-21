@@ -2,8 +2,21 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/types/database.types";
 
+function clearSupabaseCookies(request: NextRequest, response: NextResponse) {
+  request.cookies.getAll().forEach(({ name }) => {
+    if (name.startsWith("sb-")) {
+      request.cookies.delete(name);
+      response.cookies.delete(name);
+    }
+  });
+}
+
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
+
+  if (request.nextUrl.pathname === "/admin/login") {
+    return response;
+  }
 
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -25,12 +38,7 @@ export async function updateSession(request: NextRequest) {
   const { error } = await supabase.auth.getUser();
 
   if (error) {
-    request.cookies.getAll().forEach(({ name }) => {
-      if (name.startsWith("sb-")) {
-        request.cookies.delete(name);
-        response.cookies.delete(name);
-      }
-    });
+    clearSupabaseCookies(request, response);
   }
 
   return response;

@@ -1,10 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createPublicServerClient } from "@/lib/supabase/public-server";
+import { fullPlanModules } from "@/lib/billing/full-plan";
 import { inferRestaurantCategory, normalizeRestaurantBusinessType, normalizeRestaurantCategory } from "@/lib/restaurant-directory-options";
 import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
-import type { ModuleKey, PlanKey, Restaurant, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
+import type { PlanKey, Restaurant, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
 const legacyGreenBrandColors = new Set(["#1d8844", "#146333", "#15803d", "#22c55e"]);
 
@@ -209,30 +210,19 @@ async function enrichRestaurants(restaurants: Restaurant[]) {
 
   const supabase = await createClient();
   const restaurantIds = restaurants.map((restaurant) => restaurant.id);
-  const [{ data: subscriptions }, { data: plans }, { data: modules }, { data: planModules }] = await Promise.all([
+  const [{ data: subscriptions }, { data: plans }] = await Promise.all([
     supabase.from("restaurant_subscriptions").select("restaurant_id, plan_id").in("restaurant_id", restaurantIds).in("status", ["trialing", "active", "past_due"]),
     supabase.from("subscription_plans").select("id, key").eq("is_active", true),
-    supabase.from("module_settings").select("restaurant_id, module_key, is_enabled").in("restaurant_id", restaurantIds),
-    supabase.from("plan_modules").select("plan_id, module_key, is_enabled").eq("is_enabled", true),
   ]);
 
   return restaurants.map((restaurant) => {
     const subscription = subscriptions?.find((item) => item.restaurant_id === restaurant.id);
     const plan = plans?.find((item) => item.id === subscription?.plan_id);
-    const allowedModules = new Set((planModules ?? []).filter((module) => module.plan_id === subscription?.plan_id).map((module) => module.module_key));
-    const configuredModules = (modules ?? []).filter((module) => module.restaurant_id === restaurant.id);
-    const fallbackModules: ModuleKey[] = plan ? Array.from(allowedModules).map((moduleKey) => moduleKey as ModuleKey) : ["public_menu", "orders"];
-    const activeModules = configuredModules.length
-      ? configuredModules
-          .filter((module) => module.is_enabled)
-          .filter((module) => !plan || allowedModules.has(module.module_key))
-          .map((module) => module.module_key as ModuleKey)
-      : fallbackModules;
 
     return {
       ...restaurant,
       planKey: plan?.key as PlanKey | undefined,
-      activeModules,
+      activeModules: fullPlanModules,
     };
   });
 }
@@ -254,32 +244,10 @@ export const restaurantService = {
     }
 
     const restaurants = data.map(mapRestaurant);
-    const restaurantIds = restaurants.map((restaurant) => restaurant.id);
-    const { data: modules } = await supabase
-      .from("module_settings")
-      .select("restaurant_id,module_key,is_enabled")
-      .in("restaurant_id", restaurantIds);
-
-    const modulesByRestaurant = new Map<string, { module_key: string; is_enabled: boolean }[]>();
-    for (const moduleRow of modules ?? []) {
-      const current = modulesByRestaurant.get(moduleRow.restaurant_id) ?? [];
-      current.push(moduleRow);
-      modulesByRestaurant.set(moduleRow.restaurant_id, current);
-    }
-
-    return restaurants
-      .map((restaurant) => {
-        const configuredModules = modulesByRestaurant.get(restaurant.id) ?? [];
-        const activeModules = configuredModules.length
-          ? configuredModules.filter((moduleRow) => moduleRow.is_enabled).map((moduleRow) => moduleRow.module_key as ModuleKey)
-          : (["public_menu", "orders"] as ModuleKey[]);
-
-        return {
-          ...restaurant,
-          activeModules,
-        };
-      })
-      .filter((restaurant) => restaurant.activeModules?.includes("public_menu"));
+    return restaurants.map((restaurant) => ({
+      ...restaurant,
+      activeModules: fullPlanModules,
+    }));
   },
 
   async getPublicBySlug(slug: string) {
@@ -305,21 +273,10 @@ export const restaurantService = {
     }
 
     const restaurant = mapRestaurant(data);
-    const { data: modules } = await supabase
-      .from("module_settings")
-      .select("module_key,is_enabled")
-      .eq("restaurant_id", restaurant.id);
-
-    const activeModules = modules?.length
-      ? modules.filter((moduleRow) => moduleRow.is_enabled).map((moduleRow) => moduleRow.module_key as ModuleKey)
-      : (["public_menu", "orders"] as ModuleKey[]);
-
-    return activeModules.includes("public_menu")
-      ? {
-          ...restaurant,
-          activeModules,
-        }
-      : null;
+    return {
+      ...restaurant,
+      activeModules: fullPlanModules,
+    };
   },
 
   async listRestaurants() {

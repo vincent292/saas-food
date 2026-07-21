@@ -1,16 +1,12 @@
-import Link from "next/link";
 import { LockKeyhole } from "lucide-react";
+import { AdminLoginFormClient } from "@/components/auth/AdminLoginFormClient";
 import { BrandLogo } from "@/components/brand/BrandLogo";
-import { signInAction } from "@/app/admin/actions";
-import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Input } from "@/components/ui/Input";
-import { PasswordInput } from "@/components/ui/PasswordInput";
 
 const errorMessages: Record<string, string> = {
-  invalid: "Revisa correo y contraseña.",
-  auth: "Correo o contraseña incorrectos.",
-  session: "No se pudo validar la sesión.",
+  invalid: "Revisa correo y contrasena.",
+  auth: "Correo o contrasena incorrectos.",
+  session: "No se pudo validar la sesion.",
   "no-access": "Este usuario no tiene un restaurante activo asignado.",
   "superadmin-required": "Esta consola requiere usuario superadmin.",
 };
@@ -28,20 +24,15 @@ export default async function AdminLoginPage({ searchParams }: { searchParams: P
           </span>
         </div>
         <h1 className="mt-6 text-3xl font-black text-[var(--color-heading)]">Ingreso administrativo</h1>
-        <p className="mt-2 text-sm text-[var(--color-secondary-text)]">Superadmin entra a la consola general. El responsable entra directo a su restaurante activo.</p>
+        <p className="mt-2 text-sm text-[var(--color-secondary-text)]">
+          Superadmin entra a la consola general. El dueno entra a completar su negocio o administrar sus sucursales.
+        </p>
         {error ? (
           <div className="mt-4 rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">
-            {errorMessages[error] ?? "No se pudo iniciar sesión. Revisa los datos y el estado del restaurante."}
+            {errorMessages[error] ?? "No se pudo iniciar sesion. Revisa los datos y el estado del restaurante."}
           </div>
         ) : null}
-        <form action={signInAction} className="mt-6 space-y-3">
-          <Input name="email" placeholder="correo@restaurante.com" required type="email" />
-          <PasswordInput name="password" placeholder="Contraseña" required />
-          <Button className="w-full">Ingresar</Button>
-          <Link className={buttonClasses("secondary", "w-full")} href="/">
-            Volver al inicio
-          </Link>
-        </form>
+        <AdminLoginFormClient />
       </Card>
     </main>
   );

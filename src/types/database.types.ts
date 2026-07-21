@@ -19,6 +19,14 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      owner_branch_entitlements: Row<{
+        owner_user_id: string;
+        branch_limit: number;
+        created_by: string | null;
+        updated_by: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       restaurants: Row<{
         id: string;
         name: string;
@@ -445,6 +453,7 @@ export type Database = {
         name: string;
         description: string | null;
         price_monthly: number;
+        additional_restaurant_price_monthly: number;
         max_restaurants: number;
         max_users_per_restaurant: number;
         is_active: boolean;

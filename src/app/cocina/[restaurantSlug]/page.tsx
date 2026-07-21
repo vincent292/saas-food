@@ -15,6 +15,10 @@ export default async function KitchenPage({ params }: { params: Promise<{ restau
     redirect("/admin/login?error=session");
   }
 
+  if (profile.mustChangePassword) {
+    redirect("/admin/cambiar-contrasena");
+  }
+
   const restaurant = await restaurantService.getOperationalBySlug(restaurantSlug);
 
   if (!restaurant || !hasRestaurantModule(restaurant, "kitchen")) {

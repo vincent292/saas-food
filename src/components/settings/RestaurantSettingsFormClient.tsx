@@ -31,8 +31,6 @@ import { Input, Select, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import {
   businessCatalogLabelTitle,
-  businessTypeSupportsKitchen,
-  businessTypeSupportsTableQr,
   categoriesForBusinessType,
   restaurantBusinessTypeOptions,
   restaurantLocationOptions,
@@ -41,7 +39,6 @@ import { cn } from "@/lib/utils/cn";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type {
   BusinessHour,
-  ModuleKey,
   OwnerChangePolicy,
   PlatformBilling,
   Restaurant,
@@ -78,7 +75,7 @@ const errorMessages: Record<string, string> = {
   "owner-not-found": "No se pudo encontrar o crear el usuario responsable.",
   "restaurant-not-found": "No se encontro el restaurante para guardar la configuracion.",
   "admin-required": "Solo el responsable principal o superadmin puede guardar esta configuracion.",
-  "superadmin-required": "Solo superadmin puede cambiar plan, modulos, estado o facturacion de plataforma.",
+  "superadmin-required": "Solo superadmin puede cambiar tarifa, estado o facturacion de plataforma.",
   "invalid-platform-billing": "Revisa la fecha de renovacion y los datos de la facturacion de plataforma.",
   "invalid-platform-proof": "No se pudo procesar el comprobante de plataforma.",
   "platform-billing-not-configured": "Aun no hay QR o fecha de renovacion configurados para la plataforma.",
@@ -315,7 +312,7 @@ export function RestaurantSettingsFormClient({
   ownerChangeRequests: RestaurantOwnerChangeRequest[];
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeTab(initialTab));
-  const [selectedPlanKey, setSelectedPlanKey] = useState(() => restaurant.planKey ?? plans[0]?.key ?? "basic");
+  const [selectedPlanKey, setSelectedPlanKey] = useState(() => restaurant.planKey ?? plans[0]?.key ?? "premium");
   const successMessage = savedMessage({
     saved,
     announcementCreated,
@@ -334,25 +331,21 @@ export function RestaurantSettingsFormClient({
   const [showSuccessModal, setShowSuccessModal] = useState(Boolean(successMessage));
 
   const selectedPlan = useMemo(() => plans.find((plan) => plan.key === selectedPlanKey), [plans, selectedPlanKey]);
-  const planModules = useMemo(() => new Set<ModuleKey>(selectedPlan?.modules ?? []), [selectedPlan]);
   const pendingOwnerRequest = useMemo(() => ownerChangeRequests.find((request) => request.status === "pending") ?? null, [ownerChangeRequests]);
   const hoursByDay = new Map(businessHours.map((hour) => [hour.dayOfWeek, hour]));
   const logoIsImage = isImageUrl(restaurant.logoUrl);
   const bannerIsImage = isImageUrl(restaurant.bannerUrl);
   const qrIsImage = isImageUrl(settings?.qrPaymentUrl);
   const platformQrIsImage = isImageUrl(billing?.platformQrUrl);
-  const canUseModule = (moduleKey: ModuleKey) => planModules.has(moduleKey);
   const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
-  const supportsKitchen = businessTypeSupportsKitchen(restaurant.businessType);
-  const supportsTableQr = businessTypeSupportsTableQr(restaurant.businessType);
   const pendingInvoiceRequests = invoiceRequests.filter((order) => !order.invoiceIssuedAt);
   const moduleReadState = {
     deliveryEnabled: settings?.deliveryEnabled ?? true,
     pickupEnabled: settings?.pickupEnabled ?? true,
-    tableOrdersEnabled: canUseModule("table_qr") && supportsTableQr,
-    inventoryEnabled: canUseModule("inventory"),
-    cashEnabled: canUseModule("cash"),
-    kitchenEnabled: canUseModule("kitchen") && supportsKitchen,
+    tableOrdersEnabled: settings?.tableOrdersEnabled ?? true,
+    inventoryEnabled: settings?.inventoryEnabled ?? true,
+    cashEnabled: settings?.cashEnabled ?? true,
+    kitchenEnabled: settings?.kitchenEnabled ?? true,
   };
   const nowInputValue = toDateTimeLocalInput(new Date());
   const endOfTodayInputValue = toDateTimeLocalInput(endOfToday());
@@ -475,18 +468,18 @@ export function RestaurantSettingsFormClient({
                 </Select>
               )}
             </FieldSelect>
-            <FieldSelect label="Plan asignado">
+            <FieldSelect label="Tarifa asignada">
               {canManagePlan ? (
                 <Select name="planKey" onChange={(event) => setSelectedPlanKey(event.target.value as typeof selectedPlanKey)} value={selectedPlanKey}>
                   {plans.map((plan) => (
                     <option key={plan.key} value={plan.key}>
-                      {plan.name} - Bs {plan.priceMonthly}/mes
+                      {plan.name} - Bs {plan.priceMonthly}/mes + Bs {plan.additionalRestaurantPriceMonthly}/adicional
                     </option>
                   ))}
                 </Select>
               ) : (
                 <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] px-4 py-3 text-sm font-black text-[var(--color-heading)]">
-                  {selectedPlan?.name ?? "Plan asignado por plataforma"}
+                  {selectedPlan?.name ?? "Tarifa asignada por plataforma"}
                 </div>
               )}
             </FieldSelect>
@@ -709,7 +702,7 @@ export function RestaurantSettingsFormClient({
                   : "Aun falta que la plataforma configure la fecha de renovacion y el QR para poder subir un comprobante."}
               </div>
               <Input defaultValue={billing?.nextDueDate ?? ""} name="platformDueDate" readOnly type="date" />
-              <Input defaultValue={billing?.planPriceMonthly ? `Bs ${billing.planPriceMonthly}` : "Segun plan"} disabled />
+              <Input defaultValue={billing?.planPriceMonthly ? `Bs ${billing.planPriceMonthly}` : "Tarifa Full"} disabled />
               <div className="md:col-span-2">
                 <CompressedImageInput acceptPdf help="Puedes subir imagen o PDF del comprobante. Se guarda como evidencia del ciclo mensual." label="Comprobante de pago" name="platformPaymentProofFile" />
               </div>
@@ -766,7 +759,7 @@ export function RestaurantSettingsFormClient({
               <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
                 <p>1. Cuatro dias antes del vencimiento aparece una alerta modal.</p>
                 <p className="mt-2">2. Si no hay pago al llegar la fecha, el restaurante pasa a suspendido.</p>
-                <p className="mt-2">3. Los modulos operativos se bloquean hasta que superadmin verifique y marque el ciclo como pagado.</p>
+                <p className="mt-2">3. Las funciones operativas se bloquean hasta que superadmin verifique y marque el ciclo como pagado.</p>
               </div>
             </Card>
           </div>
@@ -776,24 +769,19 @@ export function RestaurantSettingsFormClient({
       <div className={cn(activeTab === "operacion" ? "block" : "hidden")}>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
           <Card>
-            <SectionTitle title="Modulos" description="El plan define el techo funcional, y solo superadmin puede activar o desactivar cada modulo." />
+            <SectionTitle title="Funciones incluidas" description="La tarifa Full habilita todo. La operacion diaria sigue separada por sucursal." />
             <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4">
-              <p className="text-sm font-black text-[var(--color-heading)]">{selectedPlan?.name ?? "Sin plan"}</p>
-              <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">{selectedPlan?.description ?? "Selecciona un plan activo."}</p>
-              <p className="mt-2 text-xs font-black uppercase text-[var(--color-success-strong)]">{selectedPlan?.modules.length ?? 0} modulos incluidos</p>
+              <p className="text-sm font-black text-[var(--color-heading)]">{selectedPlan?.name ?? "Full"}</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">{selectedPlan?.description ?? "Todo incluido para sucursales activas."}</p>
+              <p className="mt-2 text-xs font-black uppercase text-[var(--color-success-strong)]">{selectedPlan?.modules.length ?? 8} funciones incluidas</p>
             </div>
-            {!supportsKitchen || !supportsTableQr ? (
-              <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-                Este rubro usa catalogo, POS, delivery y seguimiento de pedidos. Mesas QR y cocina solo se habilitan para negocios gastronomicos.
-              </div>
-            ) : null}
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <ModuleStatusCard enabled={moduleReadState.deliveryEnabled} label="Envio a domicilio" note="Depende de la operacion y cobertura configurada." />
               <ModuleStatusCard enabled={moduleReadState.pickupEnabled} label="Recojo" note="Disponible para pedidos que retira el cliente." />
-              <ModuleStatusCard enabled={moduleReadState.tableOrdersEnabled} label="Pedidos en mesa" note={supportsTableQr ? "Segun plan asignado." : "No aplica para este rubro."} />
-              <ModuleStatusCard enabled={moduleReadState.inventoryEnabled} label="Inventario" note="Segun plan asignado." />
-              <ModuleStatusCard enabled={moduleReadState.cashEnabled} label="Caja / POS" note="Segun plan asignado." />
-              <ModuleStatusCard enabled={moduleReadState.kitchenEnabled} label="Cocina / preparacion" note={supportsKitchen ? "Segun plan asignado." : "No aplica para este rubro."} />
+              <ModuleStatusCard enabled={moduleReadState.tableOrdersEnabled} label="Pedidos en mesa" note="Incluido en Full." />
+              <ModuleStatusCard enabled={moduleReadState.inventoryEnabled} label="Inventario" note="Incluido en Full." />
+              <ModuleStatusCard enabled={moduleReadState.cashEnabled} label="Caja / POS" note="Incluido en Full." />
+              <ModuleStatusCard enabled={moduleReadState.kitchenEnabled} label="Cocina / preparacion" note="Incluido en Full." />
             </div>
           </Card>
 
@@ -807,14 +795,14 @@ export function RestaurantSettingsFormClient({
               </div>
               <div className={cn("inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black", canManagePlan ? "bg-[var(--primary-light)] text-[var(--primary)]" : "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]")}>
                 <ShieldCheck className="h-4 w-4" />
-                Los modulos no se activan aqui: se muestran segun el plan asignado y el rubro del negocio.
+                Las funciones no se venden por separado: la tarifa Full habilita todo para sucursales activas.
               </div>
             </Card>
 
             <Card className="space-y-3">
               <SectionTitle title="Resumen rapido" description="Atajos mentales para el equipo operativo." />
               <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-                <p>Plan actual: {selectedPlan?.name ?? "Sin plan"}</p>
+                <p>Tarifa actual: {selectedPlan?.name ?? "Full"}</p>
                 <p className="mt-2">Responsable: {restaurant.ownerEmail || "Sin responsable"}</p>
                 <p className="mt-2">Ciudad: {restaurant.city || "Sin ciudad"}</p>
                 <p className="mt-2">Rubro: {restaurantBusinessTypeOptions.find((item) => item.value === restaurant.businessType)?.label ?? "Sin rubro"}</p>

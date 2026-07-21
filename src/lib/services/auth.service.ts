@@ -7,6 +7,7 @@ export type CurrentProfile = {
   email: string;
   fullName: string;
   globalRole: AppRole | null;
+  mustChangePassword: boolean;
 };
 
 export const authService = {
@@ -29,6 +30,7 @@ export const authService = {
       email: profile?.email ?? userData.user.email ?? "",
       fullName: profile?.full_name ?? userData.user.email ?? "Usuario",
       globalRole: profile?.global_role ?? null,
+      mustChangePassword: userData.user.user_metadata?.must_change_password === true,
     };
   },
 

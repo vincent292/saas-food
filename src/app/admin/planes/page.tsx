@@ -7,9 +7,9 @@ export default async function PlansPage() {
   const plans = await planService.listPlans();
 
   return (
-    <AdminLayout active="/admin/planes" title="Planes">
-      <SectionTitle description="Define precios, límites y módulos disponibles para cada tipo de restaurante." title="Planes y módulos" />
-      <div className="mt-6 grid gap-4 xl:grid-cols-3">
+    <AdminLayout active="/admin/planes" title="Tarifa">
+      <SectionTitle description="Define la tarifa Full y sus precios. Los cupos se habilitan por dueno desde la configuracion del restaurante." title="Tarifa y sucursales" />
+      <div className="mt-6 grid gap-4 xl:grid-cols-2">
         {plans.map((plan) => (
           <PlanEditor key={plan.id} plan={plan} />
         ))}

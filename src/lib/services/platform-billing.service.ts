@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { additionalLocationPriceMonthly, primaryLocationPriceMonthly } from "@/lib/billing/full-plan";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import type { PlatformBilling, PlatformBillingAlert, RestaurantOwnerChangeRequest, OwnerChangePolicy, RestaurantStatus } from "@/types/restaurant.types";
@@ -120,19 +121,49 @@ function ownerCooldownDays(approvedCount: number) {
 
 async function getPlanPriceMonthly(restaurantId: string) {
   const supabase = await createClient();
-  const { data: subscription } = await supabase
-    .from("restaurant_subscriptions")
-    .select("plan_id")
-    .eq("restaurant_id", restaurantId)
-    .in("status", ["trialing", "active", "past_due"])
-    .maybeSingle();
+  const [{ data: restaurant }, { data: subscription }] = await Promise.all([
+    supabase.from("restaurants").select("id,owner_user_id,owner_email,created_at").eq("id", restaurantId).maybeSingle(),
+    supabase
+      .from("restaurant_subscriptions")
+      .select("plan_id")
+      .eq("restaurant_id", restaurantId)
+      .in("status", ["trialing", "active", "past_due"])
+      .maybeSingle(),
+  ]);
 
   if (!subscription?.plan_id) {
     return undefined;
   }
 
-  const { data: plan } = await supabase.from("subscription_plans").select("price_monthly").eq("id", subscription.plan_id).maybeSingle();
-  return plan ? Number(plan.price_monthly) : undefined;
+  const { data: plan } = await supabase
+    .from("subscription_plans")
+    .select("price_monthly,additional_restaurant_price_monthly")
+    .eq("id", subscription.plan_id)
+    .maybeSingle();
+  const planRow = plan as { price_monthly?: number | string | null; additional_restaurant_price_monthly?: number | string | null } | null;
+
+  if (!planRow) {
+    return undefined;
+  }
+
+  const primaryPrice = Number(planRow.price_monthly ?? primaryLocationPriceMonthly);
+  const additionalPrice = Number(planRow.additional_restaurant_price_monthly ?? additionalLocationPriceMonthly);
+
+  if (!restaurant?.owner_user_id && !restaurant?.owner_email) {
+    return primaryPrice;
+  }
+
+  let ownerQuery = supabase.from("restaurants").select("id,created_at").is("deleted_at", null).order("created_at", { ascending: true });
+
+  if (restaurant.owner_user_id) {
+    ownerQuery = ownerQuery.eq("owner_user_id", restaurant.owner_user_id);
+  } else if (restaurant.owner_email) {
+    ownerQuery = ownerQuery.eq("owner_email", restaurant.owner_email);
+  }
+
+  const { data: ownerRestaurants } = await ownerQuery;
+  const firstRestaurantId = ownerRestaurants?.[0]?.id;
+  return firstRestaurantId && firstRestaurantId !== restaurantId ? additionalPrice : primaryPrice;
 }
 
 async function ensureCycleExists(restaurantId: string, dueDate: string) {

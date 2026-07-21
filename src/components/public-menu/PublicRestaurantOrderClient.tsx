@@ -5,6 +5,7 @@ import Link from "next/link";
 import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
+import { RestaurantDistanceBadge } from "@/components/location/RestaurantDistanceBadge";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { BrandLogo } from "@/components/brand/BrandLogo";
@@ -336,6 +337,12 @@ export function PublicRestaurantOrderClient({
                   <span>{settings?.deliveryFee ? `${formatMoney(settings.deliveryFee)} envio` : "Delivery disponible"}</span>
                   <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
                   <span>{products.length} {catalogItemsLabel}</span>
+                  {typeof restaurant.latitude === "number" && typeof restaurant.longitude === "number" ? (
+                    <>
+                      <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
+                      <RestaurantDistanceBadge latitude={restaurant.latitude} longitude={restaurant.longitude} showRequest variant="hero" />
+                    </>
+                  ) : null}
                 </div>
               </div>
               <div className="absolute bottom-5 right-5 z-20 hidden max-w-xs rounded-[1.35rem] bg-[var(--primary)]/92 p-4 text-white shadow-xl ring-1 ring-white/15 backdrop-blur sm:block">

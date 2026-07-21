@@ -30,6 +30,10 @@ export async function AdminLayout({
     redirect("/admin/login?error=session");
   }
 
+  if (profile.mustChangePassword) {
+    redirect("/admin/cambiar-contrasena");
+  }
+
   if (!restaurantId) {
     if (profile.globalRole !== "superadmin") {
       redirect("/admin");
@@ -40,12 +44,15 @@ export async function AdminLayout({
     restaurantId && restaurantStatus ? platformBillingService.getBillingSnapshot(restaurantId, restaurantStatus).then((snapshot) => snapshot.alert) : Promise.resolve(null),
     restaurantId ? orderService.listPendingAlerts(restaurantId) : Promise.resolve([]),
   ]);
-  const canSwitchBranches = profile.globalRole !== "superadmin" && restaurantId ? (await membershipService.listActiveRestaurantsForUser(profile.id)).length > 1 : false;
+  const memberships = profile.globalRole !== "superadmin" && restaurantId ? await membershipService.listActiveRestaurantsForUser(profile.id) : [];
+  const canSwitchBranches = memberships.length > 1;
+  const canAccessOwnerPanel = memberships.some((membership) => membership.role === "restaurant_admin" && membership.restaurant.ownerUserId === profile.id);
 
   return (
     <AdminShellClient
       active={active}
       billingAlert={billingAlert}
+      canAccessOwnerPanel={canAccessOwnerPanel}
       canAccessSuperadmin={profile.globalRole === "superadmin"}
       canSwitchBranches={canSwitchBranches}
       enabledModules={enabledModules}

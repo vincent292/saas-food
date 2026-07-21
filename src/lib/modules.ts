@@ -1,5 +1,4 @@
 import type { ModuleKey, Restaurant } from "@/types/restaurant.types";
-import { businessTypeSupportsKitchen, businessTypeSupportsTableQr } from "@/lib/restaurant-directory-options";
 
 export const moduleCatalog: { key: ModuleKey; label: string }[] = [
   { key: "public_menu", label: "Catalogo publico" },
@@ -13,21 +12,16 @@ export const moduleCatalog: { key: ModuleKey; label: string }[] = [
 ];
 
 export function isModuleAvailableForBusinessType(moduleKey: ModuleKey, businessType: Restaurant["businessType"]) {
-  if (moduleKey === "table_qr") {
-    return businessTypeSupportsTableQr(businessType);
-  }
-
-  if (moduleKey === "kitchen") {
-    return businessTypeSupportsKitchen(businessType);
-  }
-
+  void moduleKey;
+  void businessType;
   return true;
 }
 
 export function hasRestaurantModule(restaurant: Restaurant, moduleKey: ModuleKey) {
-  return restaurant.status === "active" && isModuleAvailableForBusinessType(moduleKey, restaurant.businessType) && Boolean(restaurant.activeModules?.includes(moduleKey));
+  void moduleKey;
+  return restaurant.status === "active";
 }
 
 export function modulesForAdminLayout(restaurant: Restaurant) {
-  return restaurant.status === "active" ? (restaurant.activeModules ?? []).filter((moduleKey) => isModuleAvailableForBusinessType(moduleKey, restaurant.businessType)) : [];
+  return restaurant.status === "active" ? moduleCatalog.map((module) => module.key) : [];
 }

@@ -25,7 +25,7 @@ import {
   X,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { signOutAction } from "@/app/admin/actions";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { GlobalOrderSoundAlert } from "@/components/orders/GlobalOrderSoundAlert";
@@ -70,9 +70,9 @@ export function AdminShellClient({
   restaurantName,
   restaurantStatus,
   billingAlert,
+  canAccessOwnerPanel = false,
   canAccessSuperadmin = false,
   canSwitchBranches = false,
-  enabledModules,
   pendingOrderAlerts = [],
   title,
   active = "dashboard",
@@ -82,6 +82,7 @@ export function AdminShellClient({
   restaurantName?: string;
   restaurantStatus?: RestaurantStatus;
   billingAlert?: PlatformBillingAlert | null;
+  canAccessOwnerPanel?: boolean;
   canAccessSuperadmin?: boolean;
   canSwitchBranches?: boolean;
   enabledModules?: ModuleKey[];
@@ -91,13 +92,12 @@ export function AdminShellClient({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [billingModalOpen, setBillingModalOpen] = useState(Boolean(billingAlert?.showModal));
-  const moduleSet = useMemo(() => new Set(enabledModules ?? []), [enabledModules]);
-  const nav = restaurantId ? restaurantNav.filter((item) => !item.moduleKey || moduleSet.has(item.moduleKey)) : superAdminNav;
+  const nav = restaurantId ? restaurantNav : superAdminNav;
   const statusLabel = restaurantStatus === "active" ? "Activo" : restaurantStatus === "suspended" ? "Suspendido" : restaurantStatus === "inactive" ? "Inactivo" : "";
 
   return (
     <div className="min-h-screen bg-[var(--color-surface)] text-[var(--color-heading)]">
-      {restaurantId && moduleSet.has("orders") ? <GlobalOrderSoundAlert orders={pendingOrderAlerts} restaurantId={restaurantId} /> : null}
+      {restaurantId ? <GlobalOrderSoundAlert orders={pendingOrderAlerts} restaurantId={restaurantId} /> : null}
 
       {billingAlert && billingModalOpen ? (
         <div className="fixed inset-0 z-[90] grid place-items-end bg-[var(--color-overlay)] p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
@@ -177,6 +177,12 @@ export function AdminShellClient({
         </nav>
 
         <div className="mt-4 grid gap-2">
+          {canAccessOwnerPanel ? (
+            <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/dueno">
+              <Store className="h-4 w-4" />
+              Panel de dueno
+            </Link>
+          ) : null}
           {canSwitchBranches ? (
             <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/admin">
               <Store className="h-4 w-4" />
@@ -208,10 +214,10 @@ export function AdminShellClient({
             </div>
             <Link
               className="hidden min-h-10 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)] sm:inline-flex"
-              href={canAccessSuperadmin ? "/admin/restaurantes" : canSwitchBranches ? "/admin" : restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}
+              href={canAccessSuperadmin ? "/admin/restaurantes" : canAccessOwnerPanel ? "/dueno" : canSwitchBranches ? "/admin" : restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}
             >
               <BarChart3 className="h-4 w-4" />
-              {canAccessSuperadmin ? "Restaurantes" : canSwitchBranches ? "Sucursales" : "Mi sucursal"}
+              {canAccessSuperadmin ? "Restaurantes" : canAccessOwnerPanel ? "Panel dueno" : canSwitchBranches ? "Sucursales" : "Mi sucursal"}
             </Link>
           </div>
         </header>

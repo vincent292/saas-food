@@ -52,6 +52,9 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
               <Link className={buttonClasses("secondary")} href={`/admin/restaurantes/${restaurant.id}/soporte`}>
                 Soporte
               </Link>
+              <Link className={buttonClasses("secondary")} href={`/admin/restaurantes/${restaurant.id}/cuenta`}>
+                Cuenta
+              </Link>
               <Link className={buttonClasses("primary")} href={`/admin/restaurantes/${restaurant.id}/dashboard`}>
                 Gestionar
               </Link>
@@ -63,8 +66,8 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
 
         <div className="grid gap-4 md:grid-cols-4">
           <InfoCard label="Responsable" value={restaurant.ownerEmail || "Sin responsable"} />
-          <InfoCard label="Plan" value={restaurant.planKey ?? "Sin plan"} />
-          <InfoCard label="Módulos" value={String(restaurant.activeModules?.length ?? 0)} />
+          <InfoCard label="Tarifa" value={restaurant.planKey === "premium" ? "Full" : (restaurant.planKey ?? "Sin tarifa")} />
+          <InfoCard label="Funciones" value="Todo incluido" />
           <InfoCard label="Ventas recientes" value={formatMoney(paidOrders.reduce((sum, order) => sum + order.total, 0))} />
         </div>
 

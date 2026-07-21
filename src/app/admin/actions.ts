@@ -7,9 +7,8 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteRestaurantAssets, uploadPublicImage } from "@/lib/supabase/storage";
+import { fullPlanKey, fullPlanModules } from "@/lib/billing/full-plan";
 import {
-  businessTypeSupportsKitchen,
-  businessTypeSupportsTableQr,
   normalizeRestaurantBusinessType,
   normalizeRestaurantCategory,
   restaurantBusinessTypeValues,
@@ -31,6 +30,26 @@ const loginSchema = z.object({
   password: z.string().min(6),
 });
 
+const createOwnerClientSchema = z.object({
+  ownerName: z.string().min(2),
+  ownerEmail: z.string().email(),
+  branchLimit: z.coerce.number().int().positive().default(1),
+});
+
+const changeInitialPasswordSchema = z
+  .object({
+    password: z
+      .string()
+      .min(10)
+      .regex(/[a-z]/)
+      .regex(/[A-Z]/)
+      .regex(/[0-9]/),
+    confirmPassword: z.string().min(10),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    path: ["confirmPassword"],
+  });
+
 const createRestaurantSchema = z.object({
   name: z.string().min(2),
   slug: z.string().optional(),
@@ -46,7 +65,7 @@ const createRestaurantSchema = z.object({
   publicCategory: z.string().optional(),
   primaryColor: z.string().default(defaultRestaurantPalette.primaryColor),
   secondaryColor: z.string().default(defaultRestaurantPalette.secondaryColor),
-  planKey: z.enum(["basic", "pro", "premium"]).default("basic"),
+  planKey: z.enum(["basic", "pro", "premium"]).default(fullPlanKey),
   ownerName: z.string().optional(),
   ownerEmail: z.string().email().optional().or(z.literal("")),
   ownerPassword: z.string().min(8).optional().or(z.literal("")),
@@ -104,6 +123,38 @@ const updateRestaurantConfigurationSchema = z.object({
   ownerName: z.string().optional(),
   ownerEmail: z.string().email().optional().or(z.literal("")),
   ownerPassword: z.string().min(8).optional().or(z.literal("")),
+});
+
+export type CreateRestaurantFormState = {
+  error?: string;
+  values?: Record<string, string>;
+};
+
+export type CreateOwnerFormState = {
+  error?: string;
+  success?: string;
+  temporaryPassword?: string;
+  values?: Record<string, string>;
+};
+
+export type ChangeInitialPasswordFormState = {
+  error?: string;
+};
+
+const createBranchSchema = z.object({
+  sourceRestaurantId: z.string().uuid(),
+  name: z.string().min(2),
+  slug: z.string().optional(),
+  whatsapp: z.string().optional(),
+  address: z.string().optional(),
+  addressReference: z.string().optional(),
+  city: z.string().optional(),
+  latitude: z.coerce.number().min(-90).max(90).optional(),
+  longitude: z.coerce.number().min(-180).max(180).optional(),
+  mapsUrl: z.string().optional(),
+  branchUserName: z.string().min(2),
+  branchUserEmail: z.string().email(),
+  branchUserPassword: z.string().min(8),
 });
 
 const createAnnouncementSchema = z.object({
@@ -170,8 +221,15 @@ const updatePlanSchema = z.object({
   name: z.string().min(2),
   description: z.string().optional(),
   priceMonthly: z.coerce.number().nonnegative(),
+  additionalRestaurantPriceMonthly: z.coerce.number().nonnegative(),
   maxRestaurants: z.coerce.number().int().positive(),
   maxUsersPerRestaurant: z.coerce.number().int().positive(),
+});
+
+const updateOwnerBranchEntitlementSchema = z.object({
+  ownerUserId: z.string().uuid(),
+  restaurantId: z.string().uuid(),
+  branchLimit: z.coerce.number().int().positive(),
 });
 
 const createCategorySchema = z.object({
@@ -507,15 +565,108 @@ const MAX_SUPPORT_ATTACHMENTS = 5;
 const MAX_SUPPORT_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 async function modulesForPlan(planKey: PlanKey): Promise<ModuleKey[]> {
-  const supabase = await createClient();
-  const { data: plan } = await supabase.from("subscription_plans").select("id").eq("key", planKey).maybeSingle();
+  void planKey;
+  return fullPlanModules;
+}
 
-  if (!plan) {
-    return [];
+function restaurantFormValues(formData: FormData): Record<string, string> {
+  return {
+    name: String(formData.get("name") || ""),
+    slug: String(formData.get("slug") || ""),
+    description: String(formData.get("description") || ""),
+    whatsapp: String(formData.get("whatsapp") || ""),
+    address: String(formData.get("address") || ""),
+    addressReference: String(formData.get("addressReference") || ""),
+    city: String(formData.get("city") || "Cochabamba"),
+    latitude: String(formData.get("latitude") || ""),
+    longitude: String(formData.get("longitude") || ""),
+    mapsUrl: String(formData.get("mapsUrl") || ""),
+    businessType: String(formData.get("businessType") || "food"),
+    publicCategory: String(formData.get("publicCategory") || ""),
+    planKey: String(formData.get("planKey") || fullPlanKey),
+    ownerName: String(formData.get("ownerName") || ""),
+    ownerEmail: String(formData.get("ownerEmail") || ""),
+    ownerPassword: String(formData.get("ownerPassword") || ""),
+  };
+}
+
+function restaurantFormError(formData: FormData, error: string): CreateRestaurantFormState {
+  return {
+    error,
+    values: restaurantFormValues(formData),
+  };
+}
+
+function ownerFormValues(formData: FormData): Record<string, string> {
+  return {
+    ownerName: String(formData.get("ownerName") || ""),
+    ownerEmail: String(formData.get("ownerEmail") || ""),
+    branchLimit: String(formData.get("branchLimit") || "1"),
+  };
+}
+
+function ownerFormError(formData: FormData, error: string): CreateOwnerFormState {
+  return {
+    error,
+    values: ownerFormValues(formData),
+  };
+}
+
+async function ownerEmailAlreadyExists(supabase: Awaited<ReturnType<typeof createClient>>, email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const { data: existingProfile } = await supabase.from("profiles").select("id").eq("email", normalizedEmail).maybeSingle();
+
+  if (existingProfile) {
+    return true;
   }
 
-  const { data: modules } = await supabase.from("plan_modules").select("module_key").eq("plan_id", plan.id).eq("is_enabled", true);
-  return (modules ?? []).map((module) => module.module_key as ModuleKey);
+  const admin = createAdminClient();
+
+  if (!admin) {
+    return false;
+  }
+
+  const perPage = 1000;
+
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+
+    if (error) {
+      return false;
+    }
+
+    if (data.users.some((authUser) => authUser.email?.toLowerCase() === normalizedEmail)) {
+      return true;
+    }
+
+    if (data.users.length < perPage) {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+function secureRandomIndex(length: number) {
+  const values = new Uint32Array(1);
+  crypto.getRandomValues(values);
+  return values[0] % length;
+}
+
+function generateSecurePassword() {
+  const groups = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", "!@#$%*?"];
+  const allCharacters = groups.join("");
+  const password = [
+    ...groups.map((group) => group[secureRandomIndex(group.length)]),
+    ...Array.from({ length: 14 }, () => allCharacters[secureRandomIndex(allCharacters.length)]),
+  ];
+
+  for (let index = password.length - 1; index > 0; index -= 1) {
+    const swapIndex = secureRandomIndex(index + 1);
+    [password[index], password[swapIndex]] = [password[swapIndex], password[index]];
+  }
+
+  return password.join("");
 }
 
 async function requireUser() {
@@ -601,11 +752,11 @@ async function getPlanKeyForRestaurant(supabase: Awaited<ReturnType<typeof creat
     .maybeSingle();
 
   if (!subscription?.plan_id) {
-    return "basic";
+    return fullPlanKey;
   }
 
   const { data: plan } = await supabase.from("subscription_plans").select("key").eq("id", subscription.plan_id).maybeSingle();
-  return (plan?.key as PlanKey | undefined) ?? "basic";
+  return (plan?.key as PlanKey | undefined) ?? fullPlanKey;
 }
 
 async function updateRestaurantPlan(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string, planKey: PlanKey) {
@@ -928,6 +1079,277 @@ async function updateRestaurantOwnerAccess({
   };
 }
 
+async function getOwnerBranchQuota(
+  admin: NonNullable<ReturnType<typeof createAdminClient>>,
+  ownerUserId: string,
+) {
+  const [{ data: memberships }, { data: entitlement }] = await Promise.all([
+    admin
+      .from("restaurant_memberships")
+      .select("restaurant_id")
+      .eq("user_id", ownerUserId)
+      .eq("role", "restaurant_admin")
+      .eq("is_active", true),
+    admin.from("owner_branch_entitlements").select("branch_limit").eq("owner_user_id", ownerUserId).maybeSingle(),
+  ]);
+
+  const membershipRestaurantIds = Array.from(new Set((memberships ?? []).map((membership) => membership.restaurant_id)));
+  const limit = Math.max(1, Number(entitlement?.branch_limit ?? 1));
+
+  if (!membershipRestaurantIds.length) {
+    return { used: 0, limit };
+  }
+
+  const { data: restaurants } = await admin
+    .from("restaurants")
+    .select("id")
+    .in("id", membershipRestaurantIds)
+    .eq("status", "active")
+    .is("deleted_at", null);
+
+  const activeRestaurantIds = (restaurants ?? []).map((restaurant) => restaurant.id);
+  return { used: activeRestaurantIds.length, limit };
+}
+
+async function cloneBranchCatalog(
+  admin: NonNullable<ReturnType<typeof createAdminClient>>,
+  sourceRestaurantId: string,
+  targetRestaurantId: string,
+) {
+  const { data: categories } = await admin
+    .from("categories")
+    .select("id,name,description,image_url,sort_order,is_active")
+    .eq("restaurant_id", sourceRestaurantId)
+    .order("sort_order");
+
+  const categoryIdMap = new Map<string, string>();
+  const categoryRows = (categories ?? []).map((category) => {
+    const id = crypto.randomUUID();
+    categoryIdMap.set(category.id, id);
+    return {
+      id,
+      restaurant_id: targetRestaurantId,
+      name: category.name,
+      description: category.description,
+      image_url: category.image_url,
+      sort_order: category.sort_order,
+      is_active: category.is_active,
+    };
+  });
+
+  if (categoryRows.length) {
+    await admin.from("categories").insert(categoryRows);
+  }
+
+  const { data: products } = await admin
+    .from("products")
+    .select("id,category_id,name,description,price,image_url,is_available,is_featured,track_stock,sort_order")
+    .eq("restaurant_id", sourceRestaurantId)
+    .order("sort_order");
+
+  const productIdMap = new Map<string, string>();
+  const productRows = (products ?? []).map((product) => {
+    const id = crypto.randomUUID();
+    productIdMap.set(product.id, id);
+    return {
+      id,
+      restaurant_id: targetRestaurantId,
+      category_id: product.category_id ? (categoryIdMap.get(product.category_id) ?? null) : null,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      image_url: product.image_url,
+      is_available: product.is_available,
+      is_featured: product.is_featured,
+      track_stock: product.track_stock,
+      sort_order: product.sort_order,
+    };
+  });
+
+  if (productRows.length) {
+    await admin.from("products").insert(productRows);
+  }
+
+  const { data: variants } = await admin
+    .from("product_variants")
+    .select("product_id,name,description,price_delta,sort_order,is_active")
+    .eq("restaurant_id", sourceRestaurantId)
+    .order("sort_order");
+
+  const variantRows = (variants ?? [])
+    .map((variant) => {
+      const productId = productIdMap.get(variant.product_id);
+      return productId
+        ? {
+            restaurant_id: targetRestaurantId,
+            product_id: productId,
+            name: variant.name,
+            description: variant.description,
+            price_delta: variant.price_delta,
+            sort_order: variant.sort_order,
+            is_active: variant.is_active,
+          }
+        : null;
+    })
+    .filter(Boolean);
+
+  if (variantRows.length) {
+    await admin.from("product_variants").insert(variantRows);
+  }
+
+  const { data: optionGroups } = await admin
+    .from("product_option_groups")
+    .select("id,product_id,name,description,min_choices,max_choices,is_required,sort_order,is_active")
+    .eq("restaurant_id", sourceRestaurantId)
+    .order("sort_order");
+
+  const optionGroupIdMap = new Map<string, string>();
+  const optionGroupRows = (optionGroups ?? [])
+    .map((group) => {
+      const productId = productIdMap.get(group.product_id);
+      if (!productId) {
+        return null;
+      }
+
+      const id = crypto.randomUUID();
+      optionGroupIdMap.set(group.id, id);
+      return {
+        id,
+        restaurant_id: targetRestaurantId,
+        product_id: productId,
+        name: group.name,
+        description: group.description,
+        min_choices: group.min_choices,
+        max_choices: group.max_choices,
+        is_required: group.is_required,
+        sort_order: group.sort_order,
+        is_active: group.is_active,
+      };
+    })
+    .filter(Boolean);
+
+  if (optionGroupRows.length) {
+    await admin.from("product_option_groups").insert(optionGroupRows);
+  }
+
+  const { data: options } = await admin
+    .from("product_options")
+    .select("product_id,option_group_id,name,description,price_delta,sort_order,is_active")
+    .eq("restaurant_id", sourceRestaurantId)
+    .order("sort_order");
+
+  const optionRows = (options ?? [])
+    .map((option) => {
+      const productId = productIdMap.get(option.product_id);
+      const optionGroupId = optionGroupIdMap.get(option.option_group_id);
+      return productId && optionGroupId
+        ? {
+            restaurant_id: targetRestaurantId,
+            product_id: productId,
+            option_group_id: optionGroupId,
+            name: option.name,
+            description: option.description,
+            price_delta: option.price_delta,
+            sort_order: option.sort_order,
+            is_active: option.is_active,
+          }
+        : null;
+    })
+    .filter(Boolean);
+
+  if (optionRows.length) {
+    await admin.from("product_options").insert(optionRows);
+  }
+}
+
+async function cloneBranchRuntimeSettings(
+  admin: NonNullable<ReturnType<typeof createAdminClient>>,
+  sourceRestaurantId: string,
+  targetRestaurantId: string,
+) {
+  const [{ data: settings }, { data: hours }, { data: subscription }] = await Promise.all([
+    admin.from("restaurant_settings").select("*").eq("restaurant_id", sourceRestaurantId).maybeSingle(),
+    admin.from("business_hours").select("day_of_week,opens_at,closes_at,is_closed").eq("restaurant_id", sourceRestaurantId),
+    admin
+      .from("restaurant_subscriptions")
+      .select("plan_id,status")
+      .eq("restaurant_id", sourceRestaurantId)
+      .in("status", ["trialing", "active", "past_due"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (settings) {
+    await admin.from("restaurant_settings").insert({
+      restaurant_id: targetRestaurantId,
+      delivery_enabled: true,
+      pickup_enabled: true,
+      table_orders_enabled: true,
+      inventory_enabled: true,
+      cash_enabled: true,
+      kitchen_enabled: true,
+      delivery_fee: settings.delivery_fee,
+      free_delivery_from: settings.free_delivery_from,
+      min_order_amount: settings.min_order_amount,
+      currency: settings.currency,
+      invoice_enabled: settings.invoice_enabled,
+      qr_payment_url: settings.qr_payment_url,
+      qr_account_name: settings.qr_account_name,
+      qr_account_document: settings.qr_account_document,
+      qr_bank_name: settings.qr_bank_name,
+      qr_account_type: settings.qr_account_type,
+      qr_currency: settings.qr_currency,
+      print_format: settings.print_format,
+      auto_print_kitchen: settings.auto_print_kitchen,
+      print_logo: settings.print_logo,
+    });
+  } else {
+    await admin.from("restaurant_settings").insert({
+      restaurant_id: targetRestaurantId,
+      delivery_enabled: true,
+      pickup_enabled: true,
+      table_orders_enabled: true,
+      inventory_enabled: true,
+      cash_enabled: true,
+      kitchen_enabled: true,
+      delivery_fee: 0,
+      min_order_amount: 0,
+      currency: "BOB",
+    });
+  }
+
+  const moduleRows = fullPlanModules.map((moduleKey) => ({
+    restaurant_id: targetRestaurantId,
+    module_key: moduleKey,
+    is_enabled: true,
+  }));
+
+  if (moduleRows.length) {
+    await admin.from("module_settings").insert(moduleRows);
+  }
+
+  const hourRows = (hours ?? []).map((hour) => ({
+    restaurant_id: targetRestaurantId,
+    day_of_week: hour.day_of_week,
+    opens_at: hour.opens_at,
+    closes_at: hour.closes_at,
+    is_closed: hour.is_closed,
+  }));
+
+  if (hourRows.length) {
+    await admin.from("business_hours").insert(hourRows);
+  }
+
+  if (subscription) {
+    await admin.from("restaurant_subscriptions").insert({
+      restaurant_id: targetRestaurantId,
+      plan_id: subscription.plan_id,
+      status: subscription.status,
+    });
+  }
+}
+
 async function getOpenCashSession(restaurantId: string) {
   const supabase = await createClient();
   const { data } = await supabase
@@ -991,6 +1413,28 @@ function parseJsonArray(value: FormDataEntryValue | null) {
   }
 }
 
+async function redirectAfterAuthenticatedUser(userId: string): Promise<never> {
+  const supabase = await createClient();
+  const { data: profile } = await supabase.from("profiles").select("global_role").eq("id", userId).maybeSingle();
+
+  if (profile?.global_role === "superadmin") {
+    redirect("/admin");
+  }
+
+  const memberships = await membershipService.listActiveRestaurantsForUser(userId);
+  const isOwner = memberships.some((membership) => membership.role === "restaurant_admin" && membership.restaurant.ownerUserId === userId);
+
+  if (isOwner || memberships.length === 0) {
+    redirect("/dueno");
+  }
+
+  if (memberships.length === 1) {
+    redirect(`/admin/restaurantes/${memberships[0].restaurant.id}/dashboard`);
+  }
+
+  redirect("/admin");
+}
+
 export async function signInAction(formData: FormData) {
   const parsed = loginSchema.safeParse({
     email: formData.get("email"),
@@ -1015,26 +1459,13 @@ export async function signInAction(formData: FormData) {
     redirect("/admin/login?error=session");
   }
 
-  const { data: profile } = await supabase.from("profiles").select("global_role").eq("id", user.id).maybeSingle();
+  if (user.user_metadata?.must_change_password === true) {
+    redirect("/admin/cambiar-contrasena");
+  }
 
   revalidatePath("/admin", "layout");
-
-  if (profile?.global_role === "superadmin") {
-    redirect("/admin");
-  }
-
-  const memberships = await membershipService.listActiveRestaurantsForUser(user.id);
-
-  if (memberships.length === 1) {
-    redirect(`/admin/restaurantes/${memberships[0].restaurant.id}/dashboard`);
-  }
-
-  if (memberships.length > 1) {
-    redirect("/admin");
-  }
-
-  await supabase.auth.signOut();
-  redirect("/admin/login?error=no-access");
+  revalidatePath("/dueno", "layout");
+  await redirectAfterAuthenticatedUser(user.id);
 }
 
 export async function signOutAction() {
@@ -1045,6 +1476,46 @@ export async function signOutAction() {
   await supabase.auth.signOut();
   revalidatePath("/admin", "layout");
   redirect("/admin/login");
+}
+
+export async function changeInitialPasswordAction(
+  _state: ChangeInitialPasswordFormState,
+  formData: FormData,
+): Promise<ChangeInitialPasswordFormState> {
+  const parsed = changeInitialPasswordSchema.safeParse({
+    password: formData.get("password"),
+    confirmPassword: formData.get("confirmPassword"),
+  });
+
+  if (!parsed.success) {
+    return { error: "invalid" };
+  }
+
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getUser();
+  const user = data.user;
+
+  if (!user) {
+    redirect("/admin/login?error=session");
+  }
+
+  const { error } = await supabase.auth.updateUser({
+    password: parsed.data.password,
+    data: {
+      ...(user.user_metadata ?? {}),
+      must_change_password: false,
+      password_changed_at: new Date().toISOString(),
+    },
+  });
+
+  if (error) {
+    return { error: "update" };
+  }
+
+  revalidatePath("/admin", "layout");
+  revalidatePath("/dueno", "layout");
+  await redirectAfterAuthenticatedUser(user.id);
+  return { error: "update" };
 }
 
 export async function setRestaurantStatusAction(formData: FormData) {
@@ -1467,6 +1938,7 @@ export async function updatePlanAction(formData: FormData) {
     name: formData.get("name"),
     description: formData.get("description") || undefined,
     priceMonthly: formData.get("priceMonthly") || 0,
+    additionalRestaurantPriceMonthly: formData.get("additionalRestaurantPriceMonthly") || 0,
     maxRestaurants: formData.get("maxRestaurants") || 1,
     maxUsersPerRestaurant: formData.get("maxUsersPerRestaurant") || 1,
   });
@@ -1482,6 +1954,7 @@ export async function updatePlanAction(formData: FormData) {
       name: parsed.data.name,
       description: parsed.data.description ?? null,
       price_monthly: parsed.data.priceMonthly,
+      additional_restaurant_price_monthly: parsed.data.additionalRestaurantPriceMonthly,
       max_restaurants: parsed.data.maxRestaurants,
       max_users_per_restaurant: parsed.data.maxUsersPerRestaurant,
       is_active: true,
@@ -1495,7 +1968,7 @@ export async function updatePlanAction(formData: FormData) {
   const moduleRows = moduleCatalog.map((module) => ({
     plan_id: parsed.data.planId,
     module_key: module.key,
-    is_enabled: booleanFromForm(formData, `module_${module.key}`),
+    is_enabled: true,
   }));
   const { error: moduleError } = await supabase.from("plan_modules").upsert(moduleRows, { onConflict: "plan_id,module_key" });
 
@@ -1509,7 +1982,120 @@ export async function updatePlanAction(formData: FormData) {
   redirect("/admin/planes?plans=1");
 }
 
-export async function createRestaurantAction(formData: FormData) {
+export async function updateOwnerBranchEntitlementAction(formData: FormData) {
+  const parsed = updateOwnerBranchEntitlementSchema.safeParse({
+    ownerUserId: formData.get("ownerUserId"),
+    restaurantId: formData.get("restaurantId"),
+    branchLimit: formData.get("branchLimit") || 1,
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/cuenta?error=invalid-entitlement`);
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  const { error } = await supabase.from("owner_branch_entitlements").upsert(
+    {
+      owner_user_id: parsed.data.ownerUserId,
+      branch_limit: parsed.data.branchLimit,
+      updated_by: user.id,
+    },
+    { onConflict: "owner_user_id" },
+  );
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?error=${error.code}`);
+  }
+
+  revalidatePath("/admin/restaurantes");
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta`);
+  revalidatePath("/dueno");
+  revalidatePath("/dueno/plan");
+  revalidatePath("/dueno/sucursales");
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?saved=cupos`);
+}
+
+export async function createOwnerClientAction(
+  _state: CreateOwnerFormState,
+  formData: FormData,
+): Promise<CreateOwnerFormState> {
+  const parsed = createOwnerClientSchema.safeParse({
+    ownerName: formData.get("ownerName"),
+    ownerEmail: formData.get("ownerEmail"),
+    branchLimit: formData.get("branchLimit") || 1,
+  });
+
+  if (!parsed.success) {
+    return ownerFormError(formData, "invalid");
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  const normalizedEmail = parsed.data.ownerEmail.trim().toLowerCase();
+  const normalizedName = parsed.data.ownerName.trim();
+
+  if (await ownerEmailAlreadyExists(supabase, normalizedEmail)) {
+    return ownerFormError(formData, "owner-email-exists");
+  }
+
+  const admin = createAdminClient();
+
+  if (!admin) {
+    return ownerFormError(formData, "service-role-required");
+  }
+
+  const temporaryPassword = generateSecurePassword();
+  const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
+    email: normalizedEmail,
+    password: temporaryPassword,
+    email_confirm: true,
+    user_metadata: {
+      full_name: normalizedName,
+      must_change_password: true,
+    },
+  });
+
+  if (createError || !createdUser.user?.id) {
+    const message = createError?.message.toLowerCase() ?? "";
+    return ownerFormError(formData, message.includes("already") ? "owner-email-exists" : "owner-create");
+  }
+
+  const { error: profileError } = await supabase.from("profiles").upsert(
+    {
+      id: createdUser.user.id,
+      email: normalizedEmail,
+      full_name: normalizedName,
+      global_role: null,
+    },
+    { onConflict: "id" },
+  );
+
+  if (profileError) {
+    return ownerFormError(formData, profileError.code ?? "profile-create");
+  }
+
+  const { error: entitlementError } = await supabase.from("owner_branch_entitlements").upsert(
+    {
+      owner_user_id: createdUser.user.id,
+      branch_limit: parsed.data.branchLimit,
+      created_by: user.id,
+      updated_by: user.id,
+    },
+    { onConflict: "owner_user_id" },
+  );
+
+  if (entitlementError) {
+    return ownerFormError(formData, entitlementError.code ?? "owner-entitlement");
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/restaurantes");
+  return { success: normalizedEmail, temporaryPassword };
+}
+
+export async function createOwnedRestaurantFormAction(
+  _state: CreateRestaurantFormState,
+  formData: FormData,
+): Promise<CreateRestaurantFormState> {
   const parsed = createRestaurantSchema.safeParse({
     name: formData.get("name"),
     slug: formData.get("slug") || undefined,
@@ -1525,37 +2111,65 @@ export async function createRestaurantAction(formData: FormData) {
     publicCategory: formData.get("publicCategory") || undefined,
     primaryColor: formData.get("primaryColor") || defaultRestaurantPalette.primaryColor,
     secondaryColor: formData.get("secondaryColor") || defaultRestaurantPalette.secondaryColor,
-    planKey: formData.get("planKey") || "basic",
-    ownerName: formData.get("ownerName") || undefined,
-    ownerEmail: formData.get("ownerEmail") || undefined,
-    ownerPassword: formData.get("ownerPassword") || undefined,
+    planKey: formData.get("planKey") || fullPlanKey,
+    ownerName: undefined,
+    ownerEmail: undefined,
+    ownerPassword: undefined,
   });
 
   if (!parsed.success) {
-    redirect("/admin/restaurantes/nuevo?error=invalid");
+    return restaurantFormError(formData, "invalid");
   }
 
-  const { supabase, user } = await requireSuperadmin();
-  const owner = await ensureRestaurantOwner({
-    supabase,
-    fallbackUserId: user.id,
-    fallbackEmail: user.email ?? "",
-    ownerName: parsed.data.ownerName,
-    ownerEmail: parsed.data.ownerEmail || undefined,
-    ownerPassword: parsed.data.ownerPassword || undefined,
-  }).catch((error: Error) => {
-    redirect(`/admin/restaurantes/nuevo?error=${error.message}`);
-  });
+  const { supabase, user } = await requireUser();
+  const { data: profile } = await supabase.from("profiles").select("email,full_name,global_role").eq("id", user.id).maybeSingle();
+
+  if (profile?.global_role === "superadmin") {
+    return restaurantFormError(formData, "owner-only");
+  }
+
+  const admin = createAdminClient();
+
+  if (!admin) {
+    return restaurantFormError(formData, "service-role-required");
+  }
+
+  const { data: existingMemberships } = await admin
+    .from("restaurant_memberships")
+    .select("restaurant_id")
+    .eq("user_id", user.id)
+    .eq("role", "restaurant_admin")
+    .eq("is_active", true)
+    .limit(1);
+
+  if (existingMemberships?.length) {
+    return restaurantFormError(formData, "restaurant-exists");
+  }
 
   const slug = toSlug(parsed.data.slug || parsed.data.name);
-  const logoUrl = await uploadPublicImage(formData.get("logoFile") as File | null, `restaurants/${slug}/identity`);
-  const bannerUrl = await uploadPublicImage(formData.get("bannerFile") as File | null, `restaurants/${slug}/identity`);
-  const enabledPlanModules = await modulesForPlan(parsed.data.planKey);
+  const { data: existingSlug } = await admin.from("restaurants").select("id").eq("slug", slug).maybeSingle();
+
+  if (existingSlug) {
+    return restaurantFormError(formData, "slug-exists");
+  }
+
+  let logoUrl: string | null = null;
+  let bannerUrl: string | null = null;
+
+  try {
+    logoUrl = await uploadPublicImage(formData.get("logoFile") as File | null, `restaurants/${slug}/identity`);
+    bannerUrl = await uploadPublicImage(formData.get("bannerFile") as File | null, `restaurants/${slug}/identity`);
+  } catch {
+    return restaurantFormError(formData, "storage-upload");
+  }
+
+  const planKey = fullPlanKey;
+  const enabledPlanModules = await modulesForPlan(planKey);
   const businessType = normalizeRestaurantBusinessType(parsed.data.businessType);
   const publicCategory = normalizeRestaurantCategory(parsed.data.publicCategory, businessType);
-  const supportsTableQr = businessTypeSupportsTableQr(businessType);
-  const supportsKitchen = businessTypeSupportsKitchen(businessType);
-  const { data: restaurant, error: restaurantError } = await supabase
+  const ownerName = profile?.full_name || user.user_metadata?.full_name || user.email || "Dueno";
+  const ownerEmail = profile?.email || user.email || "";
+  const { data: restaurant, error: restaurantError } = await admin
     .from("restaurants")
     .insert({
       name: parsed.data.name,
@@ -1575,43 +2189,43 @@ export async function createRestaurantAction(formData: FormData) {
       maps_url: parsed.data.mapsUrl ?? null,
       business_type: businessType,
       public_category: publicCategory,
-      owner_user_id: owner.id,
-      owner_name: owner.name,
-      owner_email: owner.email,
+      owner_user_id: user.id,
+      owner_name: ownerName,
+      owner_email: ownerEmail,
     })
     .select("id")
     .single();
 
   if (restaurantError || !restaurant) {
-    redirect(`/admin/restaurantes/nuevo?error=${restaurantError?.code ?? "create"}`);
+    return restaurantFormError(formData, restaurantError?.code ?? "create");
   }
 
-  await supabase.from("restaurant_settings").insert({
+  await admin.from("restaurant_settings").insert({
     restaurant_id: restaurant.id,
     delivery_enabled: true,
     pickup_enabled: true,
-    table_orders_enabled: supportsTableQr && enabledPlanModules.includes("table_qr"),
+    table_orders_enabled: enabledPlanModules.includes("table_qr"),
     inventory_enabled: enabledPlanModules.includes("inventory"),
     cash_enabled: enabledPlanModules.includes("cash"),
-    kitchen_enabled: supportsKitchen && enabledPlanModules.includes("kitchen"),
+    kitchen_enabled: enabledPlanModules.includes("kitchen"),
     delivery_fee: 0,
     min_order_amount: 0,
     currency: "BOB",
   });
 
-  const { data: plan } = await supabase.from("subscription_plans").select("id").eq("key", parsed.data.planKey).maybeSingle();
+  const { data: plan } = await admin.from("subscription_plans").select("id").eq("key", planKey).maybeSingle();
 
   if (plan) {
-    await supabase.from("restaurant_subscriptions").insert({
+    await admin.from("restaurant_subscriptions").insert({
       restaurant_id: restaurant.id,
       plan_id: plan.id,
       status: "trialing",
     });
   }
 
-  await supabase.from("restaurant_memberships").insert({
+  await admin.from("restaurant_memberships").insert({
     restaurant_id: restaurant.id,
-    user_id: owner.id,
+    user_id: user.id,
     role: "restaurant_admin",
     is_active: true,
   });
@@ -1623,12 +2237,195 @@ export async function createRestaurantAction(formData: FormData) {
   }));
 
   if (moduleRows.length) {
-    await supabase.from("module_settings").insert(moduleRows);
+    await admin.from("module_settings").insert(moduleRows);
   }
 
   revalidatePath("/admin");
+  revalidatePath("/dueno");
   revalidatePath("/admin/restaurantes");
-  redirect(`/admin/restaurantes/${restaurant.id}/dashboard`);
+  redirect("/dueno");
+}
+
+export async function createBranchAction(formData: FormData) {
+  const parsed = createBranchSchema.safeParse({
+    sourceRestaurantId: formData.get("sourceRestaurantId"),
+    name: formData.get("name"),
+    slug: formData.get("slug") || undefined,
+    whatsapp: formData.get("whatsapp") || undefined,
+    address: formData.get("address") || undefined,
+    addressReference: formData.get("addressReference") || undefined,
+    city: formData.get("city") || undefined,
+    latitude: formData.get("latitude") || undefined,
+    longitude: formData.get("longitude") || undefined,
+    mapsUrl: formData.get("mapsUrl") || undefined,
+    branchUserName: formData.get("branchUserName"),
+    branchUserEmail: formData.get("branchUserEmail"),
+    branchUserPassword: formData.get("branchUserPassword"),
+  });
+
+  if (!parsed.success) {
+    redirect("/dueno/sucursales/nueva?error=invalid");
+  }
+
+  const { user } = await requireUser();
+  const admin = createAdminClient();
+
+  if (!admin) {
+    redirect("/dueno/sucursales/nueva?error=service-role-required");
+  }
+
+  const { data: membership } = await admin
+    .from("restaurant_memberships")
+    .select("role")
+    .eq("restaurant_id", parsed.data.sourceRestaurantId)
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (membership?.role !== "restaurant_admin") {
+    redirect("/dueno/sucursales/nueva?error=owner-required");
+  }
+
+  const { used, limit } = await getOwnerBranchQuota(admin, user.id);
+
+  if (used >= limit) {
+    redirect("/dueno/sucursales/nueva?error=branch-limit");
+  }
+
+  const { data: sourceRestaurant } = await admin
+    .from("restaurants")
+    .select("*")
+    .eq("id", parsed.data.sourceRestaurantId)
+    .eq("status", "active")
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (!sourceRestaurant) {
+    redirect("/dueno/sucursales/nueva?error=source-not-found");
+  }
+
+  if (sourceRestaurant.owner_user_id !== user.id) {
+    redirect("/dueno/sucursales/nueva?error=owner-required");
+  }
+
+  const slug = toSlug(parsed.data.slug || parsed.data.name);
+  const { data: existingSlug } = await admin.from("restaurants").select("id").eq("slug", slug).maybeSingle();
+
+  if (existingSlug) {
+    redirect("/dueno/sucursales/nueva?error=slug-exists");
+  }
+
+  const normalizedBranchUserEmail = parsed.data.branchUserEmail.trim().toLowerCase();
+  const { data: existingBranchProfile } = await admin.from("profiles").select("id").eq("email", normalizedBranchUserEmail).maybeSingle();
+
+  if (existingBranchProfile) {
+    redirect("/dueno/sucursales/nueva?error=branch-user-email-exists");
+  }
+
+  const { data: authUsers, error: authUsersError } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+
+  if (authUsersError) {
+    redirect("/dueno/sucursales/nueva?error=branch-user-check");
+  }
+
+  if (authUsers.users.some((authUser) => authUser.email?.toLowerCase() === normalizedBranchUserEmail)) {
+    redirect("/dueno/sucursales/nueva?error=branch-user-email-exists");
+  }
+
+  const { data: branch, error: branchError } = await admin
+    .from("restaurants")
+    .insert({
+      name: parsed.data.name,
+      slug,
+      description: sourceRestaurant.description,
+      status: "active",
+      logo_url: sourceRestaurant.logo_url,
+      banner_url: sourceRestaurant.banner_url,
+      primary_color: sourceRestaurant.primary_color,
+      secondary_color: sourceRestaurant.secondary_color,
+      whatsapp: parsed.data.whatsapp || sourceRestaurant.whatsapp,
+      address: parsed.data.address,
+      address_reference: parsed.data.addressReference,
+      city: parsed.data.city,
+      latitude: parsed.data.latitude ?? null,
+      longitude: parsed.data.longitude ?? null,
+      maps_url: parsed.data.mapsUrl ?? null,
+      business_type: sourceRestaurant.business_type,
+      public_category: sourceRestaurant.public_category,
+      owner_user_id: sourceRestaurant.owner_user_id ?? user.id,
+      owner_name: sourceRestaurant.owner_name,
+      owner_email: sourceRestaurant.owner_email ?? user.email,
+      background_color: sourceRestaurant.background_color,
+      surface_color: sourceRestaurant.surface_color,
+      text_color: sourceRestaurant.text_color,
+      muted_color: sourceRestaurant.muted_color,
+      border_color: sourceRestaurant.border_color,
+      nav_background_color: sourceRestaurant.nav_background_color,
+      nav_text_color: sourceRestaurant.nav_text_color,
+      menu_background_image_url: sourceRestaurant.menu_background_image_url,
+      public_banner_size: sourceRestaurant.public_banner_size,
+    })
+    .select("id")
+    .single();
+
+  if (branchError || !branch) {
+    redirect(`/dueno/sucursales/nueva?error=${branchError?.code ?? "create"}`);
+  }
+
+  const branchUserName = parsed.data.branchUserName.trim();
+  const { data: branchUser, error: branchUserError } = await admin.auth.admin.createUser({
+    email: normalizedBranchUserEmail,
+    password: parsed.data.branchUserPassword,
+    email_confirm: true,
+    user_metadata: {
+      full_name: branchUserName,
+      must_change_password: true,
+      branch_restaurant_id: branch.id,
+    },
+  });
+
+  if (branchUserError || !branchUser.user?.id) {
+    await admin.from("restaurants").delete().eq("id", branch.id);
+    redirect(`/dueno/sucursales/nueva?error=${branchUserError?.message.toLowerCase().includes("already") ? "branch-user-email-exists" : "branch-user-create"}`);
+  }
+
+  const { error: branchProfileError } = await admin.from("profiles").upsert(
+    {
+      id: branchUser.user.id,
+      email: normalizedBranchUserEmail,
+      full_name: branchUserName,
+      global_role: null,
+    },
+    { onConflict: "id" },
+  );
+
+  if (branchProfileError) {
+    await admin.auth.admin.deleteUser(branchUser.user.id);
+    await admin.from("restaurants").delete().eq("id", branch.id);
+    redirect("/dueno/sucursales/nueva?error=branch-user-profile");
+  }
+
+  await admin.from("restaurant_memberships").insert({
+    restaurant_id: branch.id,
+    user_id: user.id,
+    role: "restaurant_admin",
+    is_active: true,
+  });
+
+  await admin.from("restaurant_memberships").insert({
+    restaurant_id: branch.id,
+    user_id: branchUser.user.id,
+    role: "restaurant_admin",
+    is_active: true,
+  });
+
+  await cloneBranchRuntimeSettings(admin, parsed.data.sourceRestaurantId, branch.id);
+  await cloneBranchCatalog(admin, parsed.data.sourceRestaurantId, branch.id);
+
+  revalidatePath("/admin");
+  revalidatePath("/dueno");
+  revalidatePath("/admin/restaurantes");
+  redirect("/dueno/sucursales?created=1");
 }
 
 async function dispatchRestaurantSettingsIntent(rawIntent: string, formData: FormData, returnTab: string) {
@@ -1787,11 +2584,8 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   const canChangePlan = isSuperadmin;
   const planKey = canChangePlan && parsed.data.planKey ? parsed.data.planKey : await getPlanKeyForRestaurant(supabase, parsed.data.restaurantId);
   const allowedModules = await modulesForPlan(planKey);
-  const isAllowedModule = (moduleKey: ModuleKey) => allowedModules.includes(moduleKey);
   const businessType = normalizeRestaurantBusinessType(parsed.data.businessType ?? currentRestaurant.business_type ?? "food");
   const normalizedCategory = normalizeRestaurantCategory(parsed.data.publicCategory, businessType);
-  const supportsTableQr = businessTypeSupportsTableQr(businessType);
-  const supportsKitchen = businessTypeSupportsKitchen(businessType);
   const nextRestaurantStatus = isSuperadmin
     ? parsed.data.status
     : currentRestaurant.status === "suspended"
@@ -1802,10 +2596,10 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   const moduleState = {
     deliveryEnabled: currentSettings?.delivery_enabled ?? parsed.data.deliveryEnabled,
     pickupEnabled: currentSettings?.pickup_enabled ?? parsed.data.pickupEnabled,
-    tableOrdersEnabled: supportsTableQr && isAllowedModule("table_qr"),
-    inventoryEnabled: isAllowedModule("inventory"),
-    cashEnabled: isAllowedModule("cash"),
-    kitchenEnabled: supportsKitchen && isAllowedModule("kitchen"),
+    tableOrdersEnabled: allowedModules.includes("table_qr"),
+    inventoryEnabled: allowedModules.includes("inventory"),
+    cashEnabled: allowedModules.includes("cash"),
+    kitchenEnabled: allowedModules.includes("kitchen"),
   };
 
   if (canChangePlan && parsed.data.planKey) {
@@ -1921,10 +2715,10 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
       restaurant_id: parsed.data.restaurantId,
       delivery_enabled: moduleState.deliveryEnabled,
       pickup_enabled: moduleState.pickupEnabled,
-      table_orders_enabled: moduleState.tableOrdersEnabled && isAllowedModule("table_qr"),
-      inventory_enabled: moduleState.inventoryEnabled && isAllowedModule("inventory"),
-      cash_enabled: moduleState.cashEnabled && isAllowedModule("cash"),
-      kitchen_enabled: moduleState.kitchenEnabled && isAllowedModule("kitchen"),
+      table_orders_enabled: moduleState.tableOrdersEnabled,
+      inventory_enabled: moduleState.inventoryEnabled,
+      cash_enabled: moduleState.cashEnabled,
+      kitchen_enabled: moduleState.kitchenEnabled,
       delivery_fee: parsed.data.deliveryFee,
       free_delivery_from: parsed.data.freeDeliveryFrom ?? null,
       min_order_amount: parsed.data.minOrderAmount,
@@ -1937,7 +2731,7 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
       qr_account_type: parsed.data.qrAccountType ?? null,
       qr_currency: parsed.data.qrCurrency,
       print_format: parsed.data.printFormat,
-      auto_print_kitchen: supportsKitchen ? parsed.data.autoPrintKitchen : false,
+      auto_print_kitchen: parsed.data.autoPrintKitchen,
       print_logo: parsed.data.printLogo,
     },
     { onConflict: "restaurant_id" },
@@ -1964,19 +2758,10 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=${returnTab}&error=${hoursError.code}`);
   }
 
-  const moduleRows = [
-    { module_key: "public_menu", is_enabled: true },
-    { module_key: "orders", is_enabled: true },
-    { module_key: "table_qr", is_enabled: moduleState.tableOrdersEnabled },
-    { module_key: "kitchen", is_enabled: moduleState.kitchenEnabled },
-    { module_key: "cash", is_enabled: moduleState.cashEnabled },
-    { module_key: "inventory", is_enabled: moduleState.inventoryEnabled },
-    { module_key: "reports", is_enabled: isAllowedModule("reports") },
-    { module_key: "multi_user", is_enabled: isAllowedModule("multi_user") },
-  ].map((module) => ({
+  const moduleRows = fullPlanModules.map((moduleKey) => ({
     restaurant_id: parsed.data.restaurantId,
-    module_key: module.module_key,
-    is_enabled: isAllowedModule(module.module_key as ModuleKey) && module.is_enabled,
+    module_key: moduleKey,
+    is_enabled: true,
   }));
 
   const { error: modulesError } = await supabase.from("module_settings").upsert(moduleRows, { onConflict: "restaurant_id,module_key" });

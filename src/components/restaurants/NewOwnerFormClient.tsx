@@ -22,12 +22,17 @@ const initialState: CreateOwnerFormState = {};
 export function NewOwnerFormClient() {
   const [state, formAction, pending] = useActionState(createOwnerClientAction, initialState);
   const values = state.values ?? {};
+  const errorMessage = state.error?.startsWith("owner-create:")
+    ? `No se pudo crear el usuario: ${state.error.replace("owner-create:", "")}`
+    : state.error
+      ? (errorMessages[state.error] ?? `No se pudo crear el dueno. Error: ${state.error}`)
+      : "";
 
   return (
     <form action={formAction}>
       {state.error ? (
         <div className="mt-6 rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] p-4 text-sm font-semibold text-[var(--color-danger-strong)]" role="alert">
-          {errorMessages[state.error] ?? "No se pudo crear el dueno. Intenta nuevamente."}
+          {errorMessage}
         </div>
       ) : null}
 
@@ -59,7 +64,13 @@ export function NewOwnerFormClient() {
         />
         <Input defaultValue={values.ownerName} name="ownerName" placeholder="Nombre del dueno" required />
         <Input defaultValue={values.ownerEmail} name="ownerEmail" placeholder="correo@negocio.com" required type="email" />
-        <Input defaultValue={values.branchLimit ?? "1"} min={1} name="branchLimit" placeholder="Sucursales habilitadas" required type="number" />
+        <label className="grid gap-1.5">
+          <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Sucursales habilitadas</span>
+          <Input defaultValue={values.branchLimit ?? "1"} min={1} name="branchLimit" required type="number" />
+          <span className="text-xs font-semibold text-[var(--color-secondary-text)]">
+            Es el cupo maximo que este dueno podra crear. Usa 1 para solo su primera sucursal.
+          </span>
+        </label>
 
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
           El sistema generara una contrasena segura temporal. El restaurante no aparecera en el directorio hasta que el dueno lo cree y complete sus datos desde su propio panel.

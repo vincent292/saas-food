@@ -1,16 +1,23 @@
 import { notFound } from "next/navigation";
 import { createCategoryAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
-import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
-import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
+import { FormSubmitButton } from "@/components/ui/FormSubmitButton";
 import { Input, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
 import { categoryService } from "@/lib/services/category.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
+
+const categoryErrorMessages: Record<string, string> = {
+  invalid: "Revisa el nombre y el orden.",
+  "storage-upload": "La imagen no pudo subirse. Puedes crear la categoria sin foto.",
+  "23505": "Ya existe una categoria con esos datos.",
+  "42501": "Tu usuario no tiene permiso para crear categorias en este restaurante.",
+  "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para guardar sin bloqueo de RLS.",
+};
 
 export default async function CategoriesPage({
   params,
@@ -37,25 +44,43 @@ export default async function CategoriesPage({
       restaurantId={restaurant.id}
       restaurantName={restaurant.name}
       restaurantStatus={restaurant.status}
-      title="Categorías"
+      title="Categorias"
     >
-      <SectionTitle title="Categorías" description="Crea categorías reales para ordenar el menú público." />
-      {status.created ? <div className="mt-4 rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Categoría creada.</div> : null}
-      {status.error ? <div className="mt-4 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">No se pudo guardar la categoría.</div> : null}
+      <SectionTitle title="Categorias" description="Crea categorias reales para ordenar el menu publico." />
+      {status.created ? <div className="mt-4 rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Categoria creada.</div> : null}
+      {status.error ? (
+        <div className="mt-4 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">
+          No se pudo guardar la categoria. {categoryErrorMessages[status.error] ?? `Detalle: ${status.error}.`}
+        </div>
+      ) : null}
       <form action={createCategoryAction}>
-        <Card className="mt-6 grid gap-4 md:grid-cols-[1fr_1fr_160px_120px_auto] md:items-end">
+        <Card className="mt-6 grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(280px,1.4fr)_120px_auto] lg:items-end">
           <input name="restaurantId" type="hidden" value={restaurant.id} />
-          <Input name="name" placeholder="Nombre de categoría" required />
-          <Textarea className="min-h-11" name="description" placeholder="Descripción corta" />
-          <CompressedImageInput help="Recomendado: 1200 x 800 px. Se convertira a WebP antes de subir." label="Imagen" name="imageFile" />
-          <Input defaultValue={categories.length + 1} min={0} name="sortOrder" placeholder="Orden" type="number" />
-          <Button>Nueva categoría</Button>
+          <label className="space-y-2">
+            <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">Nombre</span>
+            <Input name="name" placeholder="Ej. Hamburguesas" required />
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">Descripcion interna</span>
+            <Textarea className="min-h-11" name="description" placeholder="Opcional, solo para organizar el panel" />
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">Orden</span>
+            <Input defaultValue={categories.length + 1} min={0} name="sortOrder" placeholder="Orden" type="number" />
+          </label>
+          <FormSubmitButton
+            className="min-h-11 whitespace-nowrap"
+            label="Nueva categoria"
+            overlayDescription="Estamos creando la categoria y actualizando el catalogo."
+            overlayTitle="Creando categoria"
+            pendingLabel="Creando..."
+          />
         </Card>
       </form>
       <div className="mt-6">
         <DataTable
-          headers={["Nombre", "Descripción", "Orden", "Visible"]}
-          rows={categories.map((category) => [category.name, category.description, category.sortOrder, category.isActive ? "Sí" : "No"])}
+          headers={["Nombre", "Descripcion", "Orden", "Visible"]}
+          rows={categories.map((category) => [category.name, category.description, category.sortOrder, category.isActive ? "Si" : "No"])}
         />
       </div>
     </AdminLayout>

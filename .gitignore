@@ -13,6 +13,7 @@
 # testing
 /coverage
 .codex-screenshots/
+.tmp/
 
 # next.js
 /.next/

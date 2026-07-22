@@ -66,6 +66,9 @@ const createRestaurantSchema = z.object({
   primaryColor: z.string().default(defaultRestaurantPalette.primaryColor),
   secondaryColor: z.string().default(defaultRestaurantPalette.secondaryColor),
   planKey: z.enum(["basic", "pro", "premium"]).default(fullPlanKey),
+  branchUserName: z.string().min(2),
+  branchUserEmail: z.string().email(),
+  branchUserPassword: z.string().min(8),
   ownerName: z.string().optional(),
   ownerEmail: z.string().email().optional().or(z.literal("")),
   ownerPassword: z.string().min(8).optional().or(z.literal("")),
@@ -127,6 +130,15 @@ const updateRestaurantConfigurationSchema = z.object({
 
 export type CreateRestaurantFormState = {
   error?: string;
+  redirectTo?: string;
+  success?: boolean;
+  values?: Record<string, string>;
+};
+
+export type CreateBranchFormState = {
+  error?: string;
+  redirectTo?: string;
+  success?: boolean;
   values?: Record<string, string>;
 };
 
@@ -140,6 +152,8 @@ export type CreateOwnerFormState = {
 export type ChangeInitialPasswordFormState = {
   error?: string;
 };
+
+type SupabaseAdminClient = NonNullable<ReturnType<typeof createAdminClient>>;
 
 const createBranchSchema = z.object({
   sourceRestaurantId: z.string().uuid(),
@@ -584,6 +598,8 @@ function restaurantFormValues(formData: FormData): Record<string, string> {
     businessType: String(formData.get("businessType") || "food"),
     publicCategory: String(formData.get("publicCategory") || ""),
     planKey: String(formData.get("planKey") || fullPlanKey),
+    branchUserName: String(formData.get("branchUserName") || ""),
+    branchUserEmail: String(formData.get("branchUserEmail") || ""),
     ownerName: String(formData.get("ownerName") || ""),
     ownerEmail: String(formData.get("ownerEmail") || ""),
     ownerPassword: String(formData.get("ownerPassword") || ""),
@@ -594,6 +610,30 @@ function restaurantFormError(formData: FormData, error: string): CreateRestauran
   return {
     error,
     values: restaurantFormValues(formData),
+  };
+}
+
+function branchFormValues(formData: FormData): Record<string, string> {
+  return {
+    sourceRestaurantId: String(formData.get("sourceRestaurantId") || ""),
+    name: String(formData.get("name") || ""),
+    slug: String(formData.get("slug") || ""),
+    whatsapp: String(formData.get("whatsapp") || ""),
+    address: String(formData.get("address") || ""),
+    addressReference: String(formData.get("addressReference") || ""),
+    city: String(formData.get("city") || ""),
+    latitude: String(formData.get("latitude") || ""),
+    longitude: String(formData.get("longitude") || ""),
+    mapsUrl: String(formData.get("mapsUrl") || ""),
+    branchUserName: String(formData.get("branchUserName") || ""),
+    branchUserEmail: String(formData.get("branchUserEmail") || ""),
+  };
+}
+
+function branchFormError(formData: FormData, error: string): CreateBranchFormState {
+  return {
+    error,
+    values: branchFormValues(formData),
   };
 }
 
@@ -645,6 +685,188 @@ async function ownerEmailAlreadyExists(supabase: Awaited<ReturnType<typeof creat
   }
 
   return false;
+}
+
+async function findAuthUserIdsByEmail(admin: SupabaseAdminClient, email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const userIds = new Set<string>();
+
+  if (!normalizedEmail) {
+    return [];
+  }
+
+  const { data: profile } = await admin.from("profiles").select("id").eq("email", normalizedEmail).maybeSingle();
+  if (profile?.id) {
+    userIds.add(profile.id);
+  }
+
+  const perPage = 1000;
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+
+    if (error) {
+      break;
+    }
+
+    for (const authUser of data.users) {
+      if (authUser.email?.toLowerCase() === normalizedEmail) {
+        userIds.add(authUser.id);
+      }
+    }
+
+    if (data.users.length < perPage) {
+      break;
+    }
+  }
+
+  return Array.from(userIds);
+}
+
+async function findAuthUserByEmail(admin: SupabaseAdminClient, email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const perPage = 1000;
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+
+    if (error) {
+      return null;
+    }
+
+    const authUser = data.users.find((user) => user.email?.toLowerCase() === normalizedEmail);
+    if (authUser) {
+      return authUser;
+    }
+
+    if (data.users.length < perPage) {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function isMissingEntitlementsTableError(error?: { code?: string } | null) {
+  return error?.code === "PGRST205";
+}
+
+async function readOwnerBranchLimitFallback(admin: SupabaseAdminClient, ownerUserId: string) {
+  const { data } = await admin.auth.admin.getUserById(ownerUserId);
+  const metadata = data.user?.user_metadata as Record<string, unknown> | undefined;
+  return Math.max(1, Number(metadata?.branch_limit ?? 1));
+}
+
+async function writeOwnerBranchLimitFallback(admin: SupabaseAdminClient, ownerUserId: string, branchLimit: number) {
+  const { data } = await admin.auth.admin.getUserById(ownerUserId);
+  const metadata = (data.user?.user_metadata ?? {}) as Record<string, unknown>;
+  const { error } = await admin.auth.admin.updateUserById(ownerUserId, {
+    user_metadata: {
+      ...metadata,
+      branch_limit: branchLimit,
+    },
+  });
+  return error;
+}
+
+async function upsertOwnerBranchEntitlementOrFallback({
+  admin,
+  ownerUserId,
+  branchLimit,
+  actorUserId,
+  createdBy = false,
+}: {
+  admin: SupabaseAdminClient;
+  ownerUserId: string;
+  branchLimit: number;
+  actorUserId: string;
+  createdBy?: boolean;
+}) {
+  const { error } = await admin.from("owner_branch_entitlements").upsert(
+    {
+      owner_user_id: ownerUserId,
+      branch_limit: branchLimit,
+      ...(createdBy ? { created_by: actorUserId } : {}),
+      updated_by: actorUserId,
+    },
+    { onConflict: "owner_user_id" },
+  );
+
+  if (!error) {
+    return null;
+  }
+
+  if (!isMissingEntitlementsTableError(error)) {
+    return error.code ?? "owner-entitlement";
+  }
+
+  const fallbackError = await writeOwnerBranchLimitFallback(admin, ownerUserId, branchLimit);
+  return fallbackError ? (fallbackError.message ?? "owner-entitlement-fallback") : null;
+}
+
+async function collectRestaurantUserIdsForDeletion(admin: SupabaseAdminClient, restaurantId: string) {
+  const userIds = new Set<string>();
+  const [{ data: restaurant }, { data: memberships }] = await Promise.all([
+    admin.from("restaurants").select("owner_user_id,owner_email").eq("id", restaurantId).maybeSingle(),
+    admin.from("restaurant_memberships").select("user_id").eq("restaurant_id", restaurantId),
+  ]);
+
+  if (restaurant?.owner_user_id) {
+    userIds.add(restaurant.owner_user_id);
+  }
+
+  for (const membership of memberships ?? []) {
+    userIds.add(membership.user_id);
+  }
+
+  if (restaurant?.owner_email) {
+    const ownerIdsByEmail = await findAuthUserIdsByEmail(admin, restaurant.owner_email);
+    for (const userId of ownerIdsByEmail) {
+      userIds.add(userId);
+    }
+  }
+
+  return Array.from(userIds);
+}
+
+async function deleteAuthUsersIfUnused(admin: SupabaseAdminClient, userIds: string[], currentUserId: string) {
+  let deletedCount = 0;
+  let skippedCount = 0;
+
+  for (const userId of Array.from(new Set(userIds))) {
+    if (!userId || userId === currentUserId) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const { data: profile } = await admin.from("profiles").select("global_role").eq("id", userId).maybeSingle();
+    if (profile?.global_role === "superadmin") {
+      skippedCount += 1;
+      continue;
+    }
+
+    const [{ data: memberships }, { data: ownedRestaurants }] = await Promise.all([
+      admin.from("restaurant_memberships").select("restaurant_id").eq("user_id", userId).limit(1),
+      admin.from("restaurants").select("id").eq("owner_user_id", userId).limit(1),
+    ]);
+
+    if ((memberships?.length ?? 0) > 0 || (ownedRestaurants?.length ?? 0) > 0) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const { error: deleteUserError } = await admin.auth.admin.deleteUser(userId);
+    if (deleteUserError && !deleteUserError.message.toLowerCase().includes("not found")) {
+      throw new Error(`auth-delete-failed:${deleteUserError.message}`);
+    }
+
+    await admin.from("profiles").delete().eq("id", userId);
+    deletedCount += 1;
+  }
+
+  return { deletedCount, skippedCount };
 }
 
 function secureRandomIndex(length: number) {
@@ -1083,7 +1305,7 @@ async function getOwnerBranchQuota(
   admin: NonNullable<ReturnType<typeof createAdminClient>>,
   ownerUserId: string,
 ) {
-  const [{ data: memberships }, { data: entitlement }] = await Promise.all([
+  const [{ data: memberships }, entitlementResult] = await Promise.all([
     admin
       .from("restaurant_memberships")
       .select("restaurant_id")
@@ -1094,7 +1316,9 @@ async function getOwnerBranchQuota(
   ]);
 
   const membershipRestaurantIds = Array.from(new Set((memberships ?? []).map((membership) => membership.restaurant_id)));
-  const limit = Math.max(1, Number(entitlement?.branch_limit ?? 1));
+  const limit = isMissingEntitlementsTableError(entitlementResult.error)
+    ? await readOwnerBranchLimitFallback(admin, ownerUserId)
+    : Math.max(1, Number(entitlementResult.data?.branch_limit ?? 1));
 
   if (!membershipRestaurantIds.length) {
     return { used: 0, limit };
@@ -1606,7 +1830,13 @@ export async function permanentlyDeleteRestaurantAction(formData: FormData) {
     redirect(`${returnTo}?error=invalid-delete`);
   }
 
-  const { supabase } = await requireSuperadmin();
+  const { supabase, user } = await requireSuperadmin();
+  const admin = createAdminClient();
+
+  if (!admin) {
+    redirect(`${returnTo}?error=service-role-required`);
+  }
+
   const { data: restaurant, error: restaurantError } = await supabase
     .from("restaurants")
     .select("id,slug,deleted_at")
@@ -1621,6 +1851,8 @@ export async function permanentlyDeleteRestaurantAction(formData: FormData) {
     redirect(`${returnTo}?error=archive-required`);
   }
 
+  const authUserIdsForCleanup = await collectRestaurantUserIdsForDeletion(admin, restaurant.id);
+
   await deleteRestaurantAssets(restaurant.id, restaurant.slug);
 
   const { error } = await supabase.rpc("permanently_delete_restaurant", {
@@ -1632,10 +1864,18 @@ export async function permanentlyDeleteRestaurantAction(formData: FormData) {
     redirect(`${returnTo}?error=${error.code}`);
   }
 
+  let authUsersDeleted = 0;
+  try {
+    const cleanup = await deleteAuthUsersIfUnused(admin, authUserIdsForCleanup, user.id);
+    authUsersDeleted = cleanup.deletedCount;
+  } catch {
+    redirect(`${returnTo}?deleted=1&auth_cleanup=failed`);
+  }
+
   revalidatePath("/admin");
   revalidatePath("/admin/restaurantes");
   revalidatePath("/admin/restauracion");
-  redirect(`${returnTo}?deleted=1`);
+  redirect(`${returnTo}?deleted=1&authUsersDeleted=${authUsersDeleted}`);
 }
 
 export async function createSupportTicketAction(formData: FormData) {
@@ -1993,18 +2233,22 @@ export async function updateOwnerBranchEntitlementAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/cuenta?error=invalid-entitlement`);
   }
 
-  const { supabase, user } = await requireSuperadmin();
-  const { error } = await supabase.from("owner_branch_entitlements").upsert(
-    {
-      owner_user_id: parsed.data.ownerUserId,
-      branch_limit: parsed.data.branchLimit,
-      updated_by: user.id,
-    },
-    { onConflict: "owner_user_id" },
-  );
+  const { user } = await requireSuperadmin();
+  const admin = createAdminClient();
+
+  if (!admin) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?error=service-role-required`);
+  }
+
+  const error = await upsertOwnerBranchEntitlementOrFallback({
+    admin,
+    ownerUserId: parsed.data.ownerUserId,
+    branchLimit: parsed.data.branchLimit,
+    actorUserId: user.id,
+  });
 
   if (error) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?error=${error.code}`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?error=${error}`);
   }
 
   revalidatePath("/admin/restaurantes");
@@ -2054,14 +2298,39 @@ export async function createOwnerClientAction(
     },
   });
 
-  if (createError || !createdUser.user?.id) {
+  let ownerUserId = createdUser.user?.id ?? null;
+  let shouldRollbackAuthUser = Boolean(ownerUserId);
+
+  if (createError || !ownerUserId) {
     const message = createError?.message.toLowerCase() ?? "";
-    return ownerFormError(formData, message.includes("already") ? "owner-email-exists" : "owner-create");
+    const recoveredUser = await findAuthUserByEmail(admin, normalizedEmail);
+
+    if (!recoveredUser?.id || message.includes("already")) {
+      return ownerFormError(formData, message.includes("already") ? "owner-email-exists" : `owner-create:${createError?.message ?? "unknown"}`);
+    }
+
+    ownerUserId = recoveredUser.id;
+    shouldRollbackAuthUser = true;
+
+    const { error: updateRecoveredError } = await admin.auth.admin.updateUserById(ownerUserId, {
+      password: temporaryPassword,
+      email_confirm: true,
+      user_metadata: {
+        ...(recoveredUser.user_metadata ?? {}),
+        full_name: normalizedName,
+        must_change_password: true,
+      },
+    });
+
+    if (updateRecoveredError) {
+      await admin.auth.admin.deleteUser(ownerUserId);
+      return ownerFormError(formData, `owner-create:${updateRecoveredError.message}`);
+    }
   }
 
-  const { error: profileError } = await supabase.from("profiles").upsert(
+  const { error: profileError } = await admin.from("profiles").upsert(
     {
-      id: createdUser.user.id,
+      id: ownerUserId,
       email: normalizedEmail,
       full_name: normalizedName,
       global_role: null,
@@ -2070,21 +2339,25 @@ export async function createOwnerClientAction(
   );
 
   if (profileError) {
+    if (shouldRollbackAuthUser) {
+      await admin.auth.admin.deleteUser(ownerUserId);
+    }
     return ownerFormError(formData, profileError.code ?? "profile-create");
   }
 
-  const { error: entitlementError } = await supabase.from("owner_branch_entitlements").upsert(
-    {
-      owner_user_id: createdUser.user.id,
-      branch_limit: parsed.data.branchLimit,
-      created_by: user.id,
-      updated_by: user.id,
-    },
-    { onConflict: "owner_user_id" },
-  );
+  const entitlementError = await upsertOwnerBranchEntitlementOrFallback({
+    admin,
+    ownerUserId,
+    branchLimit: parsed.data.branchLimit,
+    actorUserId: user.id,
+    createdBy: true,
+  });
 
   if (entitlementError) {
-    return ownerFormError(formData, entitlementError.code ?? "owner-entitlement");
+    if (shouldRollbackAuthUser) {
+      await admin.auth.admin.deleteUser(ownerUserId);
+    }
+    return ownerFormError(formData, entitlementError);
   }
 
   revalidatePath("/admin");
@@ -2112,6 +2385,9 @@ export async function createOwnedRestaurantFormAction(
     primaryColor: formData.get("primaryColor") || defaultRestaurantPalette.primaryColor,
     secondaryColor: formData.get("secondaryColor") || defaultRestaurantPalette.secondaryColor,
     planKey: formData.get("planKey") || fullPlanKey,
+    branchUserName: formData.get("branchUserName"),
+    branchUserEmail: formData.get("branchUserEmail"),
+    branchUserPassword: formData.get("branchUserPassword"),
     ownerName: undefined,
     ownerEmail: undefined,
     ownerPassword: undefined,
@@ -2147,24 +2423,37 @@ export async function createOwnedRestaurantFormAction(
   }
 
   const slug = toSlug(parsed.data.slug || parsed.data.name);
-  const { data: existingSlug } = await admin.from("restaurants").select("id").eq("slug", slug).maybeSingle();
+  const normalizedBranchUserEmail = parsed.data.branchUserEmail.trim().toLowerCase();
+  const [{ data: existingSlug }, { data: existingBranchProfile }] = await Promise.all([
+    admin.from("restaurants").select("id").eq("slug", slug).maybeSingle(),
+    admin.from("profiles").select("id").eq("email", normalizedBranchUserEmail).maybeSingle(),
+  ]);
 
   if (existingSlug) {
     return restaurantFormError(formData, "slug-exists");
+  }
+
+  if (existingBranchProfile) {
+    return restaurantFormError(formData, "branch-user-email-exists");
   }
 
   let logoUrl: string | null = null;
   let bannerUrl: string | null = null;
 
   try {
-    logoUrl = await uploadPublicImage(formData.get("logoFile") as File | null, `restaurants/${slug}/identity`);
-    bannerUrl = await uploadPublicImage(formData.get("bannerFile") as File | null, `restaurants/${slug}/identity`);
+    [logoUrl, bannerUrl] = await Promise.all([
+      uploadPublicImage(formData.get("logoFile") as File | null, `restaurants/${slug}/identity`),
+      uploadPublicImage(formData.get("bannerFile") as File | null, `restaurants/${slug}/identity`),
+    ]);
   } catch {
     return restaurantFormError(formData, "storage-upload");
   }
 
   const planKey = fullPlanKey;
-  const enabledPlanModules = await modulesForPlan(planKey);
+  const [enabledPlanModules, planResult] = await Promise.all([
+    modulesForPlan(planKey),
+    admin.from("subscription_plans").select("id").eq("key", planKey).maybeSingle(),
+  ]);
   const businessType = normalizeRestaurantBusinessType(parsed.data.businessType);
   const publicCategory = normalizeRestaurantCategory(parsed.data.publicCategory, businessType);
   const ownerName = profile?.full_name || user.user_metadata?.full_name || user.email || "Dueno";
@@ -2200,7 +2489,48 @@ export async function createOwnedRestaurantFormAction(
     return restaurantFormError(formData, restaurantError?.code ?? "create");
   }
 
-  await admin.from("restaurant_settings").insert({
+  const branchUserName = parsed.data.branchUserName.trim();
+  const { data: branchUser, error: branchUserError } = await admin.auth.admin.createUser({
+    email: normalizedBranchUserEmail,
+    password: parsed.data.branchUserPassword,
+    email_confirm: true,
+    user_metadata: {
+      full_name: branchUserName,
+      must_change_password: true,
+      branch_restaurant_id: restaurant.id,
+    },
+  });
+
+  if (branchUserError || !branchUser.user?.id) {
+    await admin.from("restaurants").delete().eq("id", restaurant.id);
+    await deleteRestaurantAssets(restaurant.id, slug);
+    return restaurantFormError(formData, branchUserError?.message.toLowerCase().includes("already") ? "branch-user-email-exists" : "branch-user-create");
+  }
+
+  const { error: branchProfileError } = await admin.from("profiles").upsert(
+    {
+      id: branchUser.user.id,
+      email: normalizedBranchUserEmail,
+      full_name: branchUserName,
+      global_role: null,
+    },
+    { onConflict: "id" },
+  );
+
+  if (branchProfileError) {
+    await admin.auth.admin.deleteUser(branchUser.user.id);
+    await admin.from("restaurants").delete().eq("id", restaurant.id);
+    await deleteRestaurantAssets(restaurant.id, slug);
+    return restaurantFormError(formData, "branch-user-profile");
+  }
+
+  const moduleRows = enabledPlanModules.map((moduleKey) => ({
+    restaurant_id: restaurant.id,
+    module_key: moduleKey,
+    is_enabled: true,
+  }));
+  const setupWrites: PromiseLike<unknown>[] = [
+    admin.from("restaurant_settings").insert({
     restaurant_id: restaurant.id,
     delivery_enabled: true,
     pickup_enabled: true,
@@ -2211,42 +2541,44 @@ export async function createOwnedRestaurantFormAction(
     delivery_fee: 0,
     min_order_amount: 0,
     currency: "BOB",
-  });
+    }),
+    admin.from("restaurant_memberships").insert([
+      {
+        restaurant_id: restaurant.id,
+        user_id: user.id,
+        role: "restaurant_admin",
+        is_active: true,
+      },
+      {
+        restaurant_id: restaurant.id,
+        user_id: branchUser.user.id,
+        role: "restaurant_admin",
+        is_active: true,
+      },
+    ]),
+  ];
 
-  const { data: plan } = await admin.from("subscription_plans").select("id").eq("key", planKey).maybeSingle();
-
-  if (plan) {
-    await admin.from("restaurant_subscriptions").insert({
+  if (planResult.data) {
+    setupWrites.push(admin.from("restaurant_subscriptions").insert({
       restaurant_id: restaurant.id,
-      plan_id: plan.id,
+      plan_id: planResult.data.id,
       status: "trialing",
-    });
+    }));
   }
-
-  await admin.from("restaurant_memberships").insert({
-    restaurant_id: restaurant.id,
-    user_id: user.id,
-    role: "restaurant_admin",
-    is_active: true,
-  });
-
-  const moduleRows = enabledPlanModules.map((moduleKey) => ({
-    restaurant_id: restaurant.id,
-    module_key: moduleKey,
-    is_enabled: true,
-  }));
 
   if (moduleRows.length) {
-    await admin.from("module_settings").insert(moduleRows);
+    setupWrites.push(admin.from("module_settings").insert(moduleRows));
   }
+
+  await Promise.all(setupWrites);
 
   revalidatePath("/admin");
   revalidatePath("/dueno");
   revalidatePath("/admin/restaurantes");
-  redirect("/dueno");
+  return { redirectTo: "/dueno", success: true };
 }
 
-export async function createBranchAction(formData: FormData) {
+async function createBranchResult(formData: FormData): Promise<CreateBranchFormState> {
   const parsed = createBranchSchema.safeParse({
     sourceRestaurantId: formData.get("sourceRestaurantId"),
     name: formData.get("name"),
@@ -2264,14 +2596,14 @@ export async function createBranchAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect("/dueno/sucursales/nueva?error=invalid");
+    return branchFormError(formData, "invalid");
   }
 
   const { user } = await requireUser();
   const admin = createAdminClient();
 
   if (!admin) {
-    redirect("/dueno/sucursales/nueva?error=service-role-required");
+    return branchFormError(formData, "service-role-required");
   }
 
   const { data: membership } = await admin
@@ -2283,13 +2615,13 @@ export async function createBranchAction(formData: FormData) {
     .maybeSingle();
 
   if (membership?.role !== "restaurant_admin") {
-    redirect("/dueno/sucursales/nueva?error=owner-required");
+    return branchFormError(formData, "owner-required");
   }
 
   const { used, limit } = await getOwnerBranchQuota(admin, user.id);
 
   if (used >= limit) {
-    redirect("/dueno/sucursales/nueva?error=branch-limit");
+    return branchFormError(formData, "branch-limit");
   }
 
   const { data: sourceRestaurant } = await admin
@@ -2301,35 +2633,35 @@ export async function createBranchAction(formData: FormData) {
     .maybeSingle();
 
   if (!sourceRestaurant) {
-    redirect("/dueno/sucursales/nueva?error=source-not-found");
+    return branchFormError(formData, "source-not-found");
   }
 
   if (sourceRestaurant.owner_user_id !== user.id) {
-    redirect("/dueno/sucursales/nueva?error=owner-required");
+    return branchFormError(formData, "owner-required");
   }
 
   const slug = toSlug(parsed.data.slug || parsed.data.name);
   const { data: existingSlug } = await admin.from("restaurants").select("id").eq("slug", slug).maybeSingle();
 
   if (existingSlug) {
-    redirect("/dueno/sucursales/nueva?error=slug-exists");
+    return branchFormError(formData, "slug-exists");
   }
 
   const normalizedBranchUserEmail = parsed.data.branchUserEmail.trim().toLowerCase();
   const { data: existingBranchProfile } = await admin.from("profiles").select("id").eq("email", normalizedBranchUserEmail).maybeSingle();
 
   if (existingBranchProfile) {
-    redirect("/dueno/sucursales/nueva?error=branch-user-email-exists");
+    return branchFormError(formData, "branch-user-email-exists");
   }
 
   const { data: authUsers, error: authUsersError } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
 
   if (authUsersError) {
-    redirect("/dueno/sucursales/nueva?error=branch-user-check");
+    return branchFormError(formData, "branch-user-check");
   }
 
   if (authUsers.users.some((authUser) => authUser.email?.toLowerCase() === normalizedBranchUserEmail)) {
-    redirect("/dueno/sucursales/nueva?error=branch-user-email-exists");
+    return branchFormError(formData, "branch-user-email-exists");
   }
 
   const { data: branch, error: branchError } = await admin
@@ -2369,7 +2701,7 @@ export async function createBranchAction(formData: FormData) {
     .single();
 
   if (branchError || !branch) {
-    redirect(`/dueno/sucursales/nueva?error=${branchError?.code ?? "create"}`);
+    return branchFormError(formData, branchError?.code ?? "create");
   }
 
   const branchUserName = parsed.data.branchUserName.trim();
@@ -2386,7 +2718,7 @@ export async function createBranchAction(formData: FormData) {
 
   if (branchUserError || !branchUser.user?.id) {
     await admin.from("restaurants").delete().eq("id", branch.id);
-    redirect(`/dueno/sucursales/nueva?error=${branchUserError?.message.toLowerCase().includes("already") ? "branch-user-email-exists" : "branch-user-create"}`);
+    return branchFormError(formData, branchUserError?.message.toLowerCase().includes("already") ? "branch-user-email-exists" : "branch-user-create");
   }
 
   const { error: branchProfileError } = await admin.from("profiles").upsert(
@@ -2402,7 +2734,7 @@ export async function createBranchAction(formData: FormData) {
   if (branchProfileError) {
     await admin.auth.admin.deleteUser(branchUser.user.id);
     await admin.from("restaurants").delete().eq("id", branch.id);
-    redirect("/dueno/sucursales/nueva?error=branch-user-profile");
+    return branchFormError(formData, "branch-user-profile");
   }
 
   await admin.from("restaurant_memberships").insert({
@@ -2425,7 +2757,25 @@ export async function createBranchAction(formData: FormData) {
   revalidatePath("/admin");
   revalidatePath("/dueno");
   revalidatePath("/admin/restaurantes");
-  redirect("/dueno/sucursales?created=1");
+  revalidatePath("/dueno/sucursales");
+  return { redirectTo: "/dueno/sucursales?created=1", success: true };
+}
+
+export async function createBranchFormAction(
+  _state: CreateBranchFormState,
+  formData: FormData,
+): Promise<CreateBranchFormState> {
+  return createBranchResult(formData);
+}
+
+export async function createBranchAction(formData: FormData) {
+  const result = await createBranchResult(formData);
+
+  if (result.success) {
+    redirect(result.redirectTo ?? "/dueno/sucursales?created=1");
+  }
+
+  redirect(`/dueno/sucursales/nueva?error=${result.error ?? "create"}`);
 }
 
 async function dispatchRestaurantSettingsIntent(rawIntent: string, formData: FormData, returnTab: string) {
@@ -3424,18 +3774,28 @@ export async function createCategoryAction(formData: FormData) {
     name: formData.get("name"),
     description: formData.get("description") || undefined,
     sortOrder: formData.get("sortOrder") || 0,
-    isActive: formData.get("isActive") === "on",
+    isActive: formData.has("isActive") ? formData.get("isActive") === "on" : true,
   });
 
   if (!parsed.success) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/categorias?error=invalid`);
   }
 
-  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/categorias`);
+  await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  const admin = createAdminClient();
 
-  const supabase = await createClient();
-  const imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/categories`);
-  const { error } = await supabase.from("categories").insert({
+  if (!admin) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/categorias?error=service-role-required`);
+  }
+
+  let imageUrl: string | null = null;
+  try {
+    imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/categories`);
+  } catch {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/categorias?error=storage-upload`);
+  }
+
+  const { error } = await admin.from("categories").insert({
     restaurant_id: parsed.data.restaurantId,
     name: parsed.data.name,
     description: parsed.data.description,
@@ -3478,11 +3838,21 @@ export async function createProductAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/productos?error=invalid`);
   }
 
-  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/productos`);
+  await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  const admin = createAdminClient();
 
-  const supabase = await createClient();
-  const imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/products`);
-  const { data: product, error } = await supabase
+  if (!admin) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=service-role-required`);
+  }
+
+  let imageUrl: string | null = null;
+  try {
+    imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/products`);
+  } catch {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=storage-upload`);
+  }
+
+  const { data: product, error } = await admin
     .from("products")
     .insert({
       restaurant_id: parsed.data.restaurantId,
@@ -3505,7 +3875,7 @@ export async function createProductAction(formData: FormData) {
 
   const variants = parsed.data.variants.filter((variant) => variant.name.trim());
   if (variants.length) {
-    const { error: variantsError } = await supabase.from("product_variants").insert(
+    const { error: variantsError } = await admin.from("product_variants").insert(
       variants.map((variant) => ({
         restaurant_id: parsed.data.restaurantId,
         product_id: product.id,
@@ -3524,7 +3894,7 @@ export async function createProductAction(formData: FormData) {
 
   const groups = parsed.data.optionGroups.filter((group) => group.name.trim());
   for (const group of groups) {
-    const { data: insertedGroup, error: groupError } = await supabase
+    const { data: insertedGroup, error: groupError } = await admin
       .from("product_option_groups")
       .insert({
         restaurant_id: parsed.data.restaurantId,
@@ -3546,7 +3916,7 @@ export async function createProductAction(formData: FormData) {
 
     const options = group.options.filter((option) => option.name.trim());
     if (options.length) {
-      const { error: optionsError } = await supabase.from("product_options").insert(
+      const { error: optionsError } = await admin.from("product_options").insert(
         options.map((option) => ({
           restaurant_id: parsed.data.restaurantId,
           product_id: product.id,
@@ -3592,10 +3962,20 @@ export async function updateProductAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/productos?error=invalid-update`);
   }
 
-  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/productos`);
+  await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  const admin = createAdminClient();
 
-  const supabase = await createClient();
-  const imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/products`);
+  if (!admin) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=service-role-required`);
+  }
+
+  let imageUrl: string | null = null;
+  try {
+    imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/products`);
+  } catch {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=storage-upload`);
+  }
+
   const updatePayload: {
     category_id?: string | null;
     name: string;
@@ -3621,7 +4001,7 @@ export async function updateProductAction(formData: FormData) {
     updatePayload.image_url = imageUrl;
   }
 
-  const { error } = await supabase
+  const { error } = await admin
     .from("products")
     .update(updatePayload)
     .eq("id", parsed.data.productId)
@@ -3631,12 +4011,12 @@ export async function updateProductAction(formData: FormData) {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=${error.code}`);
   }
 
-  await supabase.from("product_variants").delete().eq("restaurant_id", parsed.data.restaurantId).eq("product_id", parsed.data.productId);
-  await supabase.from("product_option_groups").delete().eq("restaurant_id", parsed.data.restaurantId).eq("product_id", parsed.data.productId);
+  await admin.from("product_variants").delete().eq("restaurant_id", parsed.data.restaurantId).eq("product_id", parsed.data.productId);
+  await admin.from("product_option_groups").delete().eq("restaurant_id", parsed.data.restaurantId).eq("product_id", parsed.data.productId);
 
   const variants = parsed.data.variants.filter((variant) => variant.name.trim());
   if (variants.length) {
-    const { error: variantsError } = await supabase.from("product_variants").insert(
+    const { error: variantsError } = await admin.from("product_variants").insert(
       variants.map((variant) => ({
         restaurant_id: parsed.data.restaurantId,
         product_id: parsed.data.productId,
@@ -3655,7 +4035,7 @@ export async function updateProductAction(formData: FormData) {
 
   const groups = parsed.data.optionGroups.filter((group) => group.name.trim());
   for (const group of groups) {
-    const { data: insertedGroup, error: groupError } = await supabase
+    const { data: insertedGroup, error: groupError } = await admin
       .from("product_option_groups")
       .insert({
         restaurant_id: parsed.data.restaurantId,
@@ -3677,7 +4057,7 @@ export async function updateProductAction(formData: FormData) {
 
     const options = group.options.filter((option) => option.name.trim());
     if (options.length) {
-      const { error: optionsError } = await supabase.from("product_options").insert(
+      const { error: optionsError } = await admin.from("product_options").insert(
         options.map((option) => ({
           restaurant_id: parsed.data.restaurantId,
           product_id: parsed.data.productId,

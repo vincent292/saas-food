@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useActionState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect, type ReactNode } from "react";
 import { Building2, Loader2 } from "lucide-react";
 import { createOwnedRestaurantFormAction, type CreateRestaurantFormState } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
@@ -20,6 +21,9 @@ const errorMessages: Record<string, string> = {
   "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para crear el restaurante desde este flujo.",
   "slug-exists": "Ese slug publico ya esta en uso. Prueba con otro.",
   "storage-upload": "No se pudieron subir las imagenes. Intenta con archivos mas livianos.",
+  "branch-user-email-exists": "Ese correo ya existe. Usa otro correo para el responsable de esta sucursal.",
+  "branch-user-create": "No se pudo crear el usuario responsable de la sucursal.",
+  "branch-user-profile": "Se creo el usuario, pero no se pudo guardar su perfil. Intenta nuevamente.",
   create: "No se pudo crear el restaurante. Intenta nuevamente.",
 };
 
@@ -27,9 +31,19 @@ const initialState: CreateRestaurantFormState = {};
 
 export function OwnerRestaurantCreateFormClient() {
   const [state, formAction, pending] = useActionState(createOwnedRestaurantFormAction, initialState);
+  const router = useRouter();
   const values = state.values ?? {};
   const businessType = (values.businessType || "food") as BusinessType;
   const publicCategory = values.publicCategory || defaultRestaurantCategory(businessType);
+  const isFinishing = Boolean(state.success);
+
+  useEffect(() => {
+    if (!state.success) {
+      return;
+    }
+
+    router.replace(state.redirectTo ?? "/dueno");
+  }, [router, state.redirectTo, state.success]);
 
   return (
     <form action={formAction}>
@@ -101,27 +115,40 @@ export function OwnerRestaurantCreateFormClient() {
         <CompressedImageInput help="Recomendado: 1600 x 900 px o similar. Evita texto pequeno dentro de la imagen." label="Banner" name="bannerFile" />
         <Textarea className="md:col-span-2" defaultValue={values.description} name="description" placeholder="Descripcion del negocio" />
 
+        <SectionTitle
+          className="md:col-span-2"
+          description="Este usuario entra desde /admin/login solo a esta sucursal. El dueno mantiene su panel para ver todas sus sucursales."
+          title="Usuario del panel de esta sucursal"
+        />
+        <Input defaultValue={values.branchUserName} name="branchUserName" placeholder="Nombre del responsable" required />
+        <Input defaultValue={values.branchUserEmail} name="branchUserEmail" placeholder="responsable@sucursal.com" required type="email" />
+        <Input className="md:col-span-2" minLength={8} name="branchUserPassword" placeholder="Contrasena temporal, minimo 8 caracteres" required type="password" />
+
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
+          Este responsable debera cambiar la contrasena en su primer ingreso y no tendra acceso al panel de dueno.
+        </div>
+
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
           Tu restaurante se crea con la tarifa Full. La primera sucursal cuesta Bs 450/mes; cada sucursal adicional habilitada cuesta Bs 299/mes.
         </div>
 
         <div className="md:col-span-2">
-          <Button className="min-h-12 w-full sm:w-auto" disabled={pending}>
-            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}
-            {pending ? "Creando restaurante..." : "Crear mi restaurante"}
+          <Button className="min-h-12 w-full sm:w-auto" disabled={pending || isFinishing}>
+            {pending || isFinishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}
+            {pending || isFinishing ? "Creando restaurante..." : "Crear mi restaurante"}
           </Button>
         </div>
       </Card>
 
-      {pending ? (
+      {pending || isFinishing ? (
         <div className="fixed inset-0 z-[120] grid place-items-center bg-[rgb(8_36_65_/_0.78)] px-4 text-center text-white backdrop-blur-md">
           <div className="w-full max-w-sm rounded-[1.75rem] border border-white/16 bg-white/95 p-6 text-[var(--primary)] shadow-[0_28px_90px_rgb(2_10_18_/_0.34)]">
             <div className="mx-auto grid h-24 w-24 place-items-center rounded-[1.5rem] bg-[var(--primary-light)] shadow-inner">
               <Image alt="yopido.shop" className="h-16 w-16 animate-pulse object-contain" height={96} priority src="/brand/yopido-icon-dark-1024.png" width={96} />
             </div>
-            <p className="mt-5 text-xl font-black">Estamos creando tu restaurante</p>
+            <p className="mt-5 text-xl font-black">{isFinishing ? "Entrando a tu panel" : "Estamos creando tu restaurante"}</p>
             <p className="mt-2 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
-              Preparando tu panel, configuracion inicial y acceso de dueno.
+              {isFinishing ? "Todo quedo listo. Estamos actualizando tu dashboard." : "Preparando tu panel, configuracion inicial y acceso de dueno."}
             </p>
             <div className="mx-auto mt-5 h-2 w-44 overflow-hidden rounded-full bg-[var(--primary-light)]">
               <span className="block h-full w-1/2 animate-pulse rounded-full bg-[var(--accent)]" />

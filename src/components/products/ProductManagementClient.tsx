@@ -1,8 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Grid2X2, LayoutList, Plus, Save, Search, Trash2, X } from "lucide-react";
+import { Grid2X2, LayoutList, Plus, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useFormStatus } from "react-dom";
 import { createCategoryAction, createProductAction, updateProductAction } from "@/app/admin/actions";
 import { ProductCard } from "@/components/products/ProductCard";
 import { ProductStats } from "@/components/products/ProductStats";
@@ -11,6 +12,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { FormSubmitButton } from "@/components/ui/FormSubmitButton";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import {
@@ -40,6 +42,18 @@ type DraftOptionGroup = {
   sortOrder: number;
   isActive: boolean;
   options: DraftOption[];
+};
+
+const saveErrorMessages: Record<string, string> = {
+  invalid: "Revisa los datos obligatorios.",
+  "invalid-update": "Revisa los datos del producto.",
+  "storage-upload": "La imagen no pudo subirse. Puedes guardar sin foto o probar con otra imagen.",
+  "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para guardar sin bloqueo de RLS.",
+  "42501": "Tu usuario no tiene permiso para guardar en este restaurante.",
+  "23503": "La categoria seleccionada no pertenece a este restaurante.",
+  "product-create": "No se pudo crear el producto.",
+  "option-group": "No se pudo guardar el grupo de opciones.",
+  "option-group-update": "No se pudo actualizar el grupo de opciones.",
 };
 
 const emptyVariant = (index: number): DraftVariant => ({
@@ -188,7 +202,11 @@ export function ProductManagementClient({
       {created ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">Producto creado correctamente.</div> : null}
       {updated ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">Producto actualizado correctamente.</div> : null}
       {categoryCreated ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">Categoria creada correctamente.</div> : null}
-      {error ? <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">No se pudo guardar: {error}.</div> : null}
+      {error ? (
+        <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">
+          No se pudo guardar. {saveErrorMessages[error] ?? `Detalle: ${error}.`}
+        </div>
+      ) : null}
 
       <Card className="sticky top-[88px] z-10 grid gap-3 bg-[var(--color-card-elevated)] p-3 backdrop-blur lg:grid-cols-[1fr_260px_220px_auto] lg:items-center">
         <label className="relative block">
@@ -311,16 +329,16 @@ export function ProductManagementClient({
           <form action={createCategoryAction} className="space-y-4">
             <input name="restaurantId" type="hidden" value={restaurantId} />
             <input name="returnTo" type="hidden" value="products" />
-            <PreviewBanner label="Nueva categoria" />
+            <div className="rounded-3xl border border-[var(--border)] bg-[var(--primary-light)] p-4">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Nueva seccion</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">La categoria organiza tus productos en el panel y en el menu. No necesita imagen.</p>
+            </div>
             <Labeled label="Nombre">
               <Input name="name" required />
             </Labeled>
             <Labeled label="Descripcion">
               <Textarea name="description" />
             </Labeled>
-            <div>
-              <CompressedImageInput help="Recomendado: 1200 x 800 px. Se convertira a WebP antes de subir." label="Imagen" name="imageFile" />
-            </div>
             <div className="grid gap-3 sm:grid-cols-[1fr_1fr] sm:items-end">
               <Labeled label="Orden">
                 <Input defaultValue={categories.length + 1} min={0} name="sortOrder" type="number" />
@@ -330,7 +348,12 @@ export function ProductManagementClient({
                 Activa
               </label>
             </div>
-            <ModalActions onCancel={() => setCategoryModalOpen(false)} />
+            <ModalActions
+              onCancel={() => setCategoryModalOpen(false)}
+              pendingDescription="Estamos creando la categoria y actualizando el catalogo."
+              pendingLabel="Creando..."
+              pendingTitle="Creando categoria"
+            />
           </form>
         </ModalShell>
       ) : null}
@@ -469,7 +492,12 @@ export function ProductManagementClient({
               </div>
             </div>
 
-            <ModalActions onCancel={() => closeProductModal()} />
+            <ModalActions
+              onCancel={() => closeProductModal()}
+              pendingDescription={editingProduct ? "Estamos actualizando el producto y sus opciones." : "Estamos creando el producto dentro de la categoria seleccionada."}
+              pendingLabel={editingProduct ? "Actualizando..." : "Creando..."}
+              pendingTitle={editingProduct ? "Actualizando producto" : "Creando producto"}
+            />
           </form>
         </ModalShell>
       ) : null}
@@ -643,17 +671,26 @@ function Labeled({ label, children, className }: { label: string; children: Reac
   );
 }
 
-function ModalActions({ onCancel }: { onCancel: () => void }) {
+function ModalActions({
+  onCancel,
+  pendingDescription,
+  pendingLabel,
+  pendingTitle,
+}: {
+  onCancel: () => void;
+  pendingDescription: string;
+  pendingLabel: string;
+  pendingTitle: string;
+}) {
+  const { pending } = useFormStatus();
+
   return (
     <div className="grid gap-3 border-t border-[var(--border)] pt-4 sm:grid-cols-2">
-      <button className={buttonClasses("danger", "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)] hover:bg-[var(--color-danger-soft)]")} onClick={onCancel} type="button">
+      <button className={buttonClasses("danger", "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)] hover:bg-[var(--color-danger-soft)]")} disabled={pending} onClick={onCancel} type="button">
         <X className="h-4 w-4" />
         Cancelar
       </button>
-      <Button type="submit">
-        <Save className="h-4 w-4" />
-        Aceptar
-      </Button>
+      <FormSubmitButton label="Aceptar" overlayDescription={pendingDescription} overlayTitle={pendingTitle} pendingLabel={pendingLabel} />
     </div>
   );
 }

@@ -8,7 +8,6 @@ import { GoogleLocationFields } from "@/components/location/GoogleLocationFields
 import { RestaurantDistanceBadge } from "@/components/location/RestaurantDistanceBadge";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
-import { BrandLogo } from "@/components/brand/BrandLogo";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input } from "@/components/ui/Input";
 import { businessCatalogItemsLabel, businessCatalogLabel } from "@/lib/restaurant-directory-options";
@@ -240,8 +239,8 @@ export function PublicRestaurantOrderClient({
               )}
             </span>
             <span className="ml-2 min-w-0 sm:ml-3">
-              <span className="block max-w-[34vw] truncate text-sm font-black text-[var(--text)] min-[390px]:max-w-[40vw] sm:max-w-[260px] sm:text-base">{restaurant.name}</span>
-              <span className="mt-0.5 flex max-w-[34vw] items-center gap-1 truncate text-[11px] font-semibold text-[var(--muted)] min-[390px]:max-w-[40vw] sm:max-w-[320px] sm:text-xs">
+              <span className="block max-w-[48vw] truncate text-sm font-black text-[var(--text)] min-[390px]:max-w-[56vw] sm:max-w-[260px] sm:text-base">{restaurant.name}</span>
+              <span className="mt-0.5 flex max-w-[48vw] items-center gap-1 truncate text-[11px] font-semibold text-[var(--muted)] min-[390px]:max-w-[56vw] sm:max-w-[320px] sm:text-xs">
                 <MapPin className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
                 {restaurant.city || restaurant.address || "Menu online"}
               </span>
@@ -249,17 +248,6 @@ export function PublicRestaurantOrderClient({
           </Link>
 
           <div className="flex shrink-0 items-center justify-end gap-1.5 sm:gap-2">
-            <Link aria-label="Explorar yopido.shop" className="hidden h-9 min-w-9 shrink-0 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 shadow-sm transition hover:-translate-y-0.5 min-[390px]:grid sm:h-10 sm:min-w-10 xl:hidden" href="/">
-              <BrandLogo className="h-5 w-5 sm:h-6 sm:w-6" compact variant="dark" />
-            </Link>
-            <Link aria-label="Explorar yopido.shop" className="hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 shadow-sm transition hover:-translate-y-0.5 xl:inline-flex" href="/">
-              <BrandLogo className="h-5 w-auto" variant="light" />
-            </Link>
-            <span className={cn("inline-flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-black sm:h-10 sm:px-3", activeClosure ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--primary-light)] text-[var(--primary)]")}>
-              <Clock3 className="h-3.5 w-3.5" />
-              <span className="hidden min-[430px]:inline sm:hidden">{activeClosure ? "Cerrado" : "Abierto"}</span>
-              <span className="hidden sm:inline">{activeClosure ? "Cerrado hoy" : "Abierto hoy"}</span>
-            </span>
             <Link aria-label="Rastrear pedido" className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-black text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:h-10 sm:px-3 sm:text-sm" href={publicRestaurantPath(restaurant.slug, "seguimiento")}>
               <ReceiptText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               <span className="hidden min-[430px]:inline sm:hidden">Rastrear</span>
@@ -343,6 +331,11 @@ export function PublicRestaurantOrderClient({
                   <span>{settings?.deliveryFee ? `${formatMoney(settings.deliveryFee)} envio` : "Delivery disponible"}</span>
                   <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
                   <span>{products.length} {catalogItemsLabel}</span>
+                  <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
+                  <span className="inline-flex items-center gap-1">
+                    <Clock3 className="h-4 w-4" />
+                    {activeClosure ? "Cerrado hoy" : "Abierto hoy"}
+                  </span>
                 </div>
               </div>
               <div className="absolute bottom-5 right-5 z-20 hidden max-w-xs rounded-[1.35rem] bg-[var(--primary)]/92 p-4 text-white shadow-xl ring-1 ring-white/15 backdrop-blur sm:block">

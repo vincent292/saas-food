@@ -1,4 +1,5 @@
 import { createClient } from "./server";
+import { createAdminClient } from "./admin";
 
 const bucketName = "restaurant-assets";
 
@@ -16,7 +17,7 @@ export async function uploadPublicImage(file: File | null, folder: string) {
     return null;
   }
 
-  const supabase = await createClient();
+  const supabase = createAdminClient() ?? (await createClient());
   const extension = extensionFromFile(file);
   const path = `${folder}/${crypto.randomUUID()}.${extension}`;
   const { error } = await supabase.storage.from(bucketName).upload(path, file, {

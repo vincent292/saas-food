@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { additionalLocationPriceMonthly, fullPlanName, primaryLocationPriceMonthly } from "@/lib/billing/full-plan";
 import { formatMoney } from "@/lib/utils/money";
 import type { UserRestaurantMembership } from "@/lib/services/membership.service";
@@ -58,6 +59,21 @@ export type OwnerResponsible = {
 
 export function ownerMembershipsForUser(memberships: UserRestaurantMembership[], userId: string) {
   return memberships.filter((membership) => membership.role === "restaurant_admin" && membership.restaurant.ownerUserId === userId);
+}
+
+function isMissingEntitlementsTableError(error?: { code?: string } | null) {
+  return error?.code === "PGRST205";
+}
+
+async function getOwnerBranchLimitFallback(ownerUserId: string) {
+  const admin = createAdminClient();
+  if (!admin) {
+    return 1;
+  }
+
+  const { data } = await admin.auth.admin.getUserById(ownerUserId);
+  const metadata = data.user?.user_metadata as Record<string, unknown> | undefined;
+  return Math.max(1, Number(metadata?.branch_limit ?? 1));
 }
 
 export async function getOwnerDashboardData(memberships: UserRestaurantMembership[]): Promise<OwnerDashboardData> {
@@ -149,7 +165,7 @@ export async function getOwnerBranchCapacity(memberships: UserRestaurantMembersh
   }
 
   const supabase = await createClient();
-  const [{ data: entitlement }, { data: plans }] = await Promise.all([
+  const [entitlementResult, { data: plans }] = await Promise.all([
     supabase.from("owner_branch_entitlements").select("branch_limit").eq("owner_user_id", ownerUserId).maybeSingle(),
     supabase.from("subscription_plans").select("name,price_monthly,additional_restaurant_price_monthly").eq("key", "premium").eq("is_active", true).limit(1),
   ]);
@@ -162,7 +178,9 @@ export async function getOwnerBranchCapacity(memberships: UserRestaurantMembersh
   const fullPlan = planRows[0];
   const primaryPrice = Number(fullPlan?.price_monthly ?? primaryLocationPriceMonthly);
   const additionalPrice = Number(fullPlan?.additional_restaurant_price_monthly ?? additionalLocationPriceMonthly);
-  const limit = Math.max(1, Number(entitlement?.branch_limit ?? 1));
+  const limit = isMissingEntitlementsTableError(entitlementResult.error)
+    ? await getOwnerBranchLimitFallback(ownerUserId)
+    : Math.max(1, Number(entitlementResult.data?.branch_limit ?? 1));
 
   return {
     used: memberships.length,
@@ -180,7 +198,10 @@ export async function getOwnerBranchLimit(ownerUserId?: string | null) {
   }
 
   const supabase = await createClient();
-  const { data } = await supabase.from("owner_branch_entitlements").select("branch_limit").eq("owner_user_id", ownerUserId).maybeSingle();
+  const { data, error } = await supabase.from("owner_branch_entitlements").select("branch_limit").eq("owner_user_id", ownerUserId).maybeSingle();
+  if (isMissingEntitlementsTableError(error)) {
+    return getOwnerBranchLimitFallback(ownerUserId);
+  }
   return Math.max(1, Number(data?.branch_limit ?? 1));
 }
 

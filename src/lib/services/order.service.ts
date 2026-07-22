@@ -324,6 +324,22 @@ function startOfBusinessDayIso() {
   return new Date(`${year}-${month}-${day}T00:00:00-04:00`).toISOString();
 }
 
+function groupItemsByOrder(items: ItemRow[]) {
+  const grouped = new Map<string, OrderItem[]>();
+
+  for (const item of items) {
+    const current = grouped.get(item.order_id) ?? [];
+    current.push(mapItem(item));
+    grouped.set(item.order_id, current);
+  }
+
+  return grouped;
+}
+
+function deliveryLinksByOrder(links: DeliveryLinkRow[]) {
+  return new Map(links.map((link) => [link.order_id, link]));
+}
+
 export const orderService = {
   async listByRestaurant(restaurantId: string) {
     if (!hasSupabaseEnv()) {
@@ -345,12 +361,14 @@ export const orderService = {
     const { data: items } = await supabase.from("order_items").select("*").in("order_id", orderIds);
 
     const { data: deliveryLinks } = await supabase.from("order_delivery_links").select("*").in("order_id", orderIds);
+    const groupedItems = groupItemsByOrder((items ?? []) as ItemRow[]);
+    const linksByOrder = deliveryLinksByOrder((deliveryLinks ?? []) as DeliveryLinkRow[]);
 
     return orders.map((order) =>
       mapOrder(
         order,
-        (items ?? []).filter((item) => item.order_id === order.id).map(mapItem),
-        mapDeliveryLink((deliveryLinks ?? []).find((link) => link.order_id === order.id) as DeliveryLinkRow | undefined),
+        groupedItems.get(order.id) ?? [],
+        mapDeliveryLink(linksByOrder.get(order.id)),
       ),
     );
   },
@@ -385,12 +403,14 @@ export const orderService = {
       supabase.from("order_items").select("id,order_id,product_id,product_name,unit_price,quantity,subtotal,notes").in("order_id", orderIds),
       supabase.from("order_delivery_links").select("order_id,delivery_phone,delivery_name,status,created_at,opened_at,arrived_at,delivered_at").in("order_id", orderIds),
     ]);
+    const groupedItems = groupItemsByOrder((items ?? []) as ItemRow[]);
+    const linksByOrder = deliveryLinksByOrder((deliveryLinks ?? []) as DeliveryLinkRow[]);
 
     return orders.map((order) =>
       mapOrder(
         order as OrderRow,
-        (items ?? []).filter((item) => item.order_id === order.id).map(mapItem),
-        mapDeliveryLink((deliveryLinks ?? []).find((link) => link.order_id === order.id) as DeliveryLinkRow | undefined),
+        groupedItems.get(order.id) ?? [],
+        mapDeliveryLink(linksByOrder.get(order.id)),
       ),
     );
   },

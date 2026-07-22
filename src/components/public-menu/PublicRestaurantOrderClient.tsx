@@ -500,7 +500,9 @@ export function PublicRestaurantOrderClient({
 
 function OrderErrorMessage({ error }: { error: string }) {
   const message =
-    error === "no-open-cash"
+    error === "rate-limit"
+      ? "Se enviaron demasiados pedidos en pocos minutos. Espera un momento antes de intentar nuevamente."
+      : error === "no-open-cash"
       ? "La caja está cerrada. El restaurante debe abrir caja para recibir pedidos."
       : error === "receipt-required"
         ? "Para pago QR debes subir el comprobante antes de confirmar."
@@ -981,11 +983,16 @@ function PublicOrderPanel({
         return;
       }
     }
+    const requestIdInput = event.currentTarget.elements.namedItem("requestId");
+    if (requestIdInput instanceof HTMLInputElement && !requestIdInput.value) {
+      requestIdInput.value = crypto.randomUUID();
+    }
     setIsSubmitting(true);
   }
 
   return (
     <form action={createPublicOrderAction} className={cn("w-full min-w-0 rounded-[1.5rem] bg-[var(--surface)] text-[var(--text)] shadow-sm", compact ? "rounded-none p-0 shadow-none" : "p-4")} onSubmit={handleSubmit}>
+      <input defaultValue="" name="requestId" type="hidden" />
       <input name="restaurantId" type="hidden" value={restaurant.id} />
       <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
       <input name="orderType" type="hidden" value={orderType} />

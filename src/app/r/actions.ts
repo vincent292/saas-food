@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { announcementService } from "@/lib/services/announcement.service";
 import { uploadPublicImage } from "@/lib/supabase/storage";
 import { businessTypeSupportsTableQr, normalizeRestaurantBusinessType } from "@/lib/restaurant-directory-options";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTimeWithinBusinessHours, localDateTimeInputToIso } from "@/lib/utils/business-hours";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { BusinessHour, BusinessType } from "@/types/restaurant.types";
@@ -22,6 +23,7 @@ const cartItemSchema = z.object({
 });
 
 const orderSchema = z.object({
+  requestId: z.string().uuid(),
   restaurantId: z.string().uuid(),
   restaurantSlug: z.string().min(1),
   tableId: z.string().uuid().optional(),
@@ -306,6 +308,7 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${publicRestaurantPath(String(formData.get("restaurantSlug") || ""), "checkout")}?error=invalid`);
   }
   const parsed = orderSchema.safeParse({
+    requestId: formData.get("requestId") || crypto.randomUUID(),
     restaurantId: formData.get("restaurantId"),
     restaurantSlug: formData.get("restaurantSlug"),
     tableId: formData.get("tableId") || undefined,
@@ -334,6 +337,18 @@ export async function createPublicOrderAction(formData: FormData) {
   }
 
   const failPath = parsed.data.tableCode ? publicRestaurantPath(parsed.data.restaurantSlug, `mesa/${parsed.data.tableCode}`) : publicRestaurantPath(parsed.data.restaurantSlug);
+  const orderRateLimit = await consumeRateLimit({
+    scope: "public-order",
+    identity: `${parsed.data.restaurantId}:${parsed.data.customerPhone || parsed.data.customerEmail || parsed.data.customerName}`,
+    maxAttempts: 8,
+    windowSeconds: 10 * 60,
+    blockSeconds: 15 * 60,
+  });
+
+  if (!orderRateLimit.allowed) {
+    redirect(`${failPath}?error=rate-limit`);
+  }
+
   const supabase = await createClient();
   const writeClient = createAdminClient();
   if (!writeClient) {
@@ -455,60 +470,61 @@ export async function createPublicOrderAction(formData: FormData) {
   const total = subtotal + deliveryFee;
   const orderNumber = `P-${Date.now().toString().slice(-6)}`;
 
-  const { data: order, error } = await writeClient
-    .from("orders")
-    .insert({
+  const paymentReceiptUploadedAt = paymentReceiptUrl ? new Date().toISOString() : null;
+  const { data: createdOrders, error } = await writeClient.rpc("create_public_order_transaction", {
+    p_request_id: parsed.data.requestId,
+    p_order: {
       restaurant_id: parsed.data.restaurantId,
       table_id: parsed.data.tableId ?? null,
       order_number: orderNumber,
       customer_name: parsed.data.customerName,
-      customer_phone: parsed.data.customerPhone,
+      customer_phone: parsed.data.customerPhone ?? null,
       customer_email: parsed.data.customerEmail || null,
-      customer_address: parsed.data.customerAddress,
+      customer_address: parsed.data.customerAddress ?? null,
       delivery_address_detail: parsed.data.deliveryAddressDetail ?? null,
       delivery_latitude: parsed.data.deliveryLatitude ?? null,
       delivery_longitude: parsed.data.deliveryLongitude ?? null,
       delivery_maps_url: parsed.data.deliveryMapsUrl ?? null,
       requested_fulfillment_at: requestedFulfillmentAt ? localDateTimeInputToIso(requestedFulfillmentAt, DEFAULT_RESTAURANT_TIME_ZONE) : null,
       invoice_required: parsed.data.invoiceRequired,
-      invoice_document_type: parsed.data.invoiceRequired ? parsed.data.invoiceDocumentType : null,
-      invoice_document_number: parsed.data.invoiceRequired ? parsed.data.invoiceDocumentNumber : null,
-      invoice_name: parsed.data.invoiceRequired ? parsed.data.invoiceName : null,
+      invoice_document_type: parsed.data.invoiceRequired ? (parsed.data.invoiceDocumentType ?? null) : null,
+      invoice_document_number: parsed.data.invoiceRequired ? (parsed.data.invoiceDocumentNumber ?? null) : null,
+      invoice_name: parsed.data.invoiceRequired ? (parsed.data.invoiceName ?? null) : null,
       order_type: parsed.data.orderType,
       order_origin: parsed.data.orderType === "table" ? "table_qr" : "web_checkout",
-      status: "pending",
-      payment_status: "pending",
       payment_method: parsed.data.paymentMethod,
       payment_receipt_url: paymentReceiptUrl,
-      payment_receipt_uploaded_at: paymentReceiptUrl ? new Date().toISOString() : null,
+      payment_receipt_uploaded_at: paymentReceiptUploadedAt,
       subtotal,
       delivery_fee: deliveryFee,
       discount_total: 0,
       total,
-      notes: parsed.data.notes,
-    })
-    .select("id, tracking_token")
-    .single();
-
-  if (error || !order) {
-    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=create`);
-  }
-
-  const { error: itemsError } = await writeClient.from("order_items").insert(
-    resolvedCart.map((item) => ({
-      order_id: order.id,
+      notes: parsed.data.notes ?? null,
+    },
+    p_items: resolvedCart.map((item) => ({
       product_id: item.productId,
       product_name: item.name,
       unit_price: item.price,
       quantity: item.quantity,
       subtotal: item.subtotal,
-      notes: item.notes,
+      notes: item.notes ?? null,
     })),
-  );
+  });
+  let order = createdOrders?.[0];
 
-  if (itemsError) {
-    await writeClient.from("orders").delete().eq("id", order.id);
-    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=create-items`);
+  if (!order && error?.code === "23505") {
+    const { data: existingOrder } = await writeClient
+      .from("orders")
+      .select("id,tracking_token")
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .eq("public_request_id", parsed.data.requestId)
+      .maybeSingle();
+    order = existingOrder ?? undefined;
+  }
+
+  if (!order) {
+    const errorKey = error?.message.includes("no-open-cash") ? "no-open-cash" : error?.message.includes("invalid-public-order-items") ? "product-not-found" : "create";
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=${errorKey}`);
   }
 
   const tableNotice = parsed.data.orderType === "table" ? "&tablePending=1" : "";

@@ -3,23 +3,26 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { CreditCard, ExternalLink, ShieldCheck, Store, WalletCards } from "lucide-react";
-import { updateOwnerBranchEntitlementAction } from "@/app/admin/actions";
+import { resolveOwnerBranchCapacityAction, updateOwnerBranchEntitlementAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
-import { Input } from "@/components/ui/Input";
+import { Input, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { authService } from "@/lib/services/auth.service";
 import { clientAccountService } from "@/lib/services/client-account.service";
 import { modulesForAdminLayout } from "@/lib/modules";
+import { listOwnerBranchCapacityRequests } from "@/lib/services/owner-dashboard.service";
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { PlatformBilling, RestaurantStatus } from "@/types/restaurant.types";
 
 const errorMessages: Record<string, string> = {
   "invalid-entitlement": "Revisa el numero de sucursales habilitadas.",
+  "invalid-branch-request": "Revisa la solicitud y el nuevo limite aprobado.",
+  P0002: "La solicitud ya fue resuelta o no existe.",
 };
 
 export default async function ClientAccountPage({
@@ -42,6 +45,8 @@ export default async function ClientAccountPage({
   }
 
   const baseRestaurant = account.baseRestaurant;
+  const branchRequests = account.owner.userId ? await listOwnerBranchCapacityRequests(account.owner.userId) : [];
+  const pendingBranchRequests = branchRequests.filter((request) => request.status === "pending");
 
   return (
     <AdminLayout
@@ -147,6 +152,37 @@ export default async function ClientAccountPage({
             <p className="mt-1 text-2xl font-black">Superadmin</p>
             <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">el cliente solo puede solicitar cupos</p>
           </Card>
+        </section>
+
+        <section className="space-y-3">
+          <SectionTitle description="El dueno solicita; solo el superadmin aprueba y cambia el cupo disponible." title="Solicitudes de sucursales" />
+          <div className="grid gap-3">
+            {pendingBranchRequests.map((request) => (
+              <Card className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]" key={request.id}>
+                <div>
+                  <p className="text-lg font-black">Solicita {request.requestedAdditional} sucursal{request.requestedAdditional === 1 ? "" : "es"} adicional{request.requestedAdditional === 1 ? "" : "es"}</p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Cupo actual: {request.currentLimit}. {request.reason || "Sin comentario adicional."}</p>
+                </div>
+                <div className="space-y-2">
+                  <form action={resolveOwnerBranchCapacityAction} className="space-y-2">
+                    <input name="requestId" type="hidden" value={request.id} />
+                    <input name="restaurantId" type="hidden" value={baseRestaurant.id} />
+                    <input name="decision" type="hidden" value="approve" />
+                    <Input defaultValue={request.currentLimit + request.requestedAdditional} min={request.currentLimit} name="approvedLimit" required type="number" />
+                    <Textarea name="resolutionNotes" placeholder="Nota de aprobacion opcional" />
+                    <button className={buttonClasses("primary", "w-full")} type="submit">Aprobar y habilitar</button>
+                  </form>
+                  <form action={resolveOwnerBranchCapacityAction}>
+                    <input name="requestId" type="hidden" value={request.id} />
+                    <input name="restaurantId" type="hidden" value={baseRestaurant.id} />
+                    <input name="decision" type="hidden" value="reject" />
+                    <button className={buttonClasses("secondary", "w-full")} type="submit">Rechazar</button>
+                  </form>
+                </div>
+              </Card>
+            ))}
+            {!pendingBranchRequests.length ? <Card className="border-dashed text-sm font-semibold text-[var(--color-secondary-text)]">No hay solicitudes pendientes para esta cuenta.</Card> : null}
+          </div>
         </section>
 
         <section className="space-y-3">

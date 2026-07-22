@@ -1,13 +1,14 @@
 import { Mail, Store, Users } from "lucide-react";
 import { OwnerLayout, getOwnerLayoutContext } from "@/components/layout/OwnerLayout";
+import { ResponsibleAccessActionsClient } from "@/components/owner/ResponsibleAccessActionsClient";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { listOwnerResponsibles } from "@/lib/services/owner-dashboard.service";
 
 export default async function OwnerResponsiblesPage() {
-  const { ownerMemberships } = await getOwnerLayoutContext();
-  const responsibles = await listOwnerResponsibles(ownerMemberships);
+  const { ownerMemberships, profile } = await getOwnerLayoutContext();
+  const responsibles = (await listOwnerResponsibles(ownerMemberships)).filter((responsible) => responsible.userId !== profile.id);
 
   return (
     <OwnerLayout active="/dueno/responsables" memberships={ownerMemberships} title="Responsables">
@@ -28,7 +29,7 @@ export default async function OwnerResponsiblesPage() {
 
         <div className="grid gap-3">
           {responsibles.map((responsible) => (
-            <Card className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center" key={`${responsible.restaurantId}-${responsible.userId}-${responsible.role}`}>
+            <Card className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center" key={`${responsible.restaurantId}-${responsible.userId}-${responsible.role}`}>
               <div className="min-w-0">
                 <p className="truncate text-lg font-black">{responsible.fullName}</p>
                 <p className="mt-1 flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--color-secondary-text)]">
@@ -40,7 +41,10 @@ export default async function OwnerResponsiblesPage() {
                   {responsible.restaurantName}
                 </p>
               </div>
-              <Badge className="justify-center bg-[var(--primary-light)] text-[var(--primary)]">{responsible.role}</Badge>
+              <div className="space-y-3">
+                <Badge className={responsible.isActive ? "justify-center bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "justify-center bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]"}>{responsible.isActive ? "Activo" : "Desactivado"}</Badge>
+                <ResponsibleAccessActionsClient isActive={responsible.isActive} restaurantId={responsible.restaurantId} targetUserId={responsible.userId} />
+              </div>
             </Card>
           ))}
 

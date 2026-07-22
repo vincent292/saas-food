@@ -40,11 +40,16 @@ export async function AdminLayout({
     }
   }
 
+  const memberships = profile.globalRole !== "superadmin" && restaurantId ? await membershipService.listActiveRestaurantsForUser(profile.id) : [];
+
+  if (restaurantId && profile.globalRole !== "superadmin" && !memberships.some((membership) => membership.restaurantId === restaurantId)) {
+    redirect("/admin?error=restaurant-access-denied");
+  }
+
   const [billingAlert, pendingOrderAlerts] = await Promise.all([
     restaurantId && restaurantStatus ? platformBillingService.getBillingSnapshot(restaurantId, restaurantStatus).then((snapshot) => snapshot.alert) : Promise.resolve(null),
     restaurantId ? orderService.listPendingAlerts(restaurantId) : Promise.resolve([]),
   ]);
-  const memberships = profile.globalRole !== "superadmin" && restaurantId ? await membershipService.listActiveRestaurantsForUser(profile.id) : [];
   const canSwitchBranches = memberships.length > 1;
   const canAccessOwnerPanel = memberships.some((membership) => membership.role === "restaurant_admin" && membership.restaurant.ownerUserId === profile.id);
 

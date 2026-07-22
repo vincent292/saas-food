@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { additionalLocationPriceMonthly, fullPlanName, primaryLocationPriceMonthly } from "@/lib/billing/full-plan";
 import { formatMoney } from "@/lib/utils/money";
 import type { UserRestaurantMembership } from "@/lib/services/membership.service";
@@ -24,6 +23,45 @@ export type OwnerBranchCapacity = {
   additionalPriceMonthly: number;
   monthlyTotal: number;
 };
+
+export type OwnerBranchCapacityRequest = {
+  id: string;
+  sourceRestaurantId: string;
+  requestedAdditional: number;
+  reason?: string;
+  status: "pending" | "approved" | "rejected";
+  currentLimit: number;
+  approvedLimit?: number;
+  resolutionNotes?: string;
+  createdAt: string;
+  resolvedAt?: string;
+};
+
+export async function listOwnerBranchCapacityRequests(ownerUserId: string): Promise<OwnerBranchCapacityRequest[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("owner_branch_capacity_requests")
+    .select("id,source_restaurant_id,requested_additional,reason,status,current_limit,approved_limit,resolution_notes,created_at,resolved_at")
+    .eq("owner_user_id", ownerUserId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return [];
+  }
+
+  return (data ?? []).map((request) => ({
+    id: request.id,
+    sourceRestaurantId: request.source_restaurant_id,
+    requestedAdditional: request.requested_additional,
+    reason: request.reason ?? undefined,
+    status: request.status,
+    currentLimit: request.current_limit,
+    approvedLimit: request.approved_limit ?? undefined,
+    resolutionNotes: request.resolution_notes ?? undefined,
+    createdAt: request.created_at,
+    resolvedAt: request.resolved_at ?? undefined,
+  }));
+}
 
 export type OwnerProductPerformance = {
   productName: string;
@@ -55,25 +93,23 @@ export type OwnerResponsible = {
   role: string;
   email: string;
   fullName: string;
+  isActive: boolean;
 };
 
 export function ownerMembershipsForUser(memberships: UserRestaurantMembership[], userId: string) {
   return memberships.filter((membership) => membership.role === "restaurant_admin" && membership.restaurant.ownerUserId === userId);
 }
 
-function isMissingEntitlementsTableError(error?: { code?: string } | null) {
-  return error?.code === "PGRST205";
-}
+function groupByRestaurant<T extends { restaurant_id: string }>(rows: T[]) {
+  const grouped = new Map<string, T[]>();
 
-async function getOwnerBranchLimitFallback(ownerUserId: string) {
-  const admin = createAdminClient();
-  if (!admin) {
-    return 1;
+  for (const row of rows) {
+    const current = grouped.get(row.restaurant_id) ?? [];
+    current.push(row);
+    grouped.set(row.restaurant_id, current);
   }
 
-  const { data } = await admin.auth.admin.getUserById(ownerUserId);
-  const metadata = data.user?.user_metadata as Record<string, unknown> | undefined;
-  return Math.max(1, Number(metadata?.branch_limit ?? 1));
+  return grouped;
 }
 
 export async function getOwnerDashboardData(memberships: UserRestaurantMembership[]): Promise<OwnerDashboardData> {
@@ -127,14 +163,18 @@ export async function getOwnerBranchSummaries(memberships: UserRestaurantMembers
       .eq("is_active", true)
       .gt("remaining_quantity", 0),
   ]);
+  const ordersByRestaurant = groupByRestaurant(orders ?? []);
+  const cashByRestaurant = groupByRestaurant(cashSessions ?? []);
+  const inventoryByRestaurant = groupByRestaurant(inventoryItems ?? []);
+  const lotsByRestaurant = groupByRestaurant(inventoryLots ?? []);
 
   return memberships.map((membership) => {
-    const branchOrders = (orders ?? []).filter((order) => order.restaurant_id === membership.restaurant.id);
+    const branchOrders = ordersByRestaurant.get(membership.restaurant.id) ?? [];
     const validOrders = branchOrders.filter((order) => order.status !== "cancelled");
-    const branchCashSessions = (cashSessions ?? []).filter((session) => session.restaurant_id === membership.restaurant.id);
+    const branchCashSessions = cashByRestaurant.get(membership.restaurant.id) ?? [];
     const latestClosedCash = branchCashSessions.find((session) => session.status === "closed" && session.closed_at);
-    const branchInventory = (inventoryItems ?? []).filter((item) => item.restaurant_id === membership.restaurant.id);
-    const branchLots = (inventoryLots ?? []).filter((lot) => lot.restaurant_id === membership.restaurant.id);
+    const branchInventory = inventoryByRestaurant.get(membership.restaurant.id) ?? [];
+    const branchLots = lotsByRestaurant.get(membership.restaurant.id) ?? [];
 
     return {
       membership,
@@ -178,9 +218,10 @@ export async function getOwnerBranchCapacity(memberships: UserRestaurantMembersh
   const fullPlan = planRows[0];
   const primaryPrice = Number(fullPlan?.price_monthly ?? primaryLocationPriceMonthly);
   const additionalPrice = Number(fullPlan?.additional_restaurant_price_monthly ?? additionalLocationPriceMonthly);
-  const limit = isMissingEntitlementsTableError(entitlementResult.error)
-    ? await getOwnerBranchLimitFallback(ownerUserId)
-    : Math.max(1, Number(entitlementResult.data?.branch_limit ?? 1));
+  if (entitlementResult.error) {
+    throw new Error(`owner-entitlement-read:${entitlementResult.error.code}`);
+  }
+  const limit = Math.max(1, Number(entitlementResult.data?.branch_limit ?? 1));
 
   return {
     used: memberships.length,
@@ -199,8 +240,8 @@ export async function getOwnerBranchLimit(ownerUserId?: string | null) {
 
   const supabase = await createClient();
   const { data, error } = await supabase.from("owner_branch_entitlements").select("branch_limit").eq("owner_user_id", ownerUserId).maybeSingle();
-  if (isMissingEntitlementsTableError(error)) {
-    return getOwnerBranchLimitFallback(ownerUserId);
+  if (error) {
+    throw new Error(`owner-entitlement-read:${error.code}`);
   }
   return Math.max(1, Number(data?.branch_limit ?? 1));
 }
@@ -273,9 +314,9 @@ export async function listOwnerResponsibles(memberships: UserRestaurantMembershi
   const supabase = await createClient();
   const { data: membershipRows } = await supabase
     .from("restaurant_memberships")
-    .select("restaurant_id,user_id,role")
+    .select("restaurant_id,user_id,role,is_active")
     .in("restaurant_id", restaurantIds)
-    .eq("is_active", true);
+    .eq("role", "restaurant_admin");
   const userIds = Array.from(new Set((membershipRows ?? []).map((membership) => membership.user_id)));
 
   if (!userIds.length) {
@@ -296,6 +337,7 @@ export async function listOwnerResponsibles(memberships: UserRestaurantMembershi
       role: membership.role,
       email: profile?.email ?? "Sin correo",
       fullName: profile?.full_name ?? "Responsable",
+      isActive: membership.is_active,
     };
   });
 }

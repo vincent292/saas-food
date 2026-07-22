@@ -14,10 +14,6 @@ function clearSupabaseCookies(request: NextRequest, response: NextResponse) {
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
 
-  if (request.nextUrl.pathname === "/admin/login") {
-    return response;
-  }
-
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "",
@@ -35,10 +31,22 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  const { error } = await supabase.auth.getUser();
+  const { data, error } = await supabase.auth.getUser();
+  const pathname = request.nextUrl.pathname;
+  const isLoginRoute = pathname === "/admin/login";
+  const isProtectedRoute = !isLoginRoute && (pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/dueno" || pathname.startsWith("/dueno/"));
 
-  if (error) {
+  if (error || !data.user) {
     clearSupabaseCookies(request, response);
+
+    if (isProtectedRoute) {
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = "/admin/login";
+      loginUrl.search = "?error=session";
+      const redirectResponse = NextResponse.redirect(loginUrl);
+      clearSupabaseCookies(request, redirectResponse);
+      return redirectResponse;
+    }
   }
 
   return response;

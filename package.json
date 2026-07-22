@@ -8,13 +8,13 @@
     "start": "node ./scripts/run-next-with-url.mjs start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "security:check": "node ./scripts/security-checks.mjs"
+    "security:check": "node ./scripts/security-checks.mjs",
+    "test": "node --use-system-ca --env-file=.env --test tests/*.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
     "clsx": "^2.1.1",
-    "es-abstract": "^1.24.2",
     "gsap": "^3.15.0",
     "lucide-react": "^1.21.0",
     "next": "16.2.9",
@@ -38,5 +38,9 @@
   },
   "optionalDependencies": {
     "@next/swc-win32-x64-msvc": "^16.2.9"
+  },
+  "overrides": {
+    "postcss": "8.5.15",
+    "sharp": "0.35.0"
   }
 }

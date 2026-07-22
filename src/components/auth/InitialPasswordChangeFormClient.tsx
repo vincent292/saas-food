@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 
 const errorMessages: Record<string, string> = {
-  invalid: "La contrasena debe tener minimo 10 caracteres, una mayuscula, una minuscula, un numero y ambas contrasenas deben coincidir.",
+  invalid: "La contrasena debe tener minimo 12 caracteres, una mayuscula, una minuscula, un numero y ambas contrasenas deben coincidir.",
   update: "No se pudo actualizar la contrasena. Intenta nuevamente.",
 };
 
@@ -23,8 +23,8 @@ export function InitialPasswordChangeFormClient() {
           {errorMessages[state.error] ?? "No se pudo actualizar la contrasena."}
         </div>
       ) : null}
-      <PasswordInput autoComplete="new-password" minLength={10} name="password" placeholder="Nueva contrasena" required />
-      <PasswordInput autoComplete="new-password" minLength={10} name="confirmPassword" placeholder="Repite la nueva contrasena" required />
+      <PasswordInput autoComplete="new-password" minLength={12} name="password" placeholder="Nueva contrasena" required />
+      <PasswordInput autoComplete="new-password" minLength={12} name="confirmPassword" placeholder="Repite la nueva contrasena" required />
       <Button className="w-full" disabled={pending}>
         {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
         {pending ? "Actualizando..." : "Guardar y continuar"}

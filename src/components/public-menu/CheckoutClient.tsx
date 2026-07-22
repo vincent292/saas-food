@@ -1,7 +1,7 @@
 "use client";
 
 import { Bike, Store, Table2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
 import { DeliveryLocationFields } from "@/components/location/DeliveryLocationFields";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
@@ -62,7 +62,9 @@ export function CheckoutClient({
   const minOrderAmount = settings?.minOrderAmount ?? 0;
   const belowMinimum = subtotal > 0 && subtotal < minOrderAmount;
   const errorMessage =
-    error === "minimum"
+    error === "rate-limit"
+      ? "Se enviaron demasiados pedidos en pocos minutos. Espera un momento antes de intentar nuevamente."
+      : error === "minimum"
       ? "El pedido no llega al mínimo configurado por el restaurante."
       : error === "no-open-cash"
         ? "La caja esta cerrada. El restaurante debe abrir caja para recibir pedidos."
@@ -114,7 +116,17 @@ export function CheckoutClient({
             Pedido mínimo: {formatMoney(minOrderAmount, settings?.currency)}.
           </div>
         ) : null}
-        <form action={createPublicOrderAction} className="space-y-6">
+        <form
+          action={createPublicOrderAction}
+          className="space-y-6"
+          onSubmit={(event: FormEvent<HTMLFormElement>) => {
+            const requestIdInput = event.currentTarget.elements.namedItem("requestId");
+            if (requestIdInput instanceof HTMLInputElement && !requestIdInput.value) {
+              requestIdInput.value = crypto.randomUUID();
+            }
+          }}
+        >
+          <input defaultValue="" name="requestId" type="hidden" />
           <input name="restaurantId" type="hidden" value={restaurantId} />
           <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
           <input name="cartJson" type="hidden" value={cartJson} />

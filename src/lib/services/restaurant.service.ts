@@ -92,6 +92,8 @@ function mapRestaurant(row: {
   maps_url?: string | null;
 }): Restaurant {
   const businessType = normalizeRestaurantBusinessType(row.business_type);
+  const primaryColor = normalizeBrandPrimary(row.primary_color);
+  const secondaryColor = row.secondary_color || defaultRestaurantPalette.secondaryColor;
   const initials = row.name
     .split(" ")
     .map((part) => part[0])
@@ -112,8 +114,8 @@ function mapRestaurant(row: {
     deletedAt: row.deleted_at ?? undefined,
     logoUrl: row.logo_url || initials,
     bannerUrl: row.banner_url || "",
-    primaryColor: defaultRestaurantPalette.primaryColor,
-    secondaryColor: defaultRestaurantPalette.secondaryColor,
+    primaryColor,
+    secondaryColor,
     whatsapp: row.whatsapp ?? "",
     address: row.address ?? "",
     addressReference: row.address_reference ?? "",
@@ -125,7 +127,17 @@ function mapRestaurant(row: {
     mapsUrl: row.maps_url ?? "",
     menuBackgroundImageUrl: row.menu_background_image_url ?? "",
     publicBannerSize: row.public_banner_size ?? "compact",
-    theme: themeFromColors(defaultRestaurantPalette),
+    theme: themeFromColors({
+      primaryColor,
+      secondaryColor,
+      backgroundColor: row.background_color,
+      surfaceColor: row.surface_color,
+      textColor: row.text_color,
+      mutedColor: row.muted_color,
+      borderColor: row.border_color,
+      navBackgroundColor: row.nav_background_color,
+      navTextColor: row.nav_text_color,
+    }),
   };
 }
 

@@ -23,6 +23,7 @@ const errorMessages: Record<string, string> = {
   invalid: "Revisa los datos obligatorios de la sucursal.",
   "branch-limit": "Tu cuenta ya no tiene cupos disponibles para nuevas sucursales.",
   "owner-required": "Solo el dueno del negocio puede crear sucursales desde este flujo.",
+  "owner-entitlement": "No se pudo validar el cupo habilitado. Intenta nuevamente.",
   "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para crear sucursales desde el panel.",
   "source-not-found": "No encontramos la sucursal base activa.",
   "slug-exists": "Ese slug publico ya esta en uso. Elige otro enlace.",
@@ -124,7 +125,7 @@ export function BranchCreateFormClient({
           </Field>
 
           <Field className="md:col-span-2" label="Contrasena temporal">
-            <Input minLength={8} name="branchUserPassword" placeholder="Minimo 8 caracteres" required type="password" />
+            <Input minLength={12} name="branchUserPassword" placeholder="Minimo 12 caracteres" required type="password" />
           </Field>
 
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">

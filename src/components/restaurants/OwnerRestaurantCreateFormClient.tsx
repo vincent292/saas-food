@@ -122,7 +122,7 @@ export function OwnerRestaurantCreateFormClient() {
         />
         <Input defaultValue={values.branchUserName} name="branchUserName" placeholder="Nombre del responsable" required />
         <Input defaultValue={values.branchUserEmail} name="branchUserEmail" placeholder="responsable@sucursal.com" required type="email" />
-        <Input className="md:col-span-2" minLength={8} name="branchUserPassword" placeholder="Contrasena temporal, minimo 8 caracteres" required type="password" />
+        <Input className="md:col-span-2" minLength={12} name="branchUserPassword" placeholder="Contrasena temporal, minimo 12 caracteres" required type="password" />
 
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
           Este responsable debera cambiar la contrasena en su primer ingreso y no tendra acceso al panel de dueno.

@@ -27,6 +27,21 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      owner_branch_capacity_requests: Row<{
+        id: string;
+        owner_user_id: string;
+        source_restaurant_id: string;
+        requested_additional: number;
+        reason: string | null;
+        status: "pending" | "approved" | "rejected";
+        current_limit: number;
+        approved_limit: number | null;
+        resolved_by: string | null;
+        resolved_at: string | null;
+        resolution_notes: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       restaurants: Row<{
         id: string;
         name: string;
@@ -213,6 +228,7 @@ export type Database = {
         restaurant_id: string;
         table_id: string | null;
         order_number: string;
+        public_request_id: string | null;
         customer_name: string | null;
         customer_phone: string | null;
         customer_email: string | null;
@@ -607,6 +623,43 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      create_public_order_transaction: {
+        Args: {
+          p_items: Json;
+          p_order: Json;
+          p_request_id: string;
+        };
+        Returns: {
+          id: string;
+          tracking_token: string;
+        }[];
+      };
+      resolve_owner_branch_capacity_request: {
+        Args: {
+          p_approve: boolean;
+          p_approved_limit?: number | null;
+          p_request_id: string;
+          p_resolution_notes?: string | null;
+        };
+        Returns: undefined;
+      };
+      consume_request_rate_limit: {
+        Args: {
+          p_block_seconds: number;
+          p_identifier_hash: string;
+          p_max_attempts: number;
+          p_scope: string;
+          p_window_seconds: number;
+        };
+        Returns: boolean;
+      };
+      clear_request_rate_limit: {
+        Args: {
+          p_identifier_hash: string;
+          p_scope: string;
+        };
+        Returns: undefined;
+      };
       cash_expected_amount: {
         Args: {
           p_cash_session_id: string;

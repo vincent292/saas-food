@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCard, Flame, Heart, MapPin, Minus, Plus, ReceiptText, Search, Share2, ShoppingCart, Sparkles, Store, UserRound, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCard, MapPin, Minus, Plus, ReceiptText, Search, Share2, ShoppingCart, Sparkles, Store, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input } from "@/components/ui/Input";
 import { businessCatalogItemsLabel, businessCatalogLabel } from "@/lib/restaurant-directory-options";
+import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { readCart, writeCart } from "@/lib/utils/cart";
 import { DEFAULT_RESTAURANT_TIME_ZONE, getBusinessStatus, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
 import { cn } from "@/lib/utils/cn";
@@ -18,7 +19,7 @@ import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductStockAvailability, ProductVariant } from "@/types/product.types";
-import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantSettings } from "@/types/restaurant.types";
+import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
 type PublicOrderType = "delivery" | "pickup";
 type SelectedOptions = Record<string, string[]>;
@@ -69,6 +70,8 @@ export function PublicRestaurantOrderClient({
   announcements,
   configuration,
   stockAvailability,
+  deliveryZones,
+  initialOrderOpen = false,
   orderError,
 }: {
   restaurant: Restaurant;
@@ -79,6 +82,8 @@ export function PublicRestaurantOrderClient({
   announcements: RestaurantAnnouncement[];
   configuration: ProductConfiguration;
   stockAvailability: ProductStockAvailability[];
+  deliveryZones: RestaurantDeliveryZone[];
+  initialOrderOpen?: boolean;
   orderError?: string;
 }) {
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -86,7 +91,7 @@ export function PublicRestaurantOrderClient({
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartHydrated, setCartHydrated] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(initialOrderOpen);
   const [drawerClosing, setDrawerClosing] = useState(false);
   const [shareState, setShareState] = useState<"idle" | "copied">("idle");
   const [visibleAnnouncementId, setVisibleAnnouncementId] = useState(() => announcements[0]?.id ?? "");
@@ -97,6 +102,13 @@ export function PublicRestaurantOrderClient({
   const [orderType, setOrderType] = useState<PublicOrderType>(() => (settings?.pickupEnabled === false && settings?.deliveryEnabled ? "delivery" : "pickup"));
   const activeClosure = announcements.find((announcement) => announcement.type === "closure");
   const visibleAnnouncement = announcements.find((announcement) => announcement.id === visibleAnnouncementId);
+  const availabilityLabel = activeClosure
+    ? "Cerrado temporalmente"
+    : businessStatus.hasSchedule
+      ? businessStatus.isOpen
+        ? "Abierto ahora"
+        : "Cerrado ahora"
+      : "Pedidos disponibles";
 
   const configByProduct = useMemo<ProductConfigMap>(() => {
     const map: ProductConfigMap = {};
@@ -132,8 +144,10 @@ export function PublicRestaurantOrderClient({
   const logoText = initials(restaurant.name) || restaurant.name.slice(0, 1).toUpperCase();
   const heroImage = isDisplayImage(restaurant.bannerUrl) ? restaurant.bannerUrl : defaultImage;
   const topOrderedProducts = useMemo(() => {
-    const featured = products.filter((product) => product.isAutoFeatured || product.isFeatured);
-    return (featured.length ? featured : products).filter((product) => stockByProduct.get(product.id)?.isAvailableHere ?? true).slice(0, 3);
+    return products
+      .filter((product) => product.orderCount > 0 && (stockByProduct.get(product.id)?.isAvailableHere ?? true))
+      .sort((left, right) => right.orderCount - left.orderCount)
+      .slice(0, 3);
   }, [products, stockByProduct]);
   const bannerHeightClass = restaurant.publicBannerSize === "large" ? "min-h-[300px] sm:min-h-[380px]" : restaurant.publicBannerSize === "standard" ? "min-h-[278px] sm:min-h-[320px]" : "min-h-[250px] sm:min-h-[260px]";
   const publicBackgroundStyle: CSSProperties = isDisplayImage(restaurant.menuBackgroundImageUrl)
@@ -323,29 +337,24 @@ export function PublicRestaurantOrderClient({
                   {restaurant.description || "Elige tus productos, confirma tu pedido y el equipo lo recibe al instante."}
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] font-black text-white/95 sm:mt-4 sm:gap-3 sm:text-sm">
-                  <span className="inline-flex items-center gap-1">
-                    <Clock3 className="h-4 w-4" />
-                    25-35 min
-                  </span>
-                  <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
                   <span>{settings?.deliveryFee ? `${formatMoney(settings.deliveryFee)} envio` : "Delivery disponible"}</span>
                   <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
                   <span>{products.length} {catalogItemsLabel}</span>
                   <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
                   <span className="inline-flex items-center gap-1">
                     <Clock3 className="h-4 w-4" />
-                    {activeClosure ? "Cerrado hoy" : "Abierto hoy"}
+                    {availabilityLabel}
                   </span>
                 </div>
               </div>
               <div className="absolute bottom-5 right-5 z-20 hidden max-w-xs rounded-[1.35rem] bg-[var(--primary)]/92 p-4 text-white shadow-xl ring-1 ring-white/15 backdrop-blur sm:block">
                 <div className="flex items-center gap-3">
                   <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)]">
-                    <Flame className="h-5 w-5" />
+                    <ShoppingCart className="h-5 w-5" />
                   </span>
                   <div>
-                    <p className="text-sm font-black">Ofertas y favoritos</p>
-                    <p className="mt-1 text-xs font-semibold text-white/76">Agrega productos al pedido y confirma en minutos.</p>
+                    <p className="text-sm font-black">Pedido en linea</p>
+                    <p className="mt-1 text-xs font-semibold text-white/76">Personaliza tus productos y confirma desde aqui.</p>
                   </div>
                 </div>
               </div>
@@ -357,8 +366,8 @@ export function PublicRestaurantOrderClient({
             <div className="mb-4 rounded-[1.35rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_14px_34px_rgb(18_53_91_/_0.07)] sm:rounded-[1.65rem] sm:p-4 sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black uppercase text-[var(--primary)]">Favoritos</p>
-                  <h2 className="text-lg font-black sm:text-xl">Top picks para ti</h2>
+                  <p className="text-xs font-black uppercase text-[var(--primary)]">Mas pedidos</p>
+                  <h2 className="text-lg font-black sm:text-xl">Lo que mas eligen</h2>
                 </div>
               </div>
               <div className="-mx-1 mt-3 flex snap-x gap-2 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-3 sm:gap-3 sm:overflow-visible sm:px-0">
@@ -367,7 +376,7 @@ export function PublicRestaurantOrderClient({
                     <ProductVisual className="h-16 w-[66px] rounded-[0.95rem] sm:h-20 sm:w-[78px] sm:rounded-[1.1rem]" name={product.name} src={product.imageUrl} />
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-black">{product.name}</span>
-                      <span className="block text-xs font-bold text-[var(--muted)]">{product.orderCount ? `${product.orderCount} pedidos` : "Nuevo"}</span>
+                      <span className="block text-xs font-bold text-[var(--muted)]">{product.orderCount} pedidos</span>
                     </span>
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] sm:h-10 sm:w-10">
                       <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -384,7 +393,7 @@ export function PublicRestaurantOrderClient({
               <input
                 className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none placeholder:text-[var(--color-placeholder)]"
                 onChange={(event) => setProductQuery(event.target.value)}
-                placeholder="Busca productos, combos o favoritos"
+                placeholder="Busca productos o combos"
                 value={productQuery}
               />
               {productQuery ? (
@@ -396,7 +405,6 @@ export function PublicRestaurantOrderClient({
             <Link className="inline-flex rounded-full bg-[var(--primary-light)] px-4 py-2 text-sm font-black text-[var(--primary)] sm:hidden" href={publicRestaurantPath(restaurant.slug, "seguimiento")}>
               Rastrear pedido
             </Link>
-            {orderError ? <OrderErrorMessage error={orderError} /> : null}
           </div>
 
           <div className="sticky top-[73px] z-20 -mx-3 mb-4 border-y border-[var(--border)] bg-[var(--color-card-elevated)] px-3 py-2.5 shadow-sm backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border sm:py-3" id="menu">
@@ -473,11 +481,13 @@ export function PublicRestaurantOrderClient({
                 changeQuantity={changeQuantity}
                 compact
                 notes={notes}
+                orderError={orderError}
                 orderType={orderType}
                 paymentMethod={paymentMethod}
                 fulfillmentMode={fulfillmentMode}
                 requiresInvoice={requiresInvoice}
                 restaurant={restaurant}
+                deliveryZones={deliveryZones}
                 businessHours={businessHours}
                 businessStatus={businessStatus}
                 activeClosure={activeClosure}
@@ -502,8 +512,18 @@ function OrderErrorMessage({ error }: { error: string }) {
   const message =
     error === "rate-limit"
       ? "Se enviaron demasiados pedidos en pocos minutos. Espera un momento antes de intentar nuevamente."
-      : error === "no-open-cash"
-      ? "La caja está cerrada. El restaurante debe abrir caja para recibir pedidos."
+      : error === "qr-required-distance"
+      ? "Por la distancia de entrega, este pedido requiere pago QR con comprobante."
+      : error === "different-city"
+        ? "El delivery solo esta disponible dentro de la misma ciudad del restaurante."
+      : error === "delivery-location"
+          ? "Marca la ubicacion exacta para calcular la distancia del envio."
+      : error === "minimum"
+        ? "El pedido no alcanza el monto minimo configurado por el restaurante."
+        : error === "disabled"
+          ? "La modalidad elegida no esta disponible en este restaurante."
+          : error === "settings"
+            ? "El restaurante todavia no termino de configurar la recepcion de pedidos."
       : error === "receipt-required"
         ? "Para pago QR debes subir el comprobante antes de confirmar."
         : error === "qr-unavailable"
@@ -627,7 +647,6 @@ function ProductOptionModal({
     return initial;
   });
   const [isClosing, setIsClosing] = useState(false);
-  const [isFavorite, setIsFavorite] = useState(false);
   const [shareState, setShareState] = useState<"idle" | "copied">("idle");
 
   const selectedVariant = variants.find((variant) => variant.id === variantId) ?? null;
@@ -696,9 +715,6 @@ function ProductOptionModal({
               <ArrowRight className="h-5 w-5 rotate-180" />
             </button>
             <div className="flex items-center gap-2">
-              <button aria-label={isFavorite ? "Quitar de favoritos" : "Agregar a favoritos"} aria-pressed={isFavorite} className={cn("pointer-events-auto grid h-12 w-12 shrink-0 touch-manipulation place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl transition hover:scale-105 active:scale-95", isFavorite ? "text-[var(--color-danger)]" : "text-[var(--primary)]")} data-product-modal-favorite="" onClick={() => setIsFavorite((current) => !current)} type="button">
-                <Heart className={cn("h-5 w-5", isFavorite ? "fill-current" : "")} />
-              </button>
               <button aria-label="Compartir producto" className="pointer-events-auto grid h-12 w-12 shrink-0 touch-manipulation place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl transition hover:scale-105 active:scale-95" data-product-modal-share="" onClick={shareProduct} type="button">
                 {shareState === "copied" ? <Check className="h-5 w-5" /> : <Share2 className="h-5 w-5" />}
               </button>
@@ -716,12 +732,12 @@ function ProductOptionModal({
           </div>
           <div className="grid grid-cols-3 gap-2 border-y border-[var(--border)] py-3 text-center text-xs font-bold text-[var(--muted)]">
             <span>
-              <strong className="block text-sm text-[var(--text)]">Medio</strong>
-              Picante
+              <strong className="block text-sm text-[var(--text)]">{Math.max(variants.length, 1)}</strong>
+              {variants.length === 1 ? "Variante" : "Variantes"}
             </span>
             <span>
-              <strong className="block text-sm text-[var(--text)]">25-35 min</strong>
-              Entrega
+              <strong className="block text-sm text-[var(--text)]">{optionGroups.length}</strong>
+              Personalizaciones
             </span>
             <span>
               <strong className="block text-sm text-[var(--text)]">{formatMoney(product.price)}</strong>
@@ -803,6 +819,7 @@ type OrderStepKey = "fulfillment" | "customer" | "invoice" | "payment" | "review
 
 function PublicOrderPanel({
   restaurant,
+  deliveryZones,
   settings,
   businessHours,
   businessStatus,
@@ -813,6 +830,7 @@ function PublicOrderPanel({
   paymentMethod,
   fulfillmentMode,
   orderType,
+  orderError,
   requiresInvoice,
   notes,
   compact = false,
@@ -823,6 +841,7 @@ function PublicOrderPanel({
   setRequiresInvoice,
 }: {
   restaurant: Restaurant;
+  deliveryZones: RestaurantDeliveryZone[];
   settings: RestaurantSettings | null;
   businessHours: BusinessHour[];
   businessStatus: ReturnType<typeof getBusinessStatus>;
@@ -833,6 +852,7 @@ function PublicOrderPanel({
   paymentMethod: "cash" | "qr";
   fulfillmentMode: "now" | "scheduled";
   orderType: PublicOrderType;
+  orderError?: string;
   requiresInvoice: boolean;
   notes: string;
   compact?: boolean;
@@ -847,9 +867,29 @@ function PublicOrderPanel({
   const invoiceEnabled = settings?.invoiceEnabled ?? false;
   const qrAvailable = Boolean(settings?.qrPaymentUrl);
   const nowAvailable = !activeClosure && (!businessStatus.hasSchedule || businessStatus.isOpen);
-  const freeDeliveryFrom = settings?.freeDeliveryFrom ?? 0;
-  const deliveryFee = orderType === "delivery" && (!freeDeliveryFrom || total < freeDeliveryFrom) ? (settings?.deliveryFee ?? 0) : 0;
+  const [deliveryCoordinates, setDeliveryCoordinates] = useState<{ latitude: number; longitude: number }>();
+  const deliveryPolicy = useMemo(
+    () =>
+      resolveDeliveryPolicy({
+        restaurantLocation:
+          restaurant.latitude != null && restaurant.longitude != null
+            ? { latitude: restaurant.latitude, longitude: restaurant.longitude }
+            : undefined,
+        deliveryLocation: deliveryCoordinates,
+        restaurantCity: restaurant.city,
+        deliveryCity: restaurant.city,
+        zones: deliveryZones,
+        subtotal: total,
+        baseDeliveryFee: settings?.deliveryFee ?? 0,
+        baseMinOrderAmount: settings?.minOrderAmount ?? 0,
+        freeDeliveryFrom: settings?.freeDeliveryFrom ?? 0,
+        farDeliveryDistanceKm: settings?.farDeliveryDistanceKm,
+      }),
+    [deliveryCoordinates, deliveryZones, restaurant.city, restaurant.latitude, restaurant.longitude, settings, total],
+  );
+  const deliveryFee = orderType === "delivery" ? deliveryPolicy.deliveryFee : 0;
   const grandTotal = total + deliveryFee;
+  const effectivePaymentMethod = orderType === "delivery" && deliveryPolicy.requiresQrPrepayment ? "qr" : paymentMethod;
   const paymentReceiptRef = useRef<HTMLInputElement>(null);
   const [activeStep, setActiveStep] = useState<OrderStepKey>("fulfillment");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -860,7 +900,8 @@ function PublicOrderPanel({
   const [customerAddress, setCustomerAddress] = useState("");
   const [deliveryAddressDetail, setDeliveryAddressDetail] = useState("");
   const [, setDeliveryMapsUrl] = useState("");
-  const handleDeliveryCoordinatesChange = useCallback(({ mapsUrl }: { latitude: number; longitude: number; mapsUrl: string }) => {
+  const handleDeliveryCoordinatesChange = useCallback(({ latitude, longitude, mapsUrl }: { latitude: number; longitude: number; mapsUrl: string }) => {
+    setDeliveryCoordinates({ latitude, longitude });
     setDeliveryMapsUrl(mapsUrl);
     setCustomerAddress((currentAddress) => (currentAddress.trim() ? currentAddress : "Ubicacion marcada en el mapa"));
   }, []);
@@ -927,6 +968,9 @@ function PublicOrderPanel({
       if (orderType === "delivery" && !customerAddress.trim()) {
         return reject("Para envio debes registrar la direccion de entrega.");
       }
+      if (orderType === "delivery" && !deliveryCoordinates) {
+        return reject("Marca la ubicacion exacta para calcular la distancia y confirmar el envio.");
+      }
     }
 
     if (step === "invoice" && invoiceEnabled && requiresInvoice) {
@@ -936,10 +980,13 @@ function PublicOrderPanel({
     }
 
     if (step === "payment") {
-      if (paymentMethod === "qr" && !qrAvailable) {
-        return reject("Este restaurante todavia no tiene QR configurado. Elige efectivo.");
+      if (orderType === "delivery" && deliveryPolicy.requiresQrPrepayment && effectivePaymentMethod !== "qr") {
+        return reject("Por la distancia de entrega, este pedido requiere pago QR.");
       }
-      if (paymentMethod === "qr" && !(paymentReceiptRef.current?.files?.length ?? 0)) {
+      if (effectivePaymentMethod === "qr" && !qrAvailable) {
+        return reject(deliveryPolicy.requiresQrPrepayment ? "Este envio requiere QR, pero el restaurante aun no lo configuro." : "Este restaurante todavia no tiene QR configurado. Elige efectivo.");
+      }
+      if (effectivePaymentMethod === "qr" && !(paymentReceiptRef.current?.files?.length ?? 0)) {
         return reject("Sube el comprobante QR antes de confirmar el pedido.");
       }
     }
@@ -999,12 +1046,14 @@ function PublicOrderPanel({
       <input name="restaurantId" type="hidden" value={restaurant.id} />
       <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
       <input name="orderType" type="hidden" value={orderType} />
-      <input name="paymentMethod" type="hidden" value={paymentMethod} />
+      <input name="deliveryCity" type="hidden" value={restaurant.city} />
+      <input name="paymentMethod" type="hidden" value={effectivePaymentMethod} />
       <input name="notes" type="hidden" value={notes} />
       <input name="invoiceRequired" type="hidden" value={invoiceEnabled && requiresInvoice ? "on" : ""} />
       <input name="cartJson" type="hidden" value={cartJson} />
 
       {!compact ? <h2 className="text-2xl font-black">Tu pedido</h2> : null}
+      {orderError ? <div className="mb-3"><OrderErrorMessage error={orderError} /></div> : null}
 
       <div className="rounded-[1.35rem] bg-[var(--primary-light)] p-2">
         <div className="flex items-center justify-between gap-3 px-2 py-2">
@@ -1115,6 +1164,17 @@ function PublicOrderPanel({
             onCoordinatesChange={handleDeliveryCoordinatesChange}
             showMapByDefault
           />
+          {deliveryPolicy.distanceKm != null ? (
+            <div className={cn("rounded-2xl p-3 text-sm font-bold", deliveryPolicy.requiresQrPrepayment ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]")}>
+              <p>{deliveryPolicy.distanceKm.toFixed(1)} km desde el local{deliveryPolicy.matchedZone ? ` · ${deliveryPolicy.matchedZone.name}` : ""}.</p>
+              <p className="mt-1 text-xs">{deliveryPolicy.requiresQrPrepayment ? "Por seguridad, esta distancia requiere pago QR con comprobante." : "Puedes pagar en efectivo o QR."}</p>
+            </div>
+          ) : null}
+          {restaurant.city ? (
+            <div className="rounded-2xl bg-[var(--primary-light)]/55 p-3 text-sm font-semibold text-[var(--muted)]">
+              Ciudad de entrega: <strong className="text-[var(--text)]">{restaurant.city}</strong>
+            </div>
+          ) : null}
         </div>
         <div className={cn(orderType === "pickup" && (restaurant.mapsUrl || restaurant.address) ? "rounded-2xl bg-[var(--primary-light)]/55 p-3 text-sm font-semibold text-[var(--muted)]" : "hidden")}>
           <p className="font-black text-[var(--text)]">Recojo en local</p>
@@ -1152,10 +1212,10 @@ function PublicOrderPanel({
       <section className={cn("mt-4 space-y-3", activeStep === "payment" ? "block" : "hidden")}>
         <StepIntro icon={<CreditCard className="h-5 w-5" />} title="Forma de pago" description="El efectivo queda registrado para caja. En QR el comprobante es obligatorio." />
         <div className="grid gap-3 sm:grid-cols-2">
-          <ChoiceCard active={paymentMethod === "cash"} icon={<CreditCard className="h-5 w-5" />} label="Efectivo" onClick={() => setPaymentMethod("cash")} text="Caja validara el cobro antes de preparar." />
-          <ChoiceCard active={paymentMethod === "qr"} disabled={!qrAvailable} icon={<ReceiptText className="h-5 w-5" />} label="Pago QR" onClick={() => setPaymentMethod("qr")} text={qrAvailable ? "Escanea y sube comprobante." : "Sin QR configurado."} />
+          <ChoiceCard active={effectivePaymentMethod === "cash"} disabled={orderType === "delivery" && deliveryPolicy.requiresQrPrepayment} icon={<CreditCard className="h-5 w-5" />} label="Efectivo" onClick={() => setPaymentMethod("cash")} text={deliveryPolicy.requiresQrPrepayment ? "No disponible por distancia." : "Caja validara el cobro antes de preparar."} />
+          <ChoiceCard active={effectivePaymentMethod === "qr"} disabled={!qrAvailable} icon={<ReceiptText className="h-5 w-5" />} label="Pago QR" onClick={() => setPaymentMethod("qr")} text={qrAvailable ? "Escanea y sube comprobante." : "Sin QR configurado."} />
         </div>
-        <div className={cn(paymentMethod === "qr" && qrAvailable ? "grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[108px_1fr] sm:items-center" : "hidden")}>
+        <div className={cn(effectivePaymentMethod === "qr" && qrAvailable ? "grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[108px_1fr] sm:items-center" : "hidden")}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img alt="QR de pago" className="h-28 w-28 rounded-2xl border border-[var(--border)] object-cover" src={settings?.qrPaymentUrl} />
           <div>
@@ -1171,11 +1231,11 @@ function PublicOrderPanel({
             ) : null}
           </div>
         </div>
-        <div className={cn(paymentMethod === "qr" ? "block" : "hidden")}>
+        <div className={cn(effectivePaymentMethod === "qr" ? "block" : "hidden")}>
           <CompressedImageInput acceptPdf help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." inputRef={paymentReceiptRef} label="Comprobante QR" name="paymentReceiptFile" />
         </div>
         <p className="rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">
-          {paymentMethod === "cash" ? "El pedido quedara guardado como pago en efectivo pendiente de validacion en caja." : "El equipo confirmara el comprobante antes de preparar el pedido."}
+          {effectivePaymentMethod === "cash" ? "El pedido quedara guardado como pago en efectivo pendiente de validacion en caja." : "El equipo confirmara el comprobante antes de preparar el pedido."}
         </p>
       </section>
 
@@ -1212,7 +1272,7 @@ function PublicOrderPanel({
             <div className="rounded-[1.25rem] bg-[var(--color-surface)] p-5 text-center ring-1 ring-[var(--border)]">
                 <IllustrationAsset className="mx-auto max-w-[170px]" name="emptyCart" sizes="170px" />
                 <p className="mt-3 text-sm font-black text-[var(--primary)]">No agregaste productos todavia</p>
-                <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Elige tus productos favoritos para continuar.</p>
+                <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Agrega productos del menu para continuar.</p>
               </div>
           )}
         </div>
@@ -1221,8 +1281,9 @@ function PublicOrderPanel({
           <ReviewLine label="Horario" value={fulfillmentMode === "scheduled" ? requestedFulfillmentAt.replace("T", " ") : "Ahora mismo"} />
           <ReviewLine label="Cliente" value={customerName || "Sin nombre"} />
           {orderType === "delivery" ? <ReviewLine label="Direccion" value={customerAddress || "Sin direccion"} /> : null}
+          {orderType === "delivery" && deliveryPolicy.distanceKm != null ? <ReviewLine label="Distancia" value={`${deliveryPolicy.distanceKm.toFixed(1)} km${deliveryPolicy.requiresQrPrepayment ? " · QR obligatorio" : ""}`} /> : null}
           {invoiceEnabled ? <ReviewLine label="Factura" value={requiresInvoice ? `${invoiceDocumentNumber || "Documento"} - ${invoiceName || "Nombre"}` : "No requiere"} /> : null}
-          <ReviewLine label="Pago" value={paymentMethod === "cash" ? "Efectivo" : "QR con comprobante"} />
+          <ReviewLine label="Pago" value={effectivePaymentMethod === "cash" ? "Efectivo" : "QR con comprobante"} />
         </div>
       </section>
 

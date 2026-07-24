@@ -560,6 +560,7 @@ export function RestaurantSettingsFormClient({
             <SectionTitle title="Pedidos y pagos" description="Delivery, pedido minimo y QR real del restaurante." />
             <div className="md:col-span-2" />
             <Input defaultValue={settings?.deliveryFee ?? 0} min="0" name="deliveryFee" placeholder="Costo base de delivery en Bs" step="0.01" type="number" />
+            <Input defaultValue={settings?.farDeliveryDistanceKm ?? 8} min="1" name="farDeliveryDistanceKm" placeholder="Exigir QR desde (km)" step="0.5" type="number" />
             <Input defaultValue={settings?.freeDeliveryFrom || ""} min="0" name="freeDeliveryFrom" placeholder="Envio gratis desde Bs" step="0.01" type="number" />
             <Input defaultValue={settings?.minOrderAmount ?? 0} min="0" name="minOrderAmount" placeholder="Pedido minimo para aceptar" step="0.01" type="number" />
             <input name="currency" type="hidden" value={settings?.currency ?? "BOB"} />

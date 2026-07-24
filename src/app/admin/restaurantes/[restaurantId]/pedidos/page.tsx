@@ -12,7 +12,7 @@ export default async function OrdersPage({
   searchParams,
 }: {
   params: Promise<{ restaurantId: string }>;
-  searchParams: Promise<{ updated?: string; charged?: string; rejected?: string; error?: string; tab?: string }>;
+  searchParams: Promise<{ updated?: string; charged?: string; rejected?: string; refunded?: string; error?: string; tab?: string }>;
 }) {
   const [{ restaurantId }, status] = await Promise.all([params, searchParams]);
   const restaurant = await restaurantService.getById(restaurantId);

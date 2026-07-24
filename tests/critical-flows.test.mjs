@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { createClient } from "@supabase/supabase-js";
@@ -15,6 +15,36 @@ test("public orders use the transactional RPC and direct policies are revoked", 
   assert.doesNotMatch(action, /from\("orders"\)\s*\.insert/);
   assert.match(migration, /revoke insert on orders from anon, authenticated/i);
   assert.match(migration, /grant execute on function create_public_order_transaction[\s\S]+to service_role/i);
+});
+
+test("phase one delivery policy allows city-wide orders and requires QR by distance", () => {
+  const action = read("src/app/r/actions.ts");
+  const policy = read("src/lib/delivery-policy.ts");
+  const migration = read("supabase/migrations/0051_phase_one_delivery_and_order_rules.sql");
+  const refundMigration = read("supabase/migrations/0052_atomic_order_refunds.sql");
+  const ownerDashboard = read("src/lib/services/owner-dashboard.service.ts");
+
+  assert.match(action, /resolveDeliveryPolicy/);
+  assert.match(action, /qr-required-distance/);
+  assert.doesNotMatch(action, /has_open_cash_session_public/);
+  assert.match(policy, /requiresQrPrepayment:\s*distanceKm != null && distanceKm > safeFarDistance/);
+  assert.doesNotMatch(migration, /from cash_sessions/);
+  assert.match(migration, /orders_validate_status_transition/);
+  assert.match(refundMigration, /create or replace function refund_order_atomic/);
+  assert.match(refundMigration, /perform reverse_order_inventory_usage/);
+  assert.match(ownerDashboard, /\.eq\("payment_status", "paid"\)/);
+});
+
+test("public ordering uses one canonical modal flow", () => {
+  const legacyCheckoutRoute = read("src/app/r/[restaurantSlug]/checkout/page.tsx");
+  const publicPage = read("src/app/r/[restaurantSlug]/page.tsx");
+  const publicOrderClient = read("src/components/public-menu/PublicRestaurantOrderClient.tsx");
+
+  assert.match(legacyCheckoutRoute, /redirect\(publicRestaurantOrderPath\(restaurantSlug, error\)\)/);
+  assert.match(publicPage, /initialOrderOpen=\{pedido === "1" \|\| Boolean\(error\)\}/);
+  assert.match(publicOrderClient, /useState\(initialOrderOpen\)/);
+  assert.doesNotMatch(publicOrderClient, /25-35 min|Top picks para ti|data-product-modal-favorite/);
+  assert.equal(existsSync(join(root, "src/components/public-menu/CheckoutClient.tsx")), false);
 });
 
 test("restaurant panels enforce membership before rendering", () => {
@@ -105,15 +135,22 @@ test("remote critical migrations and service-only rate limiter are available", a
   }
 
   const supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const [entitlements, requests, productScheduling, optionInventory, invalidOrder] = await Promise.all([
+  const [entitlements, requests, productScheduling, optionInventory, deliveryRules, orderDeliveryRules, invalidOrder, refundRpc] = await Promise.all([
     supabase.from("owner_branch_entitlements").select("owner_user_id", { head: true, count: "exact" }),
     supabase.from("owner_branch_capacity_requests").select("id", { head: true, count: "exact" }),
     supabase.from("products").select("product_kind,compare_at_price,available_days,available_start_time,available_end_time", { head: true, count: "exact" }),
     supabase.from("product_options").select("inventory_item_id,inventory_quantity,inventory_waste_factor", { head: true, count: "exact" }),
+    supabase.from("restaurant_settings").select("far_delivery_distance_km", { head: true, count: "exact" }),
+    supabase.from("orders").select("delivery_distance_km,requires_prepayment", { head: true, count: "exact" }),
     supabase.rpc("create_public_order_transaction", {
       p_request_id: crypto.randomUUID(),
       p_order: { restaurant_id: crypto.randomUUID() },
       p_items: [{ product_id: crypto.randomUUID(), product_name: "Test", variant_id: null, option_ids: [], unit_price: 1, quantity: 1, subtotal: 1 }],
+    }),
+    supabase.rpc("refund_order_atomic", {
+      p_restaurant_id: crypto.randomUUID(),
+      p_order_id: crypto.randomUUID(),
+      p_reason: "Automated availability check",
     }),
   ]);
 
@@ -121,7 +158,11 @@ test("remote critical migrations and service-only rate limiter are available", a
   assert.equal(requests.error, null);
   assert.equal(productScheduling.error, null);
   assert.equal(optionInventory.error, null);
+  assert.equal(deliveryRules.error, null);
+  assert.equal(orderDeliveryRules.error, null);
   assert.ok(invalidOrder.error, "invalid service-role orders must still be rejected by database validation");
+  assert.ok(refundRpc.error, "refunds require an authenticated restaurant operator");
+  assert.notEqual(refundRpc.error.code, "PGRST202", "refund RPC must exist in the remote schema");
 
   const identifier = `test-${crypto.randomUUID()}`;
   const { data: allowed, error: rateError } = await supabase.rpc("consume_request_rate_limit", {

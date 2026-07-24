@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { additionalLocationPriceMonthly, fullPlanName, primaryLocationPriceMonthly } from "@/lib/billing/full-plan";
 import { formatMoney } from "@/lib/utils/money";
 import type { UserRestaurantMembership } from "@/lib/services/membership.service";
@@ -6,10 +7,12 @@ import type { UserRestaurantMembership } from "@/lib/services/membership.service
 export type OwnerBranchSummary = {
   membership: UserRestaurantMembership;
   orders30d: number;
+  paidOrders30d: number;
   ordersToday: number;
   activeOrders: number;
   revenue30d: number;
   openCashSession: boolean;
+  openCashOpenedAt?: string;
   lastClosedCashAt?: string;
   lowStockItems: number;
   expiringLots: number;
@@ -200,6 +203,7 @@ export async function getOwnerDashboardData(memberships: UserRestaurantMembershi
   ]);
 
   const orders30d = summaries.reduce((sum, summary) => sum + summary.orders30d, 0);
+  const paidOrders30d = summaries.reduce((sum, summary) => sum + summary.paidOrders30d, 0);
   const revenue30d = summaries.reduce((sum, summary) => sum + summary.revenue30d, 0);
   const activeOrders = summaries.reduce((sum, summary) => sum + summary.activeOrders, 0);
   const inventoryAlerts = summaries.reduce((sum, summary) => sum + summary.lowStockItems + summary.expiringLots, 0);
@@ -227,7 +231,7 @@ export async function getOwnerDashboardData(memberships: UserRestaurantMembershi
       revenue30d,
       activeOrders,
       inventoryAlerts,
-      averageTicket: orders30d ? formatMoney(revenue30d / orders30d) : formatMoney(0),
+      averageTicket: paidOrders30d ? formatMoney(revenue30d / paidOrders30d) : formatMoney(0),
     },
   };
 }
@@ -271,7 +275,7 @@ async function getOwnerExecutiveInsights(
 
   const { data: orders } = await supabase
     .from("orders")
-    .select("id,restaurant_id,customer_name,customer_phone,customer_email,order_type,status,total,created_at")
+    .select("id,restaurant_id,customer_name,customer_phone,customer_email,order_type,status,payment_status,total,created_at")
     .in("restaurant_id", restaurantIds)
     .gte("created_at", since60Days.toISOString());
 
@@ -282,11 +286,12 @@ async function getOwnerExecutiveInsights(
     return createdAt >= since60Days && createdAt < since30Days;
   });
   const validOrders30d = orders30d.filter((order) => order.status !== "cancelled");
-  const validOrders7d = validOrders30d.filter((order) => new Date(order.created_at) >= since7Days);
-  const validOrdersToday = validOrders30d.filter((order) => new Date(order.created_at) >= todayStart);
-  const previousValidOrders = previous30dOrders.filter((order) => order.status !== "cancelled");
-  const revenue30d = validOrders30d.reduce((sum, order) => sum + Number(order.total ?? 0), 0);
-  const previous30dRevenue = previousValidOrders.reduce((sum, order) => sum + Number(order.total ?? 0), 0);
+  const paidOrders30d = validOrders30d.filter((order) => order.payment_status === "paid");
+  const paidOrders7d = paidOrders30d.filter((order) => new Date(order.created_at) >= since7Days);
+  const paidOrdersToday = paidOrders30d.filter((order) => new Date(order.created_at) >= todayStart);
+  const previousPaidOrders = previous30dOrders.filter((order) => order.status !== "cancelled" && order.payment_status === "paid");
+  const revenue30d = paidOrders30d.reduce((sum, order) => sum + Number(order.total ?? 0), 0);
+  const previous30dRevenue = previousPaidOrders.reduce((sum, order) => sum + Number(order.total ?? 0), 0);
   const revenueDeltaPercent = previous30dRevenue ? Math.round(((revenue30d - previous30dRevenue) / previous30dRevenue) * 100) : revenue30d ? 100 : 0;
   const cancelled30d = orders30d.filter((order) => order.status === "cancelled").length;
   const activeOrders = orders30d.filter((order) => ["pending", "accepted", "preparing", "ready"].includes(order.status)).length;
@@ -300,8 +305,11 @@ async function getOwnerExecutiveInsights(
     .sort((left, right) => right.count - left.count);
 
   const customers = buildCustomerInsights(validOrders30d);
-  const profitability = await getOwnerProfitabilityInsight(restaurantIds, validOrders30d.map((order) => order.id), revenue30d);
+  const profitability = await getOwnerProfitabilityInsight(restaurantIds, paidOrders30d.map((order) => order.id), revenue30d);
   const openSessions = summaries.filter((summary) => summary.openCashSession).length;
+  const staleOpenSessions = summaries.filter(
+    (summary) => summary.openCashOpenedAt && Date.now() - new Date(summary.openCashOpenedAt).getTime() > 18 * 60 * 60 * 1000,
+  ).length;
   const branchesWithoutRecentClose = summaries.filter((summary) => !summary.openCashSession && !summary.lastClosedCashAt).length;
   const lastClosedCashAt = summaries
     .map((summary) => summary.lastClosedCashAt)
@@ -320,6 +328,7 @@ async function getOwnerExecutiveInsights(
     expiringLots,
     lowStockItems,
     openSessions,
+    staleOpenSessions,
     topProduct: performance.topProducts[0],
   });
   const recommendations = buildOwnerRecommendations({
@@ -354,9 +363,9 @@ async function getOwnerExecutiveInsights(
       bestDayLabel: bestDay?.label ?? "Sin datos",
       previous30dRevenue,
       revenue30d,
-      revenue7d: validOrders7d.reduce((sum, order) => sum + Number(order.total ?? 0), 0),
+      revenue7d: paidOrders7d.reduce((sum, order) => sum + Number(order.total ?? 0), 0),
       revenueDeltaPercent,
-      revenueToday: validOrdersToday.reduce((sum, order) => sum + Number(order.total ?? 0), 0),
+      revenueToday: paidOrdersToday.reduce((sum, order) => sum + Number(order.total ?? 0), 0),
     },
   };
 }
@@ -467,6 +476,7 @@ function buildOwnerAlerts({
   expiringLots,
   lowStockItems,
   openSessions,
+  staleOpenSessions,
   topProduct,
 }: {
   activeOrders: number;
@@ -475,6 +485,7 @@ function buildOwnerAlerts({
   expiringLots: number;
   lowStockItems: number;
   openSessions: number;
+  staleOpenSessions: number;
   topProduct?: OwnerProductPerformance;
 }): OwnerExecutiveNotice[] {
   const alerts: OwnerExecutiveNotice[] = [];
@@ -484,6 +495,7 @@ function buildOwnerAlerts({
   if (expiringLots) alerts.push({ title: "Vencimientos proximos", detail: `${expiringLots} lotes vencen pronto.`, tone: "warning" });
   if (cancelled30d) alerts.push({ title: "Cancelaciones", detail: `${cancelled30d} pedidos cancelados (${cancellationRate}%).`, tone: cancellationRate >= 10 ? "danger" : "warning" });
   if (!openSessions) alerts.push({ title: "Cajas cerradas", detail: "No hay caja abierta en este momento.", tone: "success" });
+  if (staleOpenSessions) alerts.push({ title: "Cajas sin cerrar", detail: `${staleOpenSessions} caja${staleOpenSessions === 1 ? "" : "s"} lleva${staleOpenSessions === 1 ? "" : "n"} mas de 18 horas abierta${staleOpenSessions === 1 ? "" : "s"}.`, tone: "danger" });
   if (topProduct) alerts.push({ title: "Producto estrella", detail: `${topProduct.productName} lidera con ${topProduct.quantity} vendidos.`, tone: "success" });
 
   return alerts.slice(0, 6);
@@ -541,9 +553,10 @@ export async function getOwnerDailySales(memberships: UserRestaurantMembership[]
 
   const { data: orders } = await supabase
     .from("orders")
-    .select("status,total,created_at")
+    .select("status,payment_status,total,created_at")
     .in("restaurant_id", restaurantIds)
     .neq("status", "cancelled")
+    .eq("payment_status", "paid")
     .gte("created_at", firstDay.toISOString());
 
   const formatter = new Intl.DateTimeFormat("es-BO", { day: "2-digit", month: "short", timeZone: "America/La_Paz" });
@@ -596,7 +609,7 @@ export async function getOwnerBranchSummaries(memberships: UserRestaurantMembers
   const since30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   const [{ data: orders }, { data: cashSessions }, { data: inventoryItems }, { data: inventoryLots }] = await Promise.all([
-    supabase.from("orders").select("restaurant_id,status,total,created_at").in("restaurant_id", restaurantIds).gte("created_at", since30Days.toISOString()),
+    supabase.from("orders").select("restaurant_id,status,payment_status,total,created_at").in("restaurant_id", restaurantIds).gte("created_at", since30Days.toISOString()),
     supabase.from("cash_sessions").select("restaurant_id,status,closed_at,opened_at").in("restaurant_id", restaurantIds).order("opened_at", { ascending: false }),
     supabase.from("inventory_items").select("restaurant_id,current_stock,min_stock,is_active").in("restaurant_id", restaurantIds).eq("is_active", true),
     supabase
@@ -614,18 +627,22 @@ export async function getOwnerBranchSummaries(memberships: UserRestaurantMembers
   return memberships.map((membership) => {
     const branchOrders = ordersByRestaurant.get(membership.restaurant.id) ?? [];
     const validOrders = branchOrders.filter((order) => order.status !== "cancelled");
+    const paidOrders = validOrders.filter((order) => order.payment_status === "paid");
     const branchCashSessions = cashByRestaurant.get(membership.restaurant.id) ?? [];
     const latestClosedCash = branchCashSessions.find((session) => session.status === "closed" && session.closed_at);
+    const openCash = branchCashSessions.find((session) => session.status === "open");
     const branchInventory = inventoryByRestaurant.get(membership.restaurant.id) ?? [];
     const branchLots = lotsByRestaurant.get(membership.restaurant.id) ?? [];
 
     return {
       membership,
       orders30d: validOrders.length,
+      paidOrders30d: paidOrders.length,
       ordersToday: validOrders.filter((order) => new Date(order.created_at) >= todayStart).length,
       activeOrders: branchOrders.filter((order) => ["pending", "accepted", "preparing", "ready"].includes(order.status)).length,
-      revenue30d: validOrders.reduce((sum, order) => sum + Number(order.total ?? 0), 0),
+      revenue30d: paidOrders.reduce((sum, order) => sum + Number(order.total ?? 0), 0),
       openCashSession: branchCashSessions.some((session) => session.status === "open"),
+      openCashOpenedAt: openCash?.opened_at ?? undefined,
       lastClosedCashAt: latestClosedCash?.closed_at ?? undefined,
       lowStockItems: branchInventory.filter((item) => Number(item.min_stock ?? 0) > 0 && Number(item.current_stock ?? 0) <= Number(item.min_stock ?? 0)).length,
       expiringLots: branchLots.filter((lot) => lot.expires_on && new Date(`${lot.expires_on}T00:00:00`) <= next14Days).length,
@@ -702,9 +719,10 @@ export async function getOwnerProductPerformance(
   const since30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const { data: orders } = await supabase
     .from("orders")
-    .select("id,restaurant_id,status,created_at")
+    .select("id,restaurant_id,status,payment_status,created_at")
     .in("restaurant_id", restaurantIds)
     .neq("status", "cancelled")
+    .eq("payment_status", "paid")
     .gte("created_at", since30Days.toISOString());
 
   const orderIds = (orders ?? []).map((order) => order.id);
@@ -768,19 +786,45 @@ export async function listOwnerResponsibles(memberships: UserRestaurantMembershi
 
   const { data: profiles } = await supabase.from("profiles").select("id,email,full_name").in("id", userIds);
   const profileById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
+  const authUserById = await getAuthUsersById(userIds);
   const restaurantById = new Map(memberships.map((membership) => [membership.restaurant.id, membership.restaurant.name]));
 
   return (membershipRows ?? []).map((membership) => {
     const profile = profileById.get(membership.user_id);
+    const authUser = authUserById.get(membership.user_id);
+    const metadataName = typeof authUser?.user_metadata?.full_name === "string" ? authUser.user_metadata.full_name : "";
 
     return {
       restaurantId: membership.restaurant_id,
       restaurantName: restaurantById.get(membership.restaurant_id) ?? "Sucursal",
       userId: membership.user_id,
       role: membership.role,
-      email: profile?.email ?? "Sin correo",
-      fullName: profile?.full_name ?? "Responsable",
+      email: profile?.email || authUser?.email || "Sin correo",
+      fullName: profile?.full_name || metadataName || authUser?.email || "Responsable",
       isActive: membership.is_active,
     };
   });
+}
+
+async function getAuthUsersById(userIds: string[]) {
+  const admin = createAdminClient();
+  const users = new Map<string, { email?: string; user_metadata?: Record<string, unknown> }>();
+
+  if (!admin) {
+    return users;
+  }
+
+  await Promise.all(
+    userIds.map(async (userId) => {
+      const { data } = await admin.auth.admin.getUserById(userId);
+      if (data.user) {
+        users.set(userId, {
+          email: data.user.email,
+          user_metadata: data.user.user_metadata,
+        });
+      }
+    }),
+  );
+
+  return users;
 }

@@ -150,6 +150,7 @@ function mapSettings(row: {
   cash_enabled: boolean;
   kitchen_enabled: boolean;
   delivery_fee: number;
+  far_delivery_distance_km?: number | null;
   free_delivery_from: number | null;
   min_order_amount: number;
   currency: string;
@@ -173,6 +174,7 @@ function mapSettings(row: {
     cashEnabled: row.cash_enabled,
     kitchenEnabled: row.kitchen_enabled,
     deliveryFee: Number(row.delivery_fee),
+    farDeliveryDistanceKm: Number(row.far_delivery_distance_km ?? 8),
     freeDeliveryFrom: Number(row.free_delivery_from ?? 0),
     minOrderAmount: Number(row.min_order_amount),
     currency: row.currency,

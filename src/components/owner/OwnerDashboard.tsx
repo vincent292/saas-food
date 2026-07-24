@@ -95,7 +95,7 @@ export function OwnerDashboard({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <OwnerMetric icon={<Store className="h-5 w-5" />} label="Sucursales" value={String(data.summaries.length)} />
         <OwnerMetric icon={<ClipboardList className="h-5 w-5" />} label="Pedidos 30d" value={String(data.totals.orders30d)} />
-        <OwnerMetric icon={<WalletCards className="h-5 w-5" />} label="Ventas 30d" value={formatMoney(data.totals.revenue30d)} />
+        <OwnerMetric icon={<WalletCards className="h-5 w-5" />} label="Cobrado 30d" value={formatMoney(data.totals.revenue30d)} />
         <OwnerMetric icon={<BarChart3 className="h-5 w-5" />} label="Ticket promedio" value={data.totals.averageTicket} />
         <OwnerMetric icon={<Boxes className="h-5 w-5" />} label="Alertas inventario" value={String(data.totals.inventoryAlerts)} />
       </div>
@@ -140,7 +140,7 @@ function ExecutiveInsights({ data }: { data: OwnerDashboardData }) {
         <InsightCard
           detail={`Hoy ${formatMoney(executive.sales.revenueToday)} · 7d ${formatMoney(executive.sales.revenue7d)}`}
           icon={<WalletCards className="h-5 w-5" />}
-          label="1. Ventas"
+          label="1. Ventas cobradas"
           tone={executive.sales.revenueDeltaPercent >= 0 ? "success" : "warning"}
           value={`${executive.sales.revenueDeltaPercent >= 0 ? "+" : ""}${executive.sales.revenueDeltaPercent}%`}
         />
@@ -332,8 +332,8 @@ function DailySalesChart({ items }: { items: OwnerDailySales[] }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">Grafico</p>
-          <h3 className="mt-1 text-xl font-black text-[var(--color-heading)]">Ventas ultimos 7 dias</h3>
-          <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Barras por ingresos diarios entre todas las sucursales.</p>
+          <h3 className="mt-1 text-xl font-black text-[var(--color-heading)]">Cobros ultimos 7 dias</h3>
+          <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Ingresos efectivamente pagados entre todas las sucursales.</p>
         </div>
         <Badge className="w-fit bg-[var(--accent)] text-[var(--primary)]">
           Mejor dia: {bestDay?.label ?? "Sin datos"}
@@ -426,7 +426,7 @@ function BranchRevenueChart({ items }: { items: OwnerBranchRevenueShare[] }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">Comparativa</p>
-          <h3 className="mt-1 text-xl font-black text-[var(--color-heading)]">Ventas por sucursal</h3>
+          <h3 className="mt-1 text-xl font-black text-[var(--color-heading)]">Cobros por sucursal</h3>
           <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Ayuda a detectar que sucursal empuja mas y cual necesita atencion.</p>
         </div>
         <Badge className="w-fit bg-[var(--primary-light)] text-[var(--primary)]">{items.length} sucursal{items.length === 1 ? "" : "es"}</Badge>
@@ -474,7 +474,7 @@ export function BranchSummaryCard({ summary }: { summary: OwnerBranchSummary }) 
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
-        <MiniMetric label="Ventas 30d" value={formatMoney(summary.revenue30d)} />
+        <MiniMetric label="Cobrado 30d" value={formatMoney(summary.revenue30d)} />
         <MiniMetric label="Pedidos hoy" value={String(summary.ordersToday)} />
         <MiniMetric label="Pedidos activos" value={String(summary.activeOrders)} />
         <MiniMetric label="Caja" value={summary.openCashSession ? "Abierta" : summary.lastClosedCashAt ? "Cerrada" : "Sin cierre"} />

@@ -1,4 +1,4 @@
-import { Mail, Store, Users } from "lucide-react";
+import { Fingerprint, Mail, Store, Users } from "lucide-react";
 import { OwnerLayout, getOwnerLayoutContext } from "@/components/layout/OwnerLayout";
 import { ResponsibleAccessActionsClient } from "@/components/owner/ResponsibleAccessActionsClient";
 import { Badge } from "@/components/ui/Badge";
@@ -29,9 +29,12 @@ export default async function OwnerResponsiblesPage() {
 
         <div className="grid gap-3">
           {responsibles.map((responsible) => (
-            <Card className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center" key={`${responsible.restaurantId}-${responsible.userId}-${responsible.role}`}>
+            <Card className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] lg:items-start" key={`${responsible.restaurantId}-${responsible.userId}-${responsible.role}`}>
               <div className="min-w-0">
-                <p className="truncate text-lg font-black">{responsible.fullName}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="truncate text-lg font-black">{responsible.fullName}</p>
+                  <Badge className={responsible.isActive ? "justify-center bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "justify-center bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]"}>{responsible.isActive ? "Activo" : "Desactivado"}</Badge>
+                </div>
                 <p className="mt-1 flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--color-secondary-text)]">
                   <Mail className="h-4 w-4 shrink-0" />
                   <span className="truncate">{responsible.email}</span>
@@ -40,11 +43,18 @@ export default async function OwnerResponsiblesPage() {
                   <Store className="h-4 w-4" />
                   {responsible.restaurantName}
                 </p>
+                <p className="mt-1 flex items-center gap-2 text-xs font-bold text-[var(--color-secondary-text)]">
+                  <Fingerprint className="h-4 w-4" />
+                  Usuario: {responsible.userId.slice(0, 8)}
+                </p>
               </div>
-              <div className="space-y-3">
-                <Badge className={responsible.isActive ? "justify-center bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "justify-center bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]"}>{responsible.isActive ? "Activo" : "Desactivado"}</Badge>
-                <ResponsibleAccessActionsClient isActive={responsible.isActive} restaurantId={responsible.restaurantId} targetUserId={responsible.userId} />
-              </div>
+              <ResponsibleAccessActionsClient
+                email={responsible.email}
+                fullName={responsible.fullName}
+                isActive={responsible.isActive}
+                restaurantId={responsible.restaurantId}
+                targetUserId={responsible.userId}
+              />
             </Card>
           ))}
 

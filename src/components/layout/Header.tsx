@@ -3,9 +3,8 @@ import Link from "next/link";
 import { ShoppingCart, Store } from "lucide-react";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
-import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
-import { publicRestaurantPath } from "@/lib/utils/public-routes";
+import { publicRestaurantOrderPath, publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { Restaurant } from "@/types/restaurant.types";
 
 export function Header({ restaurant, cartCount = 0, showCart = true }: { restaurant: Restaurant; cartCount?: number; showCart?: boolean }) {
@@ -31,9 +30,8 @@ export function Header({ restaurant, cartCount = 0, showCart = true }: { restaur
             <BrandLogo className="h-5 w-auto" variant="light" />
           </Link>
           <PublicThemeToggle compact />
-          <Badge className="hidden bg-[var(--accent)] text-[var(--primary)] sm:inline-flex">Abierto hoy</Badge>
           {showCart ? (
-            <Link className={buttonClasses("secondary", "relative h-11 w-11 px-0")} href={publicRestaurantPath(restaurant.slug, "checkout")} title="Carrito">
+            <Link className={buttonClasses("secondary", "relative h-11 w-11 px-0")} href={publicRestaurantOrderPath(restaurant.slug)} title="Carrito">
               <ShoppingCart className="h-5 w-5" />
               {cartCount ? (
                 <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--primary)] text-[10px] text-[var(--color-on-primary)]">

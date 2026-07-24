@@ -15,7 +15,7 @@ export default async function OwnerReportsPage() {
     <OwnerLayout active="/dueno/reportes" memberships={ownerMemberships} title="Ventas y pedidos">
       <div className="space-y-6">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <ReportMetric icon={<WalletCards className="h-5 w-5" />} label="Ventas 30d" value={formatMoney(data.totals.revenue30d)} />
+          <ReportMetric icon={<WalletCards className="h-5 w-5" />} label="Cobrado 30d" value={formatMoney(data.totals.revenue30d)} />
           <ReportMetric icon={<ClipboardList className="h-5 w-5" />} label="Pedidos 30d" value={String(data.totals.orders30d)} />
           <ReportMetric icon={<BarChart3 className="h-5 w-5" />} label="Ticket promedio" value={data.totals.averageTicket} />
           <ReportMetric icon={<Boxes className="h-5 w-5" />} label="Alertas inventario" value={String(data.totals.inventoryAlerts)} />
@@ -33,7 +33,7 @@ export default async function OwnerReportsPage() {
         <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-sm">
           <div className="grid min-w-[760px] grid-cols-[1.4fr_0.8fr_0.8fr_0.8fr_0.8fr] bg-[var(--color-neutral-100)] px-4 py-3 text-xs font-black uppercase text-[var(--color-secondary-text)]">
             <span>Sucursal</span>
-            <span>Ventas 30d</span>
+            <span>Cobrado 30d</span>
             <span>Pedidos 30d</span>
             <span>Pedidos hoy</span>
             <span>Activos</span>

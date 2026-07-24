@@ -12,7 +12,7 @@ import { settingsService } from "@/lib/services/settings.service";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { ProductConfiguration } from "@/types/product.types";
 import type { ProductStockAvailability } from "@/types/product.types";
-import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantSettings } from "@/types/restaurant.types";
+import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
 type PublicRestaurantPageData = {
   restaurant: Restaurant;
@@ -23,6 +23,7 @@ type PublicRestaurantPageData = {
   stockAvailability: ProductStockAvailability[];
   configuration: ProductConfiguration;
   announcements: RestaurantAnnouncement[];
+  deliveryZones: RestaurantDeliveryZone[];
 };
 
 const PUBLIC_RESTAURANT_PAGE_TTL_MS = 15_000;
@@ -41,17 +42,18 @@ async function getPublicRestaurantPageData(restaurantSlug: string) {
     return null;
   }
 
-  const [settings, businessHours, categories, products, configuration, announcements] = await Promise.all([
+  const [settings, businessHours, categories, products, configuration, announcements, deliveryZones] = await Promise.all([
     settingsService.getPublicRestaurantSettings(restaurant.id),
     settingsService.listPublicBusinessHours(restaurant.id),
     categoryService.listPublicByRestaurant(restaurant.id),
     productService.listPublicAvailableByRestaurant(restaurant.id),
     productService.listPublicConfigurationsByRestaurant(restaurant.id),
     announcementService.listCurrentPublic(restaurant.id),
+    restaurantService.listPublicDeliveryZones(restaurant.id),
   ]);
   const stockAvailability = await productService.listPublicStockAvailability(restaurant, products);
 
-  const data = { restaurant, settings, businessHours, categories, products, stockAvailability, configuration, announcements };
+  const data = { restaurant, settings, businessHours, categories, products, stockAvailability, configuration, announcements, deliveryZones };
   publicRestaurantPageCache.set(restaurantSlug, { expiresAt: Date.now() + PUBLIC_RESTAURANT_PAGE_TTL_MS, data });
 
   return data;
@@ -109,21 +111,21 @@ export default async function RestaurantPublicPage({
   searchParams,
 }: {
   params: Promise<{ restaurantSlug: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; pedido?: string }>;
 }) {
-  const [{ restaurantSlug }, { error }] = await Promise.all([params, searchParams]);
+  const [{ restaurantSlug }, { error, pedido }] = await Promise.all([params, searchParams]);
   const pageData = await getPublicRestaurantPageData(restaurantSlug);
 
   if (!pageData) {
     notFound();
   }
 
-  const { restaurant, settings, businessHours, categories, products, stockAvailability, configuration, announcements } = pageData;
+  const { restaurant, settings, businessHours, categories, products, stockAvailability, configuration, announcements, deliveryZones } = pageData;
   publicDirectoryService.recordVisit(restaurant.id).catch(() => null);
 
   return (
     <RestaurantThemeProvider>
-      <PublicRestaurantOrderClient announcements={announcements} businessHours={businessHours} categories={categories} configuration={configuration} orderError={error} products={products} restaurant={restaurant} settings={settings} stockAvailability={stockAvailability} />
+      <PublicRestaurantOrderClient announcements={announcements} businessHours={businessHours} categories={categories} configuration={configuration} deliveryZones={deliveryZones} initialOrderOpen={pedido === "1" || Boolean(error)} orderError={error} products={products} restaurant={restaurant} settings={settings} stockAvailability={stockAvailability} />
     </RestaurantThemeProvider>
   );
 }

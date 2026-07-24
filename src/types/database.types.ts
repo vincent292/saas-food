@@ -92,6 +92,7 @@ export type Database = {
         cash_enabled: boolean;
         kitchen_enabled: boolean;
         delivery_fee: number;
+        far_delivery_distance_km: number;
         free_delivery_from: number | null;
         min_order_amount: number;
         currency: string;
@@ -247,6 +248,8 @@ export type Database = {
         delivery_latitude: number | null;
         delivery_longitude: number | null;
         delivery_maps_url: string | null;
+        delivery_distance_km: number | null;
+        requires_prepayment: boolean;
         requested_fulfillment_at: string | null;
         invoice_required: boolean;
         invoice_document_type: string | null;
@@ -804,6 +807,14 @@ export type Database = {
           p_reason: string;
           p_restaurant_id: string;
           p_to_zone_id: string;
+        };
+        Returns: string;
+      };
+      refund_order_atomic: {
+        Args: {
+          p_order_id: string;
+          p_reason: string;
+          p_restaurant_id: string;
         };
         Returns: string;
       };

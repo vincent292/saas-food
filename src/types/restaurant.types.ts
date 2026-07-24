@@ -78,6 +78,7 @@ export type RestaurantSettings = {
   cashEnabled: boolean;
   kitchenEnabled: boolean;
   deliveryFee: number;
+  farDeliveryDistanceKm: number;
   freeDeliveryFrom: number;
   minOrderAmount: number;
   currency: string;

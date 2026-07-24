@@ -51,6 +51,8 @@ export type Order = {
   deliveryLatitude?: number;
   deliveryLongitude?: number;
   deliveryMapsUrl?: string;
+  deliveryDistanceKm?: number;
+  requiresPrepayment?: boolean;
   requestedFulfillmentAt?: string;
   invoiceRequired?: boolean;
   invoiceDocumentType?: string;

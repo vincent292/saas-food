@@ -7,10 +7,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { announcementService } from "@/lib/services/announcement.service";
 import { uploadPublicImage } from "@/lib/supabase/storage";
 import { businessTypeSupportsTableQr, normalizeRestaurantBusinessType } from "@/lib/restaurant-directory-options";
+import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTimeWithinBusinessHours, localDateTimeInputToIso } from "@/lib/utils/business-hours";
-import { publicRestaurantPath } from "@/lib/utils/public-routes";
-import type { BusinessHour, BusinessType } from "@/types/restaurant.types";
+import { publicRestaurantOrderPath, publicRestaurantPath } from "@/lib/utils/public-routes";
+import type { BusinessHour, BusinessType, RestaurantDeliveryZone } from "@/types/restaurant.types";
 
 const cartItemSchema = z.object({
   productId: z.string().uuid(),
@@ -36,6 +37,7 @@ const orderSchema = z.object({
   deliveryLatitude: z.coerce.number().min(-90).max(90).optional(),
   deliveryLongitude: z.coerce.number().min(-180).max(180).optional(),
   deliveryMapsUrl: z.string().optional(),
+  deliveryCity: z.string().optional(),
   requestedFulfillmentAt: z.string().optional(),
   invoiceRequired: z.boolean().default(false),
   invoiceDocumentType: z.enum(["nit", "ci", "cex", "passport", "other"]).optional(),
@@ -64,6 +66,7 @@ type PublicOrderSettings = {
   pickup_enabled: boolean;
   table_orders_enabled: boolean;
   delivery_fee: number;
+  far_delivery_distance_km: number;
   free_delivery_from: number | null;
   min_order_amount: number;
   invoice_enabled: boolean;
@@ -179,7 +182,7 @@ function isProductCurrentlyOrderable(product: ProductPriceRow, date = new Date()
 async function getPublicOrderSettings(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {
   const { data: settings } = await supabase
     .from("restaurant_settings")
-    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
+    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,far_delivery_distance_km,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
     .eq("restaurant_id", restaurantId)
     .maybeSingle();
 
@@ -194,7 +197,7 @@ async function getPublicOrderSettings(supabase: Awaited<ReturnType<typeof create
 
   const { data: serverSettings } = await admin
     .from("restaurant_settings")
-    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
+    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,far_delivery_distance_km,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
     .eq("restaurant_id", restaurantId)
     .maybeSingle();
 
@@ -204,14 +207,35 @@ async function getPublicOrderSettings(supabase: Awaited<ReturnType<typeof create
 async function validatePublicRestaurant(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string, restaurantSlug: string) {
   const { data } = await supabase
     .from("restaurants")
-    .select("id,slug")
+    .select("id,slug,city,latitude,longitude")
     .eq("id", restaurantId)
     .eq("slug", restaurantSlug)
     .eq("status", "active")
     .is("deleted_at", null)
     .maybeSingle();
 
-  return Boolean(data);
+  return data;
+}
+
+async function listPublicDeliveryZones(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string): Promise<RestaurantDeliveryZone[]> {
+  const { data } = await supabase
+    .from("restaurant_delivery_zones")
+    .select("id,restaurant_id,name,city,center_latitude,center_longitude,radius_km,delivery_fee,min_order_amount,is_active")
+    .eq("restaurant_id", restaurantId)
+    .eq("is_active", true);
+
+  return (data ?? []).map((zone) => ({
+    id: zone.id,
+    restaurantId: zone.restaurant_id,
+    name: zone.name,
+    city: zone.city ?? "",
+    centerLatitude: zone.center_latitude == null ? undefined : Number(zone.center_latitude),
+    centerLongitude: zone.center_longitude == null ? undefined : Number(zone.center_longitude),
+    radiusKm: Number(zone.radius_km),
+    deliveryFee: Number(zone.delivery_fee),
+    minOrderAmount: Number(zone.min_order_amount),
+    isActive: zone.is_active,
+  }));
 }
 
 async function validatePublicTable(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string, tableId?: string, tableCode?: string) {
@@ -369,7 +393,7 @@ export async function createPublicOrderAction(formData: FormData) {
   try {
     cart = JSON.parse(rawCart);
   } catch {
-    redirect(`${publicRestaurantPath(String(formData.get("restaurantSlug") || ""), "checkout")}?error=invalid`);
+    redirect(publicRestaurantOrderPath(String(formData.get("restaurantSlug") || ""), "invalid"));
   }
   const parsed = orderSchema.safeParse({
     requestId: formData.get("requestId") || crypto.randomUUID(),
@@ -385,6 +409,7 @@ export async function createPublicOrderAction(formData: FormData) {
     deliveryLatitude: formData.get("deliveryLatitude") || undefined,
     deliveryLongitude: formData.get("deliveryLongitude") || undefined,
     deliveryMapsUrl: formData.get("deliveryMapsUrl") || undefined,
+    deliveryCity: formData.get("deliveryCity") || undefined,
     requestedFulfillmentAt: formData.get("requestedFulfillmentAt") || undefined,
     invoiceRequired: formData.get("invoiceRequired") === "on",
     invoiceDocumentType: formData.get("invoiceDocumentType") || undefined,
@@ -397,7 +422,7 @@ export async function createPublicOrderAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`${publicRestaurantPath(String(formData.get("restaurantSlug") || ""), "checkout")}?error=invalid`);
+    redirect(publicRestaurantOrderPath(String(formData.get("restaurantSlug") || ""), "invalid"));
   }
 
   const failPath = parsed.data.tableCode ? publicRestaurantPath(parsed.data.restaurantSlug, `mesa/${parsed.data.tableCode}`) : publicRestaurantPath(parsed.data.restaurantSlug);
@@ -419,9 +444,9 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${failPath}?error=service-role-required`);
   }
 
-  const validRestaurant = await validatePublicRestaurant(supabase, parsed.data.restaurantId, parsed.data.restaurantSlug);
-  if (!validRestaurant) {
-    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=invalid-restaurant`);
+  const publicRestaurant = await validatePublicRestaurant(supabase, parsed.data.restaurantId, parsed.data.restaurantSlug);
+  if (!publicRestaurant) {
+    redirect(publicRestaurantOrderPath(parsed.data.restaurantSlug, "invalid-restaurant"));
   }
 
   if (parsed.data.orderType === "table") {
@@ -431,21 +456,14 @@ export async function createPublicOrderAction(formData: FormData) {
     }
   }
 
-  const { data: hasOpenCashSession } = await supabase.rpc("has_open_cash_session_public", {
-    p_restaurant_id: parsed.data.restaurantId,
-  });
-
-  if (!hasOpenCashSession) {
-    redirect(`${failPath}?error=no-open-cash`);
-  }
-
-  const [settings, businessType] = await Promise.all([
+  const [settings, businessType, deliveryZones] = await Promise.all([
     getPublicOrderSettings(supabase, parsed.data.restaurantId),
     getPublicRestaurantBusinessType(supabase, parsed.data.restaurantId),
+    listPublicDeliveryZones(supabase, parsed.data.restaurantId),
   ]);
 
   if (!settings) {
-    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=settings`);
+    redirect(publicRestaurantOrderPath(parsed.data.restaurantSlug, "settings"));
   }
 
   if (await announcementService.hasActiveClosure(parsed.data.restaurantId)) {
@@ -473,11 +491,21 @@ export async function createPublicOrderAction(formData: FormData) {
     (parsed.data.orderType === "table" && settings.table_orders_enabled && businessTypeSupportsTableQr(businessType));
 
   if (!orderTypeEnabled) {
-    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=disabled`);
+    redirect(publicRestaurantOrderPath(parsed.data.restaurantSlug, "disabled"));
   }
 
   if (parsed.data.orderType === "delivery" && !parsed.data.customerAddress?.trim()) {
     redirect(`${failPath}?error=delivery-address`);
+  }
+
+  if (
+    parsed.data.orderType === "delivery" &&
+    (parsed.data.deliveryLatitude == null ||
+      parsed.data.deliveryLongitude == null ||
+      publicRestaurant.latitude == null ||
+      publicRestaurant.longitude == null)
+  ) {
+    redirect(`${failPath}?error=delivery-location`);
   }
 
   if (parsed.data.orderType === "table" && (parsed.data.customerPhone ?? "").replace(/\D/g, "").length < 4) {
@@ -492,11 +520,41 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${failPath}?error=invoice-disabled`);
   }
 
-  if (subtotal < Number(settings.min_order_amount)) {
-    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=minimum`);
+  const deliveryPolicy =
+    parsed.data.orderType === "delivery"
+      ? resolveDeliveryPolicy({
+          restaurantLocation: {
+            latitude: Number(publicRestaurant.latitude),
+            longitude: Number(publicRestaurant.longitude),
+          },
+          deliveryLocation: {
+            latitude: Number(parsed.data.deliveryLatitude),
+            longitude: Number(parsed.data.deliveryLongitude),
+          },
+          restaurantCity: publicRestaurant.city ?? "",
+          deliveryCity: parsed.data.deliveryCity,
+          zones: deliveryZones,
+          subtotal,
+          baseDeliveryFee: Number(settings.delivery_fee),
+          baseMinOrderAmount: Number(settings.min_order_amount),
+          freeDeliveryFrom: Number(settings.free_delivery_from ?? 0),
+          farDeliveryDistanceKm: Number(settings.far_delivery_distance_km ?? 8),
+        })
+      : null;
+
+  if (deliveryPolicy && !deliveryPolicy.sameCity) {
+    redirect(`${failPath}?error=different-city`);
+  }
+
+  const effectiveMinOrderAmount = deliveryPolicy?.minOrderAmount ?? Number(settings.min_order_amount);
+  if (subtotal < effectiveMinOrderAmount) {
+    redirect(publicRestaurantOrderPath(parsed.data.restaurantSlug, "minimum"));
   }
 
   const paymentReceiptFile = formData.get("paymentReceiptFile") as File | null;
+  if (deliveryPolicy?.requiresQrPrepayment && parsed.data.paymentMethod !== "qr") {
+    redirect(`${failPath}?error=qr-required-distance`);
+  }
   if (parsed.data.paymentMethod === "qr" && !settings.qr_payment_url) {
     redirect(`${failPath}?error=qr-unavailable`);
   }
@@ -526,11 +584,7 @@ export async function createPublicOrderAction(formData: FormData) {
       ? await uploadPublicImage(paymentReceiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
       : null;
 
-  const freeDeliveryFrom = Number(settings.free_delivery_from ?? 0);
-  const deliveryFee =
-    parsed.data.orderType === "delivery" && (!freeDeliveryFrom || subtotal < freeDeliveryFrom)
-      ? Number(settings.delivery_fee)
-      : 0;
+  const deliveryFee = deliveryPolicy?.deliveryFee ?? 0;
   const total = subtotal + deliveryFee;
   const orderNumber = `P-${Date.now().toString().slice(-6)}`;
 
@@ -549,6 +603,8 @@ export async function createPublicOrderAction(formData: FormData) {
       delivery_latitude: parsed.data.deliveryLatitude ?? null,
       delivery_longitude: parsed.data.deliveryLongitude ?? null,
       delivery_maps_url: parsed.data.deliveryMapsUrl ?? null,
+      delivery_distance_km: deliveryPolicy?.distanceKm == null ? null : Number(deliveryPolicy.distanceKm.toFixed(2)),
+      requires_prepayment: deliveryPolicy?.requiresQrPrepayment ?? false,
       requested_fulfillment_at: requestedFulfillmentAt ? localDateTimeInputToIso(requestedFulfillmentAt, DEFAULT_RESTAURANT_TIME_ZONE) : null,
       invoice_required: parsed.data.invoiceRequired,
       invoice_document_type: parsed.data.invoiceRequired ? (parsed.data.invoiceDocumentType ?? null) : null,
@@ -590,7 +646,7 @@ export async function createPublicOrderAction(formData: FormData) {
 
   if (!order) {
     const errorKey = error?.message.includes("no-open-cash") ? "no-open-cash" : error?.message.includes("invalid-public-order-items") ? "product-not-found" : "create";
-    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "checkout")}?error=${errorKey}`);
+    redirect(publicRestaurantOrderPath(parsed.data.restaurantSlug, errorKey));
   }
 
   const tableNotice = parsed.data.orderType === "table" ? "&tablePending=1" : "";

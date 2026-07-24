@@ -73,6 +73,11 @@ function statusMessage(status: CashPageStatus, businessType: Restaurant["busines
     "order-cancelled": "Ese pedido fue cancelado.",
     "product-not-found": "Uno de los productos ya no está disponible.",
     "cash-access-denied": "Tu usuario no tiene permiso para operar esta caja.",
+    "invalid-order-transition": "Ese cambio no corresponde al estado actual del pedido.",
+    "refund-required": "El pedido ya fue pagado. Registra el reembolso desde Pedidos.",
+    "refund-reason-required": "Escribe un motivo de al menos 5 caracteres para el reembolso.",
+    "already-refunded": "Ese pedido ya fue reembolsado.",
+    "order-not-paid": "Solo se pueden reembolsar pedidos pagados.",
   };
 
   if (status.error.startsWith("negative-stock")) {
@@ -770,6 +775,11 @@ function OrderOperationalSummary({ order, title, businessType }: { order: Order;
         {order.orderType === "delivery" ? ` | ${order.customerAddress || "Sin direccion"}` : ""}
       </p>
       {order.deliveryAddressDetail ? <p className="mt-2 text-sm font-bold text-[var(--text)]">Referencia: {order.deliveryAddressDetail}</p> : null}
+      {order.orderType === "delivery" && order.deliveryDistanceKm != null ? (
+        <p className="mt-2 text-sm font-bold text-[var(--primary)]">
+          Distancia: {order.deliveryDistanceKm.toFixed(1)} km{order.requiresPrepayment ? " | Prepago QR obligatorio" : ""}
+        </p>
+      ) : null}
       <div className="mt-3 grid gap-2">
         {order.items.map((item) => (
           <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={item.id}>

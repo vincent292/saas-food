@@ -4,7 +4,7 @@ import { ChefHat, CheckCircle2, Clock, ExternalLink, Printer, RefreshCw, Truck, 
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateOrderStatusAction } from "@/app/admin/actions";
+import { refundOrderAction, updateOrderStatusAction } from "@/app/admin/actions";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { elapsedLabel, minutesSince, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
@@ -12,6 +12,7 @@ import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrd
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Textarea } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
 import { isSameBusinessDay } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
@@ -34,6 +35,7 @@ type ReceptionStatus = {
   updated?: string;
   charged?: string;
   rejected?: string;
+  refunded?: string;
   error?: string;
   tab?: string;
 };
@@ -55,6 +57,9 @@ function statusMessage(status: ReceptionStatus, restaurant: Restaurant) {
   if (status.updated) {
     return { tone: "success", text: "Pedido actualizado." };
   }
+  if (status.refunded) {
+    return { tone: "success", text: "Reembolso registrado y pedido actualizado correctamente." };
+  }
   if (!status.error) {
     return null;
   }
@@ -66,8 +71,18 @@ function statusMessage(status: ReceptionStatus, restaurant: Restaurant) {
         ? "Para aprobar un pago QR, el comprobante es obligatorio."
         : status.error === "order-cancelled"
           ? "Ese pedido ya fue rechazado."
-          : status.error === "already-paid"
+        : status.error === "already-paid"
             ? "Ese pedido ya fue cobrado."
+            : status.error === "invalid-order-transition"
+              ? "Ese cambio no corresponde al estado actual del pedido."
+              : status.error === "refund-required"
+                ? "El pedido ya fue pagado. Usa la opcion Cancelar y reembolsar."
+                : status.error === "refund-reason-required"
+                  ? "Escribe un motivo de al menos 5 caracteres para el reembolso."
+                  : status.error === "already-refunded"
+                    ? "Ese pedido ya fue reembolsado."
+                    : status.error === "order-not-paid"
+                      ? "Solo se pueden reembolsar pedidos pagados."
             : status.error.startsWith("negative-stock")
               ? "No hay stock suficiente para aprobar el pedido. Revisa inventario o ajusta el insumo."
               : `No se pudo completar la acción: ${status.error}.`;
@@ -279,6 +294,7 @@ function ReceptionOrderCard({
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xl font-black text-[var(--text)]">Pedido {order.orderNumber}</h2>
             <OrderStatusBadge businessType={restaurant.businessType} status={order.status} />
+            {order.paymentStatus === "refunded" ? <span className="rounded-full bg-[var(--color-danger-soft)] px-3 py-1 text-xs font-black text-[var(--color-danger-strong)]">Reembolsado</span> : null}
             <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">{orderSourceLabel(order)}</span>
           </div>
 
@@ -298,7 +314,7 @@ function ReceptionOrderCard({
           </div>
 
           {order.notes ? <p className="mt-3 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-semibold text-[var(--color-warning-strong)]">{order.notes}</p> : null}
-          {order.cancellationReason ? <p className="mt-3 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">Motivo de rechazo: {order.cancellationReason}</p> : null}
+          {order.cancellationReason ? <p className="mt-3 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">{order.paymentStatus === "refunded" ? "Motivo del reembolso" : "Motivo de rechazo"}: {order.cancellationReason}</p> : null}
         </div>
 
         <div className="space-y-3">
@@ -339,6 +355,19 @@ function ReceptionOrderCard({
             </form>
           ) : order.status === "ready" ? (
             <div className="rounded-2xl bg-[var(--primary-light)] p-3 text-center text-sm font-black text-[var(--primary-dark)]">{readyLabel}</div>
+          ) : null}
+          {order.paymentStatus === "paid" ? (
+            <details className="rounded-2xl border border-[var(--color-danger-soft)] p-3">
+              <summary className="cursor-pointer text-sm font-black text-[var(--color-danger-strong)]">Cancelar y reembolsar</summary>
+              <form action={refundOrderAction} className="mt-3 grid gap-3">
+                <input name="restaurantId" type="hidden" value={order.restaurantId} />
+                <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
+                <input name="orderId" type="hidden" value={order.id} />
+                <input name="source" type="hidden" value="pedidos" />
+                <Textarea name="reason" placeholder="Motivo del reembolso" required />
+                <Button className="w-full" type="submit" variant="danger">Confirmar reembolso</Button>
+              </form>
+            </details>
           ) : null}
         </div>
       </div>

@@ -111,6 +111,7 @@ const updateRestaurantConfigurationSchema = z.object({
   cashEnabled: z.boolean(),
   kitchenEnabled: z.boolean(),
   deliveryFee: z.coerce.number().nonnegative().default(0),
+  farDeliveryDistanceKm: z.coerce.number().min(1).max(100).default(8),
   freeDeliveryFrom: z.coerce.number().nonnegative().optional(),
   minOrderAmount: z.coerce.number().nonnegative().default(0),
   currency: z.string().min(3).max(3).default("BOB"),
@@ -157,7 +158,7 @@ export type ChangeInitialPasswordFormState = {
 
 export type ResponsibleAccessFormState = {
   error?: string;
-  success?: "password-reset" | "deactivated" | "reactivated";
+  success?: "password-reset" | "deactivated" | "profile-updated" | "reactivated";
   temporaryPassword?: string;
 };
 
@@ -269,9 +270,11 @@ const resolveOwnerBranchCapacitySchema = z.object({
 });
 
 const manageResponsibleAccessSchema = z.object({
+  fullName: z.string().min(2).optional(),
+  email: z.string().email().optional(),
   restaurantId: z.string().uuid(),
   targetUserId: z.string().uuid(),
-  intent: z.enum(["reset-password", "deactivate", "reactivate"]),
+  intent: z.enum(["reset-password", "update-profile", "deactivate", "reactivate"]),
 });
 
 const createCategorySchema = z.object({
@@ -451,6 +454,14 @@ const createPosSaleSchema = z.object({
   customerPhone: z.string().optional(),
   orderOrigin: orderOriginSchema.default("pos_counter"),
   cart: z.array(posCartItemSchema).min(1),
+});
+
+const refundOrderSchema = z.object({
+  restaurantId: z.string().uuid(),
+  orderId: z.string().uuid(),
+  restaurantSlug: z.string().min(1).optional(),
+  reason: z.string().trim().min(5).max(500),
+  source: z.enum(["caja", "pedidos"]).default("pedidos"),
 });
 
 const updatePlatformBillingSchema = z.object({
@@ -2400,6 +2411,8 @@ export async function manageResponsibleAccessAction(
   formData: FormData,
 ): Promise<ResponsibleAccessFormState> {
   const parsed = manageResponsibleAccessSchema.safeParse({
+    email: formData.get("email") ? String(formData.get("email")) : undefined,
+    fullName: formData.get("fullName") ? String(formData.get("fullName")) : undefined,
     restaurantId: formData.get("restaurantId"),
     targetUserId: formData.get("targetUserId"),
     intent: formData.get("intent"),
@@ -2433,12 +2446,13 @@ export async function manageResponsibleAccessAction(
     return { error: "owner-required" };
   }
 
+  const { data: targetUser } = await admin.auth.admin.getUserById(parsed.data.targetUserId);
+  if (targetUser.user?.user_metadata?.branch_restaurant_id !== parsed.data.restaurantId) {
+    return { error: "responsible-account-required" };
+  }
+
   if (parsed.data.intent === "reset-password") {
     const temporaryPassword = generateSecurePassword();
-    const { data: targetUser } = await admin.auth.admin.getUserById(parsed.data.targetUserId);
-    if (targetUser.user?.user_metadata?.branch_restaurant_id !== parsed.data.restaurantId) {
-      return { error: "responsible-account-required" };
-    }
     const { error } = await admin.auth.admin.updateUserById(parsed.data.targetUserId, {
       password: temporaryPassword,
       user_metadata: {
@@ -2461,6 +2475,58 @@ export async function manageResponsibleAccessAction(
     });
 
     return { success: "password-reset", temporaryPassword };
+  }
+
+  if (parsed.data.intent === "update-profile") {
+    const fullName = parsed.data.fullName?.trim() ?? "";
+    const email = parsed.data.email?.trim().toLowerCase() || targetUser.user?.email?.trim().toLowerCase() || "";
+
+    if (!fullName || !email) {
+      return { error: "invalid-profile" };
+    }
+
+    const duplicateUserIds = await findAuthUserIdsByEmail(admin, email);
+    if (duplicateUserIds.some((userId) => userId !== parsed.data.targetUserId)) {
+      return { error: "responsible-email-exists" };
+    }
+
+    const { error: authError } = await admin.auth.admin.updateUserById(parsed.data.targetUserId, {
+      email,
+      email_confirm: true,
+      user_metadata: {
+        ...(targetUser.user?.user_metadata ?? {}),
+        full_name: fullName,
+      },
+    });
+
+    if (authError) {
+      return { error: "responsible-profile-auth" };
+    }
+
+    const { error: profileError } = await admin
+      .from("profiles")
+      .upsert({
+        id: parsed.data.targetUserId,
+        email,
+        full_name: fullName,
+        global_role: "restaurant_admin",
+      });
+
+    if (profileError) {
+      return { error: "responsible-profile-update" };
+    }
+
+    await supabase.rpc("write_admin_audit", {
+      p_action: "branch_responsible_profile_updated",
+      p_entity_type: "profile",
+      p_entity_id: parsed.data.targetUserId,
+      p_restaurant_id: parsed.data.restaurantId,
+      p_severity: "info",
+    });
+
+    revalidatePath("/dueno/responsables");
+    revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
+    return { success: "profile-updated" };
   }
 
   const isActive = parsed.data.intent === "reactivate";
@@ -3137,6 +3203,7 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     cashEnabled: booleanFromForm(formData, "cashEnabled"),
     kitchenEnabled: booleanFromForm(formData, "kitchenEnabled"),
     deliveryFee: formData.get("deliveryFee") || 0,
+    farDeliveryDistanceKm: formData.get("farDeliveryDistanceKm") || 8,
     freeDeliveryFrom: formData.get("freeDeliveryFrom") || undefined,
     minOrderAmount: formData.get("minOrderAmount") || 0,
     currency: String(formData.get("currency") || "BOB").toUpperCase(),
@@ -3324,6 +3391,7 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
       cash_enabled: moduleState.cashEnabled,
       kitchen_enabled: moduleState.kitchenEnabled,
       delivery_fee: parsed.data.deliveryFee,
+      far_delivery_distance_km: parsed.data.farDeliveryDistanceKm,
       free_delivery_from: parsed.data.freeDeliveryFrom ?? null,
       min_order_amount: parsed.data.minOrderAmount,
       currency: parsed.data.currency,
@@ -4495,15 +4563,36 @@ export async function updateOrderStatusAction(formData: FormData) {
   const nextStatus = parsed.data.status as OrderStatus;
   const supabase = await createClient();
   const now = new Date().toISOString();
+  const { data: order } = await supabase
+    .from("orders")
+    .select("status,payment_status")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("id", parsed.data.orderId)
+    .maybeSingle();
+
+  if (!order) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=order-not-found`);
+  }
+
+  const validTransitions: Record<OrderStatus, OrderStatus[]> = {
+    pending: ["accepted", "cancelled"],
+    accepted: ["preparing", "cancelled"],
+    preparing: ["ready", "cancelled"],
+    ready: ["delivered", "cancelled"],
+    delivered: [],
+    cancelled: [],
+  };
+
+  if (nextStatus !== order.status && !validTransitions[order.status as OrderStatus].includes(nextStatus)) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=invalid-order-transition`);
+  }
+
+  if (nextStatus === "cancelled" && order.payment_status === "paid") {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=refund-required`);
+  }
 
   if (nextStatus === "accepted") {
     const session = await getOpenCashSession(parsed.data.restaurantId);
-    const { data: order } = await supabase
-      .from("orders")
-      .select("payment_status")
-      .eq("restaurant_id", parsed.data.restaurantId)
-      .eq("id", parsed.data.orderId)
-      .maybeSingle();
 
     if (!session || order?.payment_status !== "paid") {
       redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=cash-required`);
@@ -4539,7 +4628,10 @@ export async function updateOrderStatusAction(formData: FormData) {
     updatePayload.cancelled_at = now;
   }
 
-  await supabase.from("orders").update(updatePayload).eq("id", parsed.data.orderId).eq("restaurant_id", parsed.data.restaurantId);
+  const { error: updateError } = await supabase.from("orders").update(updatePayload).eq("id", parsed.data.orderId).eq("restaurant_id", parsed.data.restaurantId);
+  if (updateError) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=${updateError.code}`);
+  }
 
   if (nextStatus === "cancelled") {
     await supabase.rpc("reverse_order_inventory_usage", {
@@ -5064,6 +5156,37 @@ export async function createPosSaleAction(formData: FormData) {
   }
 
   redirect(redirectUrl.pathname + redirectUrl.search);
+}
+
+export async function refundOrderAction(formData: FormData) {
+  const parsed = refundOrderSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    orderId: formData.get("orderId"),
+    restaurantSlug: formData.get("restaurantSlug") || undefined,
+    reason: formData.get("reason"),
+    source: formData.get("source") || "pedidos",
+  });
+
+  const fallbackPath = orderDecisionRedirectPath(String(formData.get("restaurantId")), "pedidos");
+  if (!parsed.success) {
+    redirect(`${fallbackPath}${fallbackPath.includes("?") ? "&" : "?"}error=refund-reason-required`);
+  }
+
+  const redirectPath = orderDecisionRedirectPath(parsed.data.restaurantId, parsed.data.source);
+  await requireRestaurantAccess(parsed.data.restaurantId, redirectPath);
+  const { supabase } = await requireUser();
+  const { error } = await supabase.rpc("refund_order_atomic", {
+    p_restaurant_id: parsed.data.restaurantId,
+    p_order_id: parsed.data.orderId,
+    p_reason: parsed.data.reason,
+  });
+
+  if (error) {
+    redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=${cashErrorKey(error, "refund-order")}`);
+  }
+
+  await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
+  redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}refunded=1`);
 }
 
 export async function createInventoryItemAction(formData: FormData) {

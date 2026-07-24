@@ -105,18 +105,22 @@ test("remote critical migrations and service-only rate limiter are available", a
   }
 
   const supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const [entitlements, requests, invalidOrder] = await Promise.all([
+  const [entitlements, requests, productScheduling, optionInventory, invalidOrder] = await Promise.all([
     supabase.from("owner_branch_entitlements").select("owner_user_id", { head: true, count: "exact" }),
     supabase.from("owner_branch_capacity_requests").select("id", { head: true, count: "exact" }),
+    supabase.from("products").select("product_kind,compare_at_price,available_days,available_start_time,available_end_time", { head: true, count: "exact" }),
+    supabase.from("product_options").select("inventory_item_id,inventory_quantity,inventory_waste_factor", { head: true, count: "exact" }),
     supabase.rpc("create_public_order_transaction", {
       p_request_id: crypto.randomUUID(),
       p_order: { restaurant_id: crypto.randomUUID() },
-      p_items: [{ product_id: crypto.randomUUID(), product_name: "Test", unit_price: 1, quantity: 1, subtotal: 1 }],
+      p_items: [{ product_id: crypto.randomUUID(), product_name: "Test", variant_id: null, option_ids: [], unit_price: 1, quantity: 1, subtotal: 1 }],
     }),
   ]);
 
   assert.equal(entitlements.error, null);
   assert.equal(requests.error, null);
+  assert.equal(productScheduling.error, null);
+  assert.equal(optionInventory.error, null);
   assert.ok(invalidOrder.error, "invalid service-role orders must still be rejected by database validation");
 
   const identifier = `test-${crypto.randomUUID()}`;

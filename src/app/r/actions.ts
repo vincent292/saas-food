@@ -74,6 +74,8 @@ type ParsedCartItem = z.infer<typeof cartItemSchema>;
 
 type ResolvedCartItem = {
   productId: string;
+  variantId?: string;
+  optionIds: string[];
   name: string;
   price: number;
   quantity: number;
@@ -86,6 +88,11 @@ type ProductPriceRow = {
   name: string;
   price: number;
   is_available: boolean;
+  available_from: string | null;
+  available_until: string | null;
+  available_days: number[] | null;
+  available_start_time: string | null;
+  available_end_time: string | null;
 };
 
 type VariantPriceRow = {
@@ -113,6 +120,61 @@ type OptionPriceRow = {
   price_delta: number;
   is_active: boolean;
 };
+
+function boliviaScheduleParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/La_Paz",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const weekday = parts.find((part) => part.type === "weekday")?.value ?? "Sun";
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
+  const weekdayIndex: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+  return { dayOfWeek: weekdayIndex[weekday] ?? 0, minutes: hour * 60 + minute };
+}
+
+function timeToMinutes(value?: string | null) {
+  if (!value) return null;
+  const [hours, minutes] = value.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function isProductCurrentlyOrderable(product: ProductPriceRow, date = new Date()) {
+  if (!product.is_available) {
+    return false;
+  }
+
+  const nowTime = date.getTime();
+  if (product.available_from && new Date(product.available_from).getTime() > nowTime) {
+    return false;
+  }
+
+  if (product.available_until && new Date(product.available_until).getTime() < nowTime) {
+    return false;
+  }
+
+  const { dayOfWeek, minutes } = boliviaScheduleParts(date);
+  if (product.available_days?.length && !product.available_days.includes(dayOfWeek)) {
+    return false;
+  }
+
+  const start = timeToMinutes(product.available_start_time);
+  const end = timeToMinutes(product.available_end_time);
+  if (start != null && minutes < start) {
+    return false;
+  }
+
+  if (end != null && minutes > end) {
+    return false;
+  }
+
+  return true;
+}
 
 async function getPublicOrderSettings(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {
   const { data: settings } = await supabase
@@ -196,7 +258,7 @@ async function resolvePublicCartItems(supabase: Awaited<ReturnType<typeof create
   const [{ data: productRows, error: productsError }, { data: variantRows }, { data: groupRows }, { data: optionRows }] = await Promise.all([
     supabase
       .from("products")
-      .select("id,name,price,is_available")
+      .select("id,name,price,is_available,available_from,available_until,available_days,available_start_time,available_end_time")
       .eq("restaurant_id", restaurantId)
       .in("id", productIds),
     supabase
@@ -245,7 +307,7 @@ async function resolvePublicCartItems(supabase: Awaited<ReturnType<typeof create
   return cart.map<ResolvedCartItem>((item) => {
     const product = products.get(item.productId);
 
-    if (!product?.is_available) {
+    if (!product || !isProductCurrentlyOrderable(product)) {
       throw new Error("product-not-found");
     }
 
@@ -290,6 +352,8 @@ async function resolvePublicCartItems(supabase: Awaited<ReturnType<typeof create
 
     return {
       productId: item.productId,
+      variantId: variant?.id,
+      optionIds: selectedOptionRows.map((option) => option.id),
       name,
       price: unitPrice,
       quantity: item.quantity,
@@ -504,6 +568,8 @@ export async function createPublicOrderAction(formData: FormData) {
     p_items: resolvedCart.map((item) => ({
       product_id: item.productId,
       product_name: item.name,
+      variant_id: item.variantId ?? null,
+      option_ids: item.optionIds,
       unit_price: item.price,
       quantity: item.quantity,
       subtotal: item.subtotal,

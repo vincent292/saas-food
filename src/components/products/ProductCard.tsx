@@ -19,6 +19,8 @@ export function ProductCard({
   optionGroupCount?: number;
   onEdit?: () => void;
 }) {
+  const kindLabel = product.productKind === "promotion" ? "Promo" : product.productKind === "lunch" ? "Almuerzo" : "";
+
   return (
     <Card className="group overflow-hidden p-0 transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="relative aspect-[16/10] overflow-hidden bg-[var(--primary-light)]">
@@ -34,6 +36,7 @@ export function ProductCard({
               Destacado
             </Badge>
           ) : null}
+          {kindLabel ? <Badge className="bg-[var(--primary)] text-[var(--color-on-primary)]">{kindLabel}</Badge> : null}
         </div>
       </div>
 
@@ -46,7 +49,10 @@ export function ProductCard({
               {category?.name ?? "Sin categoria"}
             </p>
           </div>
-          <p className="shrink-0 rounded-full bg-[var(--primary-light)] px-3 py-1 text-sm font-black text-[var(--primary)]">{formatMoney(product.price)}</p>
+          <p className="shrink-0 rounded-full bg-[var(--primary-light)] px-3 py-1 text-sm font-black text-[var(--primary)]">
+            {formatMoney(product.price)}
+            {product.compareAtPrice ? <span className="ml-2 text-[10px] text-[var(--muted)] line-through">{formatMoney(product.compareAtPrice)}</span> : null}
+          </p>
         </div>
 
         <p className="min-h-9 overflow-hidden text-sm leading-5 text-[var(--muted)] [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">

@@ -96,7 +96,7 @@ export function AdminShellClient({
   const statusLabel = restaurantStatus === "active" ? "Activo" : restaurantStatus === "suspended" ? "Suspendido" : restaurantStatus === "inactive" ? "Inactivo" : "";
 
   return (
-    <div className="min-h-screen bg-[var(--color-surface)] text-[var(--color-heading)]">
+    <div className="admin-panel min-h-dvh bg-[var(--color-surface)] text-[var(--color-heading)]">
       {restaurantId ? <GlobalOrderSoundAlert orders={pendingOrderAlerts} restaurantId={restaurantId} /> : null}
 
       {billingAlert && billingModalOpen ? (
@@ -134,12 +134,12 @@ export function AdminShellClient({
       <div className={cn("fixed inset-0 z-40 bg-[var(--color-overlay)] backdrop-blur-sm lg:hidden", sidebarOpen ? "block" : "hidden")} onClick={() => setSidebarOpen(false)} />
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[min(86vw,18rem)] flex-col border-r border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xl transition-transform duration-200 lg:translate-x-0 lg:shadow-none",
+          "fixed inset-y-0 left-0 z-50 flex w-[min(86vw,17.5rem)] flex-col border-r border-[var(--border)] bg-[var(--surface)] p-3 shadow-2xl transition-transform duration-200 sm:p-4 lg:translate-x-0 lg:shadow-none",
           sidebarOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
         <div className="flex items-center justify-between gap-3">
-          <Link className="flex min-w-0 flex-1 flex-col items-start gap-2 rounded-2xl bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href={restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}>
+          <Link className="flex min-w-0 flex-1 flex-col items-start gap-2 rounded-[var(--radius-card)] bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href={restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}>
             <BrandLogo className="h-6 w-auto max-w-[160px]" variant="dark" />
             <span className="max-w-full truncate text-xs font-black text-white/82">{restaurantName || "Panel administrativo"}</span>
           </Link>
@@ -149,12 +149,12 @@ export function AdminShellClient({
         </div>
 
         {statusLabel ? (
-          <div className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] px-3 py-2 text-xs font-black text-[var(--color-secondary-text)]">
+          <div className="mt-3 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--color-surface)] px-3 py-2 text-xs font-black text-[var(--color-secondary-text)]">
             Estado: <span className={restaurantStatus === "active" ? "text-[var(--color-success-strong)]" : "text-[var(--color-warning-strong)]"}>{statusLabel}</span>
           </div>
         ) : null}
 
-        <nav className="mt-5 flex-1 space-y-1 overflow-y-auto pr-1">
+        <nav className="admin-scrollbar mt-5 flex-1 space-y-1 overflow-y-auto pr-1">
           {nav.map((item) => {
             const href = restaurantId ? `/admin/restaurantes/${restaurantId}/${item.href}` : item.href;
             const selected = active === item.href;
@@ -162,7 +162,7 @@ export function AdminShellClient({
             return (
               <Link
                 className={cn(
-                  "flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] transition hover:bg-[var(--primary-light)] hover:text-[var(--primary-dark)]",
+                  "flex min-h-11 items-center gap-3 rounded-[var(--radius-control)] px-3 text-sm font-bold text-[var(--color-secondary-text)] transition hover:bg-[var(--primary-light)] hover:text-[var(--primary-dark)]",
                   selected && "bg-[var(--primary-light)] text-[var(--primary-dark)]",
                 )}
                 href={href}
@@ -203,7 +203,7 @@ export function AdminShellClient({
       </aside>
 
       <div className="lg:pl-72">
-        <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--color-card-elevated)] px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
+        <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--color-card-elevated)] px-4 py-3 shadow-sm backdrop-blur sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-3">
             <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--color-body)] shadow-sm lg:hidden" onClick={() => setSidebarOpen(true)} type="button">
               <Menu className="h-5 w-5" />
@@ -213,7 +213,7 @@ export function AdminShellClient({
               <h1 className="truncate text-xl font-black text-[var(--color-heading)] sm:text-2xl">{title}</h1>
             </div>
             <Link
-              className="hidden min-h-10 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)] sm:inline-flex"
+              className="hidden min-h-10 shrink-0 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)] sm:inline-flex"
               href={canAccessSuperadmin ? "/admin/restaurantes" : canAccessOwnerPanel ? "/dueno" : canSwitchBranches ? "/admin" : restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}
             >
               <BarChart3 className="h-4 w-4" />
@@ -221,7 +221,7 @@ export function AdminShellClient({
             </Link>
           </div>
         </header>
-        <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">{children}</main>
+        <main className="mx-auto max-w-7xl px-3 py-4 pb-8 sm:px-6 sm:py-6 lg:px-8">{children}</main>
       </div>
     </div>
   );

@@ -1,12 +1,12 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, type ReactNode } from "react";
-import { Building2, Loader2 } from "lucide-react";
+import { Building2 } from "lucide-react";
 import { createOwnedRestaurantFormAction, type CreateRestaurantFormState } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
+import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
@@ -134,27 +134,18 @@ export function OwnerRestaurantCreateFormClient() {
 
         <div className="md:col-span-2">
           <Button className="min-h-12 w-full sm:w-auto" disabled={pending || isFinishing}>
-            {pending || isFinishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}
+            {pending || isFinishing ? null : <Building2 className="h-4 w-4" />}
             {pending || isFinishing ? "Creando restaurante..." : "Crear mi restaurante"}
           </Button>
         </div>
       </Card>
 
       {pending || isFinishing ? (
-        <div className="fixed inset-0 z-[120] grid place-items-center bg-[rgb(8_36_65_/_0.78)] px-4 text-center text-white backdrop-blur-md">
-          <div className="w-full max-w-sm rounded-[1.75rem] border border-white/16 bg-white/95 p-6 text-[var(--primary)] shadow-[0_28px_90px_rgb(2_10_18_/_0.34)]">
-            <div className="mx-auto grid h-24 w-24 place-items-center rounded-[1.5rem] bg-[var(--primary-light)] shadow-inner">
-              <Image alt="yopido.shop" className="h-16 w-16 animate-pulse object-contain" height={96} priority src="/brand/yopido-icon-dark-1024.png" width={96} />
-            </div>
-            <p className="mt-5 text-xl font-black">{isFinishing ? "Entrando a tu panel" : "Estamos creando tu restaurante"}</p>
-            <p className="mt-2 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
-              {isFinishing ? "Todo quedo listo. Estamos actualizando tu dashboard." : "Preparando tu panel, configuracion inicial y acceso de dueno."}
-            </p>
-            <div className="mx-auto mt-5 h-2 w-44 overflow-hidden rounded-full bg-[var(--primary-light)]">
-              <span className="block h-full w-1/2 animate-pulse rounded-full bg-[var(--accent)]" />
-            </div>
-          </div>
-        </div>
+        <BrandLoadingOverlay
+          title={isFinishing ? "Entrando al panel" : "Creando restaurante"}
+          description={isFinishing ? "Actualizando tu dashboard." : "Preparando acceso inicial."}
+          zIndexClassName="z-[120]"
+        />
       ) : null}
     </form>
   );

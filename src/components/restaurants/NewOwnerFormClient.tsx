@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState } from "react";
-import { Copy, Loader2, UserPlus } from "lucide-react";
+import { Copy, UserPlus } from "lucide-react";
 import { createOwnerClientAction, type CreateOwnerFormState } from "@/app/admin/actions";
+import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -79,11 +80,12 @@ export function NewOwnerFormClient() {
 
         <div className="md:col-span-2">
           <Button disabled={pending}>
-            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+            {pending ? null : <UserPlus className="h-4 w-4" />}
             {pending ? "Creando dueno..." : "Crear dueno"}
           </Button>
         </div>
       </Card>
+      {pending ? <BrandLoadingOverlay title="Creando dueno" description="Generando acceso y contrasena temporal." /> : null}
     </form>
   );
 }

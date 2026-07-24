@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Grid2X2, LayoutList, Plus, Search, Trash2, X } from "lucide-react";
+import { CalendarClock, Flame, Grid2X2, LayoutList, PackageCheck, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { createCategoryAction, createProductAction, updateProductAction } from "@/app/admin/actions";
@@ -27,12 +27,23 @@ import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
+import type { InventoryItem } from "@/types/inventory.types";
 import type { BusinessType } from "@/types/restaurant.types";
 
 type ProductStatus = "all" | "active" | "inactive";
 type ViewMode = "grid" | "list";
+type ProductKind = Product["productKind"];
 type DraftVariant = { name: string; description: string; priceDelta: number; sortOrder: number; isActive: boolean };
-type DraftOption = { name: string; description: string; priceDelta: number; sortOrder: number; isActive: boolean };
+type DraftOption = {
+  name: string;
+  description: string;
+  priceDelta: number;
+  inventoryItemId: string;
+  inventoryQuantity: number;
+  inventoryWasteFactor: number;
+  sortOrder: number;
+  isActive: boolean;
+};
 type DraftOptionGroup = {
   name: string;
   description: string;
@@ -68,6 +79,9 @@ const emptyOption = (index: number): DraftOption => ({
   name: "",
   description: "",
   priceDelta: 0,
+  inventoryItemId: "",
+  inventoryQuantity: 1,
+  inventoryWasteFactor: 0,
   sortOrder: index,
   isActive: true,
 });
@@ -88,6 +102,7 @@ export function ProductManagementClient({
   products,
   categories,
   configuration,
+  inventoryItems,
   created,
   categoryCreated,
   updated,
@@ -98,6 +113,7 @@ export function ProductManagementClient({
   products: Product[];
   categories: Category[];
   configuration: ProductConfiguration;
+  inventoryItems: InventoryItem[];
   businessType: BusinessType;
   created?: string;
   categoryCreated?: string;
@@ -113,6 +129,8 @@ export function ProductManagementClient({
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [variants, setVariants] = useState<DraftVariant[]>([emptyVariant(0)]);
   const [optionGroups, setOptionGroups] = useState<DraftOptionGroup[]>([]);
+  const [productKind, setProductKind] = useState<ProductKind>("standard");
+  const [selectedDays, setSelectedDays] = useState<number[]>([]);
 
   const categoryById = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
   const productCountsByCategory = useMemo(() => {
@@ -170,20 +188,20 @@ export function ProductManagementClient({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
+      <section className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">{catalogTitle} operativo</p>
-            <h2 className="mt-1 text-3xl font-black text-[var(--text)]">Productos</h2>
+            <h2 className="mt-1 text-2xl font-black text-[var(--text)] sm:text-3xl">Productos</h2>
             <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">Categorias, {itemsLabel}, variantes y opciones del {catalogTitle.toLowerCase()} en una sola superficie.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button className={buttonClasses("secondary")} onClick={() => setCategoryModalOpen(true)} type="button">
+          <div className="grid gap-2 sm:flex sm:flex-wrap">
+            <button className={buttonClasses("secondary", "w-full sm:w-auto")} onClick={() => setCategoryModalOpen(true)} type="button">
               <Plus className="h-4 w-4" />
               Nueva categoria
             </button>
             <button
-              className={buttonClasses(canCreateInSelectedCategory ? "primary" : "secondary")}
+              className={buttonClasses(canCreateInSelectedCategory ? "primary" : "secondary", "w-full sm:w-auto")}
               disabled={!canCreateInSelectedCategory}
               onClick={() => openCreateProductModal()}
               title={canCreateInSelectedCategory ? `Crear en ${selectedCategoryName}` : "Selecciona una categoria primero"}
@@ -208,10 +226,10 @@ export function ProductManagementClient({
         </div>
       ) : null}
 
-      <Card className="sticky top-[88px] z-10 grid gap-3 bg-[var(--color-card-elevated)] p-3 backdrop-blur lg:grid-cols-[1fr_260px_220px_auto] lg:items-center">
+      <Card className="sticky top-[73px] z-20 grid gap-3 bg-[var(--color-card-elevated)] p-3 backdrop-blur sm:top-[85px] lg:grid-cols-[1fr_260px_220px_auto] lg:items-center">
         <label className="relative block">
           <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
-          <Input className="rounded-2xl pl-11" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto, categoria o descripcion" value={query} />
+          <Input className="pl-11" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto, categoria o descripcion" value={query} />
         </label>
         <Select onChange={(event) => setCategoryId(event.target.value)} value={categoryId}>
           <option value="all">Todas las categorias</option>
@@ -227,12 +245,12 @@ export function ProductManagementClient({
           <option value="active">Activos</option>
           <option value="inactive">Inactivos</option>
         </Select>
-        <div className="flex justify-self-start rounded-full bg-[var(--primary-light)] p-1 lg:justify-self-end">
-          <button className={cn("inline-flex h-11 items-center gap-2 rounded-full px-4 text-sm font-black text-[var(--primary-dark)]", viewMode === "grid" && "bg-[var(--surface)] shadow-sm")} onClick={() => setViewMode("grid")} type="button">
+        <div className="flex w-full justify-self-start rounded-full bg-[var(--primary-light)] p-1 sm:w-auto lg:justify-self-end">
+          <button className={cn("inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 text-sm font-black text-[var(--primary-dark)] sm:flex-none", viewMode === "grid" && "bg-[var(--surface)] shadow-sm")} onClick={() => setViewMode("grid")} type="button">
             <Grid2X2 className="h-4 w-4" />
             Mosaico
           </button>
-          <button className={cn("inline-flex h-11 items-center gap-2 rounded-full px-4 text-sm font-black text-[var(--primary-dark)]", viewMode === "list" && "bg-[var(--surface)] shadow-sm")} onClick={() => setViewMode("list")} type="button">
+          <button className={cn("inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 text-sm font-black text-[var(--primary-dark)] sm:flex-none", viewMode === "list" && "bg-[var(--surface)] shadow-sm")} onClick={() => setViewMode("list")} type="button">
             <LayoutList className="h-4 w-4" />
             Lista
           </button>
@@ -247,7 +265,7 @@ export function ProductManagementClient({
           </div>
           <p className="text-sm font-semibold text-[var(--muted)]">Selecciona una categoria para crear productos ahi dentro.</p>
         </div>
-        <div className="mt-4 flex gap-3 overflow-x-auto pb-1">
+        <div className="admin-scrollbar mt-4 flex gap-3 overflow-x-auto pb-1">
           <CategoryTile active={categoryId === "all"} count={products.length} label="Todas" onClick={() => setCategoryId("all")} />
           {categories.map((category) => (
             <CategoryTile
@@ -262,7 +280,7 @@ export function ProductManagementClient({
         </div>
       </Card>
 
-      <section className="space-y-4 rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
+      <section className="space-y-4 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Productos</p>
@@ -275,7 +293,7 @@ export function ProductManagementClient({
               }
             />
           </div>
-          <button className={buttonClasses(canCreateInSelectedCategory ? "primary" : "secondary")} disabled={!canCreateInSelectedCategory} onClick={() => openCreateProductModal()} type="button">
+          <button className={buttonClasses(canCreateInSelectedCategory ? "primary" : "secondary", "w-full sm:w-auto")} disabled={!canCreateInSelectedCategory} onClick={() => openCreateProductModal()} type="button">
             <Plus className="h-4 w-4" />
             {canCreateInSelectedCategory ? `Nuevo ${itemLabel}` : "Elige categoria"}
           </button>
@@ -365,8 +383,17 @@ export function ProductManagementClient({
             {editingProduct ? <input name="productId" type="hidden" value={editingProduct.id} /> : null}
             <input name="variantsJson" type="hidden" value={variantsJson} />
             <input name="optionGroupsJson" type="hidden" value={optionGroupsJson} />
-            <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-              <PreviewBanner className="min-h-80 lg:min-h-full" imageUrl={editingProduct?.imageUrl} label={editingProduct?.name || "Nuevo producto"} />
+            <input name="availableDays" type="hidden" value={selectedDays.join(",")} />
+
+            <div className="grid grid-cols-2 gap-2 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--color-card-muted)] p-3 sm:grid-cols-4">
+              <PresetButton icon={<Sparkles className="h-4 w-4" />} label="Simple" onClick={() => applyPreset("simple")} />
+              <PresetButton icon={<PackageCheck className="h-4 w-4" />} label="Combo" onClick={() => applyPreset("combo")} />
+              <PresetButton icon={<Flame className="h-4 w-4" />} label="Promo" onClick={() => applyPreset("promotion")} />
+              <PresetButton icon={<Utensils className="h-4 w-4" />} label="Almuerzo" onClick={() => applyPreset("lunch")} />
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[280px_1fr]">
+              <PreviewBanner className="min-h-56 xl:min-h-full" imageUrl={editingProduct?.imageUrl} label={editingProduct?.name || "Nuevo producto"} />
               <div className="grid gap-3 sm:grid-cols-2">
                 <Labeled label="Nombre">
                   <Input defaultValue={editingProduct?.name} name="name" required />
@@ -387,9 +414,30 @@ export function ProductManagementClient({
                 <Labeled label="Precio base">
                   <Input defaultValue={editingProduct?.price ?? 0} min={0} name="price" required step="0.01" type="number" />
                 </Labeled>
+                <Labeled label="Tipo">
+                  <Select name="productKind" onChange={(event) => setProductKind(event.target.value as ProductKind)} value={productKind}>
+                    <option value="standard">Producto normal</option>
+                    <option value="promotion">Promocion</option>
+                    <option value="lunch">Almuerzo mensual</option>
+                  </Select>
+                </Labeled>
+                <Labeled label={productKind === "promotion" ? "Precio anterior" : "Precio referencia"}>
+                  <Input defaultValue={editingProduct?.compareAtPrice ?? ""} min={0} name="compareAtPrice" placeholder="Opcional" step="0.01" type="number" />
+                </Labeled>
                 <Labeled label="Orden">
                   <Input defaultValue={editingProduct?.sortOrder ?? products.length + 1} min={0} name="sortOrder" type="number" />
                 </Labeled>
+                <div className="sm:col-span-2">
+                  <ProductSchedulePanel
+                    availableFrom={editingProduct?.availableFrom}
+                    availableUntil={editingProduct?.availableUntil}
+                    days={selectedDays}
+                    endTime={editingProduct?.availableEndTime}
+                    kind={productKind}
+                    onToggleDay={toggleDay}
+                    startTime={editingProduct?.availableStartTime}
+                  />
+                </div>
                 <div className="sm:col-span-2">
                 <CompressedImageInput help={businessProductImageHelp(businessType)} label="Imagen" name="imageFile" />
                 </div>
@@ -419,7 +467,7 @@ export function ProductManagementClient({
               <div className="mt-3 space-y-3">
                 {variants.map((variant, index) => (
                   <div className="rounded-3xl border border-[var(--border)] bg-[var(--primary-light)]/40 p-4" key={index}>
-                    <div className="grid gap-3 md:grid-cols-[1fr_160px_120px_auto] md:items-end">
+                    <div className="grid gap-3 lg:grid-cols-[1fr_160px_120px_auto] lg:items-end">
                       <Labeled label="Nombre">
                         <Input onChange={(event) => updateVariant(index, { name: event.target.value })} placeholder={variantExample} value={variant.name} />
                       </Labeled>
@@ -454,7 +502,7 @@ export function ProductManagementClient({
                 {optionGroups.length ? (
                   optionGroups.map((group, groupIndex) => (
                     <div className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-4" key={groupIndex}>
-                      <div className="grid gap-3 md:grid-cols-[1fr_120px_120px_auto] md:items-end">
+                      <div className="grid gap-3 lg:grid-cols-[1fr_120px_120px_auto] lg:items-end">
                         <Labeled label="Grupo">
                           <Input onChange={(event) => updateOptionGroup(groupIndex, { name: event.target.value })} placeholder="Ej. Salsa" value={group.name} />
                         </Labeled>
@@ -468,12 +516,27 @@ export function ProductManagementClient({
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
+                      <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+                        <Input onChange={(event) => updateOptionGroup(groupIndex, { description: event.target.value })} placeholder="Descripcion interna. Ej. El cliente puede elegir hasta 3 salsas." value={group.description} />
+                        <label className="inline-flex min-h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--color-card-muted)] px-4 text-sm font-black text-[var(--text)]">
+                          <input checked={group.isRequired} onChange={(event) => updateOptionGroup(groupIndex, { isRequired: event.target.checked, minChoices: event.target.checked ? Math.max(1, group.minChoices) : group.minChoices })} type="checkbox" />
+                          Obligatorio
+                        </label>
+                      </div>
                       <div className="mt-3 space-y-2">
                         {group.options.map((option, optionIndex) => (
-                          <div className="grid gap-2 rounded-2xl bg-[var(--color-surface)] p-3 md:grid-cols-[1fr_140px_120px_auto]" key={optionIndex}>
+                          <div className="grid gap-2 rounded-[var(--radius-control)] bg-[var(--color-surface)] p-3 xl:grid-cols-[minmax(160px,1fr)_120px_170px_110px_auto]" key={optionIndex}>
                             <Input onChange={(event) => updateOption(groupIndex, optionIndex, { name: event.target.value })} placeholder="Ej. Aparte / Banada / Papas" value={option.name} />
                             <Input onChange={(event) => updateOption(groupIndex, optionIndex, { priceDelta: Number(event.target.value) })} step="0.01" type="number" value={option.priceDelta} />
-                            <Input onChange={(event) => updateOption(groupIndex, optionIndex, { sortOrder: Number(event.target.value) })} type="number" value={option.sortOrder} />
+                            <Select aria-label="Insumo ligado" onChange={(event) => updateOption(groupIndex, optionIndex, { inventoryItemId: event.target.value })} value={option.inventoryItemId}>
+                              <option value="">Sin inventario</option>
+                              {inventoryItems.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.name}
+                                </option>
+                              ))}
+                            </Select>
+                            <Input aria-label="Cantidad inventario" min={0.001} onChange={(event) => updateOption(groupIndex, optionIndex, { inventoryQuantity: Number(event.target.value) })} step="0.001" type="number" value={option.inventoryQuantity} />
                             <button className={buttonClasses("ghost")} onClick={() => removeOption(groupIndex, optionIndex)} type="button">
                               <X className="h-4 w-4" />
                             </button>
@@ -555,6 +618,8 @@ export function ProductManagementClient({
     setEditingProduct(null);
     setVariants([emptyVariant(0)]);
     setOptionGroups([]);
+    setProductKind("standard");
+    setSelectedDays([]);
     setProductModalOpen(true);
   }
 
@@ -583,6 +648,9 @@ export function ProductManagementClient({
           name: option.name,
           description: option.description,
           priceDelta: option.priceDelta,
+          inventoryItemId: option.inventoryItemId ?? "",
+          inventoryQuantity: option.inventoryQuantity ?? 1,
+          inventoryWasteFactor: option.inventoryWasteFactor ?? 0,
           sortOrder: option.sortOrder,
           isActive: option.isActive,
         })),
@@ -590,12 +658,116 @@ export function ProductManagementClient({
 
     setVariants(productVariants.length ? productVariants : [emptyVariant(0)]);
     setOptionGroups(productGroups);
+    setProductKind(product.productKind ?? "standard");
+    setSelectedDays(product.availableDays ?? []);
     setProductModalOpen(true);
   }
 
   function closeProductModal() {
     setProductModalOpen(false);
     setEditingProduct(null);
+    setSelectedDays([]);
+    setProductKind("standard");
+  }
+
+  function toggleDay(day: number) {
+    setSelectedDays((current) => (current.includes(day) ? current.filter((item) => item !== day) : [...current, day].sort((left, right) => left - right)));
+  }
+
+  function applyPreset(preset: "simple" | "combo" | "promotion" | "lunch") {
+    if (preset === "simple") {
+      setProductKind("standard");
+      setVariants([emptyVariant(0)]);
+      setOptionGroups([]);
+      setSelectedDays([]);
+      return;
+    }
+
+    if (preset === "promotion") {
+      setProductKind("promotion");
+      setVariants([emptyVariant(0)]);
+      setSelectedDays([]);
+      setOptionGroups([
+        {
+          ...emptyOptionGroup(0),
+          name: "Extras de promo",
+          description: "Opcionales que aumentan el precio de la promocion.",
+          maxChoices: 3,
+          options: [
+            { ...emptyOption(0), name: "Papas grandes", priceDelta: 5 },
+            { ...emptyOption(1), name: "Refresco grande", priceDelta: 4 },
+          ],
+        },
+      ]);
+      return;
+    }
+
+    if (preset === "lunch") {
+      setProductKind("lunch");
+      setVariants([emptyVariant(0)]);
+      setOptionGroups([
+        {
+          ...emptyOptionGroup(0),
+          name: "Bebida",
+          description: "Bebida incluida u opcional para el almuerzo.",
+          minChoices: 1,
+          maxChoices: 1,
+          isRequired: true,
+          options: [
+            { ...emptyOption(0), name: "Refresco del dia" },
+            { ...emptyOption(1), name: "Agua" },
+            { ...emptyOption(2), name: "Jugo natural", priceDelta: 3 },
+          ],
+        },
+      ]);
+      return;
+    }
+
+    setProductKind("standard");
+    setVariants([
+      { name: "Simple", description: "Porcion clasica", priceDelta: 0, sortOrder: 0, isActive: true },
+      { name: "Doble", description: "Mas grande", priceDelta: 10, sortOrder: 1, isActive: true },
+      { name: "Triple", description: "Version completa", priceDelta: 18, sortOrder: 2, isActive: true },
+    ]);
+    setOptionGroups([
+      {
+        ...emptyOptionGroup(0),
+        name: "Salsas",
+        description: "Elige la cantidad permitida de salsas.",
+        minChoices: 0,
+        maxChoices: 3,
+        options: [
+          { ...emptyOption(0), name: "BBQ" },
+          { ...emptyOption(1), name: "Mayonesa" },
+          { ...emptyOption(2), name: "Picante" },
+          { ...emptyOption(3), name: "Ketchup" },
+        ],
+      },
+      {
+        ...emptyOptionGroup(1),
+        name: "Bebida",
+        description: "Elige una bebida para el combo.",
+        minChoices: 1,
+        maxChoices: 1,
+        isRequired: true,
+        options: [
+          { ...emptyOption(0), name: "Coca-Cola" },
+          { ...emptyOption(1), name: "Sprite" },
+          { ...emptyOption(2), name: "Jugo natural", priceDelta: 3 },
+        ],
+      },
+      {
+        ...emptyOptionGroup(2),
+        name: "Agrandar combo",
+        description: "Mejoras opcionales del combo.",
+        minChoices: 0,
+        maxChoices: 2,
+        options: [
+          { ...emptyOption(0), name: "Papas grandes", priceDelta: 5 },
+          { ...emptyOption(1), name: "Refresco grande", priceDelta: 4 },
+        ],
+      },
+    ]);
   }
 }
 
@@ -643,11 +815,114 @@ function PreviewBanner({ label, className, imageUrl }: { label: string; classNam
   );
 }
 
+function PresetButton({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black text-[var(--text)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)]" onClick={onClick} type="button">
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+const dayOptions = [
+  { value: 1, label: "Lun" },
+  { value: 2, label: "Mar" },
+  { value: 3, label: "Mie" },
+  { value: 4, label: "Jue" },
+  { value: 5, label: "Vie" },
+  { value: 6, label: "Sab" },
+  { value: 0, label: "Dom" },
+];
+
+function toDateTimeLocal(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(0, 16);
+}
+
+function ProductSchedulePanel({
+  availableFrom,
+  availableUntil,
+  days,
+  endTime,
+  kind,
+  onToggleDay,
+  startTime,
+}: {
+  availableFrom?: string;
+  availableUntil?: string;
+  days: number[];
+  endTime?: string;
+  kind: ProductKind;
+  onToggleDay: (day: number) => void;
+  startTime?: string;
+}) {
+  const title = kind === "promotion" ? "Programacion de la promocion" : kind === "lunch" ? "Calendario de almuerzos" : "Disponibilidad opcional";
+  const description =
+    kind === "promotion"
+      ? "Si defines fechas, dias u horas, la promo solo se vendera dentro de esa ventana."
+      : kind === "lunch"
+        ? "Carga almuerzos por semana o por mes y limita los dias en que apareceran."
+        : "Puedes dejarlo vacio para vender este producto todos los dias.";
+
+  return (
+    <section className="rounded-[1.35rem] border border-[var(--border)] bg-[var(--color-card-muted)] p-4">
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--primary)] text-[var(--color-on-primary)]">
+          <CalendarClock className="h-5 w-5" />
+        </span>
+        <div>
+          <h3 className="font-black text-[var(--text)]">{title}</h3>
+          <p className="mt-1 text-sm font-semibold text-[var(--muted)]">{description}</p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <Labeled label="Desde">
+          <Input defaultValue={toDateTimeLocal(availableFrom)} name="availableFrom" type="datetime-local" />
+        </Labeled>
+        <Labeled label="Hasta">
+          <Input defaultValue={toDateTimeLocal(availableUntil)} name="availableUntil" type="datetime-local" />
+        </Labeled>
+        <Labeled label="Hora inicio">
+          <Input defaultValue={startTime?.slice(0, 5) ?? ""} name="availableStartTime" type="time" />
+        </Labeled>
+        <Labeled label="Hora fin">
+          <Input defaultValue={endTime?.slice(0, 5) ?? ""} name="availableEndTime" type="time" />
+        </Labeled>
+      </div>
+      <div className="mt-4">
+        <p className="text-sm font-black text-[var(--text)]">Dias activos</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {dayOptions.map((day) => {
+            const active = days.includes(day.value);
+            return (
+              <button
+                className={cn(
+                  "h-10 rounded-full border px-4 text-sm font-black transition",
+                  active ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]" : "border-[var(--border)] bg-[var(--surface)] text-[var(--text)]",
+                )}
+                key={day.value}
+                onClick={() => onToggleDay(day.value)}
+                type="button"
+              >
+                {day.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs font-semibold text-[var(--muted)]">Si no eliges dias, queda disponible todos los dias dentro de las fechas configuradas.</p>
+      </div>
+    </section>
+  );
+}
+
 function ModalShell({ title, eyebrow, children, onClose, wide = false }: { title: string; eyebrow: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--color-overlay)] p-4 backdrop-blur-sm">
-      <div className={cn("my-8 max-h-[92vh] w-full overflow-y-auto rounded-[2rem] bg-[var(--surface)] p-5 shadow-2xl", wide ? "max-w-4xl" : "max-w-3xl")}>
-        <div className="flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--color-overlay)] p-0 backdrop-blur-sm sm:p-4">
+      <div className={cn("flex h-dvh w-full flex-col overflow-hidden bg-[var(--surface)] shadow-2xl sm:my-8 sm:max-h-[92vh] sm:rounded-[1.25rem]", wide ? "sm:max-w-6xl" : "sm:max-w-3xl")}>
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">{eyebrow}</p>
             <h2 className="text-2xl font-black text-[var(--text)]">{title}</h2>
@@ -656,7 +931,7 @@ function ModalShell({ title, eyebrow, children, onClose, wide = false }: { title
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="mt-5">{children}</div>
+        <div className="admin-scrollbar flex-1 overflow-y-auto p-4 sm:p-5">{children}</div>
       </div>
     </div>
   );

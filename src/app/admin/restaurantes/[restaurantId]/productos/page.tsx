@@ -3,6 +3,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { ProductManagementClient } from "@/components/products/ProductManagementClient";
 import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
 import { categoryService } from "@/lib/services/category.service";
+import { inventoryService } from "@/lib/services/inventory.service";
 import { productService } from "@/lib/services/product.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
@@ -27,10 +28,11 @@ export default async function ProductsPage({
 
   await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/productos`);
 
-  const [products, categories, configuration] = await Promise.all([
+  const [products, categories, configuration, inventoryItems] = await Promise.all([
     productService.listByRestaurant(restaurant.id),
     categoryService.listByRestaurant(restaurant.id),
     productService.listConfigurationsByRestaurant(restaurant.id),
+    hasRestaurantModule(restaurant, "inventory") ? inventoryService.listItems(restaurant.id) : Promise.resolve([]),
   ]);
 
   return (
@@ -49,6 +51,7 @@ export default async function ProductsPage({
         configuration={configuration}
         created={status.created}
         error={status.error}
+        inventoryItems={inventoryItems}
         products={products}
         restaurantId={restaurant.id}
         updated={status.updated}

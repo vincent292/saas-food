@@ -63,9 +63,11 @@
   --color-placeholder: #94a3b8;
   --color-disabled: #cbd5e1;
   --color-on-primary: #ffffff;
-  --shadow-card: 0 18px 45px rgb(18 53 91 / 0.08);
-  --shadow-primary: 0 16px 36px rgb(18 53 91 / 0.22);
-  --shadow-panel: 0 24px 60px rgb(18 53 91 / 0.12);
+  --radius-card: 1rem;
+  --radius-control: 0.9rem;
+  --shadow-card: 0 10px 28px rgb(18 53 91 / 0.07);
+  --shadow-primary: 0 14px 30px rgb(18 53 91 / 0.2);
+  --shadow-panel: 0 20px 48px rgb(18 53 91 / 0.12);
   --shadow-focus: 0 0 0 4px rgb(199 240 0 / 0.26);
   --shadow-glow: 0 0 28px rgb(199 240 0 / 0.28);
 
@@ -477,6 +479,57 @@ body.public-search-open .public-site-header {
 .public-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: var(--accent) transparent;
+}
+
+.admin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(18 53 91 / 0.28) transparent;
+}
+
+.admin-scrollbar::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.admin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-scrollbar::-webkit-scrollbar-thumb {
+  background: rgb(18 53 91 / 0.22);
+  border-radius: 999px;
+}
+
+.admin-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgb(18 53 91 / 0.36);
+}
+
+.admin-panel .overflow-x-auto,
+.admin-panel .overflow-y-auto {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(18 53 91 / 0.28) transparent;
+}
+
+.admin-panel .overflow-x-auto::-webkit-scrollbar,
+.admin-panel .overflow-y-auto::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.admin-panel .overflow-x-auto::-webkit-scrollbar-track,
+.admin-panel .overflow-y-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-panel .overflow-x-auto::-webkit-scrollbar-thumb,
+.admin-panel .overflow-y-auto::-webkit-scrollbar-thumb {
+  background: rgb(18 53 91 / 0.22);
+  border-radius: 999px;
+}
+
+.admin-panel .overflow-x-auto::-webkit-scrollbar-thumb:hover,
+.admin-panel .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: rgb(18 53 91 / 0.36);
 }
 
 .brand-logo {

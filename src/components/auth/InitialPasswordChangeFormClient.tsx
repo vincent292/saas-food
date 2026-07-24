@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState } from "react";
-import { KeyRound, Loader2 } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import { changeInitialPasswordAction, type ChangeInitialPasswordFormState } from "@/app/admin/actions";
+import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
 import { Button } from "@/components/ui/Button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 
@@ -26,9 +27,10 @@ export function InitialPasswordChangeFormClient() {
       <PasswordInput autoComplete="new-password" minLength={12} name="password" placeholder="Nueva contrasena" required />
       <PasswordInput autoComplete="new-password" minLength={12} name="confirmPassword" placeholder="Repite la nueva contrasena" required />
       <Button className="w-full" disabled={pending}>
-        {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+        {pending ? null : <KeyRound className="h-4 w-4" />}
         {pending ? "Actualizando..." : "Guardar y continuar"}
       </Button>
+      {pending ? <BrandLoadingOverlay title="Actualizando contrasena" description="Preparando tu primer acceso." /> : null}
     </form>
   );
 }

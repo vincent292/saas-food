@@ -23,7 +23,10 @@ export function ProductCard({ product, currency = "BOB" }: { product: Product; c
           {product.isPromotion ? <Badge>Promo</Badge> : null}
         </div>
         <div className="mt-4 flex items-center justify-between gap-3">
-          <p className="text-lg font-black text-[var(--text)]">{formatMoney(product.price, currency)}</p>
+          <p className="text-lg font-black text-[var(--text)]">
+            {formatMoney(product.price, currency)}
+            {product.compareAtPrice ? <span className="ml-2 text-xs font-bold text-[var(--muted)] line-through">{formatMoney(product.compareAtPrice, currency)}</span> : null}
+          </p>
           <AddToCartButton product={{ productId: product.id, name: product.name, price: product.price, imageUrl }} />
         </div>
       </div>

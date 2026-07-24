@@ -54,7 +54,7 @@ export default async function CategoriesPage({
         </div>
       ) : null}
       <form action={createCategoryAction}>
-        <Card className="mt-6 grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(280px,1.4fr)_120px_auto] lg:items-end">
+        <Card className="mt-5 grid gap-3 p-4 sm:p-5 xl:grid-cols-[minmax(220px,1fr)_minmax(280px,1.4fr)_120px_auto] xl:items-end">
           <input name="restaurantId" type="hidden" value={restaurant.id} />
           <label className="space-y-2">
             <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">Nombre</span>
@@ -69,7 +69,7 @@ export default async function CategoriesPage({
             <Input defaultValue={categories.length + 1} min={0} name="sortOrder" placeholder="Orden" type="number" />
           </label>
           <FormSubmitButton
-            className="min-h-11 whitespace-nowrap"
+            className="min-h-11 w-full whitespace-nowrap xl:w-auto"
             label="Nueva categoria"
             overlayDescription="Estamos creando la categoria y actualizando el catalogo."
             overlayTitle="Creando categoria"

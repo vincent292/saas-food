@@ -578,7 +578,10 @@ function ProductTile({ product, config, availability, onSelect }: { product: Pro
         <span className="mt-1 hidden line-clamp-2 text-sm leading-5 text-[var(--muted)] min-[420px]:block">{product.description || "Listo para pedir."}</span>
         <span className="mt-2 flex items-center gap-2 text-sm font-black sm:mt-3 sm:gap-3">
           {product.orderCount ? <span className="hidden items-center gap-1 rounded-full bg-[var(--primary-light)] px-2 py-1 text-[var(--primary)] min-[420px]:inline-flex">{product.orderCount} pedidos</span> : null}
-          <span className="text-base text-[var(--primary)]">{formatMoney(product.price)}</span>
+          <span className="inline-flex items-baseline gap-2 text-base text-[var(--primary)]">
+            {formatMoney(product.price)}
+            {product.compareAtPrice ? <span className="text-xs font-bold text-[var(--muted)] line-through">{formatMoney(product.compareAtPrice)}</span> : null}
+          </span>
         </span>
         {!isStockAvailable ? (
           <span className="mt-2 block rounded-xl bg-[var(--color-warning-soft)] px-3 py-2 text-xs font-black text-[var(--color-warning-strong)]">
@@ -722,7 +725,7 @@ function ProductOptionModal({
             </span>
             <span>
               <strong className="block text-sm text-[var(--text)]">{formatMoney(product.price)}</strong>
-              Base
+              {product.compareAtPrice ? <span className="line-through">{formatMoney(product.compareAtPrice)}</span> : "Base"}
             </span>
           </div>
           {variants.length ? (

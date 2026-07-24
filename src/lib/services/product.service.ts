@@ -12,14 +12,23 @@ function mapProduct(row: {
   name: string;
   description: string | null;
   price: number;
+  compare_at_price?: number | null;
   image_url: string | null;
   is_available: boolean;
   is_featured: boolean;
+  product_kind?: "standard" | "promotion" | "lunch" | null;
+  available_from?: string | null;
+  available_until?: string | null;
+  available_days?: number[] | null;
+  available_start_time?: string | null;
+  available_end_time?: string | null;
   order_count?: number | null;
   last_ordered_at?: string | null;
   track_stock: boolean;
   sort_order: number;
 }, isAutoFeatured = false): Product {
+  const productKind = row.product_kind ?? "standard";
+
   return {
     id: row.id,
     restaurantId: row.restaurant_id,
@@ -27,15 +36,78 @@ function mapProduct(row: {
     name: row.name,
     description: row.description ?? "",
     price: Number(row.price),
+    compareAtPrice: row.compare_at_price != null ? Number(row.compare_at_price) : undefined,
     imageUrl: row.image_url ?? "",
     isAvailable: row.is_available,
     isFeatured: row.is_featured,
     isAutoFeatured,
     trackStock: row.track_stock,
+    productKind,
+    availableFrom: row.available_from ?? undefined,
+    availableUntil: row.available_until ?? undefined,
+    availableDays: row.available_days ?? undefined,
+    availableStartTime: row.available_start_time ?? undefined,
+    availableEndTime: row.available_end_time ?? undefined,
+    isPromotion: productKind === "promotion",
     orderCount: Number(row.order_count ?? 0),
     lastOrderedAt: row.last_ordered_at ?? undefined,
     sortOrder: row.sort_order,
   };
+}
+
+function boliviaScheduleParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/La_Paz",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const weekday = parts.find((part) => part.type === "weekday")?.value ?? "Sun";
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
+  const weekdayIndex: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+  return { dayOfWeek: weekdayIndex[weekday] ?? 0, minutes: hour * 60 + minute };
+}
+
+function timeToMinutes(value?: string) {
+  if (!value) return null;
+  const [hours, minutes] = value.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function isProductCurrentlyOrderable(product: Product, date = new Date()) {
+  if (!product.isAvailable) {
+    return false;
+  }
+
+  const nowTime = date.getTime();
+  if (product.availableFrom && new Date(product.availableFrom).getTime() > nowTime) {
+    return false;
+  }
+
+  if (product.availableUntil && new Date(product.availableUntil).getTime() < nowTime) {
+    return false;
+  }
+
+  const { dayOfWeek, minutes } = boliviaScheduleParts(date);
+  if (product.availableDays?.length && !product.availableDays.includes(dayOfWeek)) {
+    return false;
+  }
+
+  const start = timeToMinutes(product.availableStartTime);
+  const end = timeToMinutes(product.availableEndTime);
+  if (start != null && minutes < start) {
+    return false;
+  }
+
+  if (end != null && minutes > end) {
+    return false;
+  }
+
+  return true;
 }
 
 function normalizeProductName(value: string) {
@@ -76,6 +148,9 @@ function mapOption(row: {
   name: string;
   description: string | null;
   price_delta: number;
+  inventory_item_id?: string | null;
+  inventory_quantity?: number | null;
+  inventory_waste_factor?: number | null;
   sort_order: number;
   is_active: boolean;
 }): ProductOption {
@@ -87,6 +162,9 @@ function mapOption(row: {
     name: row.name,
     description: row.description ?? "",
     priceDelta: Number(row.price_delta),
+    inventoryItemId: row.inventory_item_id ?? undefined,
+    inventoryQuantity: row.inventory_quantity != null ? Number(row.inventory_quantity) : undefined,
+    inventoryWasteFactor: Number(row.inventory_waste_factor ?? 0),
     sortOrder: row.sort_order,
     isActive: row.is_active,
   };
@@ -147,7 +225,7 @@ export const productService = {
   },
 
   async listAvailableByRestaurant(restaurantId: string) {
-    return (await this.listByRestaurant(restaurantId)).filter((product) => product.isAvailable);
+    return (await this.listByRestaurant(restaurantId)).filter((product) => isProductCurrentlyOrderable(product));
   },
 
   async listPublicAvailableByRestaurant(restaurantId: string) {
@@ -162,7 +240,7 @@ export const productService = {
 
     const { data, error } = await supabase
       .from("products")
-      .select("id,restaurant_id,category_id,name,description,price,image_url,is_available,is_featured,order_count,last_ordered_at,track_stock,sort_order")
+      .select("id,restaurant_id,category_id,name,description,price,compare_at_price,image_url,is_available,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time,order_count,last_ordered_at,track_stock,sort_order")
       .eq("restaurant_id", restaurantId)
       .eq("is_available", true)
       .order("sort_order");
@@ -179,7 +257,7 @@ export const productService = {
         .map((product) => product.id),
     );
 
-    return data.map((product) => mapProduct(product, mostOrderedIds.has(product.id)));
+    return data.map((product) => mapProduct(product, mostOrderedIds.has(product.id))).filter((product) => isProductCurrentlyOrderable(product));
   },
 
   async listPublicStockAvailability(restaurant: Restaurant, products: Product[]): Promise<ProductStockAvailability[]> {
@@ -369,7 +447,7 @@ export const productService = {
         .order("sort_order"),
       supabase
         .from("product_options")
-        .select("id,restaurant_id,product_id,option_group_id,name,description,price_delta,sort_order,is_active")
+        .select("id,restaurant_id,product_id,option_group_id,name,description,price_delta,inventory_item_id,inventory_quantity,inventory_waste_factor,sort_order,is_active")
         .eq("restaurant_id", restaurantId)
         .eq("is_active", true)
         .order("sort_order"),

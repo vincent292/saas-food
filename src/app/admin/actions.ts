@@ -294,6 +294,9 @@ const productOptionInputSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   priceDelta: z.coerce.number().default(0),
+  inventoryItemId: z.string().uuid().optional().or(z.literal("")),
+  inventoryQuantity: z.coerce.number().positive().optional(),
+  inventoryWasteFactor: z.coerce.number().nonnegative().default(0),
   sortOrder: z.coerce.number().int().default(0),
   isActive: z.boolean().default(true),
 });
@@ -315,10 +318,17 @@ const createProductSchema = z.object({
   name: z.string().min(2),
   description: z.string().optional(),
   price: z.coerce.number().nonnegative(),
+  compareAtPrice: z.coerce.number().nonnegative().optional(),
   imageUrl: z.string().url().optional().or(z.literal("")),
   isAvailable: z.coerce.boolean().default(true),
   isFeatured: z.coerce.boolean().default(false),
   trackStock: z.coerce.boolean().default(false),
+  productKind: z.enum(["standard", "promotion", "lunch"]).default("standard"),
+  availableFrom: z.string().optional(),
+  availableUntil: z.string().optional(),
+  availableDays: z.array(z.coerce.number().int().min(0).max(6)).optional(),
+  availableStartTime: z.string().optional(),
+  availableEndTime: z.string().optional(),
   sortOrder: z.coerce.number().int().default(0),
   variants: z.array(productVariantInputSchema).default([]),
   optionGroups: z.array(productOptionGroupInputSchema).default([]),
@@ -1650,6 +1660,27 @@ function parseJsonArray(value: FormDataEntryValue | null) {
   } catch {
     return [];
   }
+}
+
+function parseProductDays(value: FormDataEntryValue | null) {
+  return String(value || "")
+    .split(",")
+    .map((item) => Number(item))
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+}
+
+function optionalDateTimeInputToIso(value?: string) {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function optionalTimeInput(value?: string) {
+  const normalized = value?.trim();
+  return normalized && /^\d{2}:\d{2}$/.test(normalized) ? normalized : null;
 }
 
 async function redirectAfterAuthenticatedUser(userId: string): Promise<never> {
@@ -4048,10 +4079,17 @@ export async function createProductAction(formData: FormData) {
     name: formData.get("name"),
     description: formData.get("description") || undefined,
     price: formData.get("price"),
+    compareAtPrice: formData.get("compareAtPrice") || undefined,
     imageUrl: "",
     isAvailable: formData.get("isAvailable") === "on",
     isFeatured: formData.get("isFeatured") === "on",
     trackStock: formData.get("trackStock") === "on",
+    productKind: formData.get("productKind") || "standard",
+    availableFrom: formData.get("availableFrom") || undefined,
+    availableUntil: formData.get("availableUntil") || undefined,
+    availableDays: parseProductDays(formData.get("availableDays")),
+    availableStartTime: formData.get("availableStartTime") || undefined,
+    availableEndTime: formData.get("availableEndTime") || undefined,
     sortOrder: formData.get("sortOrder") || 0,
     variants: parseJsonArray(formData.get("variantsJson")),
     optionGroups: parseJsonArray(formData.get("optionGroupsJson")),
@@ -4083,10 +4121,17 @@ export async function createProductAction(formData: FormData) {
       name: parsed.data.name,
       description: parsed.data.description,
       price: parsed.data.price,
+      compare_at_price: parsed.data.compareAtPrice ?? null,
       image_url: imageUrl,
       is_available: parsed.data.isAvailable,
       is_featured: parsed.data.isFeatured,
       track_stock: parsed.data.trackStock,
+      product_kind: parsed.data.productKind,
+      available_from: optionalDateTimeInputToIso(parsed.data.availableFrom),
+      available_until: optionalDateTimeInputToIso(parsed.data.availableUntil),
+      available_days: parsed.data.availableDays?.length ? parsed.data.availableDays : null,
+      available_start_time: optionalTimeInput(parsed.data.availableStartTime),
+      available_end_time: optionalTimeInput(parsed.data.availableEndTime),
       sort_order: parsed.data.sortOrder,
     })
     .select("id")
@@ -4147,6 +4192,9 @@ export async function createProductAction(formData: FormData) {
           name: option.name.trim(),
           description: option.description || null,
           price_delta: option.priceDelta,
+          inventory_item_id: option.inventoryItemId || null,
+          inventory_quantity: option.inventoryItemId ? (option.inventoryQuantity ?? 1) : null,
+          inventory_waste_factor: option.inventoryWasteFactor,
           sort_order: option.sortOrder,
           is_active: option.isActive,
         })),
@@ -4172,10 +4220,17 @@ export async function updateProductAction(formData: FormData) {
     name: formData.get("name"),
     description: formData.get("description") || undefined,
     price: formData.get("price"),
+    compareAtPrice: formData.get("compareAtPrice") || undefined,
     imageUrl: "",
     isAvailable: formData.get("isAvailable") === "on",
     isFeatured: formData.get("isFeatured") === "on",
     trackStock: formData.get("trackStock") === "on",
+    productKind: formData.get("productKind") || "standard",
+    availableFrom: formData.get("availableFrom") || undefined,
+    availableUntil: formData.get("availableUntil") || undefined,
+    availableDays: parseProductDays(formData.get("availableDays")),
+    availableStartTime: formData.get("availableStartTime") || undefined,
+    availableEndTime: formData.get("availableEndTime") || undefined,
     sortOrder: formData.get("sortOrder") || 0,
     variants: parseJsonArray(formData.get("variantsJson")),
     optionGroups: parseJsonArray(formData.get("optionGroupsJson")),
@@ -4204,9 +4259,16 @@ export async function updateProductAction(formData: FormData) {
     name: string;
     description: string | null;
     price: number;
+    compare_at_price: number | null;
     is_available: boolean;
     is_featured: boolean;
     track_stock: boolean;
+    product_kind: "standard" | "promotion" | "lunch";
+    available_from: string | null;
+    available_until: string | null;
+    available_days: number[] | null;
+    available_start_time: string | null;
+    available_end_time: string | null;
     sort_order: number;
     image_url?: string | null;
   } = {
@@ -4214,9 +4276,16 @@ export async function updateProductAction(formData: FormData) {
     name: parsed.data.name,
     description: parsed.data.description ?? null,
     price: parsed.data.price,
+    compare_at_price: parsed.data.compareAtPrice ?? null,
     is_available: parsed.data.isAvailable,
     is_featured: parsed.data.isFeatured,
     track_stock: parsed.data.trackStock,
+    product_kind: parsed.data.productKind,
+    available_from: optionalDateTimeInputToIso(parsed.data.availableFrom),
+    available_until: optionalDateTimeInputToIso(parsed.data.availableUntil),
+    available_days: parsed.data.availableDays?.length ? parsed.data.availableDays : null,
+    available_start_time: optionalTimeInput(parsed.data.availableStartTime),
+    available_end_time: optionalTimeInput(parsed.data.availableEndTime),
     sort_order: parsed.data.sortOrder,
   };
 
@@ -4288,6 +4357,9 @@ export async function updateProductAction(formData: FormData) {
           name: option.name.trim(),
           description: option.description || null,
           price_delta: option.priceDelta,
+          inventory_item_id: option.inventoryItemId || null,
+          inventory_quantity: option.inventoryItemId ? (option.inventoryQuantity ?? 1) : null,
+          inventory_waste_factor: option.inventoryWasteFactor,
           sort_order: option.sortOrder,
           is_active: option.isActive,
         })),

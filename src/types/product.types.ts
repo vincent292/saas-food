@@ -15,11 +15,18 @@ export type Product = {
   name: string;
   description: string;
   price: number;
+  compareAtPrice?: number;
   imageUrl: string;
   isAvailable: boolean;
   isFeatured: boolean;
   isAutoFeatured?: boolean;
   trackStock: boolean;
+  productKind: "standard" | "promotion" | "lunch";
+  availableFrom?: string;
+  availableUntil?: string;
+  availableDays?: number[];
+  availableStartTime?: string;
+  availableEndTime?: string;
   isPromotion?: boolean;
   orderCount: number;
   lastOrderedAt?: string;
@@ -45,6 +52,9 @@ export type ProductOption = {
   name: string;
   description: string;
   priceDelta: number;
+  inventoryItemId?: string;
+  inventoryQuantity?: number;
+  inventoryWasteFactor: number;
   sortOrder: number;
   isActive: boolean;
 };

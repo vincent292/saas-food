@@ -163,9 +163,16 @@ export type Database = {
         name: string;
         description: string | null;
         price: number;
+        compare_at_price: number | null;
         image_url: string | null;
         is_available: boolean;
         is_featured: boolean;
+        product_kind: "standard" | "promotion" | "lunch";
+        available_from: string | null;
+        available_until: string | null;
+        available_days: number[] | null;
+        available_start_time: string | null;
+        available_end_time: string | null;
         order_count: number;
         last_ordered_at: string | null;
         track_stock: boolean;
@@ -207,6 +214,9 @@ export type Database = {
         name: string;
         description: string | null;
         price_delta: number;
+        inventory_item_id: string | null;
+        inventory_quantity: number | null;
+        inventory_waste_factor: number;
         sort_order: number;
         is_active: boolean;
         created_at: string;
@@ -276,6 +286,8 @@ export type Database = {
         order_id: string;
         product_id: string | null;
         product_name: string;
+        variant_id: string | null;
+        option_ids: string[];
         unit_price: number;
         quantity: number;
         subtotal: number;

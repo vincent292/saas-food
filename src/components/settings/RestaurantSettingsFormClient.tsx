@@ -7,7 +7,6 @@ import {
   CreditCard,
   ExternalLink,
   ImageIcon,
-  Loader2,
   Megaphone,
   MapPin,
   Power,
@@ -25,6 +24,7 @@ import { updateRestaurantConfigurationAction } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { ModuleToggle } from "@/components/settings/ModuleToggle";
+import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
@@ -1172,7 +1172,6 @@ function SettingsSubmitButton({
 
   return (
     <Button disabled={pending || disabled} type="submit" variant={variant} {...props}>
-      {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
       {pending ? pendingLabel : children}
     </Button>
   );
@@ -1185,17 +1184,7 @@ function SettingsSavingOverlay() {
     return null;
   }
 
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-[1.35rem] border border-[var(--border)] bg-[var(--surface)] p-6 text-center shadow-[var(--shadow-panel)]">
-        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[var(--primary-light)] text-[var(--primary)]">
-          <Loader2 className="h-7 w-7 animate-spin" />
-        </div>
-        <h2 className="mt-4 text-xl font-black text-[var(--color-heading)]">Guardando cambios</h2>
-        <p className="mt-2 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">Espera un momento. Estamos aplicando la configuracion y evitando envios duplicados.</p>
-      </div>
-    </div>
-  );
+  return <BrandLoadingOverlay title="Guardando cambios" description="Aplicando configuracion." zIndexClassName="z-50" />;
 }
 
 function SettingsSavedModal({ message, onClose }: { message: string; onClose: () => void }) {

@@ -3,9 +3,11 @@
 import { Check, Maximize2, Minimize2, Minus, Plus, Search, ShoppingCart, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useDeferredValue, useMemo, useState } from "react";
+import { useFormStatus } from "react-dom";
 import { createPosSaleAction } from "@/app/admin/actions";
 import { orderOriginLabels } from "@/components/orders/orderPresentation";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
+import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select } from "@/components/ui/Input";
@@ -149,24 +151,30 @@ export function POSProductGrid({
   return (
     <>
       <div className={cn(expanded && "fixed inset-0 z-[65] overflow-y-auto bg-[var(--background)] p-3 sm:p-5 xl:p-6")}>
-        <div className={cn("grid gap-4", expanded ? "xl:grid-cols-[minmax(0,1fr)_420px]" : "xl:grid-cols-[1fr_360px]", cart.length ? "pb-24 xl:pb-0" : "")}>
-          <section className="min-w-0 space-y-4">
-            <Card className="rounded-[1.25rem] p-3">
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
+        <div className={cn("grid gap-3 sm:gap-4", expanded ? "xl:grid-cols-[minmax(0,1fr)_420px]" : "xl:grid-cols-[1fr_360px]", cart.length ? "pb-28 xl:pb-0" : "")}>
+          <section className="min-w-0 space-y-3 sm:space-y-4">
+            <Card className="rounded-[1.1rem] p-2.5 sm:rounded-[1.25rem] sm:p-3">
+              <div className="grid gap-2 sm:gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
                 <label className="relative block">
                   <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
-                  <Input className="pl-11" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto del catalogo" value={query} />
+                  <Input className="min-h-10 pl-11 sm:min-h-11" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto" value={query} />
                 </label>
-                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="flex min-w-0 items-center gap-2">
                   <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
                     <CategoryButton active={categoryId === "all"} label="Todo" onClick={() => setCategoryId("all")} />
                     {categories.map((category) => (
                       <CategoryButton active={categoryId === category.id} key={category.id} label={category.name} onClick={() => setCategoryId(category.id)} />
                     ))}
                   </div>
-                  <button className={buttonClasses("secondary", "min-h-10 shrink-0 px-3 text-xs font-black")} onClick={() => setExpanded((current) => !current)} type="button">
+                  <button
+                    aria-label={expanded ? "Salir de modo grande" : "Abrir modo grande"}
+                    className={buttonClasses("secondary", "min-h-10 shrink-0 px-3 text-xs font-black")}
+                    onClick={() => setExpanded((current) => !current)}
+                    title={expanded ? "Salir de modo grande" : "Abrir modo grande"}
+                    type="button"
+                  >
                     {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                    {expanded ? "Salir" : "Modo grande"}
+                    <span className="hidden sm:inline">{expanded ? "Salir" : "Modo grande"}</span>
                   </button>
                 </div>
               </div>
@@ -174,7 +182,7 @@ export function POSProductGrid({
 
             {disabled ? <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para habilitar la venta rapida.</div> : null}
 
-            <div className={cn("grid gap-3 sm:grid-cols-2", expanded ? "lg:grid-cols-3 2xl:grid-cols-4" : "2xl:grid-cols-3")}>
+            <div className={cn("grid gap-2.5 sm:gap-3 sm:grid-cols-2", expanded ? "lg:grid-cols-3 2xl:grid-cols-4" : "2xl:grid-cols-3")}>
               {filteredProducts.map((product) => {
                 const productConfig = configByProduct[product.id];
                 const hasConfiguration = Boolean(productConfig?.variants.length || productConfig?.optionGroups.length);
@@ -227,7 +235,7 @@ export function POSProductGrid({
         {cart.length ? (
           <button
             className={cn(
-              "fixed inset-x-3 bottom-3 flex min-h-16 items-center justify-between gap-3 rounded-[1.25rem] bg-[var(--primary)] px-4 py-3 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl xl:hidden",
+              "fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] flex min-h-16 items-center justify-between gap-3 rounded-[1.15rem] bg-[var(--primary)] px-4 py-3 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl xl:hidden",
               expanded ? "z-[80]" : "z-40",
             )}
             onClick={() => setMobileCartOpen(true)}
@@ -240,14 +248,14 @@ export function POSProductGrid({
               </span>
               <span className="mt-1 block truncate text-lg font-black">{formatMoney(total)}</span>
             </span>
-            <span className="shrink-0 rounded-full bg-[var(--color-on-primary-soft)] px-4 py-2 text-xs font-black">Ver pedido</span>
+            <span className="shrink-0 rounded-full bg-[var(--color-on-primary-soft)] px-4 py-2 text-xs font-black">Cobrar</span>
           </button>
         ) : null}
       </div>
 
       {mobileCartOpen ? (
         <div className={cn("fixed inset-0 bg-[var(--color-overlay)] xl:hidden", expanded ? "z-[85]" : "z-50")}>
-          <div className="absolute inset-x-0 bottom-0 max-h-[92vh] overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] p-4 text-[var(--text)] shadow-2xl">
+          <div className="absolute inset-x-0 bottom-0 max-h-[92vh] overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] p-3 text-[var(--text)] shadow-2xl sm:p-4">
             <PosCartPanel
               cart={cart}
               cartJson={cartJson}
@@ -336,7 +344,7 @@ function PosCartPanel({
   );
 
   return (
-    <Card className={cn("h-fit rounded-[1.25rem] p-4", className)}>
+    <Card className={cn("h-fit max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-[1.25rem] p-3 sm:p-4", className)}>
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta rapida</p>
@@ -420,18 +428,29 @@ function PosCartPanel({
             <p className="text-xs font-semibold text-[var(--muted)]">En POS puedes subir una captura o registrar la referencia del pago digital.</p>
           </div>
         ) : null}
-        <Button className="w-full" disabled={disabled || !cart.length} type="submit">
-          {submitLabel}
-        </Button>
         <p className="text-xs font-semibold text-[var(--muted)]">Al confirmar, el pedido queda registrado para {preparationAreaLabel} y seguimiento.</p>
+        <PosSubmitButton disabled={disabled || !cart.length} label={submitLabel} />
       </form>
     </Card>
   );
 }
 
+function PosSubmitButton({ disabled, label }: { disabled?: boolean; label: string }) {
+  const { pending } = useFormStatus();
+
+  return (
+    <>
+      <Button className="sticky bottom-0 z-10 w-full shadow-lg" disabled={disabled || pending} type="submit">
+        {pending ? "Enviando venta..." : label}
+      </Button>
+      {pending ? <BrandLoadingOverlay description="Creando el pedido, registrando caja y enviandolo al panel." title="Registrando venta" zIndexClassName="z-[160]" /> : null}
+    </>
+  );
+}
+
 function CategoryButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
-    <button className={cn(buttonClasses(active ? "primary" : "secondary"), "h-10 shrink-0 px-4")} onClick={onClick} type="button">
+    <button className={cn(buttonClasses(active ? "primary" : "secondary"), "h-10 shrink-0 px-3 text-xs font-black sm:px-4 sm:text-sm")} onClick={onClick} type="button">
       {label}
     </button>
   );
@@ -452,24 +471,26 @@ function ProductCard({
 
   return (
     <button
-      className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 text-left shadow-sm transition hover:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
+      className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-[1.1rem] border border-[var(--border)] bg-[var(--surface)] p-2.5 text-left shadow-sm transition hover:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50 sm:block sm:rounded-[1.25rem] sm:p-3"
       disabled={disabled}
       onClick={onSelect}
       type="button"
     >
-      <div className="aspect-[4/3] overflow-hidden rounded-2xl bg-[var(--primary-light)]">
+      <div className="aspect-square overflow-hidden rounded-[0.9rem] bg-[var(--primary-light)] sm:aspect-[4/3] sm:rounded-2xl">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img alt={product.name} className="h-full w-full object-cover" src={product.imageUrl || defaultImage} />
       </div>
-      <div className="mt-3 flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-base font-black text-[var(--text)]">{product.name}</p>
-          <p className="text-sm font-bold text-[var(--primary)]">{formatMoney(product.price)}</p>
+      <div className="min-w-0 self-center sm:mt-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="line-clamp-2 text-sm font-black leading-5 text-[var(--text)] sm:truncate sm:text-base">{product.name}</p>
+            <p className="mt-0.5 text-sm font-bold text-[var(--primary)]">{formatMoney(product.price)}</p>
+          </div>
+          {hasConfiguration ? <span className="hidden shrink-0 rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)] sm:inline-flex">Configurable</span> : null}
         </div>
-        {hasConfiguration ? <span className="rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]">Configurable</span> : null}
+        {product.description ? <p className="mt-1 line-clamp-1 text-xs font-semibold text-[var(--muted)] sm:mt-2 sm:line-clamp-2 sm:text-sm sm:font-normal">{product.description}</p> : null}
+        <span className={buttonClasses("secondary", "mt-2 min-h-9 w-full bg-[var(--color-neutral-100)] px-3 text-xs font-black sm:mt-3 sm:min-h-10 sm:text-sm")}>{hasConfiguration ? "Personalizar" : "Agregar"}</span>
       </div>
-      {product.description ? <p className="mt-2 line-clamp-2 text-sm text-[var(--muted)]">{product.description}</p> : null}
-      <span className={buttonClasses("secondary", "mt-3 min-h-10 w-full bg-[var(--color-neutral-100)] font-black")}>{hasConfiguration ? "Personalizar" : "Agregar"}</span>
     </button>
   );
 }
@@ -487,7 +508,7 @@ function ProductOptionModal({
 }) {
   const variants = config?.variants ?? [];
   const optionGroups = config?.optionGroups ?? [];
-  const [variantId, setVariantId] = useState(variants[0]?.id ?? "");
+  const [variantId, setVariantId] = useState(variants.length === 1 ? (variants[0]?.id ?? "") : "");
   const [selectedOptions, setSelectedOptions] = useState<SelectedOptions>(() => {
     const initial: SelectedOptions = {};
     for (const group of optionGroups) {
@@ -503,7 +524,7 @@ function ProductOptionModal({
     .map((optionId) => flatOptions.find((option) => option.id === optionId))
     .filter((option): option is ProductOption => Boolean(option));
   const total = product.price + (selectedVariant?.priceDelta ?? 0) + chosenOptions.reduce((sum, option) => sum + option.priceDelta, 0);
-  const canAdd = optionGroups.every((group) => (selectedOptions[group.id]?.length ?? 0) >= group.minChoices);
+  const canAdd = (!variants.length || Boolean(selectedVariant)) && optionGroups.every((group) => (selectedOptions[group.id]?.length ?? 0) >= group.minChoices);
 
   function toggleOption(group: ProductOptionGroup, option: ProductOption) {
     setSelectedOptions((current) => {
@@ -525,10 +546,10 @@ function ProductOptionModal({
   return (
     <div className="fixed inset-0 z-[90] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">
       <div className="max-h-[94vh] w-full overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[1.5rem]">
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] p-4">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] p-3 sm:gap-4 sm:p-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Configurar venta</p>
-            <h2 className="text-2xl font-black">{product.name}</h2>
+            <h2 className="text-xl font-black leading-tight sm:text-2xl">{product.name}</h2>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Precio base {formatMoney(product.price)}</p>
           </div>
           <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)] hover:bg-[var(--color-neutral-200)]" onClick={onClose} type="button">
@@ -536,23 +557,26 @@ function ProductOptionModal({
           </button>
         </div>
 
-        <div className="grid gap-5 p-4">
-          <div className="grid gap-4 sm:grid-cols-[180px_1fr]">
-            <div className="overflow-hidden rounded-2xl bg-[var(--primary-light)]">
+        <div className="grid gap-3 p-3 sm:gap-5 sm:p-4">
+          <div className="grid grid-cols-[84px_minmax(0,1fr)] gap-3 sm:grid-cols-[180px_1fr] sm:gap-4">
+            <div className="overflow-hidden rounded-[0.9rem] bg-[var(--primary-light)] sm:rounded-2xl">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt={product.name} className="aspect-[4/3] h-full w-full object-cover sm:aspect-square" src={product.imageUrl || defaultImage} />
+              <img alt={product.name} className="aspect-square h-full w-full object-cover" src={product.imageUrl || defaultImage} />
             </div>
-            <p className="text-sm leading-6 text-[var(--muted)]">{product.description || "Configura el producto antes de cobrarlo."}</p>
+            <p className="self-center text-sm font-semibold leading-5 text-[var(--muted)] sm:font-normal sm:leading-6">{product.description || "Configura el producto antes de cobrarlo."}</p>
           </div>
 
           {variants.length ? (
             <section>
-              <h3 className="text-sm font-black">Variante</h3>
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-black">Variante</h3>
+                {!selectedVariant ? <span className="rounded-full bg-[var(--color-warning-soft)] px-3 py-1 text-xs font-black text-[var(--color-warning-strong)]">Elige una</span> : null}
+              </div>
               <div className="mt-2 grid gap-2">
                 {variants.map((variant) => (
                   <button
                     className={cn(
-                      "flex min-h-14 items-center justify-between rounded-2xl border px-4 text-left transition",
+                      "flex min-h-12 items-center justify-between rounded-[1rem] border px-3 text-left transition sm:min-h-14 sm:rounded-2xl sm:px-4",
                       variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]",
                     )}
                     key={variant.id}
@@ -573,7 +597,7 @@ function ProductOptionModal({
           {optionGroups.map((group) => {
             const selectedCount = selectedOptions[group.id]?.length ?? 0;
             return (
-              <section className="rounded-[1.25rem] border border-[var(--border)] p-3" key={group.id}>
+              <section className="rounded-[1.1rem] border border-[var(--border)] p-3 sm:rounded-[1.25rem]" key={group.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-black">{group.name}</h3>
@@ -597,7 +621,7 @@ function ProductOptionModal({
                     return (
                       <button
                         className={cn(
-                          "flex min-h-12 items-center justify-between rounded-2xl border px-3 text-left transition",
+                          "flex min-h-11 items-center justify-between rounded-[1rem] border px-3 text-left transition sm:min-h-12 sm:rounded-2xl",
                           selected ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]",
                         )}
                         key={option.id}
@@ -623,13 +647,13 @@ function ProductOptionModal({
           })}
         </div>
 
-        <div className="sticky bottom-0 grid gap-3 border-t border-[var(--border)] bg-[var(--surface)] p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="sticky bottom-0 grid gap-3 border-t border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_-18px_40px_rgb(255_255_255_/_0.92)] sm:grid-cols-[1fr_auto] sm:items-center sm:p-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">Total producto</p>
             <p className="text-2xl font-black text-[var(--primary)]">{formatMoney(total)}</p>
           </div>
           <Button className="min-h-12 px-8" disabled={!canAdd} onClick={() => onAdd(product, selectedVariant, chosenOptions)} type="button">
-            Agregar al pedido POS
+            {canAdd ? "Agregar al pedido POS" : "Completa opciones"}
           </Button>
         </div>
       </div>

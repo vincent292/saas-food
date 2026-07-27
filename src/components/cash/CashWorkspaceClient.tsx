@@ -260,26 +260,26 @@ export function CashWorkspaceClient({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-sm">
+      <section className="rounded-[1.15rem] border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-sm sm:rounded-[1.25rem] sm:p-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <span className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-full", summary.session ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]")}>
-              {summary.session ? <Banknote className="h-5 w-5" /> : <Calculator className="h-5 w-5" />}
+            <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-full sm:h-11 sm:w-11", summary.session ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]")}>
+              {summary.session ? <Banknote className="h-4 w-4 sm:h-5 sm:w-5" /> : <Calculator className="h-4 w-4 sm:h-5 sm:w-5" />}
             </span>
             <div className="min-w-0">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">Caja / POS</p>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <h2 className="text-xl font-black text-[var(--text)] sm:text-2xl">{summary.session ? "Caja abierta" : "Caja cerrada"}</h2>
-                <span className="rounded-full bg-[var(--color-neutral-100)] px-2.5 py-1 text-xs font-black text-[var(--color-secondary-text)]">{sessionText}</span>
+                <span className="rounded-full bg-[var(--color-neutral-100)] px-2 py-0.5 text-[11px] font-black text-[var(--color-secondary-text)] sm:px-2.5 sm:py-1 sm:text-xs">{sessionText}</span>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:flex lg:items-center">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:flex lg:items-center">
             <CompactCashMetric amount={summary.expectedCash} label="Efectivo" tone={summary.session ? "success" : "neutral"} />
             <CompactCashMetric amount={summary.salesTotal} label="Ventas" />
             <CompactCashMetric amount={summary.digitalTotal} label="Digital" />
-            <Button className="min-h-12 whitespace-nowrap px-4" onClick={() => switchTab("cierre")} type="button" variant={summary.session ? "secondary" : "primary"}>
+            <Button className="col-span-3 min-h-10 whitespace-nowrap px-4 text-sm sm:col-span-1 sm:min-h-12" onClick={() => switchTab("cierre")} type="button" variant={summary.session ? "secondary" : "primary"}>
               {summary.session ? "Cerrar turno" : "Abrir caja"}
             </Button>
           </div>
@@ -412,11 +412,11 @@ export function CashWorkspaceClient({
         </div>
       ) : null}
 
-      <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
+      <div className="sticky top-[68px] z-20 -mx-3 flex gap-2 overflow-x-auto border-y border-[var(--border)] bg-[var(--color-card-elevated)] px-3 py-2 shadow-sm backdrop-blur sm:top-[73px] sm:mx-0 sm:rounded-[1.25rem] sm:border lg:static lg:bg-[var(--surface)]">
         {tabs.map((tab) => (
           <button
             className={cn(
-              "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-black transition",
+              "inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-black transition sm:min-h-11 sm:px-4",
               activeTab === tab.key ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "text-[var(--muted)] hover:bg-[var(--primary-light)]",
             )}
             key={tab.key}
@@ -440,8 +440,11 @@ export function CashWorkspaceClient({
       ) : null}
 
       {activeTab === "venta" ? (
-        <section className="space-y-4">
-          <SectionTitle title="Venta POS" description={`${catalogLabelTitle} real del negocio, con imagenes, variantes y opciones.`} />
+        <section className="space-y-3 sm:space-y-4">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-[var(--text)] sm:text-2xl">Venta POS</h2>
+            <p className="mt-1 hidden text-sm text-[var(--muted)] sm:block">{catalogLabelTitle} real del negocio, con imagenes, variantes y opciones.</p>
+          </div>
           {!activeTabIsLoaded ? (
             <TabLoadingState />
           ) : (

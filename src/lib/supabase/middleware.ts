@@ -13,6 +13,13 @@ function clearSupabaseCookies(request: NextRequest, response: NextResponse) {
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
+  const pathname = request.nextUrl.pathname;
+  const isLoginRoute = pathname === "/admin/login";
+  const isProtectedRoute = !isLoginRoute && (pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/dueno" || pathname.startsWith("/dueno/"));
+
+  if (!isProtectedRoute) {
+    return response;
+  }
 
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -31,22 +38,26 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  const { data, error } = await supabase.auth.getUser();
-  const pathname = request.nextUrl.pathname;
-  const isLoginRoute = pathname === "/admin/login";
-  const isProtectedRoute = !isLoginRoute && (pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/dueno" || pathname.startsWith("/dueno/"));
+  let user = null;
+  let hasAuthError = false;
 
-  if (error || !data.user) {
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    user = data.user;
+    hasAuthError = Boolean(error);
+  } catch {
+    hasAuthError = true;
+  }
+
+  if (hasAuthError || !user) {
     clearSupabaseCookies(request, response);
 
-    if (isProtectedRoute) {
-      const loginUrl = request.nextUrl.clone();
-      loginUrl.pathname = "/admin/login";
-      loginUrl.search = "?error=session";
-      const redirectResponse = NextResponse.redirect(loginUrl);
-      clearSupabaseCookies(request, redirectResponse);
-      return redirectResponse;
-    }
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/admin/login";
+    loginUrl.search = "?error=session";
+    const redirectResponse = NextResponse.redirect(loginUrl);
+    clearSupabaseCookies(request, redirectResponse);
+    return redirectResponse;
   }
 
   return response;

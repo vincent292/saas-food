@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { buildMobileOrderTrackingPayload } from "../_shared";
+import { createAdminClient } from "@/lib/supabase/admin";
 
-const trackingSchema = z.object({
-  orderNumber: z.string().trim().min(3),
-  customerPhone: z.string().trim().min(4),
+const statusSchema = z.object({
+  orderId: z.string().uuid(),
+  trackingToken: z.string().trim().min(8),
 });
 
 export async function POST(request: Request) {
@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid-json" }, { status: 400 });
   }
 
-  const parsed = trackingSchema.safeParse(body);
+  const parsed = statusSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid-tracking" }, { status: 400 });
   }
@@ -28,11 +28,9 @@ export async function POST(request: Request) {
 
   const { data: order } = await supabase
     .from("orders")
-    .select("id,restaurant_id,tracking_token")
-    .eq("order_number", parsed.data.orderNumber)
-    .eq("customer_phone", parsed.data.customerPhone)
-    .order("created_at", { ascending: false })
-    .limit(1)
+    .select("id,restaurant_id")
+    .eq("id", parsed.data.orderId)
+    .eq("tracking_token", parsed.data.trackingToken)
     .maybeSingle();
 
   if (!order) {
@@ -43,7 +41,7 @@ export async function POST(request: Request) {
     orderId: order.id,
     restaurantId: order.restaurant_id,
     supabase,
-    trackingToken: order.tracking_token,
+    trackingToken: parsed.data.trackingToken,
   });
 
   if (!payload) {

@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Clock3, LocateFixed, MapPin, Search, Store, UserRound, Utensils, X } from "lucide-react";
+import { ArrowRight, Clock3, LocateFixed, MapPin, Search, Store, Utensils, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { PublicCustomerAccountButton } from "@/components/customer/PublicCustomerAccountButton";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { readUserLocation, writeUserLocation } from "@/lib/client/user-location";
 import type { PublicBusinessTypeCard, PublicCategoryCard, PublicDishCard, PublicRestaurantCard } from "@/lib/services/public-directory.service";
@@ -328,9 +329,7 @@ export function HomeSearchAutocomplete({
                   >
                     <Search className="h-5 w-5" />
                   </button>
-                  <Link aria-label="Ingresar al panel" className="grid h-10 w-10 place-items-center rounded-full border border-white/22 bg-white/8 text-white shadow-sm backdrop-blur transition hover:bg-white/14 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/admin/login">
-                    <UserRound className="h-5 w-5" />
-                  </Link>
+                  <PublicCustomerAccountButton compact />
                   <PublicThemeToggle compact tone="onPrimary" />
                 </div>
               </div>

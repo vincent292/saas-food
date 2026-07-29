@@ -1697,7 +1697,15 @@ function optionalTimeInput(value?: string) {
 
 async function redirectAfterAuthenticatedUser(userId: string): Promise<never> {
   const supabase = await createClient();
-  const { data: profile } = await supabase.from("profiles").select("global_role").eq("id", userId).maybeSingle();
+  const [{ data: profile }, { data: customerProfile }] = await Promise.all([
+    supabase.from("profiles").select("global_role").eq("id", userId).maybeSingle(),
+    supabase.from("customer_profiles").select("id").eq("id", userId).maybeSingle(),
+  ]);
+
+  if (!profile && customerProfile) {
+    await supabase.auth.signOut();
+    redirect("/admin/login?error=customer-account");
+  }
 
   if (profile?.global_role === "superadmin") {
     redirect("/admin");

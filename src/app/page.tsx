@@ -25,9 +25,9 @@ import {
   Smartphone,
   TrendingUp,
   Utensils,
-  UserRound,
 } from "lucide-react";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { PublicCustomerAccountButton } from "@/components/customer/PublicCustomerAccountButton";
 import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
 import { PendingCartNotice } from "@/components/home/PendingCartNotice";
 import { RestaurantDistanceBadge } from "@/components/location/RestaurantDistanceBadge";
@@ -78,9 +78,7 @@ export default async function Home({
               <BrandLogo className="h-8 w-auto max-w-[150px] min-[390px]:h-9 min-[390px]:max-w-[172px] sm:h-12 sm:max-w-none" priority variant="dark" />
             </Link>
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-              <Link aria-label="Ingresar al panel" className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/22 bg-white/8 text-white shadow-sm backdrop-blur transition hover:bg-white/14 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:h-12 sm:w-12" href="/admin/login">
-                <UserRound className="h-5 w-5 sm:h-6 sm:w-6" />
-              </Link>
+              <PublicCustomerAccountButton compact />
               <PublicThemeToggle compact tone="onPrimary" />
             </div>
           </header>

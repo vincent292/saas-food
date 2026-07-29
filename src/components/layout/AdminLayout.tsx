@@ -34,6 +34,10 @@ export async function AdminLayout({
     redirect("/admin/cambiar-contrasena");
   }
 
+  if (profile.isCustomerAccount) {
+    redirect("/admin/login?error=customer-account");
+  }
+
   if (!restaurantId) {
     if (profile.globalRole !== "superadmin") {
       redirect("/admin");

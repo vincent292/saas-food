@@ -8,6 +8,7 @@ export type CurrentProfile = {
   fullName: string;
   globalRole: AppRole | null;
   mustChangePassword: boolean;
+  isCustomerAccount: boolean;
 };
 
 export const authService = {
@@ -23,7 +24,10 @@ export const authService = {
       return null;
     }
 
-    const { data: profile } = await supabase.from("profiles").select("*").eq("id", userData.user.id).maybeSingle();
+    const [{ data: profile }, { data: customerProfile }] = await Promise.all([
+      supabase.from("profiles").select("*").eq("id", userData.user.id).maybeSingle(),
+      supabase.from("customer_profiles").select("id").eq("id", userData.user.id).maybeSingle(),
+    ]);
 
     return {
       id: userData.user.id,
@@ -31,6 +35,7 @@ export const authService = {
       fullName: profile?.full_name ?? userData.user.email ?? "Usuario",
       globalRole: profile?.global_role ?? null,
       mustChangePassword: userData.user.user_metadata?.must_change_password === true,
+      isCustomerAccount: Boolean(!profile && customerProfile),
     };
   },
 

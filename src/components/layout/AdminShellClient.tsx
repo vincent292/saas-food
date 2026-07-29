@@ -21,6 +21,7 @@ import {
   Store,
   Table2,
   Utensils,
+  Users,
   WalletCards,
   X,
 } from "lucide-react";
@@ -56,6 +57,7 @@ const restaurantNav: NavItem[] = [
 const superAdminNav: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: Shield },
   { label: "Restaurantes", href: "/admin/restaurantes", icon: Store },
+  { label: "Clientes app", href: "/admin/clientes", icon: Users },
   { label: "Planes", href: "/admin/planes", icon: WalletCards },
   { label: "Soporte", href: "/admin/soporte", icon: LifeBuoy },
   { label: "Reportes", href: "/admin/reportes", icon: FileBarChart },

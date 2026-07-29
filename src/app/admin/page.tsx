@@ -22,6 +22,10 @@ export default async function AdminPage() {
     redirect("/admin/cambiar-contrasena");
   }
 
+  if (profile.isCustomerAccount) {
+    redirect("/admin/login?error=customer-account");
+  }
+
   if (profile.globalRole !== "superadmin") {
     const memberships = await membershipService.listActiveRestaurantsForUser(profile.id);
     const ownerMemberships = ownerMembershipsForUser(memberships, profile.id);

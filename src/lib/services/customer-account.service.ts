@@ -1,0 +1,318 @@
+import { createAdminClient } from "@/lib/supabase/admin";
+
+export type CustomerProfileRecord = {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  documentNumber: string;
+  provider: "email" | "google";
+  status: "active" | "blocked";
+  createdAt: string;
+  updatedAt: string;
+  lastSignInAt: string | null;
+};
+
+export type CustomerAddressRecord = {
+  id: string;
+  customerId: string;
+  label: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  mapsUrl: string | null;
+  city: string | null;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ServiceResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
+
+type CustomerProfileRow = {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  document_number: string;
+  provider: "email" | "google";
+  status: "active" | "blocked";
+  last_sign_in_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type CustomerAddressRow = {
+  id: string;
+  customer_id: string;
+  label: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  maps_url: string | null;
+  city: string | null;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export function normalizeCustomerPhone(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+export function normalizeCustomerDocument(value: string) {
+  return value.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+}
+
+function mapProfile(row: CustomerProfileRow): CustomerProfileRecord {
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    email: row.email,
+    phone: row.phone,
+    documentNumber: row.document_number,
+    provider: row.provider,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastSignInAt: row.last_sign_in_at,
+  };
+}
+
+function mapAddress(row: CustomerAddressRow): CustomerAddressRecord {
+  return {
+    id: row.id,
+    customerId: row.customer_id,
+    label: row.label,
+    address: row.address,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    mapsUrl: row.maps_url,
+    city: row.city,
+    isDefault: row.is_default,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapUniqueError(message = "") {
+  if (message.includes("customer_profiles_phone_unique")) return "phone-already-exists";
+  if (message.includes("customer_profiles_document_unique")) return "document-already-exists";
+  if (message.includes("customer_profiles_email_unique")) return "email-already-exists";
+  return "customer-save-failed";
+}
+
+async function getAdmin() {
+  const admin = createAdminClient();
+  if (!admin) {
+    return { ok: false as const, error: "service-role-required", status: 500 };
+  }
+
+  return { ok: true as const, admin };
+}
+
+export async function getMobileCustomerSession(request: Request) {
+  const adminResult = await getAdmin();
+  if (!adminResult.ok) return adminResult;
+
+  const authorization = request.headers.get("authorization") ?? "";
+  const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (!token) {
+    return { ok: false as const, error: "unauthorized", status: 401 };
+  }
+
+  const { data, error } = await adminResult.admin.auth.getUser(token);
+  if (error || !data.user) {
+    return { ok: false as const, error: "unauthorized", status: 401 };
+  }
+
+  return { ok: true as const, admin: adminResult.admin, user: data.user };
+}
+
+export async function registerCustomerAccount(input: {
+  email: string;
+  password: string;
+  fullName: string;
+  phone: string;
+  documentNumber: string;
+}): Promise<ServiceResult<CustomerProfileRecord>> {
+  const adminResult = await getAdmin();
+  if (!adminResult.ok) return adminResult;
+
+  const admin = adminResult.admin;
+  const email = input.email.trim().toLowerCase();
+  const phone = input.phone.trim();
+  const documentNumber = input.documentNumber.trim();
+  const phoneNormalized = normalizeCustomerPhone(phone);
+  const documentNormalized = normalizeCustomerDocument(documentNumber);
+
+  const [emailMatch, phoneMatch, documentMatch] = await Promise.all([
+    admin.from("customer_profiles").select("id").eq("email", email).maybeSingle(),
+    admin.from("customer_profiles").select("id").eq("phone_normalized", phoneNormalized).maybeSingle(),
+    admin.from("customer_profiles").select("id").eq("document_number_normalized", documentNormalized).maybeSingle(),
+  ]);
+
+  if (emailMatch.data) return { ok: false, error: "email-already-exists", status: 409 };
+  if (phoneMatch.data) return { ok: false, error: "phone-already-exists", status: 409 };
+  if (documentMatch.data) return { ok: false, error: "document-already-exists", status: 409 };
+
+  const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
+    email,
+    password: input.password,
+    email_confirm: true,
+    user_metadata: {
+      account_type: "customer",
+      document_number: documentNumber,
+      full_name: input.fullName.trim(),
+      phone,
+    },
+  });
+
+  if (createError || !createdUser.user) {
+    const message = createError?.message.toLowerCase() ?? "";
+    return { ok: false, error: message.includes("registered") || message.includes("exists") ? "email-already-exists" : "customer-auth-create-failed", status: 409 };
+  }
+
+  const payload = {
+    id: createdUser.user.id,
+    full_name: input.fullName.trim(),
+    email,
+    phone,
+    document_number: documentNumber,
+    provider: "email" as const,
+    status: "active" as const,
+    last_sign_in_at: new Date().toISOString(),
+  };
+
+  const { data: profile, error } = await admin.from("customer_profiles").insert(payload).select("*").single();
+  if (error || !profile) {
+    await admin.auth.admin.deleteUser(createdUser.user.id).catch(() => null);
+    return { ok: false, error: mapUniqueError(error?.message), status: 409 };
+  }
+
+  return { ok: true, data: mapProfile(profile as CustomerProfileRow) };
+}
+
+export async function getCustomerAccount(request: Request): Promise<ServiceResult<{ profile: CustomerProfileRecord | null; addresses: CustomerAddressRecord[] }>> {
+  const session = await getMobileCustomerSession(request);
+  if (!session.ok) return session;
+
+  const [{ data: profile }, { data: addresses }] = await Promise.all([
+    session.admin.from("customer_profiles").select("*").eq("id", session.user.id).maybeSingle(),
+    session.admin.from("customer_addresses").select("*").eq("customer_id", session.user.id).order("is_default", { ascending: false }).order("updated_at", { ascending: false }),
+  ]);
+
+  if (profile) {
+    await session.admin.from("customer_profiles").update({ last_sign_in_at: new Date().toISOString() }).eq("id", session.user.id);
+  }
+
+  return {
+    ok: true,
+    data: {
+      profile: profile ? mapProfile(profile as CustomerProfileRow) : null,
+      addresses: ((addresses ?? []) as CustomerAddressRow[]).map(mapAddress),
+    },
+  };
+}
+
+export async function updateCustomerProfile(
+  request: Request,
+  input: { fullName: string; phone: string; documentNumber: string },
+): Promise<ServiceResult<CustomerProfileRecord>> {
+  const session = await getMobileCustomerSession(request);
+  if (!session.ok) return session;
+
+  const email = session.user.email?.trim().toLowerCase();
+  if (!email) {
+    return { ok: false, error: "email-required", status: 400 };
+  }
+
+  const phone = input.phone.trim();
+  const documentNumber = input.documentNumber.trim();
+  const phoneNormalized = normalizeCustomerPhone(phone);
+  const documentNormalized = normalizeCustomerDocument(documentNumber);
+
+  const [phoneMatch, documentMatch] = await Promise.all([
+    session.admin.from("customer_profiles").select("id").eq("phone_normalized", phoneNormalized).neq("id", session.user.id).maybeSingle(),
+    session.admin.from("customer_profiles").select("id").eq("document_number_normalized", documentNormalized).neq("id", session.user.id).maybeSingle(),
+  ]);
+
+  if (phoneMatch.data) return { ok: false, error: "phone-already-exists", status: 409 };
+  if (documentMatch.data) return { ok: false, error: "document-already-exists", status: 409 };
+
+  const { data: profile, error } = await session.admin
+    .from("customer_profiles")
+    .upsert(
+      {
+        id: session.user.id,
+        full_name: input.fullName.trim(),
+        email,
+        phone,
+        document_number: documentNumber,
+        provider: session.user.app_metadata?.provider === "google" ? "google" : "email",
+        status: "active",
+        last_sign_in_at: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    )
+    .select("*")
+    .single();
+
+  if (error || !profile) {
+    return { ok: false, error: mapUniqueError(error?.message), status: 409 };
+  }
+
+  return { ok: true, data: mapProfile(profile as CustomerProfileRow) };
+}
+
+export async function createCustomerAddress(
+  request: Request,
+  input: {
+    label: string;
+    address: string;
+    latitude?: number;
+    longitude?: number;
+    mapsUrl?: string;
+    city?: string;
+    isDefault?: boolean;
+  },
+): Promise<ServiceResult<CustomerAddressRecord[]>> {
+  const session = await getMobileCustomerSession(request);
+  if (!session.ok) return session;
+
+  const { data: profile } = await session.admin.from("customer_profiles").select("id").eq("id", session.user.id).maybeSingle();
+  if (!profile) {
+    return { ok: false, error: "customer-profile-required", status: 409 };
+  }
+
+  if (input.isDefault) {
+    await session.admin.from("customer_addresses").update({ is_default: false }).eq("customer_id", session.user.id);
+  }
+
+  const { error } = await session.admin.from("customer_addresses").insert({
+    customer_id: session.user.id,
+    label: input.label.trim() || "Direccion",
+    address: input.address.trim(),
+    latitude: input.latitude ?? null,
+    longitude: input.longitude ?? null,
+    maps_url: input.mapsUrl ?? null,
+    city: input.city ?? null,
+    is_default: Boolean(input.isDefault),
+  });
+
+  if (error) {
+    return { ok: false, error: "address-save-failed", status: 400 };
+  }
+
+  const { data: addresses } = await session.admin.from("customer_addresses").select("*").eq("customer_id", session.user.id).order("is_default", { ascending: false }).order("updated_at", { ascending: false });
+
+  return { ok: true, data: ((addresses ?? []) as CustomerAddressRow[]).map(mapAddress) };
+}
+
+export async function listCustomerAccounts(): Promise<CustomerProfileRecord[]> {
+  const adminResult = await getAdmin();
+  if (!adminResult.ok) return [];
+
+  const { data } = await adminResult.admin.from("customer_profiles").select("*").order("created_at", { ascending: false }).limit(500);
+  return ((data ?? []) as CustomerProfileRow[]).map(mapProfile);
+}

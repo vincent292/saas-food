@@ -16,6 +16,10 @@ export async function getOwnerLayoutContext() {
     redirect("/admin/cambiar-contrasena");
   }
 
+  if (profile.isCustomerAccount) {
+    redirect("/admin/login?error=customer-account");
+  }
+
   if (profile.globalRole === "superadmin") {
     redirect("/admin");
   }
@@ -57,6 +61,10 @@ export async function OwnerLayout({
 
   if (profile.mustChangePassword) {
     redirect("/admin/cambiar-contrasena");
+  }
+
+  if (profile.isCustomerAccount) {
+    redirect("/admin/login?error=customer-account");
   }
 
   return (

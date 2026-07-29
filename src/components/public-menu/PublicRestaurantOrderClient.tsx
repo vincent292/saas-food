@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCa
 import Link from "next/link";
 import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
+import { PublicCustomerAccountButton } from "@/components/customer/PublicCustomerAccountButton";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { RestaurantDistanceBadge } from "@/components/location/RestaurantDistanceBadge";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
@@ -11,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input } from "@/components/ui/Input";
 import { businessCatalogItemsLabel, businessCatalogLabel } from "@/lib/restaurant-directory-options";
+import { customerAccountChangedEvent, fetchPublicCustomerAccount, type PublicCustomerAccount } from "@/lib/client/customer-account";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { readCart, writeCart } from "@/lib/utils/cart";
 import { DEFAULT_RESTAURANT_TIME_ZONE, getBusinessStatus, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
@@ -262,6 +264,7 @@ export function PublicRestaurantOrderClient({
           </Link>
 
           <div className="flex shrink-0 items-center justify-end gap-1.5 sm:gap-2">
+            <PublicCustomerAccountButton compact tone="surface" />
             <Link aria-label="Rastrear pedido" className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-black text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:h-10 sm:px-3 sm:text-sm" href={publicRestaurantPath(restaurant.slug, "seguimiento")}>
               <ReceiptText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               <span className="hidden min-[430px]:inline sm:hidden">Rastrear</span>
@@ -894,12 +897,15 @@ function PublicOrderPanel({
   const [activeStep, setActiveStep] = useState<OrderStepKey>("fulfillment");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [customerAccount, setCustomerAccount] = useState<PublicCustomerAccount>({ profile: null, addresses: [] });
+  const [customerAccountLoaded, setCustomerAccountLoaded] = useState(false);
+  const [selectedCustomerAddressId, setSelectedCustomerAddressId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
   const [deliveryAddressDetail, setDeliveryAddressDetail] = useState("");
-  const [, setDeliveryMapsUrl] = useState("");
+  const [deliveryMapsUrl, setDeliveryMapsUrl] = useState("");
   const handleDeliveryCoordinatesChange = useCallback(({ latitude, longitude, mapsUrl }: { latitude: number; longitude: number; mapsUrl: string }) => {
     setDeliveryCoordinates({ latitude, longitude });
     setDeliveryMapsUrl(mapsUrl);
@@ -909,6 +915,66 @@ function PublicOrderPanel({
   const [invoiceDocumentType, setInvoiceDocumentType] = useState("nit");
   const [invoiceDocumentNumber, setInvoiceDocumentNumber] = useState("");
   const [invoiceName, setInvoiceName] = useState("");
+  const selectedCustomerAddress = useMemo(
+    () => customerAccount.addresses.find((address) => address.id === selectedCustomerAddressId) ?? null,
+    [customerAccount.addresses, selectedCustomerAddressId],
+  );
+  const canUseSavedCustomer = Boolean(customerAccount.profile && (orderType !== "delivery" || selectedCustomerAddress));
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAccount() {
+      try {
+        const account = await fetchPublicCustomerAccount();
+        if (!active) return;
+        setCustomerAccount(account);
+        setCustomerAccountLoaded(true);
+      } catch {
+        if (!active) return;
+        setCustomerAccount({ profile: null, addresses: [] });
+        setCustomerAccountLoaded(true);
+      }
+    }
+
+    void loadAccount();
+    window.addEventListener(customerAccountChangedEvent, loadAccount);
+    return () => {
+      active = false;
+      window.removeEventListener(customerAccountChangedEvent, loadAccount);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!customerAccount.profile) return;
+    setCustomerName(customerAccount.profile.fullName);
+    setCustomerPhone(customerAccount.profile.phone);
+    setCustomerEmail(customerAccount.profile.email);
+  }, [customerAccount.profile]);
+
+  useEffect(() => {
+    if (!customerAccount.addresses.length) {
+      setSelectedCustomerAddressId("");
+      return;
+    }
+
+    const currentStillExists = customerAccount.addresses.some((address) => address.id === selectedCustomerAddressId);
+    if (!currentStillExists) {
+      setSelectedCustomerAddressId((customerAccount.addresses.find((address) => address.isDefault) ?? customerAccount.addresses[0]).id);
+    }
+  }, [customerAccount.addresses, selectedCustomerAddressId]);
+
+  useEffect(() => {
+    if (orderType !== "delivery" || !selectedCustomerAddress) return;
+    setCustomerAddress(selectedCustomerAddress.address);
+    setDeliveryMapsUrl(selectedCustomerAddress.mapsUrl ?? "");
+    if (selectedCustomerAddress.latitude != null && selectedCustomerAddress.longitude != null) {
+      setDeliveryCoordinates({
+        latitude: selectedCustomerAddress.latitude,
+        longitude: selectedCustomerAddress.longitude,
+      });
+    }
+  }, [orderType, selectedCustomerAddress]);
 
   const steps = useMemo<Array<{ key: OrderStepKey; label: string; icon: ReactNode }>>(
     () => [
@@ -1015,7 +1081,13 @@ function PublicOrderPanel({
       return;
     }
 
-    const nextStep = steps[Math.min(activeStepIndex + 1, steps.length - 1)];
+    const nextIndex = Math.min(activeStepIndex + 1, steps.length - 1);
+    const nextStep = steps[nextIndex];
+    if (nextStep.key === "customer" && canUseSavedCustomer && validateStep("customer")) {
+      setActiveStep(steps[Math.min(nextIndex + 1, steps.length - 1)].key);
+      return;
+    }
+
     setActiveStep(nextStep.key);
   }
 
@@ -1131,7 +1203,100 @@ function PublicOrderPanel({
       </section>
 
       <section className={cn("mt-4 space-y-3", activeStep === "customer" ? "block" : "hidden")}>
-        <StepIntro icon={<UserRound className="h-5 w-5" />} title="Datos del cliente" description={orderType === "delivery" ? "Para envio necesitamos nombre, WhatsApp y direccion." : "Para recojo bastan tus datos principales."} />
+        <StepIntro
+          icon={<UserRound className="h-5 w-5" />}
+          title={customerAccount.profile ? "Datos listos" : "Datos del cliente"}
+          description={customerAccount.profile ? "Usaremos tu perfil y direccion guardada en Mi Yopido." : orderType === "delivery" ? "Para envio necesitamos nombre, WhatsApp y direccion." : "Para recojo bastan tus datos principales."}
+        />
+        {customerAccount.profile ? (
+          <>
+            <input name="customerName" type="hidden" value={customerName} />
+            <input name="customerPhone" type="hidden" value={customerPhone} />
+            <input name="customerEmail" type="hidden" value={customerEmail} />
+            <input name="customerAddress" type="hidden" value={customerAddress} />
+            <input name="deliveryAddressDetail" type="hidden" value={deliveryAddressDetail} />
+            {orderType === "delivery" && selectedCustomerAddress ? (
+              <>
+                <input name="deliveryLatitude" type="hidden" value={selectedCustomerAddress.latitude ?? ""} />
+                <input name="deliveryLongitude" type="hidden" value={selectedCustomerAddress.longitude ?? ""} />
+                <input name="deliveryMapsUrl" type="hidden" value={selectedCustomerAddress.mapsUrl ?? deliveryMapsUrl} />
+              </>
+            ) : null}
+            <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-card)] p-4">
+              <div className="flex items-center gap-3">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-sm font-black text-[var(--primary)]">
+                  {customerAccount.profile.fullName.slice(0, 1).toUpperCase()}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-base font-black">{customerAccount.profile.fullName}</p>
+                  <p className="truncate text-sm font-semibold text-[var(--muted)]">{customerAccount.profile.phone}</p>
+                </div>
+                <div className="ml-auto">
+                  <PublicCustomerAccountButton compact tone="surface" />
+                </div>
+              </div>
+            </div>
+            {orderType === "delivery" ? (
+              <div className="space-y-3">
+                {customerAccount.addresses.length ? (
+                  <>
+                    <p className="text-sm font-black">Elige direccion de entrega</p>
+                    <div className="grid gap-2">
+                      {customerAccount.addresses.map((address) => (
+                        <button
+                          className={cn(
+                            "flex items-start gap-3 rounded-[1.1rem] border p-3 text-left transition",
+                            selectedCustomerAddressId === address.id ? "border-[var(--primary)] bg-[var(--primary-light)]" : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--primary-light)]",
+                          )}
+                          key={address.id}
+                          onClick={() => setSelectedCustomerAddressId(address.id)}
+                          type="button"
+                        >
+                          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--primary)] text-white">
+                            <MapPin className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block font-black">{address.label}</span>
+                            <span className="mt-1 line-clamp-2 text-sm font-semibold text-[var(--muted)]">{address.address}</span>
+                            {address.latitude != null && address.longitude != null ? <span className="mt-1 block text-xs font-black text-[var(--primary)]">Ubicacion GPS guardada</span> : null}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <label className="block text-sm font-black">
+                      Numero de casa, apartamento o aclaracion
+                      <Input className="mt-2" onChange={(event) => setDeliveryAddressDetail(event.target.value)} value={deliveryAddressDetail} />
+                    </label>
+                  </>
+                ) : (
+                  <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-surface)] p-4">
+                    <p className="font-black">No tienes direccion guardada.</p>
+                    <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Agrega una direccion en Mi Yopido para no volver a escribirla.</p>
+                    <div className="mt-3">
+                      <PublicCustomerAccountButton tone="plain" />
+                    </div>
+                  </div>
+                )}
+                {deliveryPolicy.distanceKm != null ? (
+                  <div className={cn("rounded-2xl p-3 text-sm font-bold", deliveryPolicy.requiresQrPrepayment ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]")}>
+                    <p>{deliveryPolicy.distanceKm.toFixed(1)} km desde el local{deliveryPolicy.matchedZone ? ` · ${deliveryPolicy.matchedZone.name}` : ""}.</p>
+                    <p className="mt-1 text-xs">{deliveryPolicy.requiresQrPrepayment ? "Por seguridad, esta distancia requiere pago QR con comprobante." : "Puedes pagar en efectivo o QR."}</p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {customerAccountLoaded ? (
+              <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-card)] p-4">
+                <p className="font-black">Pide mas rapido con Mi Yopido</p>
+                <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Inicia sesion y usaremos tus datos y direcciones guardadas automaticamente.</p>
+                <div className="mt-3">
+                  <PublicCustomerAccountButton tone="plain" />
+                </div>
+              </div>
+            ) : null}
         <label className="block text-sm font-black">
           Nombre completo
           <Input className="mt-2" name="customerName" onChange={(event) => setCustomerName(event.target.value)} value={customerName} />
@@ -1176,6 +1341,8 @@ function PublicOrderPanel({
             </div>
           ) : null}
         </div>
+          </>
+        )}
         <div className={cn(orderType === "pickup" && (restaurant.mapsUrl || restaurant.address) ? "rounded-2xl bg-[var(--primary-light)]/55 p-3 text-sm font-semibold text-[var(--muted)]" : "hidden")}>
           <p className="font-black text-[var(--text)]">Recojo en local</p>
           <p className="mt-1">{restaurant.address || "El restaurante confirmara la direccion."}</p>

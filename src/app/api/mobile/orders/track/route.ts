@@ -2,10 +2,19 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildMobileOrderTrackingPayload } from "../_shared";
+import { subscribeOrderToMobilePush } from "@/lib/services/mobile-push.service";
 
 const trackingSchema = z.object({
   orderNumber: z.string().trim().min(3),
   customerPhone: z.string().trim().min(4),
+  push: z
+    .object({
+      appVersion: z.string().trim().max(40).optional(),
+      deviceId: z.string().trim().max(120).optional(),
+      expoPushToken: z.string().trim().min(20).max(400),
+      platform: z.string().trim().max(40).optional(),
+    })
+    .optional(),
 });
 
 export async function POST(request: Request) {
@@ -48,6 +57,21 @@ export async function POST(request: Request) {
 
   if (!payload) {
     return NextResponse.json({ error: "order-not-found" }, { status: 404 });
+  }
+
+  if (parsed.data.push?.expoPushToken) {
+    await subscribeOrderToMobilePush(
+      {
+        appVersion: parsed.data.push.appVersion,
+        customerPhone: parsed.data.customerPhone,
+        deviceId: parsed.data.push.deviceId,
+        expoPushToken: parsed.data.push.expoPushToken,
+        orderId: order.id,
+        platform: parsed.data.push.platform,
+        restaurantId: order.restaurant_id,
+      },
+      supabase,
+    );
   }
 
   return NextResponse.json(payload);

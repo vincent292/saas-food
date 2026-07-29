@@ -312,6 +312,43 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      mobile_push_tokens: Row<{
+        id: string;
+        expo_push_token: string;
+        customer_phone: string | null;
+        device_id: string | null;
+        platform: string | null;
+        app_version: string | null;
+        is_enabled: boolean;
+        last_seen_at: string;
+        created_at: string;
+        updated_at: string;
+      }>;
+      mobile_order_push_tokens: Row<{
+        order_id: string;
+        restaurant_id: string;
+        expo_push_token: string;
+        customer_phone: string | null;
+        last_notified_status: string | null;
+        last_notified_at: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      mobile_push_notification_logs: Row<{
+        id: string;
+        order_id: string | null;
+        restaurant_id: string | null;
+        expo_push_token: string | null;
+        event_type: string;
+        status: string | null;
+        title: string;
+        body: string;
+        expo_ticket_id: string | null;
+        response_status: string | null;
+        response_payload: Json | null;
+        error_message: string | null;
+        created_at: string;
+      }>;
       restaurant_public_visits: Row<{
         id: string;
         restaurant_id: string;

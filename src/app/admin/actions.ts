@@ -16,6 +16,7 @@ import {
 import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { membershipService } from "@/lib/services/membership.service";
+import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
 import { getOwnerBranchLimit } from "@/lib/services/owner-dashboard.service";
 import { moduleCatalog } from "@/lib/modules";
 import { clearRateLimit, consumeRateLimit } from "@/lib/security/rate-limit";
@@ -4586,6 +4587,7 @@ export async function updateOrderStatusAction(formData: FormData) {
   if (nextStatus !== order.status && !validTransitions[order.status as OrderStatus].includes(nextStatus)) {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=invalid-order-transition`);
   }
+  const statusChanged = nextStatus !== order.status;
 
   if (nextStatus === "cancelled" && order.payment_status === "paid") {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=refund-required`);
@@ -4637,6 +4639,15 @@ export async function updateOrderStatusAction(formData: FormData) {
     await supabase.rpc("reverse_order_inventory_usage", {
       p_order_id: parsed.data.orderId,
       p_reason: "Reversión por cancelación de pedido",
+    });
+  }
+
+  if (statusChanged) {
+    await sendOrderStatusPush({
+      orderId: parsed.data.orderId,
+      status: nextStatus,
+    }).catch((error) => {
+      console.error("order-status-push-failed", error);
     });
   }
 

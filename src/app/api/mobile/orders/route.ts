@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { subscribeOrderToMobilePush } from "@/lib/services/mobile-push.service";
 
 const itemSchema = z.object({
   productId: z.string().uuid(),
@@ -22,6 +23,14 @@ const orderSchema = z.object({
   deliveryMapsUrl: z.string().url().max(500).optional(),
   orderType: z.enum(["delivery", "pickup"]),
   paymentMethod: z.enum(["cash", "qr"]),
+  push: z
+    .object({
+      appVersion: z.string().trim().max(40).optional(),
+      deviceId: z.string().trim().max(120).optional(),
+      expoPushToken: z.string().trim().min(20).max(400),
+      platform: z.string().trim().max(40).optional(),
+    })
+    .optional(),
   notes: z.string().trim().max(500).optional(),
   items: z.array(itemSchema).min(1).max(100),
 });
@@ -241,6 +250,21 @@ export async function POST(request: Request) {
     .select("order_number")
     .eq("id", order.id)
     .maybeSingle();
+
+  if (parsed.data.push?.expoPushToken) {
+    await subscribeOrderToMobilePush(
+      {
+        appVersion: parsed.data.push.appVersion,
+        customerPhone: parsed.data.customerPhone,
+        deviceId: parsed.data.push.deviceId,
+        expoPushToken: parsed.data.push.expoPushToken,
+        orderId: order.id,
+        platform: parsed.data.push.platform,
+        restaurantId: parsed.data.restaurantId,
+      },
+      supabase,
+    );
+  }
 
   return NextResponse.json({
     orderId: order.id,

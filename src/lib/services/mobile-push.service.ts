@@ -194,6 +194,7 @@ export async function sendOrderStatusPush(input: OrderStatusPushInput) {
   const messages = tokens.map((token) => ({
     body,
     channelId: "order-status",
+    color: "#B7FF00",
     data: {
       orderId: order.id,
       orderNumber: order.order_number,

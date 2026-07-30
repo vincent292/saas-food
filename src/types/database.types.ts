@@ -264,6 +264,7 @@ export type Database = {
       orders: Row<{
         id: string;
         restaurant_id: string;
+        customer_id: string | null;
         table_id: string | null;
         order_number: string;
         public_request_id: string | null;
@@ -343,6 +344,7 @@ export type Database = {
         id: string;
         expo_push_token: string;
         customer_phone: string | null;
+        customer_phone_normalized: string;
         device_id: string | null;
         platform: string | null;
         app_version: string | null;

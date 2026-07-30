@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getMobileCustomerSession } from "@/lib/services/customer-account.service";
 import { subscribeOrderToMobilePush } from "@/lib/services/mobile-push.service";
 
 const itemSchema = z.object({
@@ -70,6 +71,7 @@ type OptionPriceRow = {
 };
 
 export async function POST(request: Request) {
+  const customerSession = await getMobileCustomerSession(request);
   let body: unknown;
   try {
     body = await request.json();
@@ -244,6 +246,16 @@ export async function POST(request: Request) {
           ? "invalid-restaurant"
           : "order-create-failed";
     return NextResponse.json({ error: key }, { status: 400 });
+  }
+
+  if (customerSession.ok) {
+    await supabase
+      .from("orders")
+      .update({
+        customer_id: customerSession.user.id,
+        customer_email: customerSession.user.email?.trim().toLowerCase() ?? null,
+      })
+      .eq("id", order.id);
   }
 
   const { data: savedOrder } = await supabase

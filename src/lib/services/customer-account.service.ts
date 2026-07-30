@@ -27,6 +27,19 @@ export type CustomerAddressRecord = {
   updatedAt: string;
 };
 
+export type CustomerOrderRecord = {
+  id: string;
+  restaurantName: string;
+  restaurantSlug: string;
+  orderNumber: string;
+  customerPhone: string;
+  trackingToken: string;
+  orderType: "delivery" | "pickup" | "table" | "pos";
+  status: "pending" | "accepted" | "preparing" | "ready" | "delivered" | "cancelled";
+  total: number;
+  createdAt: string;
+};
+
 type ServiceResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
 
 type CustomerProfileRow = {
@@ -34,12 +47,31 @@ type CustomerProfileRow = {
   full_name: string;
   email: string;
   phone: string;
+  phone_normalized: string;
   document_number: string;
   provider: "email" | "google";
   status: "active" | "blocked";
   last_sign_in_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type CustomerOrderRow = {
+  id: string;
+  restaurant_id: string;
+  order_number: string;
+  customer_phone: string | null;
+  tracking_token: string;
+  order_type: CustomerOrderRecord["orderType"];
+  status: CustomerOrderRecord["status"];
+  total: number;
+  created_at: string;
+};
+
+type CustomerOrderRestaurantRow = {
+  id: string;
+  name: string;
+  slug: string;
 };
 
 type CustomerAddressRow = {
@@ -193,24 +225,98 @@ export async function registerCustomerAccount(input: {
   return { ok: true, data: mapProfile(profile as CustomerProfileRow) };
 }
 
-export async function getCustomerAccount(request: Request): Promise<ServiceResult<{ profile: CustomerProfileRecord | null; addresses: CustomerAddressRecord[] }>> {
+export async function getCustomerAccount(
+  request: Request,
+): Promise<ServiceResult<{ profile: CustomerProfileRecord | null; addresses: CustomerAddressRecord[]; orders: CustomerOrderRecord[] }>> {
   const session = await getMobileCustomerSession(request);
   if (!session.ok) return session;
 
-  const [{ data: profile }, { data: addresses }] = await Promise.all([
-    session.admin.from("customer_profiles").select("*").eq("id", session.user.id).maybeSingle(),
+  const { data: profile } = await session.admin.from("customer_profiles").select("*").eq("id", session.user.id).maybeSingle();
+  const profileRow = profile as CustomerProfileRow | null;
+  const orderFilters = [`customer_id.eq.${session.user.id}`];
+  if (profileRow?.phone_normalized) {
+    orderFilters.push(`customer_phone_normalized.eq.${profileRow.phone_normalized}`);
+  }
+
+  const [{ data: addresses }, { data: orders }] = await Promise.all([
     session.admin.from("customer_addresses").select("*").eq("customer_id", session.user.id).order("is_default", { ascending: false }).order("updated_at", { ascending: false }),
+    session.admin
+      .from("orders")
+      .select("id,restaurant_id,order_number,customer_phone,tracking_token,order_type,status,total,created_at")
+      .or(orderFilters.join(","))
+      .order("created_at", { ascending: false })
+      .limit(50),
   ]);
 
   if (profile) {
     await session.admin.from("customer_profiles").update({ last_sign_in_at: new Date().toISOString() }).eq("id", session.user.id);
   }
 
+  const orderRows = (orders ?? []) as CustomerOrderRow[];
+  const restaurantIds = Array.from(new Set(orderRows.map((order) => order.restaurant_id)));
+  const { data: restaurants } = restaurantIds.length
+    ? await session.admin.from("restaurants").select("id,name,slug").in("id", restaurantIds)
+    : { data: [] };
+  const restaurantById = new Map(
+    ((restaurants ?? []) as CustomerOrderRestaurantRow[]).map((restaurant) => [restaurant.id, restaurant]),
+  );
+
   return {
     ok: true,
     data: {
       profile: profile ? mapProfile(profile as CustomerProfileRow) : null,
       addresses: ((addresses ?? []) as CustomerAddressRow[]).map(mapAddress),
+      orders: orderRows.map((order) => {
+        const restaurant = restaurantById.get(order.restaurant_id);
+        return {
+          id: order.id,
+          restaurantName: restaurant?.name ?? "Restaurante",
+          restaurantSlug: restaurant?.slug ?? "",
+          orderNumber: order.order_number,
+          customerPhone: order.customer_phone ?? profileRow?.phone ?? "",
+          trackingToken: order.tracking_token,
+          orderType: order.order_type,
+          status: order.status,
+          total: Number(order.total),
+          createdAt: order.created_at,
+        };
+      }),
+    },
+  };
+}
+
+export async function claimCustomerOrders(
+  request: Request,
+  input: { orders: Array<{ orderId: string; trackingToken: string }> },
+): Promise<ServiceResult<{ claimed: number; orderIds: string[] }>> {
+  const session = await getMobileCustomerSession(request);
+  if (!session.ok) return session;
+
+  const results = await Promise.all(
+    input.orders.map((order) =>
+      session.admin
+        .from("orders")
+        .update({
+          customer_id: session.user.id,
+          customer_email: session.user.email?.trim().toLowerCase() ?? null,
+        })
+        .eq("id", order.orderId)
+        .eq("tracking_token", order.trackingToken)
+        .select("id"),
+    ),
+  );
+
+  const error = results.find((result) => result.error)?.error;
+  if (error) {
+    return { ok: false, error: "customer-order-claim-failed", status: 400 };
+  }
+
+  const orderIds = results.flatMap((result) => (result.data ?? []).map((order) => order.id));
+  return {
+    ok: true,
+    data: {
+      claimed: orderIds.length,
+      orderIds,
     },
   };
 }

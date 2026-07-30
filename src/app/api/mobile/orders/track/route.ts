@@ -14,6 +14,7 @@ const trackingSchema = z.object({
       expoPushToken: z.string().trim().min(20).max(400),
       platform: z.string().trim().max(40).optional(),
     })
+    .nullable()
     .optional(),
 });
 

@@ -30,6 +30,7 @@ const orderSchema = z.object({
       expoPushToken: z.string().trim().min(20).max(400),
       platform: z.string().trim().max(40).optional(),
     })
+    .nullable()
     .optional(),
   notes: z.string().trim().max(500).optional(),
   items: z.array(itemSchema).min(1).max(100),

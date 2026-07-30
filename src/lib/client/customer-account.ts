@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { createCustomerClient } from "@/lib/supabase/customer-client";
 
 export type PublicCustomerProfile = {
   id: string;
@@ -53,7 +53,7 @@ export function customerErrorMessage(error: unknown) {
 }
 
 async function accessToken() {
-  const supabase = createClient();
+  const supabase = createCustomerClient();
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? "";
 }
@@ -85,13 +85,13 @@ export async function registerPublicCustomer(input: {
 }
 
 export async function signInPublicCustomer(email: string, password: string) {
-  const supabase = createClient();
+  const supabase = createCustomerClient();
   const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
   if (error) throw error;
 }
 
 export async function signOutPublicCustomer() {
-  const supabase = createClient();
+  const supabase = createCustomerClient();
   await supabase.auth.signOut();
   notifyCustomerAccountChanged();
 }

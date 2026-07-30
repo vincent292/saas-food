@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Clock3, LocateFixed, MapPin, Search, Store, Utensils, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import { PartnerLoginButton } from "@/components/auth/PartnerLoginButton";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { PublicCustomerAccountButton } from "@/components/customer/PublicCustomerAccountButton";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
@@ -318,9 +319,9 @@ export function HomeSearchAutocomplete({
             >
               <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
                 <Link aria-label="Ir al inicio de yopido.shop" className="flex min-w-0 flex-1 items-center rounded-full outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="/">
-                  <BrandLogo className="h-8 w-auto max-w-[148px] min-[390px]:max-w-[164px]" variant="dark" />
+                  <BrandLogo className="h-8 w-auto max-w-[126px] min-[390px]:max-w-[148px]" variant="dark" />
                 </Link>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 items-center gap-1.5 min-[390px]:gap-2">
                   <button
                     aria-label="Abrir buscador"
                     className="grid h-10 w-10 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)] transition hover:bg-[#d9ff22] active:scale-95"
@@ -329,6 +330,7 @@ export function HomeSearchAutocomplete({
                   >
                     <Search className="h-5 w-5" />
                   </button>
+                  <PartnerLoginButton compact tone="onPrimary" />
                   <PublicCustomerAccountButton compact />
                   <PublicThemeToggle compact tone="onPrimary" />
                 </div>

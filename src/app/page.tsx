@@ -27,6 +27,7 @@ import {
   Utensils,
 } from "lucide-react";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { PartnerLoginButton } from "@/components/auth/PartnerLoginButton";
 import { PublicCustomerAccountButton } from "@/components/customer/PublicCustomerAccountButton";
 import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
 import { PendingCartNotice } from "@/components/home/PendingCartNotice";
@@ -47,10 +48,12 @@ import type { BusinessType } from "@/types/restaurant.types";
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; categoria?: string; ubicacion?: string; rubro?: string }>;
+  searchParams: Promise<{ q?: string; categoria?: string; ubicacion?: string; rubro?: string; miYopido?: string }>;
 }) {
-  const { q = "", categoria = "", ubicacion = "", rubro = "" } = await searchParams;
+  const { q = "", categoria = "", ubicacion = "", rubro = "", miYopido = "" } = await searchParams;
   const hasActiveFilter = Boolean(q || categoria || ubicacion || rubro);
+  const miYopidoMode = miYopido === "registro" || miYopido === "register" ? "register" : "login";
+  const openMiYopido = miYopido === "login" || miYopido === "ingresar" || miYopido === "registro" || miYopido === "register";
   const baseDirectoryPromise = publicDirectoryService.getDirectory();
   const directoryPromise = hasActiveFilter ? publicDirectoryService.getDirectory({ search: q, category: categoria, city: ubicacion, businessType: rubro }) : baseDirectoryPromise;
   const [baseDirectory, directory] = await Promise.all([baseDirectoryPromise, directoryPromise]);
@@ -78,7 +81,8 @@ export default async function Home({
               <BrandLogo className="h-8 w-auto max-w-[150px] min-[390px]:h-9 min-[390px]:max-w-[172px] sm:h-12 sm:max-w-none" priority variant="dark" />
             </Link>
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-              <PublicCustomerAccountButton compact />
+              <PartnerLoginButton compact tone="onPrimary" />
+              <PublicCustomerAccountButton compact initialMode={miYopidoMode} initialOpen={openMiYopido} />
               <PublicThemeToggle compact tone="onPrimary" />
             </div>
           </header>

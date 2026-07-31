@@ -42,9 +42,20 @@ export type Database = {
         longitude: number | null;
         maps_url: string | null;
         city: string | null;
+        apartment: string | null;
+        building_name: string | null;
+        reference: string | null;
         is_default: boolean;
         created_at: string;
         updated_at: string;
+      }>;
+      customer_favorites: Row<{
+        id: string;
+        customer_id: string;
+        kind: "restaurant" | "product";
+        restaurant_id: string;
+        product_id: string | null;
+        created_at: string;
       }>;
       owner_branch_entitlements: Row<{
         owner_user_id: string;

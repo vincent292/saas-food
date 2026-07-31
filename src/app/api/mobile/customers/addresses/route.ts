@@ -9,6 +9,9 @@ const addressSchema = z.object({
   longitude: z.coerce.number().min(-180).max(180).optional(),
   mapsUrl: z.string().trim().url().max(500).optional(),
   city: z.string().trim().max(120).optional(),
+  apartment: z.string().trim().max(120).optional(),
+  buildingName: z.string().trim().max(120).optional(),
+  reference: z.string().trim().max(300).optional(),
   isDefault: z.boolean().optional(),
 });
 

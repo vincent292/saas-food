@@ -22,9 +22,24 @@ export type CustomerAddressRecord = {
   longitude: number | null;
   mapsUrl: string | null;
   city: string | null;
+  apartment: string | null;
+  buildingName: string | null;
+  reference: string | null;
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type CustomerFavoriteRecord = {
+  id: string;
+  entityId: string;
+  kind: "restaurant" | "product";
+  title: string;
+  subtitle: string;
+  imageUrl: string;
+  restaurantSlug: string;
+  price?: number;
+  savedAt: string;
 };
 
 export type CustomerOrderRecord = {
@@ -83,9 +98,38 @@ type CustomerAddressRow = {
   longitude: number | null;
   maps_url: string | null;
   city: string | null;
+  apartment: string | null;
+  building_name: string | null;
+  reference: string | null;
   is_default: boolean;
   created_at: string;
   updated_at: string;
+};
+
+type CustomerFavoriteRow = {
+  customer_id: string;
+  kind: "restaurant" | "product";
+  restaurant_id: string;
+  product_id: string | null;
+  created_at: string;
+};
+
+type CustomerFavoriteRestaurantRow = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  city: string | null;
+  logo_url: string | null;
+  banner_url: string | null;
+};
+
+type CustomerFavoriteProductRow = {
+  id: string;
+  restaurant_id: string;
+  name: string;
+  image_url: string | null;
+  price: number;
 };
 
 export function normalizeCustomerPhone(value: string) {
@@ -121,10 +165,66 @@ function mapAddress(row: CustomerAddressRow): CustomerAddressRecord {
     longitude: row.longitude,
     mapsUrl: row.maps_url,
     city: row.city,
+    apartment: row.apartment,
+    buildingName: row.building_name,
+    reference: row.reference,
     isDefault: row.is_default,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+async function listCustomerFavorites(admin: NonNullable<ReturnType<typeof createAdminClient>>, customerId: string): Promise<CustomerFavoriteRecord[]> {
+  const { data } = await admin
+    .from("customer_favorites")
+    .select("customer_id,kind,restaurant_id,product_id,created_at")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false });
+  const favorites = (data ?? []) as CustomerFavoriteRow[];
+  if (!favorites.length) return [];
+
+  const restaurantIds = Array.from(new Set(favorites.map((favorite) => favorite.restaurant_id)));
+  const productIds = Array.from(new Set(favorites.flatMap((favorite) => favorite.product_id ? [favorite.product_id] : [])));
+  const [{ data: restaurants }, { data: products }] = await Promise.all([
+    admin.from("restaurants").select("id,name,slug,description,city,logo_url,banner_url").in("id", restaurantIds),
+    productIds.length
+      ? admin.from("products").select("id,restaurant_id,name,image_url,price").in("id", productIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const restaurantById = new Map(((restaurants ?? []) as CustomerFavoriteRestaurantRow[]).map((restaurant) => [restaurant.id, restaurant]));
+  const productById = new Map(((products ?? []) as CustomerFavoriteProductRow[]).map((product) => [product.id, product]));
+
+  return favorites.flatMap<CustomerFavoriteRecord>((favorite) => {
+    const restaurant = restaurantById.get(favorite.restaurant_id);
+    if (!restaurant) return [];
+
+    if (favorite.kind === "restaurant") {
+      return [{
+        entityId: restaurant.id,
+        id: `restaurant:${restaurant.id}`,
+        imageUrl: restaurant.banner_url || restaurant.logo_url || "",
+        kind: "restaurant" as const,
+        restaurantSlug: restaurant.slug,
+        savedAt: favorite.created_at,
+        subtitle: restaurant.description || restaurant.city || "Local en Yopido",
+        title: restaurant.name,
+      }];
+    }
+
+    const product = favorite.product_id ? productById.get(favorite.product_id) : null;
+    if (!product) return [];
+    return [{
+      entityId: product.id,
+      id: `product:${product.id}`,
+      imageUrl: product.image_url || "",
+      kind: "product" as const,
+      price: Number(product.price),
+      restaurantSlug: restaurant.slug,
+      savedAt: favorite.created_at,
+      subtitle: restaurant.name,
+      title: product.name,
+    }];
+  });
 }
 
 function mapUniqueError(message = "") {
@@ -227,7 +327,7 @@ export async function registerCustomerAccount(input: {
 
 export async function getCustomerAccount(
   request: Request,
-): Promise<ServiceResult<{ profile: CustomerProfileRecord | null; addresses: CustomerAddressRecord[]; orders: CustomerOrderRecord[] }>> {
+): Promise<ServiceResult<{ profile: CustomerProfileRecord | null; addresses: CustomerAddressRecord[]; favorites: CustomerFavoriteRecord[]; orders: CustomerOrderRecord[] }>> {
   const session = await getMobileCustomerSession(request);
   if (!session.ok) return session;
 
@@ -238,7 +338,7 @@ export async function getCustomerAccount(
     orderFilters.push(`customer_phone_normalized.eq.${profileRow.phone_normalized}`);
   }
 
-  const [{ data: addresses }, { data: orders }] = await Promise.all([
+  const [{ data: addresses }, { data: orders }, favorites] = await Promise.all([
     session.admin.from("customer_addresses").select("*").eq("customer_id", session.user.id).order("is_default", { ascending: false }).order("updated_at", { ascending: false }),
     session.admin
       .from("orders")
@@ -246,6 +346,7 @@ export async function getCustomerAccount(
       .or(orderFilters.join(","))
       .order("created_at", { ascending: false })
       .limit(50),
+    listCustomerFavorites(session.admin, session.user.id),
   ]);
 
   if (profile) {
@@ -266,6 +367,7 @@ export async function getCustomerAccount(
     data: {
       profile: profile ? mapProfile(profile as CustomerProfileRow) : null,
       addresses: ((addresses ?? []) as CustomerAddressRow[]).map(mapAddress),
+      favorites,
       orders: orderRows.map((order) => {
         const restaurant = restaurantById.get(order.restaurant_id);
         return {
@@ -380,6 +482,9 @@ export async function createCustomerAddress(
     longitude?: number;
     mapsUrl?: string;
     city?: string;
+    apartment?: string;
+    buildingName?: string;
+    reference?: string;
     isDefault?: boolean;
   },
 ): Promise<ServiceResult<CustomerAddressRecord[]>> {
@@ -403,6 +508,9 @@ export async function createCustomerAddress(
     longitude: input.longitude ?? null,
     maps_url: input.mapsUrl ?? null,
     city: input.city ?? null,
+    apartment: input.apartment?.trim() || null,
+    building_name: input.buildingName?.trim() || null,
+    reference: input.reference?.trim() || null,
     is_default: Boolean(input.isDefault),
   });
 
@@ -413,6 +521,58 @@ export async function createCustomerAddress(
   const { data: addresses } = await session.admin.from("customer_addresses").select("*").eq("customer_id", session.user.id).order("is_default", { ascending: false }).order("updated_at", { ascending: false });
 
   return { ok: true, data: ((addresses ?? []) as CustomerAddressRow[]).map(mapAddress) };
+}
+
+export async function setCustomerFavorite(
+  request: Request,
+  input: {
+    kind: "restaurant" | "product";
+    restaurantId: string;
+    productId?: string;
+    favorite: boolean;
+  },
+): Promise<ServiceResult<CustomerFavoriteRecord[]>> {
+  const session = await getMobileCustomerSession(request);
+  if (!session.ok) return session;
+
+  const { data: profile } = await session.admin.from("customer_profiles").select("id").eq("id", session.user.id).maybeSingle();
+  if (!profile) return { ok: false, error: "customer-profile-required", status: 409 };
+
+  const { data: restaurant } = await session.admin.from("restaurants").select("id").eq("id", input.restaurantId).maybeSingle();
+  if (!restaurant) return { ok: false, error: "favorite-restaurant-not-found", status: 404 };
+
+  if (input.kind === "product") {
+    const { data: product } = await session.admin
+      .from("products")
+      .select("id")
+      .eq("id", input.productId ?? "")
+      .eq("restaurant_id", input.restaurantId)
+      .maybeSingle();
+    if (!product) return { ok: false, error: "favorite-product-not-found", status: 404 };
+  }
+
+  let favoriteQuery = session.admin
+    .from("customer_favorites")
+    .delete()
+    .eq("customer_id", session.user.id)
+    .eq("kind", input.kind);
+  favoriteQuery = input.kind === "product"
+    ? favoriteQuery.eq("product_id", input.productId ?? "")
+    : favoriteQuery.eq("restaurant_id", input.restaurantId).is("product_id", null);
+  const { error: deleteError } = await favoriteQuery;
+  if (deleteError) return { ok: false, error: "favorite-save-failed", status: 400 };
+
+  if (input.favorite) {
+    const { error: insertError } = await session.admin.from("customer_favorites").insert({
+      customer_id: session.user.id,
+      kind: input.kind,
+      product_id: input.kind === "product" ? input.productId : null,
+      restaurant_id: input.restaurantId,
+    });
+    if (insertError) return { ok: false, error: "favorite-save-failed", status: 400 };
+  }
+
+  return { ok: true, data: await listCustomerFavorites(session.admin, session.user.id) };
 }
 
 export async function listCustomerAccounts(): Promise<CustomerProfileRecord[]> {

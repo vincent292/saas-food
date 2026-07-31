@@ -37,6 +37,7 @@ export type CustomerFavoriteRecord = {
   title: string;
   subtitle: string;
   imageUrl: string;
+  restaurantId: string;
   restaurantSlug: string;
   price?: number;
   savedAt: string;
@@ -204,6 +205,7 @@ async function listCustomerFavorites(admin: NonNullable<ReturnType<typeof create
         id: `restaurant:${restaurant.id}`,
         imageUrl: restaurant.banner_url || restaurant.logo_url || "",
         kind: "restaurant" as const,
+        restaurantId: restaurant.id,
         restaurantSlug: restaurant.slug,
         savedAt: favorite.created_at,
         subtitle: restaurant.description || restaurant.city || "Local en Yopido",
@@ -219,6 +221,7 @@ async function listCustomerFavorites(admin: NonNullable<ReturnType<typeof create
       imageUrl: product.image_url || "",
       kind: "product" as const,
       price: Number(product.price),
+      restaurantId: restaurant.id,
       restaurantSlug: restaurant.slug,
       savedAt: favorite.created_at,
       subtitle: restaurant.name,

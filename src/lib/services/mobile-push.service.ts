@@ -26,6 +26,18 @@ type OrderPushRow = {
   customer_phone: string | null;
 };
 
+type ExpoPushTicket = {
+  details?: { error?: string };
+  id?: string;
+  message?: string;
+  status?: string;
+};
+
+type ExpoPushResponse = {
+  data?: ExpoPushTicket[];
+  errors?: Array<{ code?: string; message?: string }>;
+};
+
 const expoPushEndpoint = "https://exp.host/--/api/v2/push/send";
 
 const statusCopy: Record<OrderStatus | "arrived", { body: string; title: string }> = {
@@ -194,7 +206,6 @@ export async function sendOrderStatusPush(input: OrderStatusPushInput) {
   const messages = tokens.map((token) => ({
     body,
     channelId: "order-status",
-    color: "#B7FF00",
     data: {
       orderId: order.id,
       orderNumber: order.order_number,
@@ -221,16 +232,23 @@ export async function sendOrderStatusPush(input: OrderStatusPushInput) {
       method: "POST",
     });
     const responsePayload = (await response.json().catch(() => null)) as Json;
+    const expoResponse = responsePayload as ExpoPushResponse | null;
+    const tickets = Array.isArray(expoResponse?.data) ? expoResponse.data : [];
+    const requestError = expoResponse?.errors
+      ?.map((error) => [error.code, error.message].filter(Boolean).join(": "))
+      .filter(Boolean)
+      .join(" | ");
 
     await Promise.all(
       tokens.map((token, index) => {
-        const ticket = Array.isArray((responsePayload as { data?: unknown })?.data) ? ((responsePayload as { data?: Array<{ id?: string; status?: string }> }).data?.[index] ?? null) : null;
+        const ticket = tickets[index] ?? null;
         return logPushAttempt(supabase, {
           body,
+          errorMessage: ticket?.message ?? requestError,
           eventType: input.eventType ?? "order_status",
           orderId: order.id,
           responsePayload,
-          responseStatus: ticket?.status ?? String(response.status),
+          responseStatus: ticket?.status ?? `http_${response.status}`,
           restaurantId: order.restaurant_id,
           status: input.status,
           ticketId: ticket?.id,
@@ -240,16 +258,19 @@ export async function sendOrderStatusPush(input: OrderStatusPushInput) {
       }),
     );
 
-    await supabase
-      .from("mobile_order_push_tokens")
-      .update({
-        last_notified_at: new Date().toISOString(),
-        last_notified_status: input.status,
-      })
-      .eq("order_id", input.orderId)
-      .in("expo_push_token", tokens);
+    const acceptedTokens = tokens.filter((_token, index) => tickets[index]?.status === "ok");
+    if (acceptedTokens.length) {
+      await supabase
+        .from("mobile_order_push_tokens")
+        .update({
+          last_notified_at: new Date().toISOString(),
+          last_notified_status: input.status,
+        })
+        .eq("order_id", input.orderId)
+        .in("expo_push_token", acceptedTokens);
+    }
 
-    return { ok: response.ok, sent: tokens.length };
+    return { ok: response.ok && acceptedTokens.length === tokens.length, sent: acceptedTokens.length };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "expo-push-failed";
     await Promise.all(

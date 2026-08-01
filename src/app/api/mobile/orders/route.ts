@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMobileCustomerSession } from "@/lib/services/customer-account.service";
 import { subscribeOrderToMobilePush } from "@/lib/services/mobile-push.service";
+import { DEFAULT_RESTAURANT_TIME_ZONE, getBusinessStatus } from "@/lib/utils/business-hours";
 
 const itemSchema = z.object({
   productId: z.string().uuid(),
@@ -70,6 +71,13 @@ type OptionPriceRow = {
   is_active: boolean;
 };
 
+type BusinessHourRow = {
+  day_of_week: number;
+  opens_at: string | null;
+  closes_at: string | null;
+  is_closed: boolean | null;
+};
+
 export async function POST(request: Request) {
   const customerSession = await getMobileCustomerSession(request);
   let body: unknown;
@@ -104,6 +112,26 @@ export async function POST(request: Request) {
 
   if (!restaurant) {
     return NextResponse.json({ error: "invalid-restaurant" }, { status: 404 });
+  }
+
+  const { data: businessHours } = await supabase
+    .from("business_hours")
+    .select("day_of_week,opens_at,closes_at,is_closed")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .order("day_of_week");
+  const businessStatus = getBusinessStatus(
+    ((businessHours ?? []) as BusinessHourRow[]).map((hour) => ({
+      closesAt: hour.closes_at ?? "",
+      dayOfWeek: hour.day_of_week,
+      isClosed: Boolean(hour.is_closed),
+      opensAt: hour.opens_at ?? "",
+    })),
+    new Date(),
+    DEFAULT_RESTAURANT_TIME_ZONE,
+  );
+
+  if (businessStatus.hasSchedule && !businessStatus.isOpen) {
+    return NextResponse.json({ error: "outside-hours" }, { status: 409 });
   }
 
   const productIds = Array.from(new Set(parsed.data.items.map((item) => item.productId)));

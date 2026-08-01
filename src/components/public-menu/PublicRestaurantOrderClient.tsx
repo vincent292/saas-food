@@ -1,12 +1,11 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCard, MapPin, Minus, Plus, ReceiptText, Search, Share2, ShoppingCart, Sparkles, Store, UserRound, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCard, Info, MapPin, Minus, MoreVertical, Plus, ReceiptText, Search, Share2, ShoppingCart, Sparkles, Store, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
 import { PublicCustomerAccountButton } from "@/components/customer/PublicCustomerAccountButton";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
-import { RestaurantDistanceBadge } from "@/components/location/RestaurantDistanceBadge";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
@@ -15,7 +14,7 @@ import { businessCatalogItemsLabel, businessCatalogLabel } from "@/lib/restauran
 import { customerAccountChangedEvent, fetchPublicCustomerAccount, type PublicCustomerAccount } from "@/lib/client/customer-account";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { readCart, writeCart } from "@/lib/utils/cart";
-import { DEFAULT_RESTAURANT_TIME_ZONE, getBusinessStatus, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
+import { DEFAULT_RESTAURANT_TIME_ZONE, formatBusinessHour, getBusinessStatus, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
@@ -63,6 +62,30 @@ function normalize(value: string) {
     .trim();
 }
 
+function googleMapsSearchUrl(query: string) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+function formatHeroOpeningLabel(nextOpeningInputValue: string, currentInputValue: string) {
+  const [nextDate, nextTime = ""] = nextOpeningInputValue.split("T");
+  const [currentDate] = currentInputValue.split("T");
+  if (!nextDate || !nextTime) return nextOpeningInputValue.replace("T", " ");
+
+  const current = new Date(`${currentDate}T00:00:00`);
+  const next = new Date(`${nextDate}T00:00:00`);
+  const days = Math.round((next.getTime() - current.getTime()) / 86400000);
+  const time = nextTime.slice(0, 5);
+  if (days <= 0) return `hoy a las ${time}`;
+  if (days === 1) return `mañana a las ${time}`;
+  return `${nextDate.slice(5).replace("-", "/")} a las ${time}`;
+}
+
+function businessHoursSummary(hours: BusinessHour[]) {
+  const labels = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
+  const byDay = new Map(hours.map((hour) => [hour.dayOfWeek, hour]));
+  return labels.map((day, index) => ({ day, value: formatBusinessHour(byDay.get(index)) }));
+}
+
 export function PublicRestaurantOrderClient({
   restaurant,
   categories,
@@ -96,6 +119,9 @@ export function PublicRestaurantOrderClient({
   const [drawerOpen, setDrawerOpen] = useState(initialOrderOpen);
   const [drawerClosing, setDrawerClosing] = useState(false);
   const [shareState, setShareState] = useState<"idle" | "copied">("idle");
+  const [restaurantMenuOpen, setRestaurantMenuOpen] = useState(false);
+  const [restaurantInfoOpen, setRestaurantInfoOpen] = useState(false);
+  const [restaurantHoursOpen, setRestaurantHoursOpen] = useState(false);
   const [visibleAnnouncementId, setVisibleAnnouncementId] = useState(() => announcements[0]?.id ?? "");
   const businessStatus = useMemo(() => getBusinessStatus(businessHours, new Date(), DEFAULT_RESTAURANT_TIME_ZONE), [businessHours]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "qr">("cash");
@@ -145,13 +171,22 @@ export function PublicRestaurantOrderClient({
   const hasLogoImage = isDisplayImage(restaurant.logoUrl);
   const logoText = initials(restaurant.name) || restaurant.name.slice(0, 1).toUpperCase();
   const heroImage = isDisplayImage(restaurant.bannerUrl) ? restaurant.bannerUrl : defaultImage;
+  const heroStatusText = businessStatus.hasSchedule
+    ? businessStatus.isOpen
+      ? `Abierto hasta las ${businessStatus.todayHours.split(" - ")[1] || businessStatus.todayHours}`
+      : `Cerrado · Abre ${formatHeroOpeningLabel(businessStatus.nextOpeningInputValue, businessStatus.currentInputValue)}`
+    : availabilityLabel;
+  const heroSpecialties = categories.slice(0, 3).map((category) => category.name).filter(Boolean).join(" • ") || restaurant.publicCategory || restaurant.description || catalogLabel;
+  const restaurantMapHref = restaurant.mapsUrl || googleMapsSearchUrl([restaurant.name, restaurant.address, restaurant.city].filter(Boolean).join(", "));
+  const hourRows = businessHoursSummary(businessHours);
+  const hasConfiguredHours = businessHours.some((hour) => !hour.isClosed && hour.opensAt && hour.closesAt);
   const topOrderedProducts = useMemo(() => {
     return products
       .filter((product) => product.orderCount > 0 && (stockByProduct.get(product.id)?.isAvailableHere ?? true))
       .sort((left, right) => right.orderCount - left.orderCount)
       .slice(0, 3);
   }, [products, stockByProduct]);
-  const bannerHeightClass = restaurant.publicBannerSize === "large" ? "min-h-[300px] sm:min-h-[380px]" : restaurant.publicBannerSize === "standard" ? "min-h-[278px] sm:min-h-[320px]" : "min-h-[250px] sm:min-h-[260px]";
+  const bannerHeightClass = "min-h-[244px] sm:min-h-[286px]";
   const publicBackgroundStyle: CSSProperties = isDisplayImage(restaurant.menuBackgroundImageUrl)
     ? {
         backgroundImage: `linear-gradient(var(--color-menu-background-scrim), var(--color-menu-background-scrim)), url(${restaurant.menuBackgroundImageUrl})`,
@@ -315,50 +350,41 @@ export function PublicRestaurantOrderClient({
 
       <div className="mx-auto max-w-6xl px-3 pb-28 pt-5 sm:px-6 lg:px-8 lg:pb-8">
         <section className="min-w-0">
-          <div className="relative mb-4 overflow-hidden rounded-[1.5rem] bg-[var(--primary)] shadow-[0_18px_44px_rgb(8_36_65_/_0.18)] sm:mb-5 sm:rounded-[2rem] sm:shadow-[0_28px_70px_rgb(8_36_65_/_0.22)]">
+          <div className="relative mb-4 overflow-hidden rounded-[1.55rem] bg-[var(--primary)] shadow-[0_18px_44px_rgb(8_36_65_/_0.16)] sm:mb-5 sm:rounded-[1.85rem]">
             <div className={cn("relative", bannerHeightClass)}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img alt={restaurant.name} className="absolute inset-0 h-full w-full object-cover object-center" src={heroImage} />
-              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(8_36_65_/_0.08)_0%,rgb(8_36_65_/_0.44)_42%,rgb(8_36_65_/_0.94)_100%)] sm:bg-[linear-gradient(180deg,rgb(8_36_65_/_0.16)_0%,rgb(8_36_65_/_0.34)_42%,rgb(8_36_65_/_0.88)_100%)]" />
-              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgb(8_36_65_/_0.9)_0%,rgb(8_36_65_/_0.66)_44%,rgb(8_36_65_/_0.16)_100%)] sm:bg-[linear-gradient(90deg,rgb(8_36_65_/_0.62)_0%,rgb(8_36_65_/_0.22)_56%,transparent_100%)]" />
-              <div className="absolute left-3 right-3 top-3 z-20 flex items-center justify-between gap-3 sm:left-4 sm:right-4 sm:top-4">
-                <Link className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl sm:h-12 sm:w-12" href="/">
-                  <ArrowRight className="h-5 w-5 rotate-180" />
+              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(8_36_65_/_0.05)_0%,rgb(8_36_65_/_0.34)_44%,rgb(18_53_91_/_0.95)_100%)]" />
+              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgb(8_36_65_/_0.68)_0%,rgb(8_36_65_/_0.24)_54%,rgb(8_36_65_/_0.06)_100%)]" />
+              <div className="absolute left-3 right-3 top-3 z-20 flex items-center justify-between gap-3 sm:left-4 sm:right-4">
+                <Link className="grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-[#12355B]/62 text-white shadow-lg backdrop-blur-md transition hover:bg-[#12355B]/78 sm:h-11 sm:w-11" href="/">
+                  <ArrowRight className="h-[18px] w-[18px] rotate-180" />
                 </Link>
                 <div className="flex items-center gap-2">
-                  <button aria-label={shareState === "copied" ? "Enlace copiado" : "Compartir restaurante"} className={cn("grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl transition sm:h-12 sm:w-12", shareState === "copied" && "bg-[var(--accent)]")} onClick={shareRestaurant} type="button">
-                    {shareState === "copied" ? <Check className="h-5 w-5" /> : <Share2 className="h-5 w-5" />}
+                  <button aria-label="Mas opciones" className="grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-[#12355B]/62 text-white shadow-lg backdrop-blur-md transition hover:bg-[#12355B]/78 sm:h-11 sm:w-11" onClick={() => setRestaurantMenuOpen(true)} type="button">
+                    <MoreVertical className="h-5 w-5" />
                   </button>
                 </div>
               </div>
-              <div className={cn("relative z-10 flex max-w-2xl flex-col justify-end px-4 pb-5 pt-20 text-[var(--color-on-primary)] sm:p-8", bannerHeightClass)}>
-                <div className="mb-2 flex flex-wrap items-center gap-2 sm:mb-3">
-                  {typeof restaurant.latitude === "number" && typeof restaurant.longitude === "number" ? <RestaurantDistanceBadge latitude={restaurant.latitude} longitude={restaurant.longitude} variant="hero" /> : null}
+              <div className={cn("relative z-10 flex max-w-3xl flex-col justify-end px-4 pb-4 pt-16 text-white sm:px-6 sm:pb-5 sm:pt-18", bannerHeightClass)}>
+                <div className="mb-2 flex max-w-full flex-col items-start gap-1.5 sm:mb-3">
+                  <a className="inline-flex max-w-[72%] items-center gap-1.5 rounded-full border border-white/10 bg-[#12355B]/58 px-2.5 py-1.5 text-[11px] font-black text-white shadow-sm backdrop-blur-md sm:text-xs" href={restaurantMapHref} rel="noreferrer" target="_blank">
+                    <MapPin className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{restaurant.city || "Ver mapa"}</span>
+                  </a>
+                  <button className="inline-flex max-w-[92%] items-center gap-2 rounded-full border border-white/14 bg-[#12355B]/72 px-3 py-1.5 text-[11px] font-black text-white shadow-sm backdrop-blur-md sm:text-xs" onClick={() => setRestaurantHoursOpen(true)} type="button">
+                    <span className={cn("h-2 w-2 shrink-0 rounded-full", businessStatus.hasSchedule && !businessStatus.isOpen ? "bg-[var(--color-danger-strong)]" : "bg-[var(--accent)]")} />
+                    <span className="truncate">{heroStatusText}</span>
+                  </button>
                 </div>
-                <h1 className="max-w-[14ch] text-[2rem] font-black leading-[0.98] drop-shadow-[0_2px_14px_rgb(0_0_0_/_0.28)] min-[390px]:text-[2.35rem] sm:max-w-2xl sm:text-6xl">{restaurant.name}</h1>
-                <p className="mt-2 line-clamp-2 max-w-[25rem] text-sm font-semibold leading-5 text-white/90 drop-shadow-sm sm:mt-3 sm:line-clamp-none sm:leading-6 sm:text-base">
-                  {restaurant.description || "Elige tus productos, confirma tu pedido y el equipo lo recibe al instante."}
-                </p>
-                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] font-black text-white/95 sm:mt-4 sm:gap-3 sm:text-sm">
-                  <span>{settings?.deliveryFee ? `${formatMoney(settings.deliveryFee)} envio` : "Delivery disponible"}</span>
-                  <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
-                  <span>{products.length} {catalogItemsLabel}</span>
-                  <span className="h-1 w-1 rounded-full bg-[var(--accent)]" />
-                  <span className="inline-flex items-center gap-1">
-                    <Clock3 className="h-4 w-4" />
-                    {availabilityLabel}
-                  </span>
-                </div>
-              </div>
-              <div className="absolute bottom-5 right-5 z-20 hidden max-w-xs rounded-[1.35rem] bg-[var(--primary)]/92 p-4 text-white shadow-xl ring-1 ring-white/15 backdrop-blur sm:block">
-                <div className="flex items-center gap-3">
-                  <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)]">
-                    <ShoppingCart className="h-5 w-5" />
-                  </span>
-                  <div>
-                    <p className="text-sm font-black">Pedido en linea</p>
-                    <p className="mt-1 text-xs font-semibold text-white/76">Personaliza tus productos y confirma desde aqui.</p>
-                  </div>
+                <h1 className="max-w-[16ch] text-[2rem] font-black leading-[1.02] drop-shadow-[0_2px_14px_rgb(0_0_0_/_0.28)] min-[390px]:text-[2.25rem] sm:max-w-2xl sm:text-5xl">{restaurant.name}</h1>
+                <p className="mt-1.5 line-clamp-1 max-w-[30rem] text-sm font-bold leading-5 text-white/78 drop-shadow-sm sm:text-base">{heroSpecialties}</p>
+                <div className="mt-3 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-2 border-t border-white/18 pt-3 text-white sm:mt-4 sm:gap-3">
+                  <HeroStat icon={<Clock3 className="h-[18px] w-[18px] text-[var(--accent)]" />} label="Entrega estimada" value="25-35 min" />
+                  <span className="h-8 w-px bg-white/22" />
+                  <HeroStat icon={<Bike className="h-[18px] w-[18px] text-[var(--accent)]" />} label="Disponible" value="Delivery" />
+                  <span className="h-8 w-px bg-white/22" />
+                  <HeroStat icon={<Store className="h-[18px] w-[18px] text-[var(--accent)]" />} label="Mas vendidos" value={`${products.length} ${catalogItemsLabel}`} />
                 </div>
               </div>
               <div className="hidden" aria-hidden="true" />
@@ -465,6 +491,40 @@ export function PublicRestaurantOrderClient({
         </span>
       </button>
 
+      {restaurantMenuOpen ? (
+        <RestaurantMenuSheet
+          onClose={() => setRestaurantMenuOpen(false)}
+          onInfo={() => {
+            setRestaurantMenuOpen(false);
+            setRestaurantInfoOpen(true);
+          }}
+          onReport={() => {
+            setRestaurantMenuOpen(false);
+            window.alert("Gracias. Revisaremos este local con el equipo de Yopido.");
+          }}
+          onShare={() => {
+            setRestaurantMenuOpen(false);
+            void shareRestaurant();
+          }}
+          onShowHours={() => {
+            setRestaurantMenuOpen(false);
+            setRestaurantHoursOpen(true);
+          }}
+          shareState={shareState}
+        />
+      ) : null}
+
+      {restaurantInfoOpen ? <RestaurantInfoDialog mapHref={restaurantMapHref} onClose={() => setRestaurantInfoOpen(false)} restaurant={restaurant} /> : null}
+
+      {restaurantHoursOpen ? (
+        <RestaurantHoursDialog
+          hasConfiguredHours={hasConfiguredHours}
+          hourRows={hourRows}
+          onClose={() => setRestaurantHoursOpen(false)}
+          statusText={businessStatus.hasSchedule ? heroStatusText : availabilityLabel}
+        />
+      ) : null}
+
       {drawerOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden bg-[var(--color-overlay)] px-2 pb-2 pt-16 backdrop-blur-sm sm:items-center sm:p-4" onClick={requestCloseDrawer}>
           <div className={cn("max-h-[min(92dvh,820px)] w-full max-w-[min(100%,620px)] overflow-hidden rounded-t-[2rem] bg-[var(--surface)] text-[var(--text)] shadow-2xl sm:rounded-[2rem]", drawerClosing ? "public-sheet-exit" : "public-sheet-enter")} data-order-sheet onClick={(event) => event.stopPropagation()}>
@@ -508,6 +568,145 @@ export function PublicRestaurantOrderClient({
 
       {selectedProduct ? <ProductOptionModal config={configByProduct[selectedProduct.id]} onAdd={addConfiguredProduct} onClose={() => setSelectedProduct(null)} product={selectedProduct} /> : null}
     </main>
+  );
+}
+
+function HeroStat({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+      <span className="grid h-6 w-6 shrink-0 place-items-center">{icon}</span>
+      <span className="min-w-0">
+        <span className="block truncate text-[13px] font-black leading-4 text-white sm:text-sm">{value}</span>
+        <span className="block truncate text-[10px] font-semibold leading-3 text-white/70 sm:text-xs">{label}</span>
+      </span>
+    </div>
+  );
+}
+
+function RestaurantMenuSheet({
+  onClose,
+  onInfo,
+  onReport,
+  onShare,
+  onShowHours,
+  shareState,
+}: {
+  onClose: () => void;
+  onInfo: () => void;
+  onReport: () => void;
+  onShare: () => void;
+  onShowHours: () => void;
+  shareState: "idle" | "copied";
+}) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end bg-[var(--color-overlay)] backdrop-blur-sm sm:items-center sm:justify-center" role="dialog" aria-modal="true" aria-label="Opciones del local">
+      <button className="absolute inset-0" onClick={onClose} type="button" aria-label="Cerrar opciones" />
+      <div className="relative w-full rounded-t-[1.7rem] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xl sm:max-w-md sm:rounded-[1.7rem]">
+        <div className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-[var(--border)] sm:hidden" />
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--muted)]">Local</p>
+            <h2 className="text-2xl font-black text-[var(--text)]">Opciones</h2>
+          </div>
+          <button className="grid h-10 w-10 place-items-center rounded-full bg-[var(--color-surface)] text-[var(--primary)]" onClick={onClose} type="button" aria-label="Cerrar">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="mt-4 grid gap-2">
+          <RestaurantMenuRow icon={<Clock3 className="h-5 w-5" />} onClick={onShowHours} text="Ver horarios de atencion" />
+          <RestaurantMenuRow icon={<Info className="h-5 w-5" />} onClick={onInfo} text="Informacion del local" />
+          <RestaurantMenuRow icon={shareState === "copied" ? <Check className="h-5 w-5" /> : <Share2 className="h-5 w-5" />} onClick={onShare} text={shareState === "copied" ? "Enlace copiado" : "Compartir"} />
+          <RestaurantMenuRow icon={<AlertTriangle className="h-5 w-5" />} onClick={onReport} text="Reportar local" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RestaurantMenuRow({ icon, onClick, text }: { icon: ReactNode; onClick: () => void; text: string }) {
+  return (
+    <button className="flex min-h-14 items-center gap-3 rounded-[1.1rem] border border-[var(--border)] bg-[var(--color-surface)] px-3 text-left font-black text-[var(--text)] transition hover:border-[var(--primary)] hover:bg-[var(--primary-light)]" onClick={onClick} type="button">
+      <span className="grid h-10 w-10 place-items-center rounded-[0.9rem] bg-[var(--primary-light)] text-[var(--primary)]">{icon}</span>
+      <span className="min-w-0 flex-1 truncate">{text}</span>
+      <ArrowRight className="h-4 w-4 text-[var(--primary)]" />
+    </button>
+  );
+}
+
+function RestaurantInfoDialog({ mapHref, onClose, restaurant }: { mapHref: string; onClose: () => void; restaurant: Restaurant }) {
+  return (
+    <div className="fixed inset-0 z-[85] flex items-end bg-[var(--color-overlay)] backdrop-blur-sm sm:items-center sm:justify-center" role="dialog" aria-modal="true" aria-label="Informacion del local">
+      <button className="absolute inset-0" onClick={onClose} type="button" aria-label="Cerrar informacion" />
+      <div className="relative w-full rounded-t-[1.7rem] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xl sm:max-w-md sm:rounded-[1.7rem]">
+        <div className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-[var(--border)] sm:hidden" />
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--muted)]">Informacion</p>
+            <h2 className="truncate text-2xl font-black text-[var(--text)]">{restaurant.name}</h2>
+          </div>
+          <button className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-surface)] text-[var(--primary)]" onClick={onClose} type="button" aria-label="Cerrar">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="mt-4 grid gap-2">
+          <div className="rounded-[1.1rem] border border-[var(--border)] bg-[var(--color-surface)] p-3">
+            <p className="text-xs font-black uppercase text-[var(--muted)]">Ubicacion</p>
+            <p className="mt-1 text-sm font-bold leading-5 text-[var(--text)]">{[restaurant.address, restaurant.city].filter(Boolean).join(", ") || "Ubicacion disponible en mapa"}</p>
+          </div>
+          <div className="rounded-[1.1rem] border border-[var(--border)] bg-[var(--color-surface)] p-3">
+            <p className="text-xs font-black uppercase text-[var(--muted)]">Categoria</p>
+            <p className="mt-1 text-sm font-bold leading-5 text-[var(--text)]">{restaurant.publicCategory || restaurant.description || "Local en Yopido"}</p>
+          </div>
+        </div>
+        <a className="mt-4 flex min-h-12 items-center justify-center gap-2 rounded-[1rem] bg-[var(--accent)] px-4 text-sm font-black text-[var(--primary)]" href={mapHref} rel="noreferrer" target="_blank">
+          <MapPin className="h-5 w-5" />
+          Ver ubicacion en mapa
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function RestaurantHoursDialog({
+  hasConfiguredHours,
+  hourRows,
+  onClose,
+  statusText,
+}: {
+  hasConfiguredHours: boolean;
+  hourRows: { day: string; value: string }[];
+  onClose: () => void;
+  statusText: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-[85] flex items-end bg-[var(--color-overlay)] backdrop-blur-sm sm:items-center sm:justify-center" role="dialog" aria-modal="true" aria-label="Horarios de atencion">
+      <button className="absolute inset-0" onClick={onClose} type="button" aria-label="Cerrar horarios" />
+      <div className="relative w-full rounded-t-[1.7rem] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xl sm:max-w-md sm:rounded-[1.7rem]">
+        <div className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-[var(--border)] sm:hidden" />
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--muted)]">Horarios</p>
+            <h2 className="text-2xl font-black text-[var(--text)]">Atencion del negocio</h2>
+          </div>
+          <button className="grid h-10 w-10 place-items-center rounded-full bg-[var(--color-surface)] text-[var(--primary)]" onClick={onClose} type="button" aria-label="Cerrar">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="mt-4 rounded-[1.1rem] border border-[var(--accent)] bg-[var(--accent-soft)] p-3 text-sm font-black text-[var(--primary)]">{statusText}</div>
+        {hasConfiguredHours ? (
+          <div className="mt-3 grid gap-2">
+            {hourRows.map((row) => (
+              <div className="flex min-h-10 items-center justify-between gap-3 rounded-[0.95rem] border border-[var(--border)] bg-[var(--color-surface)] px-3 text-sm font-black" key={row.day}>
+                <span className="text-[var(--primary)]">{row.day}</span>
+                <span className={cn("text-[var(--text)]", row.value === "Cerrado" && "text-[var(--muted)]")}>{row.value}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 rounded-[1rem] bg-[var(--color-surface)] p-3 text-sm font-semibold text-[var(--muted)]">El negocio aun no guardo sus horarios. Por ahora permitimos pedidos.</p>
+        )}
+      </div>
+    </div>
   );
 }
 

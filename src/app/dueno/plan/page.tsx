@@ -20,7 +20,7 @@ export default async function OwnerPlanPage() {
           </span>
           <h2 className="mt-4 text-2xl font-black">Tarifa {capacity.planName}</h2>
           <p className="mt-2 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
-            Todo incluido para cada sucursal activa: pedidos, cocina, caja, inventario, reportes, soporte y configuracion. La habilitacion de cupos la maneja el superadmin del SaaS.
+            Todo incluido para cada sucursal activa: pedidos, cocina, caja, inventario, reportes, soporte y configuracion. La habilitacion de nuevas sucursales la maneja el superadmin del SaaS.
           </p>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <PriceMetric label="Primera sucursal" value={`Bs ${capacity.primaryPriceMonthly}`} />
@@ -37,7 +37,7 @@ export default async function OwnerPlanPage() {
             <Badge className="bg-[var(--primary-light)] text-[var(--primary)]">Capacidad</Badge>
             <p className="mt-4 text-4xl font-black">{capacity.used}/{capacity.limit}</p>
             <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">
-              {remaining} cupo{remaining === 1 ? "" : "s"} disponible{remaining === 1 ? "" : "s"}
+              {remaining} sucursal{remaining === 1 ? "" : "es"} disponible{remaining === 1 ? "" : "s"}
             </p>
           </div>
           {remaining > 0 ? (
@@ -47,7 +47,7 @@ export default async function OwnerPlanPage() {
             </Link>
           ) : (
             <Link className={buttonClasses("primary")} href="/dueno/soporte">
-              Solicitar otro cupo
+              Solicitar otra sucursal
             </Link>
           )}
         </Card>

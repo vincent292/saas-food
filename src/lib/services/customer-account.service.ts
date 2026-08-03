@@ -234,6 +234,7 @@ function mapUniqueError(message = "") {
   if (message.includes("customer_profiles_phone_unique")) return "phone-already-exists";
   if (message.includes("customer_profiles_document_unique")) return "document-already-exists";
   if (message.includes("customer_profiles_email_unique")) return "email-already-exists";
+  if (message.includes("customer_profiles_phone_digits") || message.includes("customer_profiles_document_digits")) return "invalid-customer-profile";
   return "customer-save-failed";
 }
 

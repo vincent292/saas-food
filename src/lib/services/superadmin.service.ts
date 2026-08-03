@@ -5,9 +5,11 @@ import { orderService } from "@/lib/services/order.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { branchRequestPaymentDefaultAmount, branchRequestPaymentDefaultCurrency } from "@/lib/services/owner-dashboard.service";
 import type { Restaurant } from "@/types/restaurant.types";
 import type {
   AdminAuditLog,
+  OwnerBranchRequest,
   PlatformIncident,
   RestaurantAccessSession,
   RestaurantOperationSummary,
@@ -169,6 +171,57 @@ function mapSupportAttachment(row: SupportAttachmentRow): SupportTicketAttachmen
     fileSize: Number(row.file_size),
     uploadedBy: row.uploaded_by ?? undefined,
     createdAt: row.created_at,
+  };
+}
+
+function mapOwnerBranchRequest(row: {
+  id: string;
+  owner_user_id: string;
+  source_restaurant_id: string;
+  requested_additional: number;
+  reason: string | null;
+  status: OwnerBranchRequest["status"];
+  current_limit: number;
+  approved_limit: number | null;
+  payment_amount: number | null;
+  payment_currency: string | null;
+  payment_qr_url: string | null;
+  payment_qr_note: string | null;
+  payment_proof_url: string | null;
+  payment_proof_file_name: string | null;
+  payment_proof_file_size: number | null;
+  payment_proof_uploaded_at: string | null;
+  resolution_notes: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}, names: Map<string, string>, profiles: Map<string, ProfileRow>, entitlements: Map<string, number>): OwnerBranchRequest {
+  const ownerProfile = profiles.get(row.owner_user_id);
+  const ownerCurrentLimit = Math.max(row.current_limit, entitlements.get(row.owner_user_id) ?? row.current_limit);
+
+  return {
+    id: row.id,
+    ownerUserId: row.owner_user_id,
+    ownerName: ownerProfile?.full_name ?? ownerProfile?.email ?? "Dueno",
+    ownerEmail: ownerProfile?.email ?? "Sin correo",
+    sourceRestaurantId: row.source_restaurant_id,
+    sourceRestaurantName: names.get(row.source_restaurant_id) ?? "Sucursal base",
+    requestedAdditional: row.requested_additional,
+    reason: row.reason ?? "",
+    status: row.status,
+    currentLimit: row.current_limit,
+    ownerCurrentLimit,
+    approvedLimit: row.approved_limit ?? undefined,
+    paymentAmount: Number(row.payment_amount ?? branchRequestPaymentDefaultAmount),
+    paymentCurrency: row.payment_currency ?? branchRequestPaymentDefaultCurrency,
+    paymentQrUrl: row.payment_qr_url ?? undefined,
+    paymentQrNote: row.payment_qr_note ?? undefined,
+    paymentProofUrl: row.payment_proof_url ?? undefined,
+    paymentProofFileName: row.payment_proof_file_name ?? undefined,
+    paymentProofFileSize: Number(row.payment_proof_file_size ?? 0),
+    paymentProofUploadedAt: row.payment_proof_uploaded_at ?? undefined,
+    resolutionNotes: row.resolution_notes ?? undefined,
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at ?? undefined,
   };
 }
 
@@ -393,6 +446,33 @@ export const superadminService = {
     ]);
 
     return data.map((ticket) => mapTicket(ticket, names, profiles, attachments));
+  },
+
+  async listOwnerBranchRequests(limit = 80): Promise<OwnerBranchRequest[]> {
+    if (!hasSupabaseEnv()) {
+      return [];
+    }
+
+    const [restaurants, supabase] = await Promise.all([restaurantService.listRestaurants(), createClient()]);
+    const names = restaurantNameMap(restaurants);
+    const { data, error } = await supabase
+      .from("owner_branch_capacity_requests")
+      .select("id,owner_user_id,source_restaurant_id,requested_additional,reason,status,current_limit,approved_limit,payment_amount,payment_currency,payment_qr_url,payment_qr_note,payment_proof_url,payment_proof_file_name,payment_proof_file_size,payment_proof_uploaded_at,resolution_notes,created_at,resolved_at")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error || !data?.length) {
+      return [];
+    }
+
+    const ownerUserIds = Array.from(new Set(data.map((request) => request.owner_user_id)));
+    const [{ data: entitlementRows }, profiles] = await Promise.all([
+      supabase.from("owner_branch_entitlements").select("owner_user_id,branch_limit").in("owner_user_id", ownerUserIds),
+      getProfiles(ownerUserIds),
+    ]);
+    const entitlements = new Map((entitlementRows ?? []).map((row) => [row.owner_user_id, Number(row.branch_limit ?? 1)]));
+
+    return data.map((request) => mapOwnerBranchRequest(request, names, profiles, entitlements));
   },
 
   async listIncidents(limit = 80): Promise<PlatformIncident[]> {

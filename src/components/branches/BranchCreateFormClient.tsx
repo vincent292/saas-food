@@ -21,9 +21,9 @@ type BranchCreateMembershipOption = {
 
 const errorMessages: Record<string, string> = {
   invalid: "Revisa los datos obligatorios de la sucursal.",
-  "branch-limit": "Tu cuenta ya no tiene cupos disponibles para nuevas sucursales.",
+  "branch-limit": "Tu cuenta ya no tiene sucursales habilitadas disponibles.",
   "owner-required": "Solo el dueno del negocio puede crear sucursales desde este flujo.",
-  "owner-entitlement": "No se pudo validar el cupo habilitado. Intenta nuevamente.",
+  "owner-entitlement": "No se pudo validar la sucursal habilitada. Intenta nuevamente.",
   "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para crear sucursales desde el panel.",
   "source-not-found": "No encontramos la sucursal base activa.",
   "slug-exists": "Ese slug publico ya esta en uso. Elige otro enlace.",

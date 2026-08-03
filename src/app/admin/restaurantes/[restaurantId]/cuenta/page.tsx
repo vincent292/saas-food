@@ -72,13 +72,13 @@ export default async function ClientAccountPage({
               </Link>
             </div>
           }
-          description="Control comercial del cliente: cupos, sucursales, tarifa y pagos de plataforma."
+          description="Control comercial del cliente: sucursales habilitadas, tarifa y pagos de plataforma."
           title={account.owner.name}
         />
 
         {saved ? (
           <div className="rounded-2xl border border-[var(--color-success-soft)] bg-[var(--color-success-soft)] p-4 text-sm font-bold text-[var(--color-success-strong)]">
-            Cupos actualizados correctamente.
+            Cuenta actualizada correctamente.
           </div>
         ) : null}
         {error ? (
@@ -114,7 +114,7 @@ export default async function ClientAccountPage({
           </Card>
 
           <Card className="space-y-4">
-            <SectionTitle title="Cupos de sucursal" description="Solo superadmin puede habilitar o reducir cupos para este cliente." />
+            <SectionTitle title="Sucursales habilitadas" description="Solo superadmin puede habilitar o reducir nuevas sucursales para este cliente." />
             <div className="grid grid-cols-3 gap-2">
               <SmallStat label="Usadas" value={String(account.capacity.used)} />
               <SmallStat label="Habilitadas" value={String(account.capacity.limit)} />
@@ -125,7 +125,7 @@ export default async function ClientAccountPage({
               {account.owner.userId ? <input name="ownerUserId" type="hidden" value={account.owner.userId} /> : null}
               <Input defaultValue={account.capacity.limit} disabled={!account.owner.userId} min={1} name="branchLimit" placeholder="Sucursales habilitadas" required type="number" />
               <button className={buttonClasses("primary", "w-full")} disabled={!account.owner.userId} type="submit">
-                Habilitar cupos
+                Guardar habilitacion
               </button>
             </form>
             {!account.owner.userId ? (
@@ -150,18 +150,26 @@ export default async function ClientAccountPage({
           <Card>
             <p className="text-sm font-bold text-[var(--color-secondary-text)]">Control del SaaS</p>
             <p className="mt-1 text-2xl font-black">Superadmin</p>
-            <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">el cliente solo puede solicitar cupos</p>
+            <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">el cliente solicita sucursales con comprobante</p>
           </Card>
         </section>
 
         <section className="space-y-3">
-          <SectionTitle description="El dueno solicita; solo el superadmin aprueba y cambia el cupo disponible." title="Solicitudes de sucursales" />
+          <SectionTitle description="El dueno paga, sube su comprobante y solo el superadmin habilita las sucursales solicitadas." title="Solicitudes de sucursales" />
           <div className="grid gap-3">
             {pendingBranchRequests.map((request) => (
               <Card className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]" key={request.id}>
                 <div>
-                  <p className="text-lg font-black">Solicita {request.requestedAdditional} sucursal{request.requestedAdditional === 1 ? "" : "es"} adicional{request.requestedAdditional === 1 ? "" : "es"}</p>
-                  <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Cupo actual: {request.currentLimit}. {request.reason || "Sin comentario adicional."}</p>
+                  <p className="text-lg font-black">Solicita {request.requestedAdditional} sucursal{request.requestedAdditional === 1 ? "" : "es"}</p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">
+                    Habilitadas al solicitar: {request.currentLimit}. Total pagado: {formatMoney(request.paymentAmount, request.paymentCurrency)}. {request.reason || "Sin comentario adicional."}
+                  </p>
+                  {request.paymentProofUrl ? (
+                    <a className="mt-2 inline-flex items-center gap-1 text-sm font-black text-[var(--primary)]" href={request.paymentProofUrl} rel="noreferrer" target="_blank">
+                      Ver comprobante
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  ) : null}
                 </div>
                 <div className="space-y-2">
                   <form action={resolveOwnerBranchCapacityAction} className="space-y-2">

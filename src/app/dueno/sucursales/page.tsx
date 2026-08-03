@@ -42,7 +42,7 @@ export default async function OwnerBranchesPage({ searchParams }: { searchParams
               </Link>
             ) : (
               <Link className={buttonClasses("primary")} href="/dueno/soporte">
-                Solicitar cupo
+                Solicitar sucursal
               </Link>
             )}
           </div>

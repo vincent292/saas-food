@@ -74,10 +74,27 @@ export type Database = {
         status: "pending" | "approved" | "rejected";
         current_limit: number;
         approved_limit: number | null;
+        payment_amount: number;
+        payment_currency: string;
+        payment_qr_url: string | null;
+        payment_qr_note: string | null;
+        payment_proof_url: string | null;
+        payment_proof_file_name: string | null;
+        payment_proof_file_size: number;
+        payment_proof_uploaded_at: string | null;
         resolved_by: string | null;
         resolved_at: string | null;
         resolution_notes: string | null;
         created_at: string;
+        updated_at: string;
+      }>;
+      platform_branch_request_payment_settings: Row<{
+        id: boolean;
+        amount: number;
+        currency: string;
+        qr_url: string | null;
+        qr_note: string | null;
+        updated_by: string | null;
         updated_at: string;
       }>;
       restaurants: Row<{

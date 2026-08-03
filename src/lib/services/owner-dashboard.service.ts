@@ -4,6 +4,9 @@ import { additionalLocationPriceMonthly, fullPlanName, primaryLocationPriceMonth
 import { formatMoney } from "@/lib/utils/money";
 import type { UserRestaurantMembership } from "@/lib/services/membership.service";
 
+export const branchRequestPaymentDefaultAmount = 199;
+export const branchRequestPaymentDefaultCurrency = "BOB";
+
 export type OwnerBranchSummary = {
   membership: UserRestaurantMembership;
   orders30d: number;
@@ -35,16 +38,60 @@ export type OwnerBranchCapacityRequest = {
   status: "pending" | "approved" | "rejected";
   currentLimit: number;
   approvedLimit?: number;
+  paymentAmount: number;
+  paymentCurrency: string;
+  paymentQrUrl?: string;
+  paymentQrNote?: string;
+  paymentProofUrl?: string;
+  paymentProofFileName?: string;
+  paymentProofFileSize: number;
+  paymentProofUploadedAt?: string;
   resolutionNotes?: string;
   createdAt: string;
   resolvedAt?: string;
 };
 
+export type BranchRequestPaymentSettings = {
+  amount: number;
+  currency: string;
+  qrUrl?: string;
+  qrNote?: string;
+  updatedAt?: string;
+};
+
+export function defaultBranchRequestPaymentSettings(): BranchRequestPaymentSettings {
+  return {
+    amount: branchRequestPaymentDefaultAmount,
+    currency: branchRequestPaymentDefaultCurrency,
+  };
+}
+
+export async function getBranchRequestPaymentSettings(): Promise<BranchRequestPaymentSettings> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("platform_branch_request_payment_settings")
+    .select("amount,currency,qr_url,qr_note,updated_at")
+    .eq("id", true)
+    .maybeSingle();
+
+  if (error || !data) {
+    return defaultBranchRequestPaymentSettings();
+  }
+
+  return {
+    amount: Number(data.amount ?? branchRequestPaymentDefaultAmount),
+    currency: data.currency ?? branchRequestPaymentDefaultCurrency,
+    qrUrl: data.qr_url ?? undefined,
+    qrNote: data.qr_note ?? undefined,
+    updatedAt: data.updated_at ?? undefined,
+  };
+}
+
 export async function listOwnerBranchCapacityRequests(ownerUserId: string): Promise<OwnerBranchCapacityRequest[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("owner_branch_capacity_requests")
-    .select("id,source_restaurant_id,requested_additional,reason,status,current_limit,approved_limit,resolution_notes,created_at,resolved_at")
+    .select("id,source_restaurant_id,requested_additional,reason,status,current_limit,approved_limit,payment_amount,payment_currency,payment_qr_url,payment_qr_note,payment_proof_url,payment_proof_file_name,payment_proof_file_size,payment_proof_uploaded_at,resolution_notes,created_at,resolved_at")
     .eq("owner_user_id", ownerUserId)
     .order("created_at", { ascending: false });
 
@@ -60,6 +107,14 @@ export async function listOwnerBranchCapacityRequests(ownerUserId: string): Prom
     status: request.status,
     currentLimit: request.current_limit,
     approvedLimit: request.approved_limit ?? undefined,
+    paymentAmount: Number(request.payment_amount ?? branchRequestPaymentDefaultAmount),
+    paymentCurrency: request.payment_currency ?? branchRequestPaymentDefaultCurrency,
+    paymentQrUrl: request.payment_qr_url ?? undefined,
+    paymentQrNote: request.payment_qr_note ?? undefined,
+    paymentProofUrl: request.payment_proof_url ?? undefined,
+    paymentProofFileName: request.payment_proof_file_name ?? undefined,
+    paymentProofFileSize: Number(request.payment_proof_file_size ?? 0),
+    paymentProofUploadedAt: request.payment_proof_uploaded_at ?? undefined,
     resolutionNotes: request.resolution_notes ?? undefined,
     createdAt: request.created_at,
     resolvedAt: request.resolved_at ?? undefined,

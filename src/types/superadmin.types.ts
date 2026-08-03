@@ -39,6 +39,34 @@ export type SupportTicketAttachment = {
   createdAt: string;
 };
 
+export type OwnerBranchRequestStatus = "pending" | "approved" | "rejected";
+
+export type OwnerBranchRequest = {
+  id: string;
+  ownerUserId: string;
+  ownerName: string;
+  ownerEmail: string;
+  sourceRestaurantId: string;
+  sourceRestaurantName: string;
+  requestedAdditional: number;
+  reason: string;
+  status: OwnerBranchRequestStatus;
+  currentLimit: number;
+  ownerCurrentLimit: number;
+  approvedLimit?: number;
+  paymentAmount: number;
+  paymentCurrency: string;
+  paymentQrUrl?: string;
+  paymentQrNote?: string;
+  paymentProofUrl?: string;
+  paymentProofFileName?: string;
+  paymentProofFileSize: number;
+  paymentProofUploadedAt?: string;
+  resolutionNotes?: string;
+  createdAt: string;
+  resolvedAt?: string;
+};
+
 export type PlatformIncident = {
   id: string;
   affectedRestaurantId?: string;

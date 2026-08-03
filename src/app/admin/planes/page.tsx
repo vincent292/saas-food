@@ -8,7 +8,7 @@ export default async function PlansPage() {
 
   return (
     <AdminLayout active="/admin/planes" title="Tarifa">
-      <SectionTitle description="Define la tarifa Full y sus precios. Los cupos se habilitan por dueno desde la configuracion del restaurante." title="Tarifa y sucursales" />
+      <SectionTitle description="Define la tarifa Full y sus precios. Las nuevas sucursales se habilitan por dueno desde la cuenta del restaurante." title="Tarifa y sucursales" />
       <div className="mt-6 grid gap-4 xl:grid-cols-2">
         {plans.map((plan) => (
           <PlanEditor key={plan.id} plan={plan} />

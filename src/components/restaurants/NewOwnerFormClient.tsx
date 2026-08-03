@@ -14,7 +14,7 @@ const errorMessages: Record<string, string> = {
   "owner-email-exists": "Ese correo ya existe. Usa otro correo para crear un nuevo dueno.",
   "owner-create": "No se pudo crear el usuario. Revisa Supabase Auth e intenta nuevamente.",
   "profile-create": "El usuario se creo, pero no se pudo guardar el perfil. Revisa la tabla profiles.",
-  "owner-entitlement": "El usuario se creo, pero no se pudo guardar el cupo de sucursales.",
+  "owner-entitlement": "El usuario se creo, pero no se pudo guardar las sucursales habilitadas.",
   "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para crear usuarios desde el panel.",
 };
 
@@ -60,7 +60,7 @@ export function NewOwnerFormClient() {
       <Card className="mt-6 grid gap-4 md:grid-cols-2">
         <SectionTitle
           className="md:col-span-2"
-          description="Primero se crea el acceso del dueno y su cupo de sucursales. Logo, banner, ubicacion, rubro y datos publicos se completan despues desde su panel."
+          description="Primero se crea el acceso del dueno y sus sucursales habilitadas. Logo, banner, ubicacion, rubro y datos publicos se completan despues desde su panel."
           title="Acceso del dueno"
         />
         <Input defaultValue={values.ownerName} name="ownerName" placeholder="Nombre del dueno" required />
@@ -69,7 +69,7 @@ export function NewOwnerFormClient() {
           <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Sucursales habilitadas</span>
           <Input defaultValue={values.branchLimit ?? "1"} min={1} name="branchLimit" required type="number" />
           <span className="text-xs font-semibold text-[var(--color-secondary-text)]">
-            Es el cupo maximo que este dueno podra crear. Usa 1 para solo su primera sucursal.
+            Es el maximo de sucursales que este dueno podra crear. Usa 1 para solo su primera sucursal.
           </span>
         </label>
 

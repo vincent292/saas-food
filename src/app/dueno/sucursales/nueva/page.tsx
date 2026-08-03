@@ -27,7 +27,7 @@ export default async function NewOwnerBranchPage({ searchParams }: { searchParam
             Volver
           </Link>
           <Badge className={remaining > 0 ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]"}>
-            {remaining > 0 ? `${remaining} cupo${remaining === 1 ? "" : "s"} disponible${remaining === 1 ? "" : "s"}` : "Sin cupos disponibles"}
+            {remaining > 0 ? `${remaining} sucursal${remaining === 1 ? "" : "es"} disponible${remaining === 1 ? "" : "s"}` : "Sin sucursales disponibles"}
           </Badge>
         </div>
 
@@ -66,13 +66,13 @@ export default async function NewOwnerBranchPage({ searchParams }: { searchParam
         ) : (
           <Card className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
             <div>
-              <p className="text-xl font-black">No tienes cupos disponibles</p>
+              <p className="text-xl font-black">No tienes sucursales disponibles</p>
               <p className="mt-2 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
-                Solicita a soporte que habilite otra sucursal en tu cuenta antes de crearla.
+                Solicita otra sucursal en soporte antes de crearla.
               </p>
             </div>
             <Link className={buttonClasses("primary")} href="/dueno/soporte">
-              Solicitar cupo
+              Solicitar sucursal
             </Link>
           </Card>
         )}

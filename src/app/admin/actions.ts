@@ -17,7 +17,7 @@ import { platformBillingService } from "@/lib/services/platform-billing.service"
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { membershipService } from "@/lib/services/membership.service";
 import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
-import { getOwnerBranchLimit } from "@/lib/services/owner-dashboard.service";
+import { getBranchRequestPaymentSettings, getOwnerBranchLimit } from "@/lib/services/owner-dashboard.service";
 import { moduleCatalog } from "@/lib/modules";
 import { clearRateLimit, consumeRateLimit } from "@/lib/security/rate-limit";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
@@ -260,6 +260,13 @@ const requestOwnerBranchCapacitySchema = z.object({
   restaurantId: z.string().uuid(),
   requestedAdditional: z.coerce.number().int().min(1).max(20),
   reason: z.string().max(1000).optional(),
+});
+
+const updateBranchRequestPaymentSettingsSchema = z.object({
+  amount: z.coerce.number().nonnegative().default(199),
+  currency: z.string().min(3).max(3).default("BOB"),
+  currentBranchRequestQrUrl: z.string().optional(),
+  qrNote: z.string().max(1000).optional(),
 });
 
 const resolveOwnerBranchCapacitySchema = z.object({
@@ -627,6 +634,7 @@ const releaseAccessSessionSchema = z.object({
 
 const MAX_SUPPORT_ATTACHMENTS = 5;
 const MAX_SUPPORT_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const MAX_BRANCH_REQUEST_PAYMENT_PROOF_BYTES = 5 * 1024 * 1024;
 
 async function modulesForPlan(planKey: PlanKey): Promise<ModuleKey[]> {
   void planKey;
@@ -2332,11 +2340,60 @@ export async function updateOwnerBranchEntitlementAction(formData: FormData) {
   }
 
   revalidatePath("/admin/restaurantes");
+  revalidatePath("/admin/soporte");
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta`);
   revalidatePath("/dueno");
   revalidatePath("/dueno/plan");
   revalidatePath("/dueno/sucursales");
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?saved=cupos`);
+}
+
+export async function updateBranchRequestPaymentSettingsAction(formData: FormData) {
+  const parsed = updateBranchRequestPaymentSettingsSchema.safeParse({
+    amount: formData.get("amount") || 199,
+    currency: formData.get("currency") || "BOB",
+    currentBranchRequestQrUrl: formData.get("currentBranchRequestQrUrl") || undefined,
+    qrNote: formData.get("qrNote") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/soporte?tab=solicitudes&error=invalid-branch-payment-settings");
+  }
+
+  const { user } = await requireSuperadmin();
+  const admin = createAdminClient();
+
+  if (!admin) {
+    redirect("/admin/soporte?tab=solicitudes&error=service-role-required");
+  }
+
+  let qrUrl: string | null = parsed.data.currentBranchRequestQrUrl ?? null;
+
+  try {
+    qrUrl = (await uploadPublicImage(formData.get("branchRequestQrFile") as File | null, "platform/branch-requests/qr")) ?? qrUrl;
+  } catch {
+    redirect("/admin/soporte?tab=solicitudes&error=branch-request-qr-upload");
+  }
+
+  const { error } = await admin.from("platform_branch_request_payment_settings").upsert(
+    {
+      id: true,
+      amount: parsed.data.amount,
+      currency: parsed.data.currency.toUpperCase(),
+      qr_url: qrUrl,
+      qr_note: parsed.data.qrNote ?? null,
+      updated_by: user.id,
+    },
+    { onConflict: "id" },
+  );
+
+  if (error) {
+    redirect(`/admin/soporte?tab=solicitudes&error=${cashErrorKey(error, "branch-payment-settings-save")}`);
+  }
+
+  revalidatePath("/admin/soporte");
+  revalidatePath("/dueno/soporte");
+  redirect("/admin/soporte?tab=solicitudes&settings=1");
 }
 
 export async function requestOwnerBranchCapacityAction(formData: FormData) {
@@ -2364,12 +2421,52 @@ export async function requestOwnerBranchCapacityAction(formData: FormData) {
   }
 
   const currentLimit = await getOwnerBranchLimit(user.id);
+  const paymentSettings = await getBranchRequestPaymentSettings();
+
+  if (!paymentSettings.qrUrl) {
+    redirect("/dueno/soporte?error=branch-payment-unconfigured");
+  }
+
+  const proofFile = formData.get("paymentProofFile") as File | null;
+
+  if (!proofFile || proofFile.size === 0) {
+    redirect("/dueno/soporte?error=branch-payment-proof-required");
+  }
+
+  const proofTypeIsValid = proofFile.type.startsWith("image/") || proofFile.type === "application/pdf";
+
+  if (!proofTypeIsValid || proofFile.size > MAX_BRANCH_REQUEST_PAYMENT_PROOF_BYTES) {
+    redirect("/dueno/soporte?error=invalid-branch-payment-proof");
+  }
+
+  let proofUrl: string | null = null;
+
+  try {
+    proofUrl = await uploadPublicImage(proofFile, `platform/branch-requests/proofs/${user.id}`);
+  } catch {
+    redirect("/dueno/soporte?error=branch-payment-proof-upload");
+  }
+
+  if (!proofUrl) {
+    redirect("/dueno/soporte?error=branch-payment-proof-upload");
+  }
+
+  const totalPaymentAmount = paymentSettings.amount * parsed.data.requestedAdditional;
+
   const { error } = await supabase.from("owner_branch_capacity_requests").insert({
     owner_user_id: user.id,
     source_restaurant_id: restaurant.id,
     requested_additional: parsed.data.requestedAdditional,
     reason: parsed.data.reason ?? null,
     current_limit: currentLimit,
+    payment_amount: totalPaymentAmount,
+    payment_currency: paymentSettings.currency,
+    payment_qr_url: paymentSettings.qrUrl,
+    payment_qr_note: paymentSettings.qrNote ?? null,
+    payment_proof_url: proofUrl,
+    payment_proof_file_name: proofFile.name,
+    payment_proof_file_size: proofFile.size,
+    payment_proof_uploaded_at: new Date().toISOString(),
   });
 
   if (error) {
@@ -2378,11 +2475,13 @@ export async function requestOwnerBranchCapacityAction(formData: FormData) {
   }
 
   revalidatePath("/dueno/soporte");
+  revalidatePath("/admin/soporte");
   revalidatePath(`/admin/restaurantes/${restaurant.id}/cuenta`);
   redirect("/dueno/soporte?requested=1");
 }
 
 export async function resolveOwnerBranchCapacityAction(formData: FormData) {
+  const returnTo = adminReturnTo(formData, `/admin/restaurantes/${formData.get("restaurantId")}/cuenta`);
   const parsed = resolveOwnerBranchCapacitySchema.safeParse({
     requestId: formData.get("requestId"),
     restaurantId: formData.get("restaurantId"),
@@ -2392,10 +2491,27 @@ export async function resolveOwnerBranchCapacityAction(formData: FormData) {
   });
 
   if (!parsed.success || (parsed.data.decision === "approve" && !parsed.data.approvedLimit)) {
-    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/cuenta?error=invalid-branch-request`);
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=invalid-branch-request`);
   }
 
   const { supabase } = await requireSuperadmin();
+
+  if (parsed.data.decision === "approve") {
+    const { data: request } = await supabase
+      .from("owner_branch_capacity_requests")
+      .select("owner_user_id,current_limit")
+      .eq("id", parsed.data.requestId)
+      .maybeSingle();
+    const { data: entitlement } = request?.owner_user_id
+      ? await supabase.from("owner_branch_entitlements").select("branch_limit").eq("owner_user_id", request.owner_user_id).maybeSingle()
+      : { data: null };
+    const minimumApprovedLimit = Math.max(Number(request?.current_limit ?? 1), Number(entitlement?.branch_limit ?? 1));
+
+    if ((parsed.data.approvedLimit ?? 0) < minimumApprovedLimit) {
+      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=invalid-branch-request`);
+    }
+  }
+
   const { error } = await supabase.rpc("resolve_owner_branch_capacity_request", {
     p_request_id: parsed.data.requestId,
     p_approve: parsed.data.decision === "approve",
@@ -2404,15 +2520,16 @@ export async function resolveOwnerBranchCapacityAction(formData: FormData) {
   });
 
   if (error) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?error=${error.code}`);
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${error.code}`);
   }
 
   revalidatePath("/admin/restaurantes");
+  revalidatePath("/admin/soporte");
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta`);
   revalidatePath("/dueno");
   revalidatePath("/dueno/soporte");
   revalidatePath("/dueno/sucursales");
-  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?saved=solicitud`);
+  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}saved=solicitud`);
 }
 
 export async function manageResponsibleAccessAction(

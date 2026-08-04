@@ -105,6 +105,21 @@ test("owner account billing has monthly proof and superadmin approval", () => {
   assert.match(accountPage, /approveOwnerBillingPaymentAction/);
 });
 
+test("catalog changes are owner-only while branches keep read access", () => {
+  const actions = read("src/app/admin/actions.ts");
+  const productsPage = read("src/app/admin/restaurantes/[restaurantId]/productos/page.tsx");
+  const productClient = read("src/components/products/ProductManagementClient.tsx");
+  const categoriesPage = read("src/app/admin/restaurantes/[restaurantId]/categorias/page.tsx");
+
+  assert.match(actions, /async function requireRestaurantOwnerOrSuperadmin/);
+  assert.match(actions, /await requireRestaurantOwnerOrSuperadmin\(parsed\.data\.restaurantId, returnPath\)/);
+  assert.match(actions, /await requireRestaurantOwnerOrSuperadmin\(parsed\.data\.restaurantId, `\/admin\/restaurantes\/\$\{parsed\.data\.restaurantId\}\/productos`\)/);
+  assert.match(productsPage, /canManageProducts=\{canManageProducts\}/);
+  assert.match(productClient, /Catalogo en modo consulta/);
+  assert.match(productClient, /onEdit=\{canManageProducts \? \(\) => openEditProductModal\(product\) : undefined\}/);
+  assert.match(categoriesPage, /canManageCatalog/);
+});
+
 test("saved restaurant theme colors are mapped to the public theme", () => {
   const service = read("src/lib/services/restaurant.service.ts");
 

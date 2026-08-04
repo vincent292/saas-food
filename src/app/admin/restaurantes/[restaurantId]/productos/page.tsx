@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { ProductManagementClient } from "@/components/products/ProductManagementClient";
 import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
+import { authService } from "@/lib/services/auth.service";
 import { categoryService } from "@/lib/services/category.service";
 import { inventoryService } from "@/lib/services/inventory.service";
 import { productService } from "@/lib/services/product.service";
@@ -28,12 +29,14 @@ export default async function ProductsPage({
 
   await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/productos`);
 
-  const [products, categories, configuration, inventoryItems] = await Promise.all([
+  const [products, categories, configuration, inventoryItems, currentProfile] = await Promise.all([
     productService.listByRestaurant(restaurant.id),
     categoryService.listByRestaurant(restaurant.id),
     productService.listConfigurationsByRestaurant(restaurant.id),
     hasRestaurantModule(restaurant, "inventory") ? inventoryService.listItems(restaurant.id) : Promise.resolve([]),
+    authService.getCurrentProfile(),
   ]);
+  const canManageProducts = currentProfile?.globalRole === "superadmin" || currentProfile?.id === restaurant.ownerUserId;
 
   return (
     <AdminLayout
@@ -47,6 +50,7 @@ export default async function ProductsPage({
       <ProductManagementClient
         categories={categories}
         businessType={restaurant.businessType}
+        canManageProducts={canManageProducts}
         categoryCreated={status.categoryCreated}
         configuration={configuration}
         created={status.created}

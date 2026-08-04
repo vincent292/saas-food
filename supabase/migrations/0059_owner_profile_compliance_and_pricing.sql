@@ -13,6 +13,9 @@ create index if not exists profiles_document_number_normalized_idx
   on profiles (document_number_normalized)
   where document_number_normalized is not null and document_number_normalized <> '';
 
+alter table subscription_plans
+  add column if not exists additional_restaurant_price_monthly numeric(12,2) not null default 199;
+
 update subscription_plans
 set
   additional_restaurant_price_monthly = 199,

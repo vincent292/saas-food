@@ -1024,6 +1024,32 @@ async function requireRestaurantAdminOrSuperadmin(restaurantId: string) {
   return { supabase, user, isSuperadmin: false };
 }
 
+function redirectWithError(path: string, error: string): never {
+  redirect(`${path}${path.includes("?") ? "&" : "?"}error=${error}`);
+}
+
+async function requireRestaurantOwnerOrSuperadmin(restaurantId: string, returnTo = `/admin/restaurantes/${restaurantId}/dashboard`) {
+  const { supabase, user } = await requireUser();
+  const { data: profile } = await supabase.from("profiles").select("global_role").eq("id", user.id).maybeSingle();
+
+  if (profile?.global_role === "superadmin") {
+    return { supabase, user, isSuperadmin: true };
+  }
+
+  const { data: restaurant } = await supabase
+    .from("restaurants")
+    .select("owner_user_id")
+    .eq("id", restaurantId)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (restaurant?.owner_user_id !== user.id) {
+    redirectWithError(returnTo, "owner-required");
+  }
+
+  return { supabase, user, isSuperadmin: false };
+}
+
 async function requireRestaurantMemberOrSuperadmin(restaurantId: string) {
   const { supabase, user } = await requireUser();
   const { data: profile } = await supabase.from("profiles").select("global_role").eq("id", user.id).maybeSingle();
@@ -4661,6 +4687,10 @@ export async function markInvoiceIssuedAction(formData: FormData) {
 }
 
 export async function createCategoryAction(formData: FormData) {
+  const returnPath =
+    formData.get("returnTo") === "products" && formData.get("restaurantId")
+      ? `/admin/restaurantes/${formData.get("restaurantId")}/productos`
+      : `/admin/restaurantes/${formData.get("restaurantId")}/categorias`;
   const parsed = createCategorySchema.safeParse({
     restaurantId: formData.get("restaurantId"),
     name: formData.get("name"),
@@ -4670,21 +4700,21 @@ export async function createCategoryAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/categorias?error=invalid`);
+    redirectWithError(returnPath, "invalid");
   }
 
-  await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  await requireRestaurantOwnerOrSuperadmin(parsed.data.restaurantId, returnPath);
   const admin = createAdminClient();
 
   if (!admin) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/categorias?error=service-role-required`);
+    redirectWithError(returnPath, "service-role-required");
   }
 
   let imageUrl: string | null = null;
   try {
     imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/categories`);
   } catch {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/categorias?error=storage-upload`);
+    redirectWithError(returnPath, "storage-upload");
   }
 
   const { error } = await admin.from("categories").insert({
@@ -4697,7 +4727,7 @@ export async function createCategoryAction(formData: FormData) {
   });
 
   if (error) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/categorias?error=${error.code}`);
+    redirectWithError(returnPath, error.code);
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/categorias`);
@@ -4737,7 +4767,7 @@ export async function createProductAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/productos?error=invalid`);
   }
 
-  await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  await requireRestaurantOwnerOrSuperadmin(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/productos`);
   const admin = createAdminClient();
 
   if (!admin) {
@@ -4878,7 +4908,7 @@ export async function updateProductAction(formData: FormData) {
     redirect(`/admin/restaurantes/${formData.get("restaurantId")}/productos?error=invalid-update`);
   }
 
-  await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+  await requireRestaurantOwnerOrSuperadmin(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/productos`);
   const admin = createAdminClient();
 
   if (!admin) {

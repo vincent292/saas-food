@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CalendarClock, Flame, Grid2X2, LayoutList, PackageCheck, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
+import { CalendarClock, Flame, Grid2X2, LayoutList, LockKeyhole, PackageCheck, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { createCategoryAction, createProductAction, updateProductAction } from "@/app/admin/actions";
@@ -60,6 +60,7 @@ const saveErrorMessages: Record<string, string> = {
   "invalid-update": "Revisa los datos del producto.",
   "storage-upload": "La imagen no pudo subirse. Puedes guardar sin foto o probar con otra imagen.",
   "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para guardar sin bloqueo de RLS.",
+  "owner-required": "Solo el dueno de la cuenta puede cambiar catalogo, precios y promociones.",
   "42501": "Tu usuario no tiene permiso para guardar en este restaurante.",
   "23503": "La categoria seleccionada no pertenece a este restaurante.",
   "product-create": "No se pudo crear el producto.",
@@ -108,6 +109,7 @@ export function ProductManagementClient({
   updated,
   error,
   businessType,
+  canManageProducts,
 }: {
   restaurantId: string;
   products: Product[];
@@ -115,6 +117,7 @@ export function ProductManagementClient({
   configuration: ProductConfiguration;
   inventoryItems: InventoryItem[];
   businessType: BusinessType;
+  canManageProducts: boolean;
   created?: string;
   categoryCreated?: string;
   updated?: string;
@@ -165,7 +168,8 @@ export function ProductManagementClient({
       .sort((first, second) => first.sortOrder - second.sortOrder || first.name.localeCompare(second.name));
   }, [categoryById, categoryId, products, query, status]);
   const selectedCategoryName = categoryId !== "all" && categoryId !== "none" ? categoryById.get(categoryId)?.name : "";
-  const canCreateInSelectedCategory = Boolean(selectedCategoryName);
+  const hasSelectedCategory = Boolean(selectedCategoryName);
+  const canCreateInSelectedCategory = canManageProducts && hasSelectedCategory;
 
   const variantsJson = useMemo(() => JSON.stringify(variants.filter((variant) => variant.name.trim())), [variants]);
   const optionGroupsJson = useMemo(
@@ -196,20 +200,42 @@ export function ProductManagementClient({
             <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">Categorias, {itemsLabel}, variantes y opciones del {catalogTitle.toLowerCase()} en una sola superficie.</p>
           </div>
           <div className="grid gap-2 sm:flex sm:flex-wrap">
-            <button className={buttonClasses("secondary", "w-full sm:w-auto")} onClick={() => setCategoryModalOpen(true)} type="button">
+            <button
+              className={buttonClasses("secondary", "w-full sm:w-auto")}
+              disabled={!canManageProducts}
+              onClick={() => setCategoryModalOpen(true)}
+              title={canManageProducts ? "Crear categoria" : "Solo el dueno puede crear categorias"}
+              type="button"
+            >
               <Plus className="h-4 w-4" />
-              Nueva categoria
+              {canManageProducts ? "Nueva categoria" : "Solo lectura"}
             </button>
             <button
               className={buttonClasses(canCreateInSelectedCategory ? "primary" : "secondary", "w-full sm:w-auto")}
               disabled={!canCreateInSelectedCategory}
               onClick={() => openCreateProductModal()}
-              title={canCreateInSelectedCategory ? `Crear en ${selectedCategoryName}` : "Selecciona una categoria primero"}
+              title={!canManageProducts ? "Solo el dueno puede cambiar productos y precios" : canCreateInSelectedCategory ? `Crear en ${selectedCategoryName}` : "Selecciona una categoria primero"}
               type="button"
             >
               <Plus className="h-4 w-4" />
-              {canCreateInSelectedCategory ? `${itemLabel[0].toUpperCase()}${itemLabel.slice(1)} en ${selectedCategoryName}` : "Selecciona categoria"}
+              {!canManageProducts
+                ? "Solo el dueno"
+                : canCreateInSelectedCategory
+                  ? `${itemLabel[0].toUpperCase()}${itemLabel.slice(1)} en ${selectedCategoryName}`
+                  : "Selecciona categoria"}
             </button>
+            {canManageProducts ? (
+              <button
+                className={buttonClasses("secondary", "w-full sm:w-auto")}
+                disabled={!canCreateInSelectedCategory}
+                onClick={() => openCreateProductModal("promotion")}
+                title={canCreateInSelectedCategory ? `Crear promo en ${selectedCategoryName}` : "Selecciona una categoria primero"}
+                type="button"
+              >
+                <Flame className="h-4 w-4" />
+                Nueva promo
+              </button>
+            ) : null}
           </div>
         </div>
         <div className="mt-5">
@@ -223,6 +249,19 @@ export function ProductManagementClient({
       {error ? (
         <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">
           No se pudo guardar. {saveErrorMessages[error] ?? `Detalle: ${error}.`}
+        </div>
+      ) : null}
+      {!canManageProducts ? (
+        <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--color-card-muted)] p-4 sm:flex-row sm:items-start">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--primary-light)] text-[var(--primary)]">
+            <LockKeyhole className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="font-black text-[var(--text)]">Catalogo en modo consulta</p>
+            <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
+              El dueno de la cuenta controla productos, precios, promociones, variantes y categorias. Desde esta sucursal puedes revisar el catalogo operativo sin modificarlo.
+            </p>
+          </div>
         </div>
       ) : null}
 
@@ -263,7 +302,9 @@ export function ProductManagementClient({
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Categorias</p>
             <h3 className="text-xl font-black text-[var(--text)]">Secciones del {catalogTitle.toLowerCase()}</h3>
           </div>
-          <p className="text-sm font-semibold text-[var(--muted)]">Selecciona una categoria para crear productos ahi dentro.</p>
+          <p className="text-sm font-semibold text-[var(--muted)]">
+            {canManageProducts ? "Selecciona una categoria para crear productos ahi dentro." : "Filtra por categoria para revisar el catalogo de esta sucursal."}
+          </p>
         </div>
         <div className="admin-scrollbar mt-4 flex gap-3 overflow-x-auto pb-1">
           <CategoryTile active={categoryId === "all"} count={products.length} label="Todas" onClick={() => setCategoryId("all")} />
@@ -287,15 +328,23 @@ export function ProductManagementClient({
             <SectionTitle
               title={categoryId === "all" ? "Todos los productos" : categoryById.get(categoryId)?.name ?? "Sin categoria"}
               description={
-                canCreateInSelectedCategory
+                !canManageProducts
+                  ? "Catalogo visible para operacion. Los cambios los realiza el dueno de la cuenta."
+                  : canCreateInSelectedCategory
                   ? `Creando y filtrando dentro de ${selectedCategoryName}.`
                   : "Selecciona una categoria para activar la creacion contextual."
               }
             />
           </div>
-          <button className={buttonClasses(canCreateInSelectedCategory ? "primary" : "secondary", "w-full sm:w-auto")} disabled={!canCreateInSelectedCategory} onClick={() => openCreateProductModal()} type="button">
+          <button
+            className={buttonClasses(canCreateInSelectedCategory ? "primary" : "secondary", "w-full sm:w-auto")}
+            disabled={!canCreateInSelectedCategory}
+            onClick={() => openCreateProductModal()}
+            title={!canManageProducts ? "Solo el dueno puede cambiar productos y precios" : canCreateInSelectedCategory ? `Crear en ${selectedCategoryName}` : "Elige una categoria"}
+            type="button"
+          >
             <Plus className="h-4 w-4" />
-            {canCreateInSelectedCategory ? `Nuevo ${itemLabel}` : "Elige categoria"}
+            {!canManageProducts ? "Solo lectura" : canCreateInSelectedCategory ? `Nuevo ${itemLabel}` : "Elige categoria"}
           </button>
         </div>
 
@@ -307,7 +356,7 @@ export function ProductManagementClient({
                   category={categoryById.get(product.categoryId)}
                   key={product.id}
                   optionGroupCount={optionGroupCountByProduct.get(product.id) ?? 0}
-                  onEdit={() => openEditProductModal(product)}
+                  onEdit={canManageProducts ? () => openEditProductModal(product) : undefined}
                   product={product}
                   variantCount={variantCountByProduct.get(product.id) ?? 0}
                 />
@@ -330,19 +379,34 @@ export function ProductManagementClient({
                     </p>
                   </div>
                   <p className="text-lg font-black text-[var(--primary)]">{formatMoney(product.price)}</p>
-                  <button className={buttonClasses("secondary")} onClick={() => openEditProductModal(product)} type="button">
-                    Editar
-                  </button>
+                  {canManageProducts ? (
+                    <button className={buttonClasses("secondary")} onClick={() => openEditProductModal(product)} type="button">
+                      Editar
+                    </button>
+                  ) : (
+                    <span className="inline-flex min-h-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--color-card-muted)] px-4 text-sm font-black text-[var(--muted)]">
+                      Solo lectura
+                    </span>
+                  )}
                 </Card>
               ))}
             </div>
           )
         ) : (
-          <EmptyState title={products.length ? "No hay productos con esos filtros" : "Todavia no tienes productos"} description={products.length ? "Ajusta la busqueda o cambia la categoria seleccionada." : `Crea el primer ${itemLabel} real para publicarlo en el ${catalogTitle.toLowerCase()}.`} />
+          <EmptyState
+            title={products.length ? "No hay productos con esos filtros" : "Todavia no hay productos"}
+            description={
+              products.length
+                ? "Ajusta la busqueda o cambia la categoria seleccionada."
+                : canManageProducts
+                  ? `Crea el primer ${itemLabel} real para publicarlo en el ${catalogTitle.toLowerCase()}.`
+                  : "El dueno todavia no cargo productos para este catalogo."
+            }
+          />
         )}
       </section>
 
-      {categoryModalOpen ? (
+      {canManageProducts && categoryModalOpen ? (
         <ModalShell eyebrow="Crear" title="Categoria" onClose={() => setCategoryModalOpen(false)}>
           <form action={createCategoryAction} className="space-y-4">
             <input name="restaurantId" type="hidden" value={restaurantId} />
@@ -376,7 +440,7 @@ export function ProductManagementClient({
         </ModalShell>
       ) : null}
 
-      {productModalOpen ? (
+      {canManageProducts && productModalOpen ? (
         <ModalShell eyebrow={editingProduct ? "Editar" : "Crear"} title="Producto" wide onClose={() => closeProductModal()}>
           <form action={editingProduct ? updateProductAction : createProductAction} className="space-y-5" key={editingProduct?.id ?? "new-product"}>
             <input name="restaurantId" type="hidden" value={restaurantId} />
@@ -614,16 +678,19 @@ export function ProductManagementClient({
     );
   }
 
-  function openCreateProductModal() {
+  function openCreateProductModal(preset: "simple" | "combo" | "promotion" | "lunch" = "simple") {
+    if (!canManageProducts || !hasSelectedCategory) {
+      return;
+    }
     setEditingProduct(null);
-    setVariants([emptyVariant(0)]);
-    setOptionGroups([]);
-    setProductKind("standard");
-    setSelectedDays([]);
+    applyPreset(preset);
     setProductModalOpen(true);
   }
 
   function openEditProductModal(product: Product) {
+    if (!canManageProducts) {
+      return;
+    }
     setEditingProduct(product);
     const productVariants = configuration.variants
       .filter((variant) => variant.productId === product.id)

@@ -9,7 +9,7 @@ import { PartnerLoginButton } from "@/components/auth/PartnerLoginButton";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { PublicCustomerAccountButton } from "@/components/customer/PublicCustomerAccountButton";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
-import { readUserLocation, writeUserLocation } from "@/lib/client/user-location";
+import { readUserLocation, USER_LOCATION_UPDATED_EVENT, writeUserLocation } from "@/lib/client/user-location";
 import type { PublicBusinessTypeCard, PublicCategoryCard, PublicDishCard, PublicRestaurantCard } from "@/lib/services/public-directory.service";
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
@@ -51,6 +51,27 @@ function compareByDistance(left: SearchRestaurantCard, right: SearchRestaurantCa
   if (typeof left.distanceKm === "number" && typeof right.distanceKm !== "number") return -1;
   if (typeof left.distanceKm !== "number" && typeof right.distanceKm === "number") return 1;
   return 0;
+}
+
+function nearestRestaurantCity(userPosition: GeoPoint, restaurants: PublicRestaurantCard[]) {
+  const closest = restaurants
+    .filter((card) => typeof card.restaurant.latitude === "number" && typeof card.restaurant.longitude === "number" && card.restaurant.city)
+    .map((card) => ({
+      city: card.restaurant.city,
+      distance: calculateDistanceKm(userPosition, {
+        latitude: card.restaurant.latitude ?? 0,
+        longitude: card.restaurant.longitude ?? 0,
+      }),
+    }))
+    .sort((left, right) => left.distance - right.distance)[0];
+
+  return closest?.city ?? "";
+}
+
+function isGeoPoint(value: unknown): value is GeoPoint {
+  if (!value || typeof value !== "object") return false;
+  const point = value as Partial<GeoPoint>;
+  return typeof point.latitude === "number" && typeof point.longitude === "number";
 }
 
 function directoryHref({ query, location, category, businessType }: { query?: string; location?: string; category?: string; businessType?: string }) {
@@ -172,12 +193,27 @@ export function HomeSearchAutocomplete({
       const storedLocation = readUserLocation();
       if (storedLocation) {
         setUserPosition(storedLocation);
+        setDetectedCity(nearestRestaurantCity(storedLocation, restaurants));
         setAutoLocationStatus("detected");
       }
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, []);
+  }, [restaurants]);
+
+  useEffect(() => {
+    function handleLocationUpdate(event: Event) {
+      const nextLocation = (event as CustomEvent<GeoPoint>).detail;
+      if (!isGeoPoint(nextLocation)) return;
+
+      setUserPosition(nextLocation);
+      setDetectedCity(nearestRestaurantCity(nextLocation, restaurants));
+      setAutoLocationStatus("detected");
+    }
+
+    window.addEventListener(USER_LOCATION_UPDATED_EVENT, handleLocationUpdate);
+    return () => window.removeEventListener(USER_LOCATION_UPDATED_EVENT, handleLocationUpdate);
+  }, [restaurants]);
 
   const closeSearch = useCallback(() => {
     if (isClosing) return;
@@ -280,26 +316,10 @@ export function HomeSearchAutocomplete({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         };
-        const restaurantsWithCoords = restaurants.filter((card) => typeof card.restaurant.latitude === "number" && typeof card.restaurant.longitude === "number" && card.restaurant.city);
-        if (!restaurantsWithCoords.length) {
-          setUserPosition(nextPosition);
-          setAutoLocationStatus("unavailable");
-          return;
-        }
-
-        const closest = restaurantsWithCoords
-          .map((card) => ({
-            city: card.restaurant.city,
-            distance: calculateDistanceKm(
-              nextPosition,
-              { latitude: card.restaurant.latitude ?? 0, longitude: card.restaurant.longitude ?? 0 },
-            ),
-          }))
-          .sort((left, right) => left.distance - right.distance)[0];
 
         setUserPosition(nextPosition);
         writeUserLocation(nextPosition);
-        setDetectedCity(closest?.city ?? "");
+        setDetectedCity(nearestRestaurantCity(nextPosition, restaurants));
         setAutoLocationStatus("detected");
       },
       (error) => setAutoLocationStatus(error.code === error.PERMISSION_DENIED ? "denied" : "unavailable"),

@@ -10,7 +10,7 @@ import { getOwnerBranchCapacity, getOwnerBranchSummaries } from "@/lib/services/
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
 export default async function OwnerBranchesPage({ searchParams }: { searchParams: Promise<{ created?: string }> }) {
-  const [{ created }, { ownerMemberships }] = await Promise.all([searchParams, getOwnerLayoutContext()]);
+  const [{ created }, { ownerMemberships }] = await Promise.all([searchParams, getOwnerLayoutContext({ active: "/dueno/sucursales" })]);
   const [capacity, summaries] = await Promise.all([getOwnerBranchCapacity(ownerMemberships), getOwnerBranchSummaries(ownerMemberships)]);
   const remaining = Math.max(0, capacity.limit - capacity.used);
 

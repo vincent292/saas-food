@@ -52,13 +52,16 @@ export function PublicCustomerAccountButton({
   }
 
   useEffect(() => {
-    void refreshAccount();
+    const initialRefresh = window.setTimeout(() => {
+      void refreshAccount();
+    }, 0);
     const supabase = createCustomerClient();
     const { data } = supabase.auth.onAuthStateChange(() => {
       void refreshAccount();
     });
     window.addEventListener("yopido:customer-account-changed", refreshAccount);
     return () => {
+      window.clearTimeout(initialRefresh);
       data.subscription.unsubscribe();
       window.removeEventListener("yopido:customer-account-changed", refreshAccount);
     };
@@ -82,6 +85,7 @@ export function PublicCustomerAccountButton({
       {open ? (
         <CustomerAccountModal
           account={account}
+          key={`${sessionEmail}:${account.profile?.updatedAt ?? account.profile?.id ?? "guest"}`}
           loading={loading}
           initialMode={initialMode}
           onClose={() => setOpen(false)}
@@ -128,14 +132,6 @@ function CustomerAccountModal({
     const fromProfile = account.profile?.fullName?.trim().split(/\s+/)[0];
     return fromProfile || sessionEmail.split("@")[0] || "";
   }, [account.profile?.fullName, sessionEmail]);
-
-  useEffect(() => {
-    setEmail(sessionEmail);
-    setFullName(account.profile?.fullName ?? "");
-    setPhone(account.profile?.phone ?? "");
-    setDocumentNumber(account.profile?.documentNumber ?? "");
-    setEditingProfile(!account.profile);
-  }, [account.profile, sessionEmail]);
 
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

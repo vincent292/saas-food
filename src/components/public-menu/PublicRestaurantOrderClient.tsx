@@ -380,7 +380,7 @@ export function PublicRestaurantOrderClient({
                 <h1 className="max-w-[16ch] text-[2rem] font-black leading-[1.02] drop-shadow-[0_2px_14px_rgb(0_0_0_/_0.28)] min-[390px]:text-[2.25rem] sm:max-w-2xl sm:text-5xl">{restaurant.name}</h1>
                 <p className="mt-1.5 line-clamp-1 max-w-[30rem] text-sm font-bold leading-5 text-white/78 drop-shadow-sm sm:text-base">{heroSpecialties}</p>
                 <div className="mt-3 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-2 border-t border-white/18 pt-3 text-white sm:mt-4 sm:gap-3">
-                  <HeroStat icon={<Clock3 className="h-[18px] w-[18px] text-[var(--accent)]" />} label="Entrega estimada" value="25-35 min" />
+                  <HeroStat icon={<Clock3 className="h-[18px] w-[18px] text-[var(--accent)]" />} label="Entrega estimada" value="Segun zona" />
                   <span className="h-8 w-px bg-white/22" />
                   <HeroStat icon={<Bike className="h-[18px] w-[18px] text-[var(--accent)]" />} label="Disponible" value="Delivery" />
                   <span className="h-8 w-px bg-white/22" />
@@ -1105,6 +1105,17 @@ function PublicOrderPanel({
   const [customerAddress, setCustomerAddress] = useState("");
   const [deliveryAddressDetail, setDeliveryAddressDetail] = useState("");
   const [deliveryMapsUrl, setDeliveryMapsUrl] = useState("");
+  const applySavedCustomerAddress = useCallback((address: PublicCustomerAccount["addresses"][number]) => {
+    setSelectedCustomerAddressId(address.id);
+    setCustomerAddress(address.address);
+    setDeliveryMapsUrl(address.mapsUrl ?? "");
+    if (address.latitude != null && address.longitude != null) {
+      setDeliveryCoordinates({
+        latitude: address.latitude,
+        longitude: address.longitude,
+      });
+    }
+  }, []);
   const handleDeliveryCoordinatesChange = useCallback(({ latitude, longitude, mapsUrl }: { latitude: number; longitude: number; mapsUrl: string }) => {
     setDeliveryCoordinates({ latitude, longitude });
     setDeliveryMapsUrl(mapsUrl);
@@ -1129,10 +1140,22 @@ function PublicOrderPanel({
         if (!active) return;
         setCustomerAccount(account);
         setCustomerAccountLoaded(true);
+        if (account.profile) {
+          setCustomerName(account.profile.fullName);
+          setCustomerPhone(account.profile.phone);
+          setCustomerEmail(account.profile.email);
+        }
+        const preferredAddress = account.addresses.find((address) => address.isDefault) ?? account.addresses[0];
+        if (preferredAddress) {
+          applySavedCustomerAddress(preferredAddress);
+        } else {
+          setSelectedCustomerAddressId("");
+        }
       } catch {
         if (!active) return;
         setCustomerAccount({ profile: null, addresses: [] });
         setCustomerAccountLoaded(true);
+        setSelectedCustomerAddressId("");
       }
     }
 
@@ -1142,38 +1165,7 @@ function PublicOrderPanel({
       active = false;
       window.removeEventListener(customerAccountChangedEvent, loadAccount);
     };
-  }, []);
-
-  useEffect(() => {
-    if (!customerAccount.profile) return;
-    setCustomerName(customerAccount.profile.fullName);
-    setCustomerPhone(customerAccount.profile.phone);
-    setCustomerEmail(customerAccount.profile.email);
-  }, [customerAccount.profile]);
-
-  useEffect(() => {
-    if (!customerAccount.addresses.length) {
-      setSelectedCustomerAddressId("");
-      return;
-    }
-
-    const currentStillExists = customerAccount.addresses.some((address) => address.id === selectedCustomerAddressId);
-    if (!currentStillExists) {
-      setSelectedCustomerAddressId((customerAccount.addresses.find((address) => address.isDefault) ?? customerAccount.addresses[0]).id);
-    }
-  }, [customerAccount.addresses, selectedCustomerAddressId]);
-
-  useEffect(() => {
-    if (orderType !== "delivery" || !selectedCustomerAddress) return;
-    setCustomerAddress(selectedCustomerAddress.address);
-    setDeliveryMapsUrl(selectedCustomerAddress.mapsUrl ?? "");
-    if (selectedCustomerAddress.latitude != null && selectedCustomerAddress.longitude != null) {
-      setDeliveryCoordinates({
-        latitude: selectedCustomerAddress.latitude,
-        longitude: selectedCustomerAddress.longitude,
-      });
-    }
-  }, [orderType, selectedCustomerAddress]);
+  }, [applySavedCustomerAddress]);
 
   const steps = useMemo<Array<{ key: OrderStepKey; label: string; icon: ReactNode }>>(
     () => [
@@ -1448,7 +1440,7 @@ function PublicOrderPanel({
                             selectedCustomerAddressId === address.id ? "border-[var(--primary)] bg-[var(--primary-light)]" : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--primary-light)]",
                           )}
                           key={address.id}
-                          onClick={() => setSelectedCustomerAddressId(address.id)}
+                          onClick={() => applySavedCustomerAddress(address)}
                           type="button"
                         >
                           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--primary)] text-white">

@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { getOwnerBranchCapacity } from "@/lib/services/owner-dashboard.service";
 
 export default async function NewOwnerBranchPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  const [{ error }, { ownerMemberships }] = await Promise.all([searchParams, getOwnerLayoutContext()]);
+  const [{ error }, { ownerMemberships }] = await Promise.all([searchParams, getOwnerLayoutContext({ active: "/dueno/sucursales/nueva" })]);
 
   if (!ownerMemberships.length) {
     redirect("/dueno");

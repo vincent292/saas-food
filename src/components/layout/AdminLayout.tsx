@@ -46,8 +46,18 @@ export async function AdminLayout({
 
   const memberships = profile.globalRole !== "superadmin" && restaurantId ? await membershipService.listActiveRestaurantsForUser(profile.id) : [];
 
-  if (restaurantId && profile.globalRole !== "superadmin" && !memberships.some((membership) => membership.restaurantId === restaurantId)) {
+  const currentMembership = restaurantId ? memberships.find((membership) => membership.restaurantId === restaurantId) : undefined;
+  const hasCurrentMembership = restaurantId ? memberships.some((membership) => membership.restaurantId === restaurantId) : false;
+
+  if (restaurantId && profile.globalRole !== "superadmin" && !hasCurrentMembership) {
     redirect("/admin?error=restaurant-access-denied");
+  }
+
+  const ownsCurrentRestaurant =
+    currentMembership?.role === "restaurant_admin" && currentMembership.restaurant.ownerUserId === profile.id;
+
+  if (restaurantId && profile.globalRole !== "superadmin" && ownsCurrentRestaurant && !profile.ownerProfileComplete) {
+    redirect("/dueno/cuenta?required=1");
   }
 
   const [billingAlert, pendingOrderAlerts] = await Promise.all([

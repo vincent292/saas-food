@@ -30,6 +30,16 @@ export type OwnerBranchCapacity = {
   monthlyTotal: number;
 };
 
+export type OwnerActivationSummary = OwnerBranchCapacity & {
+  archived: number;
+  inactive: number;
+  suspended: number;
+  total: number;
+  nonArchived: number;
+  remaining: number;
+  accountSuspended: boolean;
+};
+
 export type OwnerBranchCapacityRequest = {
   id: string;
   sourceRestaurantId: string;
@@ -745,6 +755,73 @@ export async function getOwnerBranchCapacity(memberships: UserRestaurantMembersh
     primaryPriceMonthly: primaryPrice,
     additionalPriceMonthly: additionalPrice,
     monthlyTotal: primaryPrice + Math.max(0, memberships.length - 1) * additionalPrice,
+  };
+}
+
+async function getFullPlanPricing() {
+  const supabase = await createClient();
+  const { data: plans } = await supabase
+    .from("subscription_plans")
+    .select("name,price_monthly,additional_restaurant_price_monthly")
+    .eq("key", "premium")
+    .eq("is_active", true)
+    .limit(1);
+  type CapacityPlanRow = {
+    name?: string | null;
+    price_monthly?: number | string | null;
+    additional_restaurant_price_monthly?: number | string | null;
+  };
+  const planRows = ((plans ?? []) as unknown) as CapacityPlanRow[];
+  const fullPlan = planRows[0];
+
+  return {
+    planName: fullPlan?.name ?? fullPlanName,
+    primaryPriceMonthly: Number(fullPlan?.price_monthly ?? primaryLocationPriceMonthly),
+    additionalPriceMonthly: Number(fullPlan?.additional_restaurant_price_monthly ?? additionalLocationPriceMonthly),
+  };
+}
+
+export async function getOwnerActivationSummary(ownerUserId: string): Promise<OwnerActivationSummary> {
+  const supabase = await createClient();
+  const admin = createAdminClient();
+  const accessClient = admin ?? supabase;
+  const [restaurantsResult, entitlementResult, pricing] = await Promise.all([
+    accessClient.from("restaurants").select("id,status,deleted_at").eq("owner_user_id", ownerUserId),
+    accessClient.from("owner_branch_entitlements").select("branch_limit").eq("owner_user_id", ownerUserId).maybeSingle(),
+    getFullPlanPricing(),
+  ]);
+
+  if (restaurantsResult.error) {
+    throw new Error(`owner-restaurants-read:${restaurantsResult.error.code}`);
+  }
+
+  if (entitlementResult.error) {
+    throw new Error(`owner-entitlement-read:${entitlementResult.error.code}`);
+  }
+
+  const restaurants = restaurantsResult.data ?? [];
+  const active = restaurants.filter((restaurant) => restaurant.status === "active" && !restaurant.deleted_at).length;
+  const suspended = restaurants.filter((restaurant) => restaurant.status === "suspended" && !restaurant.deleted_at).length;
+  const inactive = restaurants.filter((restaurant) => restaurant.status === "inactive" && !restaurant.deleted_at).length;
+  const archived = restaurants.filter((restaurant) => restaurant.deleted_at).length;
+  const nonArchived = restaurants.length - archived;
+  const limit = Math.max(1, Number(entitlementResult.data?.branch_limit ?? 1));
+  const remaining = Math.max(0, limit - active);
+
+  return {
+    used: active,
+    limit,
+    remaining,
+    archived,
+    inactive,
+    suspended,
+    total: restaurants.length,
+    nonArchived,
+    accountSuspended: nonArchived > 0 && active === 0 && suspended === nonArchived,
+    planName: pricing.planName,
+    primaryPriceMonthly: pricing.primaryPriceMonthly,
+    additionalPriceMonthly: pricing.additionalPriceMonthly,
+    monthlyTotal: active ? pricing.primaryPriceMonthly + Math.max(0, active - 1) * pricing.additionalPriceMonthly : 0,
   };
 }
 

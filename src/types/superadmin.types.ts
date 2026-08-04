@@ -116,6 +116,7 @@ export type RestaurantOperationSummary = {
   name: string;
   slug: string;
   status: RestaurantStatus;
+  ownerUserId?: string;
   ownerEmail: string;
   city: string;
   businessType: BusinessType;

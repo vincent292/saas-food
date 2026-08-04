@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import {
-  AlertTriangle,
   ArrowRight,
   Beef,
   Briefcase,
@@ -29,16 +28,16 @@ import {
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { PartnerLoginButton } from "@/components/auth/PartnerLoginButton";
 import { PublicCustomerAccountButton } from "@/components/customer/PublicCustomerAccountButton";
+import { HomeLocationProvider, HomeNearbyHighlights, HomeNearbyMobileExplorer, HomeNearbyRestaurantSection } from "@/components/home/HomeNearbyDirectory";
 import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
 import { PendingCartNotice } from "@/components/home/PendingCartNotice";
-import { RestaurantDistanceBadge } from "@/components/location/RestaurantDistanceBadge";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { Card } from "@/components/ui/Card";
 import {
   businessCatalogLabelTitle,
   restaurantBusinessTypeLabel,
 } from "@/lib/restaurant-directory-options";
-import { publicDirectoryService, type PublicBusinessTypeCard, type PublicCategoryCard, type PublicDishCard, type PublicRestaurantCard } from "@/lib/services/public-directory.service";
+import { publicDirectoryService, type PublicBusinessTypeCard, type PublicDishCard, type PublicRestaurantCard } from "@/lib/services/public-directory.service";
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
@@ -74,6 +73,7 @@ export default async function Home({
 
   return (
     <main className="public-brand-theme min-h-screen bg-[#12355B] text-[var(--color-heading)] lg:bg-[var(--color-background)]">
+      <HomeLocationProvider restaurants={baseDirectory.restaurants}>
       <section className="relative overflow-hidden rounded-b-[2rem] bg-[#12355B] px-4 pb-5 pt-[calc(0.85rem+env(safe-area-inset-top))] text-[var(--color-on-primary)] shadow-[0_28px_80px_rgb(8_36_65_/_0.2)] sm:px-6 sm:pb-7 lg:overflow-visible lg:rounded-b-[2.5rem] lg:bg-[#12355B] lg:px-8 lg:pb-14 lg:pt-6 lg:shadow-none">
         <div className="relative z-10 mx-auto max-w-7xl">
           <header className="flex items-center justify-between gap-3 sm:gap-4">
@@ -179,7 +179,7 @@ export default async function Home({
         <PendingCartNotice />
 
         <section id="explorar">
-          <MobileDirectoryExplorer
+          <HomeNearbyMobileExplorer
             businessTypes={baseDirectory.businessTypeCards}
             categories={rubro ? directory.categoryCards : []}
             categoria={categoria}
@@ -235,40 +235,13 @@ export default async function Home({
           </section>
         ) : null}
 
-        {heroRestaurants.length ? (
-          <section className="hidden gap-3 rounded-[1.75rem] border border-[var(--border)] bg-[var(--color-surface)] p-3 lg:grid lg:grid-cols-3">
-            {heroRestaurants.slice(0, 3).map((card, index) => (
-              <Link className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 rounded-[1.25rem] bg-[var(--surface)] p-3 shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:ring-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={publicRestaurantPath(card.restaurant.slug)} key={card.restaurant.id}>
-                <RestaurantLogo card={card} size="sm" />
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-black">{card.restaurant.name}</span>
-                  <span className="block truncate text-xs font-semibold text-[var(--color-secondary-text)]">
-                    {card.isTemporarilyClosed ? "Cerrado temporalmente" : card.categories.slice(0, 2).join(" | ") || card.restaurant.city || `${businessCatalogLabelTitle(card.restaurant.businessType)} disponible`}
-                  </span>
-                </span>
-                <span className={cn("grid h-8 w-8 place-items-center rounded-full text-[var(--primary)]", card.isTemporarilyClosed ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--accent)]")}>
-                  {card.isTemporarilyClosed ? <AlertTriangle className="h-4 w-4" /> : index + 1}
-                </span>
-              </Link>
-            ))}
-          </section>
-        ) : null}
+        <HomeNearbyHighlights restaurants={directory.restaurants} />
 
-        <section className="hidden space-y-4 lg:block" id="restaurantes">
-          <SectionHeader eyebrow="Directorio" title={selectedCategoryLabel ? `Negocios de ${selectedCategoryLabel}` : selectedBusinessTypeLabel ? selectedBusinessTypeLabel : "Negocios para pedir"} />
-          {directory.restaurants.length ? (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {directory.restaurants.map((card) => (
-                <RestaurantCard card={card} key={card.restaurant.id} />
-              ))}
-            </div>
-          ) : (
-            <Card className="p-6 text-center">
-              <p className="text-lg font-black">Sin negocios encontrados</p>
-              <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Prueba con otra busqueda, rubro o categoria.</p>
-            </Card>
-          )}
-        </section>
+        <HomeNearbyRestaurantSection
+          directory={directory.restaurants}
+          selectedBusinessTypeLabel={selectedBusinessTypeLabel}
+          selectedCategoryLabel={selectedCategoryLabel}
+        />
 
         <section className="grid gap-6 lg:grid-cols-2">
           <RankingPanel cards={directory.mostVisited} icon={<TrendingUp className="h-5 w-5" />} metric="visitas esta semana" title="Mas visitados" value={(card) => card.visits7d} />
@@ -288,6 +261,7 @@ export default async function Home({
           )}
         </section>
       </div>
+      </HomeLocationProvider>
     </main>
   );
 }
@@ -298,168 +272,6 @@ function SectionHeader({ eyebrow, title }: { eyebrow: string; title: string }) {
       <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">{eyebrow}</p>
       <h2 className="mt-1 text-2xl font-black sm:text-3xl">{title}</h2>
     </div>
-  );
-}
-
-function MobileDirectoryExplorer({
-  businessTypes,
-  categories,
-  categoria,
-  directory,
-  q,
-  rubro,
-  selectedBusinessTypeLabel,
-  selectedCategoryLabel,
-  ubicacion,
-}: {
-  businessTypes: PublicBusinessTypeCard[];
-  categories: PublicCategoryCard[];
-  categoria: string;
-  directory: PublicRestaurantCard[];
-  q: string;
-  rubro: string;
-  selectedBusinessTypeLabel: string;
-  selectedCategoryLabel: string;
-  ubicacion: string;
-}) {
-  const title = selectedCategoryLabel || selectedBusinessTypeLabel || "Negocios para pedir";
-  const resultLabel = directory.length === 1 ? "1 negocio" : `${directory.length} negocios`;
-  const clearHref = ubicacion ? `/?ubicacion=${encodeURIComponent(ubicacion)}#explorar` : "/#explorar";
-
-  return (
-    <div className="lg:hidden">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">Explorar</p>
-          <h2 className="mt-1 text-2xl font-black leading-tight">Encuentra tu negocio</h2>
-        </div>
-        {rubro || categoria || q ? (
-          <Link className="shrink-0 rounded-full bg-[var(--primary-light)] px-3 py-2 text-xs font-black text-[var(--primary)]" href={clearHref}>
-            Limpiar
-          </Link>
-        ) : null}
-      </div>
-
-      <div className="public-scrollbar -mx-4 mt-4 overflow-x-auto px-4 pb-2">
-        <div className="flex snap-x gap-2 pr-4">
-          {businessTypes.map((businessType) => {
-            const params = new URLSearchParams();
-            if (q) params.set("q", q);
-            if (ubicacion) params.set("ubicacion", ubicacion);
-            params.set("rubro", businessType.value);
-            return <MobileBusinessTypeChip active={rubro === businessType.value} businessType={businessType} href={`/?${params.toString()}#explorar`} key={businessType.value} />;
-          })}
-        </div>
-      </div>
-
-      {rubro ? (
-        <div className="mt-4 rounded-[1.35rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_16px_42px_rgb(18_53_91_/_0.08)]">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-black text-[var(--primary)]">{selectedBusinessTypeLabel || "Rubro seleccionado"}</p>
-              <p className="text-xs font-semibold text-[var(--color-secondary-text)]">Elige categoria o mira todos</p>
-            </div>
-            <Link className="shrink-0 rounded-full bg-[var(--accent)] px-3 py-2 text-xs font-black text-[var(--primary)]" href={clearHref}>
-              Todos
-            </Link>
-          </div>
-          {categories.length ? (
-            <div className="public-scrollbar -mx-3 mt-3 overflow-x-auto px-3 pb-1">
-              <div className="flex snap-x gap-2 pr-3">
-                {categories.map((category) => {
-                  const params = new URLSearchParams();
-                  if (q) params.set("q", q);
-                  if (ubicacion) params.set("ubicacion", ubicacion);
-                  if (category.businessType) params.set("rubro", category.businessType);
-                  params.set("categoria", category.value);
-                  return <MobileCategoryChip active={categoria === category.value} category={category} href={`/?${params.toString()}#explorar`} key={category.value} />;
-                })}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mt-5">
-        <div className="mb-3 flex items-end justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">Resultados</p>
-            <h3 className="truncate text-xl font-black">{title}</h3>
-          </div>
-          <span className="shrink-0 rounded-full bg-[var(--color-surface)] px-3 py-1.5 text-xs font-black text-[var(--color-secondary-text)] ring-1 ring-[var(--border)]">{resultLabel}</span>
-        </div>
-
-        {directory.length ? (
-          <div className="grid gap-2 rounded-[1.35rem] border border-[var(--border)] bg-[var(--color-surface)] p-2">
-            {directory.map((card) => (
-              <MobileRestaurantResult card={card} key={card.restaurant.id} />
-            ))}
-          </div>
-        ) : (
-          <Card className="p-5 text-center">
-            <p className="text-base font-black">Sin negocios encontrados</p>
-            <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Prueba otro rubro, categoria o busqueda.</p>
-          </Card>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MobileBusinessTypeChip({ active, businessType, href }: { active: boolean; businessType: PublicBusinessTypeCard; href: string }) {
-  return (
-    <Link
-      className={cn(
-        "flex min-h-12 shrink-0 snap-start items-center gap-2 rounded-full border px-3 text-sm font-black shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
-        active ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--primary)]" : "border-[var(--border)] bg-[var(--surface)] text-[var(--color-heading)]",
-      )}
-      href={href}
-    >
-      <span className={cn("grid h-8 w-8 place-items-center rounded-full", active ? "bg-white/65" : "bg-[var(--primary-light)]", businessTypeIconTone(businessType.value))}>
-        <BusinessTypeIcon value={businessType.value} />
-      </span>
-      <span>{businessType.label}</span>
-    </Link>
-  );
-}
-
-function MobileCategoryChip({ active, category, href }: { active: boolean; category: { value: string; label: string; count: number }; href: string }) {
-  return (
-    <Link
-      className={cn(
-        "flex min-h-11 shrink-0 snap-start items-center gap-2 rounded-full border px-3 text-xs font-black shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
-        active ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--primary)]" : "border-[var(--border)] bg-white text-[var(--color-heading)]",
-      )}
-      href={href}
-    >
-      <span className={cn("grid h-7 w-7 place-items-center rounded-full", active ? "bg-white/65" : categoryIconTone(category.value, category.label))}>
-        <CategoryIcon label={category.label} value={category.value} />
-      </span>
-      <span>{category.label}</span>
-      <span className="text-[10px] text-[var(--color-secondary-text)]">{category.count}</span>
-    </Link>
-  );
-}
-
-function MobileRestaurantResult({ card }: { card: PublicRestaurantCard }) {
-  return (
-    <Link className="grid grid-cols-[64px_minmax(0,1fr)_36px] items-center gap-3 rounded-[1.05rem] bg-[var(--surface)] p-3 shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:ring-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={publicRestaurantPath(card.restaurant.slug)}>
-      <RestaurantLogo card={card} size="sm" />
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-black">{card.restaurant.name}</span>
-        <span className="mt-0.5 block truncate text-xs font-semibold text-[var(--color-secondary-text)]">
-          {card.isTemporarilyClosed ? "Cerrado temporalmente" : card.categories.slice(0, 2).join(" | ") || card.restaurant.city || `${businessCatalogLabelTitle(card.restaurant.businessType)} disponible`}
-        </span>
-        {typeof card.restaurant.latitude === "number" && typeof card.restaurant.longitude === "number" ? (
-          <span className="mt-1 block">
-            <RestaurantDistanceBadge latitude={card.restaurant.latitude} longitude={card.restaurant.longitude} variant="mini" />
-          </span>
-        ) : null}
-      </span>
-      <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)]">
-        <ArrowRight className="h-4 w-4" />
-      </span>
-    </Link>
   );
 }
 
@@ -715,69 +527,6 @@ function RestaurantLogo({ card, size = "md" }: { card: PublicRestaurantCard; siz
     <span className={cn("grid shrink-0 place-items-center overflow-hidden bg-[var(--primary)] text-xl font-black text-[var(--color-on-primary)] ring-1 ring-[var(--border)]", className)}>
       {isImage ? <Image alt={card.restaurant.name} className="h-full w-full object-cover" height={80} src={card.restaurant.logoUrl} width={80} /> : <span aria-hidden="true">{textLogo || <Store className="h-5 w-5" />}</span>}
     </span>
-  );
-}
-
-function RestaurantCard({ card }: { card: PublicRestaurantCard }) {
-  const imageSrc = isDisplayImage(card.restaurant.bannerUrl) ? card.restaurant.bannerUrl : defaultProductImage;
-
-  return (
-    <Link className="group block h-full rounded-[1.35rem] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={publicRestaurantPath(card.restaurant.slug)}>
-    <Card className="flex h-full flex-col overflow-hidden p-0 transition group-hover:-translate-y-0.5 group-hover:shadow-md">
-      <div className="relative h-44 bg-[var(--primary-light)]">
-        <Image alt={card.restaurant.name} className="object-cover" fill sizes="(min-width:1280px) 33vw, (min-width:768px) 50vw, 100vw" src={imageSrc} />
-        <div className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-strong)] via-[var(--color-image-overlay-medium)] to-transparent" />
-        <span className="absolute bottom-3 left-3 max-w-[75%] truncate rounded-full bg-white/92 px-3 py-1 text-xs font-black text-[var(--primary)] backdrop-blur">
-          {card.categories[0] || card.restaurant.city || `${businessCatalogLabelTitle(card.restaurant.businessType)} disponible`}
-        </span>
-        {card.currentAnnouncement ? (
-          <span className={cn("absolute left-3 top-3 inline-flex max-w-[78%] items-center gap-1 truncate rounded-full px-2.5 py-1 text-xs font-black shadow-sm backdrop-blur", card.isTemporarilyClosed ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-white/92 text-[var(--primary)]")}>
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{card.isTemporarilyClosed ? "Cerrado hoy" : card.currentAnnouncement.title}</span>
-          </span>
-        ) : null}
-        {card.orders30d ? <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">{card.orders30d} pedidos</span> : null}
-      </div>
-      <div className="flex flex-1 flex-col p-4">
-        <div className="flex items-start gap-3">
-          <RestaurantLogo card={card} size="sm" />
-          <div className="min-w-0 flex-1">
-            <h3 className="truncate text-xl font-black">{card.restaurant.name}</h3>
-            <p className="mt-1 truncate text-sm font-semibold text-[var(--color-secondary-text)]">
-              {card.isTemporarilyClosed ? card.currentAnnouncement?.title || "Cerrado temporalmente" : card.restaurant.city || card.restaurant.address || publicRestaurantPath(card.restaurant.slug)}
-            </p>
-            <div className="mt-2">
-              <RestaurantDistanceBadge latitude={card.restaurant.latitude} longitude={card.restaurant.longitude} variant="card" />
-            </div>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {card.categories.slice(0, 3).map((category) => (
-                <span className="rounded-full bg-[var(--primary-light)] px-2.5 py-1 text-xs font-black text-[var(--primary)]" key={category}>
-                  {category}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-        {card.currentAnnouncement ? (
-          <p className={cn("mt-4 line-clamp-2 min-h-10 text-sm font-semibold", card.isTemporarilyClosed ? "text-[var(--color-warning-strong)]" : "text-[var(--color-secondary-text)]")}>
-            {card.currentAnnouncement.body || card.currentAnnouncement.title}
-          </p>
-        ) : card.popularProducts.length ? (
-          <p className="mt-4 line-clamp-2 min-h-10 text-sm font-semibold text-[var(--color-secondary-text)]">Popular: {card.popularProducts.join(", ")}</p>
-        ) : (
-          <p className="mt-4 min-h-10 text-sm font-semibold text-[var(--color-secondary-text)]">{businessCatalogLabelTitle(card.restaurant.businessType)} activo para revisar y pedir directo.</p>
-        )}
-        <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-black text-[var(--color-secondary-text)]">
-          <span className="rounded-2xl bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]">{card.visits7d} visitas semana</span>
-          <span className="rounded-2xl bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]">{card.orders30d} pedidos 30d</span>
-        </div>
-        <span className="mt-auto inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 text-sm font-black text-[var(--primary)] shadow-[var(--shadow-glow)] transition group-hover:bg-[#d9ff22]">
-          Ver {businessCatalogLabelTitle(card.restaurant.businessType).toLowerCase()}
-          <ArrowRight className="h-4 w-4" />
-        </span>
-      </div>
-    </Card>
-    </Link>
   );
 }
 

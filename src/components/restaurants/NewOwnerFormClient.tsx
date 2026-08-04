@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 
 const errorMessages: Record<string, string> = {
-  invalid: "Revisa nombre y correo del dueno.",
+  invalid: "Revisa nombre, correo, telefono, carnet y fecha de nacimiento del dueno.",
   "owner-email-exists": "Ese correo ya existe. Usa otro correo para crear un nuevo dueno.",
   "owner-create": "No se pudo crear el usuario. Revisa Supabase Auth e intenta nuevamente.",
   "profile-create": "El usuario se creo, pero no se pudo guardar el perfil. Revisa la tabla profiles.",
@@ -65,6 +65,15 @@ export function NewOwnerFormClient() {
         />
         <Input defaultValue={values.ownerName} name="ownerName" placeholder="Nombre del dueno" required />
         <Input defaultValue={values.ownerEmail} name="ownerEmail" placeholder="correo@negocio.com" required type="email" />
+        <Input defaultValue={values.ownerPhone} name="ownerPhone" placeholder="Telefono o WhatsApp" required />
+        <Input defaultValue={values.ownerDocumentNumber} name="ownerDocumentNumber" placeholder="Carnet / documento" required />
+        <label className="grid gap-1.5">
+          <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Fecha de nacimiento</span>
+          <Input defaultValue={values.ownerBirthDate} name="ownerBirthDate" required type="date" />
+          <span className="text-xs font-semibold text-[var(--color-secondary-text)]">
+            Dato obligatorio para validar identidad del titular. Debe ser mayor de edad.
+          </span>
+        </label>
         <label className="grid gap-1.5">
           <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Sucursales habilitadas</span>
           <Input defaultValue={values.branchLimit ?? "1"} min={1} name="branchLimit" required type="number" />

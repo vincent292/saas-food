@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, type ReactNode } from "react";
-import { Building2 } from "lucide-react";
+import { useActionState, useState, type ReactNode } from "react";
+import { ArrowRight, Building2, Copy } from "lucide-react";
 import { createOwnedRestaurantFormAction, type CreateRestaurantFormState } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
@@ -17,7 +17,7 @@ import type { BusinessType } from "@/types/restaurant.types";
 const errorMessages: Record<string, string> = {
   invalid: "Revisa los datos obligatorios.",
   "owner-only": "Este formulario es para duenos de negocio, no para superadmin.",
-  "restaurant-exists": "Ya tienes un restaurante base. Para otra sucursal usa el flujo de sucursales.",
+  "restaurant-exists": "Ya tienes una sucursal activa. Para otra sucursal usa el flujo de sucursales.",
   "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para crear el restaurante desde este flujo.",
   "slug-exists": "Ese slug publico ya esta en uso. Prueba con otro.",
   "storage-upload": "No se pudieron subir las imagenes. Intenta con archivos mas livianos.",
@@ -29,21 +29,57 @@ const errorMessages: Record<string, string> = {
 
 const initialState: CreateRestaurantFormState = {};
 
-export function OwnerRestaurantCreateFormClient() {
+export function OwnerRestaurantCreateFormClient({
+  description = "Completa los datos publicos de tu negocio. Luego entraras al panel para crear productos, horarios, caja e inventario.",
+  submitLabel = "Crear mi restaurante",
+  successTitle = "Restaurante creado",
+  title = "Datos de tu restaurante",
+}: {
+  description?: string;
+  submitLabel?: string;
+  successTitle?: string;
+  title?: string;
+}) {
   const [state, formAction, pending] = useActionState(createOwnedRestaurantFormAction, initialState);
   const router = useRouter();
+  const [copied, setCopied] = useState(false);
   const values = state.values ?? {};
   const businessType = (values.businessType || "food") as BusinessType;
   const publicCategory = values.publicCategory || defaultRestaurantCategory(businessType);
-  const isFinishing = Boolean(state.success);
+  const redirectTo = state.redirectTo ?? "/dueno";
 
-  useEffect(() => {
-    if (!state.success) {
-      return;
-    }
-
-    router.replace(state.redirectTo ?? "/dueno");
-  }, [router, state.redirectTo, state.success]);
+  if (state.success) {
+    return (
+      <Card className="space-y-4 border-[var(--color-success-soft)] bg-[var(--color-success-soft)]">
+        <div>
+          <p className="text-xl font-black text-[var(--color-success-strong)]">{successTitle}</p>
+          <p className="mt-2 text-sm font-semibold leading-6 text-[var(--color-success-strong)]">
+            El responsable de esta sucursal debe iniciar sesion con esta contrasena temporal y luego crear una propia.
+          </p>
+        </div>
+        {state.temporaryPassword ? (
+          <div className="grid gap-2 rounded-2xl bg-white/85 p-3 text-[var(--color-heading)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <code className="select-all break-all text-base font-black">{state.temporaryPassword}</code>
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-4 text-sm font-bold text-[var(--color-on-primary)]"
+              onClick={() => {
+                navigator.clipboard?.writeText(state.temporaryPassword ?? "");
+                setCopied(true);
+              }}
+              type="button"
+            >
+              <Copy className="h-4 w-4" />
+              {copied ? "Copiada" : "Copiar"}
+            </button>
+          </div>
+        ) : null}
+        <Button className="w-full sm:w-auto" onClick={() => router.replace(redirectTo)} type="button">
+          Entrar al panel
+          <ArrowRight className="h-4 w-4" />
+        </Button>
+      </Card>
+    );
+  }
 
   return (
     <form action={formAction}>
@@ -56,8 +92,8 @@ export function OwnerRestaurantCreateFormClient() {
       <Card className="grid gap-4 md:grid-cols-2">
         <SectionTitle
           className="md:col-span-2"
-          description="Completa los datos publicos de tu negocio. Luego entraras al panel para crear productos, horarios, caja e inventario."
-          title="Datos de tu restaurante"
+          description={description}
+          title={title}
         />
         <Input defaultValue={values.name} name="name" placeholder="Nombre comercial" required />
         <Input defaultValue={values.slug} name="slug" placeholder="Slug publico, ej. cafeteria-luna" />
@@ -122,28 +158,27 @@ export function OwnerRestaurantCreateFormClient() {
         />
         <Input defaultValue={values.branchUserName} name="branchUserName" placeholder="Nombre del responsable" required />
         <Input defaultValue={values.branchUserEmail} name="branchUserEmail" placeholder="responsable@sucursal.com" required type="email" />
-        <Input className="md:col-span-2" minLength={12} name="branchUserPassword" placeholder="Contrasena temporal, minimo 12 caracteres" required type="password" />
 
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
-          Este responsable debera cambiar la contrasena en su primer ingreso y no tendra acceso al panel de dueno.
+          El sistema generara una contrasena temporal segura para este responsable. Copiala al terminar; en su primer ingreso debera crear una propia.
         </div>
 
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
-          Tu restaurante se crea con la tarifa Full. La primera sucursal cuesta Bs 450/mes; cada sucursal adicional habilitada cuesta Bs 299/mes.
+          Tu restaurante se crea con la tarifa Full. La primera sucursal cuesta Bs 450/mes; cada sucursal adicional habilitada cuesta Bs 199/mes.
         </div>
 
         <div className="md:col-span-2">
-          <Button className="min-h-12 w-full sm:w-auto" disabled={pending || isFinishing}>
-            {pending || isFinishing ? null : <Building2 className="h-4 w-4" />}
-            {pending || isFinishing ? "Creando restaurante..." : "Crear mi restaurante"}
+          <Button className="min-h-12 w-full sm:w-auto" disabled={pending}>
+            {pending ? null : <Building2 className="h-4 w-4" />}
+            {pending ? "Creando restaurante..." : submitLabel}
           </Button>
         </div>
       </Card>
 
-      {pending || isFinishing ? (
+      {pending ? (
         <BrandLoadingOverlay
-          title={isFinishing ? "Entrando al panel" : "Creando restaurante"}
-          description={isFinishing ? "Actualizando tu dashboard." : "Preparando acceso inicial."}
+          title="Creando restaurante"
+          description="Preparando acceso inicial."
           zIndexClassName="z-[120]"
         />
       ) : null}

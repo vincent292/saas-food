@@ -7,7 +7,7 @@ import { SectionTitle } from "@/components/ui/SectionTitle";
 import { listOwnerResponsibles } from "@/lib/services/owner-dashboard.service";
 
 export default async function OwnerResponsiblesPage() {
-  const { ownerMemberships, profile } = await getOwnerLayoutContext();
+  const { ownerMemberships, profile } = await getOwnerLayoutContext({ active: "/dueno/responsables" });
   const responsibles = (await listOwnerResponsibles(ownerMemberships)).filter((responsible) => responsible.userId !== profile.id);
 
   return (

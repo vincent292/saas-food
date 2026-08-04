@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, type ReactNode } from "react";
-import { Building2, CheckCircle2, MapPin, ShieldCheck } from "lucide-react";
+import { useActionState, useState, type ReactNode } from "react";
+import { ArrowRight, Building2, CheckCircle2, Copy, MapPin, ShieldCheck } from "lucide-react";
 import { createBranchFormAction, type CreateBranchFormState } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
@@ -44,17 +44,43 @@ export function BranchCreateFormClient({
 }) {
   const [state, formAction, pending] = useActionState(createBranchFormAction, initialState);
   const router = useRouter();
+  const [copied, setCopied] = useState(false);
   const values = state.values ?? {};
   const error = state.error ?? serverError;
-  const isFinishing = Boolean(state.success);
+  const redirectTo = state.redirectTo ?? "/dueno/sucursales?created=1";
 
-  useEffect(() => {
-    if (!state.success) {
-      return;
-    }
-
-    router.replace(state.redirectTo ?? "/dueno/sucursales?created=1");
-  }, [router, state.redirectTo, state.success]);
+  if (state.success) {
+    return (
+      <Card className="space-y-4 border-[var(--color-success-soft)] bg-[var(--color-success-soft)]">
+        <div>
+          <p className="text-xl font-black text-[var(--color-success-strong)]">Sucursal creada correctamente</p>
+          <p className="mt-2 text-sm font-semibold leading-6 text-[var(--color-success-strong)]">
+            Entrega esta contrasena temporal al responsable de la sucursal. Al ingresar, debera cambiarla por una propia.
+          </p>
+        </div>
+        {state.temporaryPassword ? (
+          <div className="grid gap-2 rounded-2xl bg-white/85 p-3 text-[var(--color-heading)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <code className="select-all break-all text-base font-black">{state.temporaryPassword}</code>
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-4 text-sm font-bold text-[var(--color-on-primary)]"
+              onClick={() => {
+                navigator.clipboard?.writeText(state.temporaryPassword ?? "");
+                setCopied(true);
+              }}
+              type="button"
+            >
+              <Copy className="h-4 w-4" />
+              {copied ? "Copiada" : "Copiar"}
+            </button>
+          </div>
+        ) : null}
+        <Button className="w-full sm:w-auto" onClick={() => router.replace(redirectTo)} type="button">
+          Ver sucursales
+          <ArrowRight className="h-4 w-4" />
+        </Button>
+      </Card>
+    );
+  }
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
@@ -124,18 +150,14 @@ export function BranchCreateFormClient({
             <Input defaultValue={values.branchUserEmail} name="branchUserEmail" placeholder="encargado@sucursal.com" required type="email" />
           </Field>
 
-          <Field className="md:col-span-2" label="Contrasena temporal">
-            <Input minLength={12} name="branchUserPassword" placeholder="Minimo 12 caracteres" required type="password" />
-          </Field>
-
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
-            Cuando este usuario ingrese por primera vez, debera cambiar su contrasena antes de usar el panel.
+            El sistema generara una contrasena temporal segura. Copiala al terminar para entregarla al responsable.
           </div>
 
           <div className="md:col-span-2">
-            <Button className="min-h-12 w-full sm:w-auto" disabled={pending || isFinishing} type="submit">
-              {pending || isFinishing ? null : <Building2 className="h-4 w-4" />}
-              {pending || isFinishing ? "Creando sucursal..." : "Crear sucursal"}
+            <Button className="min-h-12 w-full sm:w-auto" disabled={pending} type="submit">
+              {pending ? null : <Building2 className="h-4 w-4" />}
+              {pending ? "Creando sucursal..." : "Crear sucursal"}
             </Button>
           </div>
         </Card>
@@ -147,10 +169,10 @@ export function BranchCreateFormClient({
         <InfoCard icon={<MapPin className="h-5 w-5" />} title="Ubicacion propia" text="El slug, direccion, WhatsApp y pin del mapa son propios de la nueva sucursal." />
       </aside>
 
-      {pending || isFinishing ? (
+      {pending ? (
         <BrandLoadingOverlay
-          title={isFinishing ? "Entrando a sucursales" : "Creando sucursal"}
-          description={isFinishing ? "Actualizando el panel." : "Copiando configuracion base."}
+          title="Creando sucursal"
+          description="Copiando configuracion base."
           zIndexClassName="z-[120]"
         />
       ) : null}

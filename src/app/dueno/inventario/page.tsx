@@ -7,7 +7,7 @@ import { SectionTitle } from "@/components/ui/SectionTitle";
 import { getOwnerBranchSummaries } from "@/lib/services/owner-dashboard.service";
 
 export default async function OwnerInventoryPage() {
-  const { ownerMemberships } = await getOwnerLayoutContext();
+  const { ownerMemberships } = await getOwnerLayoutContext({ active: "/dueno/inventario" });
   const summaries = await getOwnerBranchSummaries(ownerMemberships);
   const totalLowStock = summaries.reduce((sum, summary) => sum + summary.lowStockItems, 0);
   const totalExpiring = summaries.reduce((sum, summary) => sum + summary.expiringLots, 0);

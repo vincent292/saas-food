@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { getOwnerBranchCapacity } from "@/lib/services/owner-dashboard.service";
 
 export default async function OwnerPlanPage() {
-  const { ownerMemberships } = await getOwnerLayoutContext();
+  const { ownerMemberships } = await getOwnerLayoutContext({ active: "/dueno/plan" });
   const capacity = await getOwnerBranchCapacity(ownerMemberships);
   const remaining = Math.max(0, capacity.limit - capacity.used);
 

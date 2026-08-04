@@ -41,12 +41,15 @@ const ownerNav: OwnerNavItem[] = [
   { label: "Cuenta", href: "/dueno/cuenta", icon: Settings },
 ];
 
+const profileCompletionAllowedRoutes = new Set(["/dueno/cuenta", "/dueno/plan", "/dueno/soporte"]);
+
 export function OwnerShellClient({
   active,
   branchCount,
   children,
   ownerEmail,
   ownerName,
+  ownerProfileComplete,
   firstRestaurantId,
   title,
 }: {
@@ -55,6 +58,7 @@ export function OwnerShellClient({
   children: ReactNode;
   ownerEmail: string;
   ownerName: string;
+  ownerProfileComplete: boolean;
   firstRestaurantId?: string;
   title: string;
 }) {
@@ -83,19 +87,26 @@ export function OwnerShellClient({
         <div className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] px-3 py-2">
           <p className="text-xs font-black text-[var(--color-secondary-text)]">Cuenta dueno</p>
           <p className="mt-1 truncate text-xs font-bold text-[var(--primary)]">{ownerEmail}</p>
+          {!ownerProfileComplete ? (
+            <p className="mt-2 rounded-full bg-[var(--color-warning-soft)] px-2 py-1 text-[10px] font-black uppercase text-[var(--color-warning-strong)]">
+              Datos pendientes
+            </p>
+          ) : null}
         </div>
 
         <nav className="mt-5 flex-1 space-y-1 overflow-y-auto pr-1">
           {ownerNav.map((item) => {
             const selected = active === item.href;
+            const locked = !ownerProfileComplete && !profileCompletionAllowedRoutes.has(item.href);
 
             return (
               <Link
                 className={cn(
                   "flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] transition hover:bg-[var(--primary-light)] hover:text-[var(--primary-dark)]",
                   selected && "bg-[var(--primary-light)] text-[var(--primary-dark)]",
+                  locked && "opacity-55",
                 )}
-                href={item.href}
+                href={locked ? "/dueno/cuenta?required=1" : item.href}
                 key={item.href}
                 onClick={() => setSidebarOpen(false)}
               >
@@ -107,7 +118,7 @@ export function OwnerShellClient({
         </nav>
 
         <div className="mt-4 grid gap-2">
-          {firstRestaurantId ? (
+          {firstRestaurantId && ownerProfileComplete ? (
             <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href={`/admin/restaurantes/${firstRestaurantId}/dashboard`}>
               <Building2 className="h-4 w-4" />
               Entrar a sucursal
@@ -137,10 +148,15 @@ export function OwnerShellClient({
               <h1 className="truncate text-xl font-black text-[var(--color-heading)] sm:text-2xl">{title}</h1>
             </div>
             <div className="hidden items-center gap-2 sm:flex">
+              {!ownerProfileComplete ? (
+                <Badge className="bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]">
+                  Cuenta pendiente
+                </Badge>
+              ) : null}
               <Badge className="bg-[var(--primary-light)] text-[var(--primary)]">
                 {branchCount} sucursal{branchCount === 1 ? "" : "es"}
               </Badge>
-              {firstRestaurantId ? (
+              {firstRestaurantId && ownerProfileComplete ? (
                 <Link className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)]" href={`/admin/restaurantes/${firstRestaurantId}/dashboard`}>
                   <ClipboardList className="h-4 w-4" />
                   Operar

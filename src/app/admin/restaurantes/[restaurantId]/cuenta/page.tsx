@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { CreditCard, ExternalLink, ShieldCheck, Store, WalletCards } from "lucide-react";
-import { resolveOwnerBranchCapacityAction, updateOwnerBranchEntitlementAction } from "@/app/admin/actions";
+import { resolveOwnerBranchCapacityAction, setOwnerAccountStatusAction, updateOwnerBranchEntitlementAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
@@ -22,6 +22,8 @@ import type { PlatformBilling, RestaurantStatus } from "@/types/restaurant.types
 const errorMessages: Record<string, string> = {
   "invalid-entitlement": "Revisa el numero de sucursales habilitadas.",
   "invalid-branch-request": "Revisa la solicitud y el nuevo limite aprobado.",
+  "invalid-owner-account-status": "No se pudo cambiar el estado de la cuenta.",
+  "owner-account-empty": "Esta cuenta no tiene sucursales activas o inactivas para suspender.",
   P0002: "La solicitud ya fue resuelta o no existe.",
 };
 
@@ -30,9 +32,9 @@ export default async function ClientAccountPage({
   searchParams,
 }: {
   params: Promise<{ restaurantId: string }>;
-  searchParams: Promise<{ saved?: string; error?: string }>;
+  searchParams: Promise<{ account?: string; saved?: string; error?: string }>;
 }) {
-  const [{ restaurantId }, { saved, error }, profile] = await Promise.all([params, searchParams, authService.getCurrentProfile()]);
+  const [{ restaurantId }, { account: accountStatus, saved, error }, profile] = await Promise.all([params, searchParams, authService.getCurrentProfile()]);
 
   if (profile?.globalRole !== "superadmin") {
     redirect("/admin?error=superadmin-required");
@@ -47,6 +49,9 @@ export default async function ClientAccountPage({
   const baseRestaurant = account.baseRestaurant;
   const branchRequests = account.owner.userId ? await listOwnerBranchCapacityRequests(account.owner.userId) : [];
   const pendingBranchRequests = branchRequests.filter((request) => request.status === "pending");
+  const accountSuspended = account.branches.length > 0 && account.branches.every(({ restaurant }) => restaurant.status === "suspended");
+  const suspendedBranches = account.branches.filter(({ restaurant }) => restaurant.status === "suspended").length;
+  const nextAccountStatus = accountSuspended ? "active" : "suspended";
 
   return (
     <AdminLayout
@@ -81,6 +86,11 @@ export default async function ClientAccountPage({
             Cuenta actualizada correctamente.
           </div>
         ) : null}
+        {accountStatus ? (
+          <div className="rounded-2xl border border-[var(--color-success-soft)] bg-[var(--color-success-soft)] p-4 text-sm font-bold text-[var(--color-success-strong)]">
+            {accountStatus === "active" ? "Cuenta reactivada correctamente." : "Cuenta suspendida correctamente."}
+          </div>
+        ) : null}
         {error ? (
           <div className="rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] p-4 text-sm font-bold text-[var(--color-danger-strong)]">
             {errorMessages[error] ?? "No se pudo guardar la cuenta del cliente."}
@@ -113,27 +123,56 @@ export default async function ClientAccountPage({
             </div>
           </Card>
 
-          <Card className="space-y-4">
-            <SectionTitle title="Sucursales habilitadas" description="Solo superadmin puede habilitar o reducir nuevas sucursales para este cliente." />
-            <div className="grid grid-cols-3 gap-2">
-              <SmallStat label="Usadas" value={String(account.capacity.used)} />
-              <SmallStat label="Habilitadas" value={String(account.capacity.limit)} />
-              <SmallStat label="Libres" value={String(account.capacity.available)} />
-            </div>
-            <form action={updateOwnerBranchEntitlementAction} className="space-y-3">
-              <input name="restaurantId" type="hidden" value={baseRestaurant.id} />
-              {account.owner.userId ? <input name="ownerUserId" type="hidden" value={account.owner.userId} /> : null}
-              <Input defaultValue={account.capacity.limit} disabled={!account.owner.userId} min={1} name="branchLimit" placeholder="Sucursales habilitadas" required type="number" />
-              <button className={buttonClasses("primary", "w-full")} disabled={!account.owner.userId} type="submit">
-                Guardar habilitacion
-              </button>
-            </form>
-            {!account.owner.userId ? (
-              <p className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-xs font-bold text-[var(--color-warning-strong)]">
-                Este cliente no tiene owner_user_id. Primero asigna un dueno real desde Configuracion.
+          <div className="grid gap-4">
+            <Card className="space-y-4">
+              <SectionTitle
+                title="Estado de cuenta"
+                description="Suspende o reactiva todas las sucursales no archivadas de este dueno."
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <SmallStat label="Suspendidas" value={`${suspendedBranches}/${account.branches.length}`} />
+                <SmallStat label="Estado" value={accountSuspended ? "Pausada" : "Activa"} />
+              </div>
+              <form action={setOwnerAccountStatusAction}>
+                <input name="restaurantId" type="hidden" value={baseRestaurant.id} />
+                <input name="returnTo" type="hidden" value={`/admin/restaurantes/${baseRestaurant.id}/cuenta`} />
+                {account.owner.userId ? <input name="ownerUserId" type="hidden" value={account.owner.userId} /> : null}
+                <input name="status" type="hidden" value={nextAccountStatus} />
+                <button
+                  className={buttonClasses(nextAccountStatus === "active" ? "primary" : "danger", "w-full")}
+                  disabled={!account.owner.userId || !account.branches.length}
+                  type="submit"
+                >
+                  {nextAccountStatus === "active" ? "Reactivar cuenta" : "Suspender cuenta"}
+                </button>
+              </form>
+              <p className="text-xs font-bold leading-5 text-[var(--color-secondary-text)]">
+                Al suspender, el dueno y responsables quedan sin acceso operativo hasta la reactivacion.
               </p>
-            ) : null}
-          </Card>
+            </Card>
+
+            <Card className="space-y-4">
+              <SectionTitle title="Sucursales habilitadas" description="Solo superadmin puede habilitar o reducir nuevas sucursales para este cliente." />
+              <div className="grid grid-cols-3 gap-2">
+                <SmallStat label="Usadas" value={String(account.capacity.used)} />
+                <SmallStat label="Habilitadas" value={String(account.capacity.limit)} />
+                <SmallStat label="Libres" value={String(account.capacity.available)} />
+              </div>
+              <form action={updateOwnerBranchEntitlementAction} className="space-y-3">
+                <input name="restaurantId" type="hidden" value={baseRestaurant.id} />
+                {account.owner.userId ? <input name="ownerUserId" type="hidden" value={account.owner.userId} /> : null}
+                <Input defaultValue={account.capacity.limit} disabled={!account.owner.userId} min={1} name="branchLimit" placeholder="Sucursales habilitadas" required type="number" />
+                <button className={buttonClasses("primary", "w-full")} disabled={!account.owner.userId} type="submit">
+                  Guardar habilitacion
+                </button>
+              </form>
+              {!account.owner.userId ? (
+                <p className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-xs font-bold text-[var(--color-warning-strong)]">
+                  Este cliente no tiene owner_user_id. Primero asigna un dueno real desde Configuracion.
+                </p>
+              ) : null}
+            </Card>
+          </div>
         </section>
 
         <section className="grid gap-4 md:grid-cols-3">

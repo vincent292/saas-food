@@ -33,10 +33,37 @@ const loginSchema = z.object({
   password: z.string().min(6),
 });
 
+function normalizeDocumentNumber(value: string) {
+  return value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+}
+
+function isAdultBirthDate(value: string) {
+  const birthDate = new Date(`${value}T00:00:00`);
+  if (!value || Number.isNaN(birthDate.getTime())) return false;
+
+  const today = new Date();
+  const age = today.getFullYear() - birthDate.getFullYear();
+  const hadBirthdayThisYear =
+    today.getMonth() > birthDate.getMonth() ||
+    (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
+  const adjustedAge = hadBirthdayThisYear ? age : age - 1;
+  return adjustedAge >= 18 && adjustedAge <= 120;
+}
+
 const createOwnerClientSchema = z.object({
   ownerName: z.string().min(2),
   ownerEmail: z.string().email(),
+  ownerPhone: z.string().min(6).max(40),
+  ownerDocumentNumber: z.string().min(5).max(40).regex(/^[a-zA-Z0-9.\-]+$/),
+  ownerBirthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isAdultBirthDate),
   branchLimit: z.coerce.number().int().positive().default(1),
+});
+
+const updateOwnerProfileSchema = z.object({
+  fullName: z.string().min(2).max(120),
+  phone: z.string().min(6).max(40),
+  documentNumber: z.string().min(5).max(40).regex(/^[a-zA-Z0-9.\-]+$/),
+  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isAdultBirthDate),
 });
 
 const changeInitialPasswordSchema = z
@@ -71,7 +98,6 @@ const createRestaurantSchema = z.object({
   planKey: z.enum(["basic", "pro", "premium"]).default(fullPlanKey),
   branchUserName: z.string().min(2),
   branchUserEmail: z.string().email(),
-  branchUserPassword: z.string().min(12),
   ownerName: z.string().optional(),
   ownerEmail: z.string().email().optional().or(z.literal("")),
   ownerPassword: z.string().min(8).optional().or(z.literal("")),
@@ -136,6 +162,7 @@ export type CreateRestaurantFormState = {
   error?: string;
   redirectTo?: string;
   success?: boolean;
+  temporaryPassword?: string;
   values?: Record<string, string>;
 };
 
@@ -143,6 +170,7 @@ export type CreateBranchFormState = {
   error?: string;
   redirectTo?: string;
   success?: boolean;
+  temporaryPassword?: string;
   values?: Record<string, string>;
 };
 
@@ -178,7 +206,6 @@ const createBranchSchema = z.object({
   mapsUrl: z.string().optional(),
   branchUserName: z.string().min(2),
   branchUserEmail: z.string().email(),
-  branchUserPassword: z.string().min(12),
 });
 
 const createAnnouncementSchema = z.object({
@@ -229,6 +256,12 @@ const announcementDeactivateInputSchema = z.object({
 const setRestaurantStatusSchema = z.object({
   restaurantId: z.string().uuid(),
   status: z.enum(["active", "inactive", "suspended"]),
+});
+
+const setOwnerAccountStatusSchema = z.object({
+  ownerUserId: z.string().uuid(),
+  restaurantId: z.string().uuid(),
+  status: z.enum(["active", "suspended"]),
 });
 
 const restaurantIdSchema = z.object({
@@ -699,6 +732,9 @@ function ownerFormValues(formData: FormData): Record<string, string> {
   return {
     ownerName: String(formData.get("ownerName") || ""),
     ownerEmail: String(formData.get("ownerEmail") || ""),
+    ownerPhone: String(formData.get("ownerPhone") || ""),
+    ownerDocumentNumber: String(formData.get("ownerDocumentNumber") || ""),
+    ownerBirthDate: String(formData.get("ownerBirthDate") || ""),
     branchLimit: String(formData.get("branchLimit") || "1"),
   };
 }
@@ -1720,9 +1756,13 @@ async function redirectAfterAuthenticatedUser(userId: string): Promise<never> {
   }
 
   const memberships = await membershipService.listActiveRestaurantsForUser(userId);
-  const isOwner = memberships.some((membership) => membership.role === "restaurant_admin" && membership.restaurant.ownerUserId === userId);
+  const fallbackMemberships = memberships.length ? memberships : await membershipService.listRestaurantsForUser(userId);
+  const isOwner = fallbackMemberships.some((membership) => membership.role === "restaurant_admin" && membership.restaurant.ownerUserId === userId);
 
   if (isOwner || memberships.length === 0) {
+    if (!isOwner && fallbackMemberships.length > 0) {
+      redirect("/admin?error=restaurant-suspended");
+    }
     redirect("/dueno");
   }
 
@@ -1855,6 +1895,83 @@ export async function setRestaurantStatusAction(formData: FormData) {
   revalidatePath("/admin/restaurantes");
   revalidatePath("/admin/restauracion");
   redirect(`${returnTo}?status=1`);
+}
+
+export async function setOwnerAccountStatusAction(formData: FormData) {
+  const fallbackRestaurantId = String(formData.get("restaurantId") || "");
+  const returnTo = adminReturnTo(formData, fallbackRestaurantId ? `/admin/restaurantes/${fallbackRestaurantId}/cuenta` : "/admin/restaurantes");
+  const parsed = setOwnerAccountStatusSchema.safeParse({
+    ownerUserId: formData.get("ownerUserId"),
+    restaurantId: formData.get("restaurantId"),
+    status: formData.get("status"),
+  });
+
+  if (!parsed.success) {
+    redirect(`${returnTo}?error=invalid-owner-account-status`);
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  const { data: restaurants, error: readError } = await supabase
+    .from("restaurants")
+    .select("id")
+    .eq("owner_user_id", parsed.data.ownerUserId)
+    .is("deleted_at", null);
+
+  if (readError) {
+    redirect(`${returnTo}?error=${readError.code}`);
+  }
+
+  if (!restaurants?.length) {
+    redirect(`${returnTo}?error=owner-account-empty`);
+  }
+
+  const now = new Date().toISOString();
+  const restaurantIds = restaurants.map((restaurant) => restaurant.id);
+  const { error } = await supabase
+    .from("restaurants")
+    .update({
+      status: parsed.data.status,
+      deactivated_at: parsed.data.status === "active" ? null : now,
+      deactivated_by: parsed.data.status === "active" ? null : user.id,
+      updated_at: now,
+    })
+    .eq("owner_user_id", parsed.data.ownerUserId)
+    .is("deleted_at", null);
+
+  if (error) {
+    redirect(`${returnTo}?error=${error.code}`);
+  }
+
+  if (parsed.data.status === "suspended") {
+    await supabase
+      .from("restaurant_access_sessions")
+      .update({
+        status: "released",
+        released_at: now,
+        release_reason: "Cuenta suspendida por superadmin",
+      })
+      .in("restaurant_id", restaurantIds)
+      .eq("status", "active");
+  }
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: parsed.data.status === "active" ? "owner_account_reactivated" : "owner_account_suspended",
+    p_entity_type: "owner_account",
+    p_entity_id: parsed.data.ownerUserId,
+    p_restaurant_id: parsed.data.restaurantId,
+    p_severity: parsed.data.status === "active" ? "warning" : "critical",
+    p_metadata: {
+      affected_restaurant_ids: restaurantIds,
+      status: parsed.data.status,
+    },
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/restaurantes");
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta`);
+  revalidatePath("/dueno");
+  revalidatePath("/dueno/sucursales");
+  redirect(`${returnTo}?account=${parsed.data.status}`);
 }
 
 export async function archiveRestaurantAction(formData: FormData) {
@@ -2686,6 +2803,9 @@ export async function createOwnerClientAction(
   const parsed = createOwnerClientSchema.safeParse({
     ownerName: formData.get("ownerName"),
     ownerEmail: formData.get("ownerEmail"),
+    ownerPhone: formData.get("ownerPhone"),
+    ownerDocumentNumber: formData.get("ownerDocumentNumber"),
+    ownerBirthDate: formData.get("ownerBirthDate"),
     branchLimit: formData.get("branchLimit") || 1,
   });
 
@@ -2696,6 +2816,8 @@ export async function createOwnerClientAction(
   const { supabase, user } = await requireSuperadmin();
   const normalizedEmail = parsed.data.ownerEmail.trim().toLowerCase();
   const normalizedName = parsed.data.ownerName.trim();
+  const normalizedPhone = parsed.data.ownerPhone.trim();
+  const normalizedDocumentNumber = normalizeDocumentNumber(parsed.data.ownerDocumentNumber);
 
   if (await ownerEmailAlreadyExists(supabase, normalizedEmail)) {
     return ownerFormError(formData, "owner-email-exists");
@@ -2756,6 +2878,11 @@ export async function createOwnerClientAction(
       id: ownerUserId,
       email: normalizedEmail,
       full_name: normalizedName,
+      phone: normalizedPhone,
+      document_number: parsed.data.ownerDocumentNumber.trim().toUpperCase(),
+      document_number_normalized: normalizedDocumentNumber,
+      birth_date: parsed.data.ownerBirthDate,
+      owner_profile_completed_at: new Date().toISOString(),
       global_role: null,
     },
     { onConflict: "id" },
@@ -2788,6 +2915,85 @@ export async function createOwnerClientAction(
   return { success: normalizedEmail, temporaryPassword };
 }
 
+export async function updateOwnerProfileAction(formData: FormData) {
+  const parsed = updateOwnerProfileSchema.safeParse({
+    fullName: formData.get("fullName"),
+    phone: formData.get("phone"),
+    documentNumber: formData.get("documentNumber"),
+    birthDate: formData.get("birthDate"),
+  });
+
+  if (!parsed.success) {
+    redirect("/dueno/cuenta?error=invalid-profile");
+  }
+
+  const { supabase, user } = await requireUser();
+  const { data: existingProfile } = await supabase
+    .from("profiles")
+    .select("email,global_role,owner_profile_completed_at")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (existingProfile?.global_role === "superadmin") {
+    redirect("/admin");
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect("/dueno/cuenta?error=service-role-required");
+  }
+
+  const now = new Date().toISOString();
+  const normalizedName = parsed.data.fullName.trim();
+  const normalizedPhone = parsed.data.phone.trim();
+  const documentNumber = parsed.data.documentNumber.trim().toUpperCase();
+  const documentNumberNormalized = normalizeDocumentNumber(documentNumber);
+
+  const { error } = await admin.from("profiles").upsert(
+    {
+      id: user.id,
+      email: existingProfile?.email ?? user.email ?? "",
+      full_name: normalizedName,
+      phone: normalizedPhone,
+      document_number: documentNumber,
+      document_number_normalized: documentNumberNormalized,
+      birth_date: parsed.data.birthDate,
+      owner_profile_completed_at: existingProfile?.owner_profile_completed_at ?? now,
+      global_role: existingProfile?.global_role ?? null,
+    },
+    { onConflict: "id" },
+  );
+
+  if (error) {
+    redirect(`/dueno/cuenta?error=${cashErrorKey(error, "owner-profile-update")}`);
+  }
+
+  await admin.auth.admin.updateUserById(user.id, {
+    user_metadata: {
+      ...(user.user_metadata ?? {}),
+      full_name: normalizedName,
+    },
+  });
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: existingProfile?.owner_profile_completed_at ? "owner_profile_updated" : "owner_profile_completed",
+    p_entity_type: "profile",
+    p_entity_id: user.id,
+    p_restaurant_id: null,
+    p_severity: "info",
+    p_ip_address: null,
+    p_user_agent: null,
+    p_metadata: {
+      completed: true,
+      updatedFields: ["full_name", "phone", "document_number", "birth_date"],
+    } satisfies Json,
+  });
+
+  revalidatePath("/dueno");
+  revalidatePath("/dueno/cuenta");
+  redirect("/dueno/cuenta?saved=1");
+}
+
 export async function createOwnedRestaurantFormAction(
   _state: CreateRestaurantFormState,
   formData: FormData,
@@ -2810,7 +3016,6 @@ export async function createOwnedRestaurantFormAction(
     planKey: formData.get("planKey") || fullPlanKey,
     branchUserName: formData.get("branchUserName"),
     branchUserEmail: formData.get("branchUserEmail"),
-    branchUserPassword: formData.get("branchUserPassword"),
     ownerName: undefined,
     ownerEmail: undefined,
     ownerPassword: undefined,
@@ -2833,16 +3038,35 @@ export async function createOwnedRestaurantFormAction(
     return restaurantFormError(formData, "service-role-required");
   }
 
-  const { data: existingMemberships } = await admin
+  const { data: existingMemberships, error: membershipsError } = await admin
     .from("restaurant_memberships")
     .select("restaurant_id")
     .eq("user_id", user.id)
     .eq("role", "restaurant_admin")
-    .eq("is_active", true)
-    .limit(1);
+    .eq("is_active", true);
 
-  if (existingMemberships?.length) {
-    return restaurantFormError(formData, "restaurant-exists");
+  if (membershipsError) {
+    return restaurantFormError(formData, membershipsError.code ?? "membership-check");
+  }
+
+  const membershipRestaurantIds = Array.from(new Set((existingMemberships ?? []).map((membership) => membership.restaurant_id)));
+  if (membershipRestaurantIds.length) {
+    const { data: activeOwnedRestaurants, error: activeOwnedError } = await admin
+      .from("restaurants")
+      .select("id")
+      .in("id", membershipRestaurantIds)
+      .eq("owner_user_id", user.id)
+      .eq("status", "active")
+      .is("deleted_at", null)
+      .limit(1);
+
+    if (activeOwnedError) {
+      return restaurantFormError(formData, activeOwnedError.code ?? "restaurant-check");
+    }
+
+    if (activeOwnedRestaurants?.length) {
+      return restaurantFormError(formData, "restaurant-exists");
+    }
   }
 
   const slug = toSlug(parsed.data.slug || parsed.data.name);
@@ -2913,9 +3137,10 @@ export async function createOwnedRestaurantFormAction(
   }
 
   const branchUserName = parsed.data.branchUserName.trim();
+  const temporaryPassword = generateSecurePassword();
   const { data: branchUser, error: branchUserError } = await admin.auth.admin.createUser({
     email: normalizedBranchUserEmail,
-    password: parsed.data.branchUserPassword,
+    password: temporaryPassword,
     email_confirm: true,
     user_metadata: {
       full_name: branchUserName,
@@ -3006,7 +3231,7 @@ export async function createOwnedRestaurantFormAction(
   revalidatePath("/admin");
   revalidatePath("/dueno");
   revalidatePath("/admin/restaurantes");
-  return { redirectTo: "/dueno", success: true };
+  return { redirectTo: "/dueno", success: true, temporaryPassword };
 }
 
 async function createBranchResult(formData: FormData): Promise<CreateBranchFormState> {
@@ -3023,7 +3248,6 @@ async function createBranchResult(formData: FormData): Promise<CreateBranchFormS
     mapsUrl: formData.get("mapsUrl") || undefined,
     branchUserName: formData.get("branchUserName"),
     branchUserEmail: formData.get("branchUserEmail"),
-    branchUserPassword: formData.get("branchUserPassword"),
   });
 
   if (!parsed.success) {
@@ -3142,9 +3366,10 @@ async function createBranchResult(formData: FormData): Promise<CreateBranchFormS
   }
 
   const branchUserName = parsed.data.branchUserName.trim();
+  const temporaryPassword = generateSecurePassword();
   const { data: branchUser, error: branchUserError } = await admin.auth.admin.createUser({
     email: normalizedBranchUserEmail,
-    password: parsed.data.branchUserPassword,
+    password: temporaryPassword,
     email_confirm: true,
     user_metadata: {
       full_name: branchUserName,
@@ -3204,7 +3429,7 @@ async function createBranchResult(formData: FormData): Promise<CreateBranchFormS
   revalidatePath("/dueno");
   revalidatePath("/admin/restaurantes");
   revalidatePath("/dueno/sucursales");
-  return { redirectTo: "/dueno/sucursales?created=1", success: true };
+  return { redirectTo: "/dueno/sucursales?created=1", success: true, temporaryPassword };
 }
 
 export async function createBranchFormAction(

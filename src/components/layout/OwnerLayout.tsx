@@ -5,7 +5,9 @@ import { authService } from "@/lib/services/auth.service";
 import { membershipService, type UserRestaurantMembership } from "@/lib/services/membership.service";
 import { ownerMembershipsForUser } from "@/lib/services/owner-dashboard.service";
 
-export async function getOwnerLayoutContext() {
+const ownerProfileCompletionAllowedRoutes = new Set(["/dueno/cuenta", "/dueno/plan", "/dueno/soporte"]);
+
+export async function getOwnerLayoutContext({ active = "/dueno" }: { active?: string } = {}) {
   const profile = await authService.getCurrentProfile();
 
   if (!profile) {
@@ -22,6 +24,10 @@ export async function getOwnerLayoutContext() {
 
   if (profile.globalRole === "superadmin") {
     redirect("/admin");
+  }
+
+  if (!profile.ownerProfileComplete && !ownerProfileCompletionAllowedRoutes.has(active)) {
+    redirect(`/dueno/cuenta?required=1&from=${encodeURIComponent(active)}`);
   }
 
   const memberships = await membershipService.listActiveRestaurantsForUser(profile.id);
@@ -74,6 +80,7 @@ export async function OwnerLayout({
       firstRestaurantId={memberships[0]?.restaurant.id}
       ownerEmail={profile.email}
       ownerName={profile.fullName}
+      ownerProfileComplete={profile.ownerProfileComplete}
       title={title}
     >
       {children}

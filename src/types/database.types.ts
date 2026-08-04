@@ -15,6 +15,10 @@ export type Database = {
         full_name: string | null;
         email: string | null;
         phone: string | null;
+        document_number: string | null;
+        document_number_normalized: string | null;
+        birth_date: string | null;
+        owner_profile_completed_at: string | null;
         global_role: Database["public"]["Enums"]["app_role"] | null;
         created_at: string;
         updated_at: string;

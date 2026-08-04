@@ -15,6 +15,61 @@ export type UserRestaurantMembership = {
   };
 };
 
+async function listRestaurantsForUser(userId: string, onlyActive: boolean): Promise<UserRestaurantMembership[]> {
+  if (!hasSupabaseEnv()) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data: memberships, error: membershipError } = await supabase
+    .from("restaurant_memberships")
+    .select("restaurant_id, role")
+    .eq("user_id", userId)
+    .eq("is_active", true);
+
+  if (membershipError || !memberships?.length) {
+    return [];
+  }
+
+  const rolesByRestaurant = new Map<string, AppRole>();
+  for (const membership of memberships) {
+    if (!rolesByRestaurant.has(membership.restaurant_id)) {
+      rolesByRestaurant.set(membership.restaurant_id, membership.role as AppRole);
+    }
+  }
+
+  const restaurantIds = Array.from(rolesByRestaurant.keys());
+  let restaurantsQuery = supabase
+    .from("restaurants")
+    .select("id,name,slug,city,status,owner_user_id")
+    .in("id", restaurantIds)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+
+  if (onlyActive) {
+    restaurantsQuery = restaurantsQuery.eq("status", "active");
+  }
+
+  const { data: restaurants, error: restaurantError } = await restaurantsQuery;
+
+  if (restaurantError || !restaurants?.length) {
+    return [];
+  }
+
+  return restaurants.map((restaurant) => ({
+    restaurantId: restaurant.id,
+    role: rolesByRestaurant.get(restaurant.id) ?? "restaurant_admin",
+    restaurant: {
+      id: restaurant.id,
+      name: restaurant.name,
+      slug: restaurant.slug,
+      city: restaurant.city ?? "",
+      status: restaurant.status as RestaurantStatus,
+      ownerUserId: restaurant.owner_user_id ?? undefined,
+    },
+  }));
+}
+
 export const membershipService = {
   async listByRestaurant(restaurantId: string) {
     if (!hasSupabaseEnv()) {
@@ -41,52 +96,10 @@ export const membershipService = {
   },
 
   async listActiveRestaurantsForUser(userId: string): Promise<UserRestaurantMembership[]> {
-    if (!hasSupabaseEnv()) {
-      return [];
-    }
+    return listRestaurantsForUser(userId, true);
+  },
 
-    const supabase = await createClient();
-    const { data: memberships, error: membershipError } = await supabase
-      .from("restaurant_memberships")
-      .select("restaurant_id, role")
-      .eq("user_id", userId)
-      .eq("is_active", true);
-
-    if (membershipError || !memberships?.length) {
-      return [];
-    }
-
-    const rolesByRestaurant = new Map<string, AppRole>();
-    for (const membership of memberships) {
-      if (!rolesByRestaurant.has(membership.restaurant_id)) {
-        rolesByRestaurant.set(membership.restaurant_id, membership.role as AppRole);
-      }
-    }
-
-    const restaurantIds = Array.from(rolesByRestaurant.keys());
-    const { data: restaurants, error: restaurantError } = await supabase
-      .from("restaurants")
-      .select("id,name,slug,city,status,owner_user_id")
-      .in("id", restaurantIds)
-      .eq("status", "active")
-      .is("deleted_at", null)
-      .order("created_at", { ascending: true });
-
-    if (restaurantError || !restaurants?.length) {
-      return [];
-    }
-
-    return restaurants.map((restaurant) => ({
-      restaurantId: restaurant.id,
-      role: rolesByRestaurant.get(restaurant.id) ?? "restaurant_admin",
-      restaurant: {
-        id: restaurant.id,
-        name: restaurant.name,
-        slug: restaurant.slug,
-        city: restaurant.city ?? "",
-        status: restaurant.status as RestaurantStatus,
-        ownerUserId: restaurant.owner_user_id ?? undefined,
-      },
-    }));
+  async listRestaurantsForUser(userId: string): Promise<UserRestaurantMembership[]> {
+    return listRestaurantsForUser(userId, false);
   },
 };

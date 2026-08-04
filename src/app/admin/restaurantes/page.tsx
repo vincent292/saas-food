@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Archive, Plus } from "lucide-react";
-import { archiveRestaurantAction, setRestaurantStatusAction } from "@/app/admin/actions";
+import { archiveRestaurantAction, setOwnerAccountStatusAction, setRestaurantStatusAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
@@ -64,7 +64,7 @@ export default async function RestaurantsPage() {
             </div>,
             <StatusBadge key={`${restaurant.id}-status`} status={restaurant.status} />,
             restaurant.activeSessions,
-            <RestaurantActions key={`${restaurant.id}-actions`} restaurantId={restaurant.id} status={restaurant.status} />,
+            <RestaurantActions key={`${restaurant.id}-actions`} ownerUserId={restaurant.ownerUserId} restaurantId={restaurant.id} status={restaurant.status} />,
           ])}
         />
       </div>
@@ -84,8 +84,9 @@ function StatusBadge({ status }: { status: RestaurantStatus }) {
   return <Badge className={className}>{label}</Badge>;
 }
 
-function RestaurantActions({ restaurantId, status }: { restaurantId: string; status: RestaurantStatus }) {
+function RestaurantActions({ ownerUserId, restaurantId, status }: { ownerUserId?: string; restaurantId: string; status: RestaurantStatus }) {
   const nextStatus: RestaurantStatus = status === "active" ? "suspended" : "active";
+  const nextOwnerStatus = status === "suspended" ? "active" : "suspended";
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -95,20 +96,32 @@ function RestaurantActions({ restaurantId, status }: { restaurantId: string; sta
       <Link className={buttonClasses("secondary")} href={`/admin/restaurantes/${restaurantId}/cuenta`}>
         Cuenta
       </Link>
-      <form action={setRestaurantStatusAction}>
-        <input name="restaurantId" type="hidden" value={restaurantId} />
-        <input name="status" type="hidden" value={nextStatus} />
-        <input name="returnTo" type="hidden" value="/admin/restaurantes" />
-        <button className={buttonClasses(nextStatus === "active" ? "primary" : "secondary")} type="submit">
-          {nextStatus === "active" ? "Activar" : "Suspender"}
-        </button>
-      </form>
+      {ownerUserId ? (
+        <form action={setOwnerAccountStatusAction}>
+          <input name="ownerUserId" type="hidden" value={ownerUserId} />
+          <input name="restaurantId" type="hidden" value={restaurantId} />
+          <input name="status" type="hidden" value={nextOwnerStatus} />
+          <input name="returnTo" type="hidden" value="/admin/restaurantes" />
+          <button className={buttonClasses(nextOwnerStatus === "active" ? "primary" : "secondary")} type="submit">
+            {nextOwnerStatus === "active" ? "Reactivar cuenta" : "Suspender cuenta"}
+          </button>
+        </form>
+      ) : (
+        <form action={setRestaurantStatusAction}>
+          <input name="restaurantId" type="hidden" value={restaurantId} />
+          <input name="status" type="hidden" value={nextStatus} />
+          <input name="returnTo" type="hidden" value="/admin/restaurantes" />
+          <button className={buttonClasses(nextStatus === "active" ? "primary" : "secondary")} type="submit">
+            {nextStatus === "active" ? "Activar" : "Suspender"}
+          </button>
+        </form>
+      )}
       <form action={archiveRestaurantAction}>
         <input name="restaurantId" type="hidden" value={restaurantId} />
         <input name="returnTo" type="hidden" value="/admin/restaurantes" />
         <button className={buttonClasses("danger")} type="submit">
           <Archive className="h-4 w-4" />
-          Archivar
+          Archivar sucursal
         </button>
       </form>
     </div>

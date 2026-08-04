@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CheckCircle2, Clock3, ExternalLink, LifeBuoy, MessageCircle, Plus, ReceiptText, XCircle } from "lucide-react";
+import { requestOwnerBranchCapacityAction } from "@/app/admin/actions";
 import { OwnerLayout, getOwnerLayoutContext } from "@/components/layout/OwnerLayout";
 import { BranchRequestFormClient } from "@/components/owner/BranchRequestFormClient";
 import { buttonClasses } from "@/components/ui/Button";
@@ -19,7 +20,7 @@ const requestErrors: Record<string, string> = {
 };
 
 export default async function OwnerSupportPage({ searchParams }: { searchParams: Promise<{ requested?: string; error?: string }> }) {
-  const [{ requested, error }, { ownerMemberships, profile }] = await Promise.all([searchParams, getOwnerLayoutContext()]);
+  const [{ requested, error }, { ownerMemberships, profile }] = await Promise.all([searchParams, getOwnerLayoutContext({ active: "/dueno/soporte" })]);
   const firstRestaurantId = ownerMemberships[0]?.restaurant.id;
   const [requests, paymentSettings] = await Promise.all([listOwnerBranchCapacityRequests(profile.id), getBranchRequestPaymentSettings()]);
   const hasPendingRequest = requests.some((request) => request.status === "pending");
@@ -85,7 +86,7 @@ export default async function OwnerSupportPage({ searchParams }: { searchParams:
             )}
 
             {firstRestaurantId ? (
-              <BranchRequestFormClient disabled={hasPendingRequest} qrConfigured={Boolean(paymentSettings.qrUrl)} restaurantId={firstRestaurantId} unitAmount={paymentSettings.amount} currency={paymentSettings.currency} />
+              <BranchRequestFormClient action={requestOwnerBranchCapacityAction} disabled={hasPendingRequest} qrConfigured={Boolean(paymentSettings.qrUrl)} restaurantId={firstRestaurantId} unitAmount={paymentSettings.amount} currency={paymentSettings.currency} />
             ) : null}
           </Card>
           <Card className="space-y-4">

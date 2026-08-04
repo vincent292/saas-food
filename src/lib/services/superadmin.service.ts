@@ -365,6 +365,7 @@ export const superadminService = {
         name: restaurant.name,
         slug: restaurant.slug,
         status: restaurant.status,
+        ownerUserId: restaurant.ownerUserId,
         ownerEmail: restaurant.ownerEmail ?? "",
         city: restaurant.city,
         businessType: restaurant.businessType,

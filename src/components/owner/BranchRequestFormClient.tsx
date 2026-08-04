@@ -1,19 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { requestOwnerBranchCapacityAction } from "@/app/admin/actions";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { buttonClasses } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { formatMoney } from "@/lib/utils/money";
 
 export function BranchRequestFormClient({
+  action,
   disabled,
   qrConfigured,
   restaurantId,
   unitAmount,
   currency,
 }: {
+  action: (formData: FormData) => void | Promise<void>;
   disabled: boolean;
   qrConfigured: boolean;
   restaurantId: string;
@@ -25,7 +26,7 @@ export function BranchRequestFormClient({
   const formDisabled = disabled || !qrConfigured;
 
   return (
-    <form action={requestOwnerBranchCapacityAction} className="space-y-3">
+    <form action={action} className="space-y-3">
       <input name="restaurantId" type="hidden" value={restaurantId} />
 
       <div className="grid gap-3 sm:grid-cols-[160px_1fr] sm:items-start">

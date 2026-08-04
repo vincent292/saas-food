@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AlertTriangle, LogOut } from "lucide-react";
+import { signOutAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { SuperAdminDashboard } from "@/components/admin/SuperAdminDashboard";
 import { Badge } from "@/components/ui/Badge";
@@ -28,9 +30,21 @@ export default async function AdminPage() {
 
   if (profile.globalRole !== "superadmin") {
     const memberships = await membershipService.listActiveRestaurantsForUser(profile.id);
+
+    if (!memberships.length) {
+      const allMemberships = await membershipService.listRestaurantsForUser(profile.id);
+      const allOwnerMemberships = ownerMembershipsForUser(allMemberships, profile.id);
+
+      if (allOwnerMemberships.length > 0 || !allMemberships.length) {
+        redirect("/dueno");
+      }
+
+      return <SuspendedAccessNotice email={profile.email} memberships={allMemberships} />;
+    }
+
     const ownerMemberships = ownerMembershipsForUser(memberships, profile.id);
 
-    if (!memberships.length || ownerMemberships.length > 0) {
+    if (ownerMemberships.length > 0) {
       redirect("/dueno");
     }
 
@@ -45,6 +59,47 @@ export default async function AdminPage() {
     <AdminLayout active="/admin" title="Superadmin">
       <SuperAdminDashboard />
     </AdminLayout>
+  );
+}
+
+function SuspendedAccessNotice({ email, memberships }: { email: string; memberships: UserRestaurantMembership[] }) {
+  return (
+    <main className="min-h-screen bg-[var(--color-surface)] px-4 py-6 text-[var(--color-heading)] sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-3xl space-y-6">
+        <Card className="space-y-5">
+          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]">
+            <AlertTriangle className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-[var(--color-secondary-text)]">Sesion de sucursal</p>
+            <h1 className="mt-1 break-words text-2xl font-black sm:text-3xl">{email}</h1>
+            <p className="mt-3 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
+              No puedes iniciar sesion operativo porque la cuenta del negocio esta suspendida o inactiva.
+              Ponte en contacto con yopido.shop para regularizar el acceso.
+            </p>
+          </div>
+          <div className="grid gap-2">
+            {memberships.map(({ restaurant, role }) => (
+              <div className="flex min-h-14 flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--color-neutral-50)] p-3 sm:flex-row sm:items-center sm:justify-between" key={restaurant.id}>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-black">{restaurant.name}</p>
+                  <p className="text-xs font-bold text-[var(--color-secondary-text)]">{role}</p>
+                </div>
+                <Badge className="bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]">
+                  {restaurant.status === "suspended" ? "Suspendida" : "Inactiva"}
+                </Badge>
+              </div>
+            ))}
+          </div>
+          <form action={signOutAction}>
+            <button className={buttonClasses("secondary", "w-full sm:w-auto")} type="submit">
+              <LogOut className="h-4 w-4" />
+              Salir
+            </button>
+          </form>
+        </Card>
+      </div>
+    </main>
   );
 }
 

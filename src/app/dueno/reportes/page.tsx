@@ -8,7 +8,7 @@ import { getOwnerDashboardData } from "@/lib/services/owner-dashboard.service";
 import { formatMoney } from "@/lib/utils/money";
 
 export default async function OwnerReportsPage() {
-  const { ownerMemberships } = await getOwnerLayoutContext();
+  const { ownerMemberships } = await getOwnerLayoutContext({ active: "/dueno/reportes" });
   const data = await getOwnerDashboardData(ownerMemberships);
 
   return (

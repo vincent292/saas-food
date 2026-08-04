@@ -1,14 +1,13 @@
 import { additionalLocationPriceMonthly, fullPlanName, primaryLocationPriceMonthly } from "@/lib/billing/full-plan";
 import { getOwnerBranchLimit } from "@/lib/services/owner-dashboard.service";
+import { ownerBillingService, type OwnerBillingSnapshot } from "@/lib/services/owner-billing.service";
 import { planService } from "@/lib/services/plan.service";
-import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
-import type { PlatformBilling, Restaurant } from "@/types/restaurant.types";
+import type { Restaurant } from "@/types/restaurant.types";
 
 export type ClientAccountBranch = {
   restaurant: Restaurant;
-  billing: PlatformBilling | null;
 };
 
 export type ClientAccount = {
@@ -30,6 +29,7 @@ export type ClientAccount = {
     additionalPriceMonthly: number;
     monthlyTotal: number;
   };
+  billing: OwnerBillingSnapshot | null;
 };
 
 export const clientAccountService = {
@@ -57,15 +57,11 @@ export const clientAccountService = {
     const normalizedBranches = branches.some((restaurant) => restaurant.id === baseRestaurant.id) ? branches : [baseRestaurant, ...branches];
     const orderedBranches = [...normalizedBranches].sort((left, right) => left.name.localeCompare(right.name));
     const branchLimit = await getOwnerBranchLimit(ownerUserId);
+    const billing = ownerUserId ? await ownerBillingService.getSnapshot(ownerUserId, { enforce: true }) : null;
     const fullPlan = plans.find((plan) => plan.key === "premium");
     const primaryPrice = fullPlan?.priceMonthly ?? primaryLocationPriceMonthly;
     const additionalPrice = fullPlan?.additionalRestaurantPriceMonthly ?? additionalLocationPriceMonthly;
-    const branchSnapshots = await Promise.all(
-      orderedBranches.map(async (restaurant) => ({
-        restaurant,
-        billing: (await platformBillingService.getBillingSnapshot(restaurant.id, restaurant.status)).billing,
-      })),
-    );
+    const branchSnapshots = orderedBranches.map((restaurant) => ({ restaurant }));
 
     return {
       owner: {
@@ -86,6 +82,7 @@ export const clientAccountService = {
         additionalPriceMonthly: additionalPrice,
         monthlyTotal: orderedBranches.length ? primaryPrice + Math.max(0, orderedBranches.length - 1) * additionalPrice : 0,
       },
+      billing,
     };
   },
 };

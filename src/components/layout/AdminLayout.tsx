@@ -4,6 +4,7 @@ import { AdminShellClient } from "@/components/layout/AdminShellClient";
 import { authService } from "@/lib/services/auth.service";
 import { membershipService } from "@/lib/services/membership.service";
 import { orderService } from "@/lib/services/order.service";
+import { ownerBillingService } from "@/lib/services/owner-billing.service";
 import { platformBillingService } from "@/lib/services/platform-billing.service";
 import type { ModuleKey, RestaurantStatus } from "@/types/restaurant.types";
 
@@ -58,6 +59,13 @@ export async function AdminLayout({
 
   if (restaurantId && profile.globalRole !== "superadmin" && ownsCurrentRestaurant && !profile.ownerProfileComplete) {
     redirect("/dueno/cuenta?required=1");
+  }
+
+  if (restaurantId && profile.globalRole !== "superadmin" && currentMembership?.restaurant.ownerUserId) {
+    const ownerBilling = await ownerBillingService.getSnapshot(currentMembership.restaurant.ownerUserId, { enforce: true });
+    if (ownerBilling?.isOverdue) {
+      redirect("/admin?error=restaurant-suspended");
+    }
   }
 
   const [billingAlert, pendingOrderAlerts] = await Promise.all([

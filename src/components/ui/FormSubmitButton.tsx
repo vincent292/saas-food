@@ -6,12 +6,14 @@ import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
 
 export function FormSubmitButton({
   className,
+  disabled = false,
   label = "Guardar",
   overlayDescription = "Estamos guardando los cambios. En unos segundos actualizamos el panel.",
   overlayTitle = "Guardando",
   pendingLabel = "Guardando...",
 }: {
   className?: string;
+  disabled?: boolean;
   label?: string;
   overlayDescription?: string;
   overlayTitle?: string;
@@ -21,7 +23,7 @@ export function FormSubmitButton({
 
   return (
     <>
-      <Button className={className} disabled={pending} type="submit">
+      <Button className={className} disabled={disabled || pending} type="submit">
         {pending ? pendingLabel : label}
       </Button>
 

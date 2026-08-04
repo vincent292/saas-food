@@ -89,6 +89,22 @@ test("owner capacity requests have owner and superadmin workflows", () => {
   assert.match(accountPage, /resolveOwnerBranchCapacityAction/);
 });
 
+test("owner account billing has monthly proof and superadmin approval", () => {
+  const migration = read("supabase/migrations/0060_owner_account_platform_billing.sql");
+  const service = read("src/lib/services/owner-billing.service.ts");
+  const ownerPlan = read("src/app/dueno/plan/page.tsx");
+  const accountPage = read("src/app/admin/restaurantes/[restaurantId]/cuenta/page.tsx");
+
+  assert.match(migration, /owner_platform_billing_settings/);
+  assert.match(migration, /owner_platform_payment_cycles/);
+  assert.match(migration, /owners read account payment cycles/);
+  assert.match(migration, /superadmin manages account payment cycles/);
+  assert.match(service, /suspendOwnerRestaurantsForBilling/);
+  assert.match(service, /reactivateOwnerRestaurantsAfterPayment/);
+  assert.match(ownerPlan, /submitOwnerBillingPaymentProofAction/);
+  assert.match(accountPage, /approveOwnerBillingPaymentAction/);
+});
+
 test("saved restaurant theme colors are mapped to the public theme", () => {
   const service = read("src/lib/services/restaurant.service.ts");
 

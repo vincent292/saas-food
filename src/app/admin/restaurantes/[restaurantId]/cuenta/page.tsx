@@ -2,28 +2,37 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { CreditCard, ExternalLink, ShieldCheck, Store, WalletCards } from "lucide-react";
-import { resolveOwnerBranchCapacityAction, setOwnerAccountStatusAction, updateOwnerBranchEntitlementAction } from "@/app/admin/actions";
+import { CreditCard, ExternalLink, ReceiptText, ShieldCheck, Store, WalletCards } from "lucide-react";
+import { approveOwnerBillingPaymentAction, resolveOwnerBranchCapacityAction, setOwnerAccountStatusAction, updateOwnerBillingSettingsAction, updateOwnerBranchEntitlementAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
+import { FormSubmitButton } from "@/components/ui/FormSubmitButton";
 import { Input, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { authService } from "@/lib/services/auth.service";
 import { clientAccountService } from "@/lib/services/client-account.service";
 import { modulesForAdminLayout } from "@/lib/modules";
+import type { OwnerBillingCycle } from "@/lib/services/owner-billing.service";
 import { listOwnerBranchCapacityRequests } from "@/lib/services/owner-dashboard.service";
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
-import type { PlatformBilling, RestaurantStatus } from "@/types/restaurant.types";
+import type { RestaurantStatus } from "@/types/restaurant.types";
 
 const errorMessages: Record<string, string> = {
   "invalid-entitlement": "Revisa el numero de sucursales habilitadas.",
   "invalid-branch-request": "Revisa la solicitud y el nuevo limite aprobado.",
   "invalid-owner-account-status": "No se pudo cambiar el estado de la cuenta.",
+  "invalid-owner-billing-cycle": "No se pudo resolver el ciclo de pago.",
+  "invalid-owner-billing-settings": "Revisa fecha, moneda y recordatorio del cobro mensual.",
   "owner-account-empty": "Esta cuenta no tiene sucursales activas o inactivas para suspender.",
+  "owner-billing-qr-upload": "No se pudo subir el QR de cobro mensual.",
+  "owner-billing-settings-save": "No se pudo guardar la configuracion de cobro.",
+  "owner-billing-cycle-missing": "No encontramos el ciclo mensual para aprobar.",
+  "service-role-required": "Falta la clave de servicio para esta operacion.",
   P0002: "La solicitud ya fue resuelta o no existe.",
 };
 
@@ -32,9 +41,9 @@ export default async function ClientAccountPage({
   searchParams,
 }: {
   params: Promise<{ restaurantId: string }>;
-  searchParams: Promise<{ account?: string; saved?: string; error?: string }>;
+  searchParams: Promise<{ account?: string; billingSaved?: string; paymentPaid?: string; saved?: string; error?: string }>;
 }) {
-  const [{ restaurantId }, { account: accountStatus, saved, error }, profile] = await Promise.all([params, searchParams, authService.getCurrentProfile()]);
+  const [{ restaurantId }, { account: accountStatus, billingSaved, paymentPaid, saved, error }, profile] = await Promise.all([params, searchParams, authService.getCurrentProfile()]);
 
   if (profile?.globalRole !== "superadmin") {
     redirect("/admin?error=superadmin-required");
@@ -52,6 +61,7 @@ export default async function ClientAccountPage({
   const accountSuspended = account.branches.length > 0 && account.branches.every(({ restaurant }) => restaurant.status === "suspended");
   const suspendedBranches = account.branches.filter(({ restaurant }) => restaurant.status === "suspended").length;
   const nextAccountStatus = accountSuspended ? "active" : "suspended";
+  const ownerBilling = account.billing;
 
   return (
     <AdminLayout
@@ -91,6 +101,16 @@ export default async function ClientAccountPage({
             {accountStatus === "active" ? "Cuenta reactivada correctamente." : "Cuenta suspendida correctamente."}
           </div>
         ) : null}
+        {billingSaved ? (
+          <div className="rounded-2xl border border-[var(--color-success-soft)] bg-[var(--color-success-soft)] p-4 text-sm font-bold text-[var(--color-success-strong)]">
+            Configuracion de cobro mensual actualizada.
+          </div>
+        ) : null}
+        {paymentPaid ? (
+          <div className="rounded-2xl border border-[var(--color-success-soft)] bg-[var(--color-success-soft)] p-4 text-sm font-bold text-[var(--color-success-strong)]">
+            Pago aprobado. Cuenta y sucursales reactivadas.
+          </div>
+        ) : null}
         {error ? (
           <div className="rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] p-4 text-sm font-bold text-[var(--color-danger-strong)]">
             {errorMessages[error] ?? "No se pudo guardar la cuenta del cliente."}
@@ -119,7 +139,7 @@ export default async function ClientAccountPage({
             <div className="grid gap-4 p-5 md:grid-cols-3">
               <InfoMetric icon={<ShieldCheck className="h-5 w-5" />} label="Dueno" value={account.owner.email} />
               <InfoMetric icon={<WalletCards className="h-5 w-5" />} label="Tarifa" value={account.pricing.planName} />
-              <InfoMetric icon={<CreditCard className="h-5 w-5" />} label="Total mensual" value={formatMoney(account.pricing.monthlyTotal)} />
+              <InfoMetric icon={<CreditCard className="h-5 w-5" />} label="Total mensual" value={formatMoney(ownerBilling?.monthlyTotal ?? account.pricing.monthlyTotal)} />
             </div>
           </Card>
 
@@ -172,6 +192,70 @@ export default async function ClientAccountPage({
                 </p>
               ) : null}
             </Card>
+
+            <Card className="space-y-4">
+              <SectionTitle title="Cobro mensual" description="Pago unico por cuenta: principal + sucursales no archivadas." />
+              {ownerBilling ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <SmallStat label="Vence" value={formatDate(ownerBilling.currentCycle.dueDate)} />
+                    <SmallStat label="Monto" value={formatMoney(ownerBilling.currentCycle.amountDue, ownerBilling.currentCycle.currency)} />
+                  </div>
+                  <OwnerBillingStatusBadge cycle={ownerBilling.currentCycle} overdue={ownerBilling.isOverdue} />
+                  {ownerBilling.currentCycle.proofUrl ? (
+                    <a className="inline-flex items-center gap-2 text-sm font-black text-[var(--primary)]" href={ownerBilling.currentCycle.proofUrl} rel="noreferrer" target="_blank">
+                      <ReceiptText className="h-4 w-4" />
+                      Ver comprobante
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  ) : (
+                    <p className="text-sm font-semibold text-[var(--color-secondary-text)]">Sin comprobante cargado para este ciclo.</p>
+                  )}
+                  <form action={approveOwnerBillingPaymentAction} className="space-y-3">
+                    {account.owner.userId ? <input name="ownerUserId" type="hidden" value={account.owner.userId} /> : null}
+                    <input name="restaurantId" type="hidden" value={baseRestaurant.id} />
+                    <input name="cycleId" type="hidden" value={ownerBilling.currentCycle.id} />
+                    <Textarea name="ownerBillingResolutionNotes" placeholder="Nota de aprobacion o referencia interna" />
+                    <FormSubmitButton
+                      className="w-full"
+                      disabled={!account.owner.userId || !ownerBilling.currentCycle.proofUrl || Boolean(ownerBilling.currentCycle.paidAt)}
+                      label="Aprobar pago"
+                      overlayDescription="Marcando el ciclo como pagado y reactivando sucursales."
+                      overlayTitle="Aprobando pago"
+                      pendingLabel="Aprobando..."
+                    />
+                  </form>
+
+                  <form action={updateOwnerBillingSettingsAction} className="grid gap-3 border-t border-[var(--border)] pt-4">
+                    {account.owner.userId ? <input name="ownerUserId" type="hidden" value={account.owner.userId} /> : null}
+                    <input name="restaurantId" type="hidden" value={baseRestaurant.id} />
+                    {ownerBilling.settings.platformQrUrl ? <input name="currentOwnerBillingQrUrl" type="hidden" value={ownerBilling.settings.platformQrUrl} /> : null}
+                    <label className="grid gap-1 text-sm font-bold text-[var(--color-secondary-text)]">
+                      Proximo vencimiento
+                      <Input defaultValue={ownerBilling.settings.nextDueDate} name="ownerBillingNextDueDate" required type="date" />
+                    </label>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Input defaultValue={ownerBilling.settings.reminderDays} max={15} min={0} name="ownerBillingReminderDays" placeholder="Recordatorio dias" type="number" />
+                      <Input defaultValue={ownerBilling.settings.currency} maxLength={3} minLength={3} name="ownerBillingCurrency" placeholder="Moneda" />
+                    </div>
+                    <CompressedImageInput help="QR que el dueno usara para pagar la mensualidad de la plataforma." label="QR mensual" name="ownerBillingQrFile" previewClassName="aspect-square" />
+                    <Textarea defaultValue={ownerBilling.settings.platformQrNote ?? ""} name="ownerBillingQrNote" placeholder="Instrucciones de pago para el dueno" />
+                    <FormSubmitButton
+                      className="w-full"
+                      disabled={!account.owner.userId}
+                      label="Guardar cobro"
+                      overlayDescription="Actualizando QR, fecha y recordatorio de la cuenta."
+                      overlayTitle="Guardando cobro"
+                      pendingLabel="Guardando..."
+                    />
+                  </form>
+                </>
+              ) : (
+                <p className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">
+                  No se pudo preparar el cobro mensual. Revisa la configuracion de servicio.
+                </p>
+              )}
+            </Card>
           </div>
         </section>
 
@@ -192,6 +276,32 @@ export default async function ClientAccountPage({
             <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">el cliente solicita sucursales con comprobante</p>
           </Card>
         </section>
+
+        {ownerBilling?.recentCycles.length ? (
+          <section className="space-y-3">
+            <SectionTitle description="Cada mes queda separado con vencimiento, monto, comprobante y aprobacion." title="Historial de mensualidades" />
+            <DataTable
+              emptyMessage="No hay mensualidades registradas."
+              headers={["Mes", "Monto", "Estado", "Comprobante"]}
+              rows={ownerBilling.recentCycles.map((cycle) => [
+                <div key={`${cycle.id}-period`}>
+                  <p className="font-black">{monthLabel(cycle.periodKey)}</p>
+                  <p className="text-xs font-bold text-[var(--color-secondary-text)]">Vence {formatDate(cycle.dueDate)}</p>
+                </div>,
+                formatMoney(cycle.amountDue, cycle.currency),
+                <OwnerBillingStatusBadge cycle={cycle} key={`${cycle.id}-status`} overdue={cycle.status === "overdue"} />,
+                cycle.proofUrl ? (
+                  <a className="inline-flex items-center gap-1 text-sm font-black text-[var(--primary)]" href={cycle.proofUrl} key={`${cycle.id}-proof`} rel="noreferrer" target="_blank">
+                    Abrir
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                ) : (
+                  <span className="text-sm font-bold text-[var(--color-secondary-text)]" key={`${cycle.id}-proof-empty`}>Sin comprobante</span>
+                ),
+              ])}
+            />
+          </section>
+        ) : null}
 
         <section className="space-y-3">
           <SectionTitle description="El dueno paga, sube su comprobante y solo el superadmin habilita las sucursales solicitadas." title="Solicitudes de sucursales" />
@@ -233,11 +343,11 @@ export default async function ClientAccountPage({
         </section>
 
         <section className="space-y-3">
-          <SectionTitle description="Cada sucursal mantiene pedidos, caja, inventario, usuarios y pagos separados." title="Sucursales del cliente" />
+          <SectionTitle description="Cada sucursal mantiene pedidos, caja, inventario y usuarios separados. El cobro se aprueba como mensualidad unica de la cuenta." title="Sucursales del cliente" />
           <DataTable
             emptyMessage="Este cliente todavia no tiene sucursales."
-            headers={["Sucursal", "Estado", "Cobro", "Pago", "Acciones"]}
-            rows={account.branches.map(({ restaurant, billing }, index) => [
+            headers={["Sucursal", "Estado", "Tarifa", "Acciones"]}
+            rows={account.branches.map(({ restaurant }, index) => [
               <div className="flex items-center gap-3" key={`${restaurant.id}-branch`}>
                 <LogoBox restaurant={restaurant} small />
                 <div>
@@ -247,13 +357,12 @@ export default async function ClientAccountPage({
               </div>,
               <StatusBadge key={`${restaurant.id}-status`} status={restaurant.status} />,
               index === 0 ? formatMoney(account.pricing.primaryPriceMonthly) : formatMoney(account.pricing.additionalPriceMonthly),
-              <BillingCell billing={billing} key={`${restaurant.id}-billing`} />,
               <div className="flex flex-wrap gap-2" key={`${restaurant.id}-actions`}>
                 <Link className={buttonClasses("secondary")} href={`/admin/restaurantes/${restaurant.id}`}>
                   Ficha
                 </Link>
-                <Link className={buttonClasses("secondary")} href={`/admin/restaurantes/${restaurant.id}/configuracion?tab=plataforma`}>
-                  Pagos
+                <Link className={buttonClasses("secondary")} href={`/admin/restaurantes/${restaurant.id}/configuracion`}>
+                  Configurar
                 </Link>
                 <Link className={buttonClasses("primary")} href={`/admin/restaurantes/${restaurant.id}/dashboard`}>
                   Entrar
@@ -319,29 +428,32 @@ function StatusBadge({ status }: { status: RestaurantStatus }) {
   return <Badge className={className}>{label}</Badge>;
 }
 
-function BillingCell({ billing }: { billing: PlatformBilling | null }) {
-  if (!billing) {
-    return <span className="text-sm font-bold text-[var(--color-secondary-text)]">Sin configurar</span>;
-  }
+function OwnerBillingStatusBadge({ cycle, overdue }: { cycle: OwnerBillingCycle; overdue: boolean }) {
+  const status = cycle.paidAt ? "paid" : overdue ? "overdue" : cycle.status;
+  const label =
+    status === "paid"
+      ? "Pagado"
+      : status === "proof_uploaded"
+        ? "En revision"
+        : status === "verified"
+          ? "Verificado"
+          : status === "overdue"
+            ? "Vencido"
+            : "Pendiente";
+  const className =
+    status === "paid"
+      ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]"
+      : status === "overdue"
+        ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]"
+        : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]";
 
-  const paid = Boolean(billing.currentCycle?.paidAt);
-  const label = paid ? "Pagado" : billing.isOverdue ? "Vencido" : billing.currentCycle?.proofUploadedAt ? "Comprobante" : "Pendiente";
-  const className = paid
-    ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]"
-    : billing.isOverdue
-      ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]"
-      : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]";
+  return <Badge className={className}>{label}</Badge>;
+}
 
-  return (
-    <div>
-      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${className}`}>{label}</span>
-      <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">Vence {billing.nextDueDate}</p>
-      {billing.currentCycle?.proofUrl ? (
-        <a className="mt-1 inline-flex items-center gap-1 text-xs font-black text-[var(--primary)]" href={billing.currentCycle.proofUrl} rel="noreferrer" target="_blank">
-          Comprobante
-          <ExternalLink className="h-3 w-3" />
-        </a>
-      ) : null}
-    </div>
-  );
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("es-BO", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00`));
+}
+
+function monthLabel(periodKey: string) {
+  return new Intl.DateTimeFormat("es-BO", { month: "long", year: "numeric" }).format(new Date(`${periodKey}-01T00:00:00`));
 }

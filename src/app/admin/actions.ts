@@ -14,6 +14,7 @@ import {
   restaurantBusinessTypeValues,
 } from "@/lib/restaurant-directory-options";
 import { platformBillingService } from "@/lib/services/platform-billing.service";
+import { ownerBillingService } from "@/lib/services/owner-billing.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { membershipService } from "@/lib/services/membership.service";
 import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
@@ -525,6 +526,28 @@ const resolvePlatformPaymentCycleSchema = z.object({
   notes: z.string().optional(),
 });
 
+const updateOwnerBillingSettingsSchema = z.object({
+  ownerUserId: z.string().uuid(),
+  restaurantId: z.string().uuid(),
+  currentOwnerBillingQrUrl: z.string().optional(),
+  nextDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  reminderDays: z.coerce.number().int().min(0).max(15).default(4),
+  currency: z.string().min(3).max(3).default("BOB"),
+  platformQrNote: z.string().optional(),
+});
+
+const submitOwnerBillingPaymentProofSchema = z.object({
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  notes: z.string().optional(),
+});
+
+const resolveOwnerBillingPaymentSchema = z.object({
+  ownerUserId: z.string().uuid(),
+  restaurantId: z.string().uuid(),
+  cycleId: z.string().uuid(),
+  notes: z.string().optional(),
+});
+
 const createOwnerChangeRequestSchema = z.object({
   restaurantId: z.string().uuid(),
   requestedOwnerName: z.string().min(2),
@@ -668,6 +691,7 @@ const releaseAccessSessionSchema = z.object({
 const MAX_SUPPORT_ATTACHMENTS = 5;
 const MAX_SUPPORT_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const MAX_BRANCH_REQUEST_PAYMENT_PROOF_BYTES = 5 * 1024 * 1024;
+const MAX_OWNER_BILLING_PAYMENT_PROOF_BYTES = 5 * 1024 * 1024;
 
 async function modulesForPlan(planKey: PlanKey): Promise<ModuleKey[]> {
   void planKey;
@@ -1067,6 +1091,10 @@ async function updateRestaurantPlan(supabase: Awaited<ReturnType<typeof createCl
 
 function platformConfigPath(restaurantId: string) {
   return `/admin/restaurantes/${restaurantId}/configuracion?tab=plataforma`;
+}
+
+function ownerAccountPath(restaurantId: string) {
+  return `/admin/restaurantes/${restaurantId}/cuenta`;
 }
 
 async function ensurePlatformPaymentCycle(
@@ -4041,6 +4069,197 @@ export async function markPlatformPaymentPaidAction(formData: FormData) {
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}`);
   redirect(`${platformConfigPath(parsed.data.restaurantId)}&paymentPaid=1`);
+}
+
+export async function updateOwnerBillingSettingsAction(formData: FormData) {
+  const parsed = updateOwnerBillingSettingsSchema.safeParse({
+    ownerUserId: formData.get("ownerUserId"),
+    restaurantId: formData.get("restaurantId"),
+    currentOwnerBillingQrUrl: formData.get("currentOwnerBillingQrUrl") || undefined,
+    nextDueDate: formData.get("ownerBillingNextDueDate"),
+    reminderDays: formData.get("ownerBillingReminderDays") || 4,
+    currency: formData.get("ownerBillingCurrency") || "BOB",
+    platformQrNote: formData.get("ownerBillingQrNote") || undefined,
+  });
+
+  const fallbackRestaurantId = String(formData.get("restaurantId") || "");
+  const returnTo = ownerAccountPath(fallbackRestaurantId);
+
+  if (!parsed.success) {
+    redirect(`${returnTo}?error=invalid-owner-billing-settings`);
+  }
+
+  const { user } = await requireSuperadmin();
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(`${ownerAccountPath(parsed.data.restaurantId)}?error=service-role-required`);
+  }
+
+  const existingSnapshot = await ownerBillingService.getSnapshot(parsed.data.ownerUserId, { actorUserId: user.id, enforce: false });
+  const currentQrUrl = existingSnapshot?.settings.platformQrUrl ?? undefined;
+  let qrUrl: string | null = parsed.data.currentOwnerBillingQrUrl ?? currentQrUrl ?? null;
+
+  try {
+    qrUrl = (await uploadPublicImage(formData.get("ownerBillingQrFile") as File | null, `platform/owner-billing/${parsed.data.ownerUserId}/qr`)) ?? qrUrl;
+  } catch {
+    redirect(`${ownerAccountPath(parsed.data.restaurantId)}?error=owner-billing-qr-upload`);
+  }
+
+  const { error } = await admin.from("owner_platform_billing_settings").upsert(
+    {
+      owner_user_id: parsed.data.ownerUserId,
+      billing_anchor_day: 15,
+      next_due_date: parsed.data.nextDueDate,
+      reminder_days: parsed.data.reminderDays,
+      currency: parsed.data.currency.toUpperCase(),
+      platform_qr_url: qrUrl,
+      platform_qr_note: parsed.data.platformQrNote ?? null,
+      updated_by: user.id,
+    },
+    { onConflict: "owner_user_id" },
+  );
+
+  if (error) {
+    redirect(`${ownerAccountPath(parsed.data.restaurantId)}?error=${cashErrorKey(error, "owner-billing-settings-save")}`);
+  }
+
+  await ownerBillingService.getSnapshot(parsed.data.ownerUserId, { actorUserId: user.id, enforce: false });
+  revalidatePath(ownerAccountPath(parsed.data.restaurantId));
+  revalidatePath("/dueno/plan");
+  redirect(`${ownerAccountPath(parsed.data.restaurantId)}?billingSaved=1`);
+}
+
+export async function submitOwnerBillingPaymentProofAction(formData: FormData) {
+  const parsed = submitOwnerBillingPaymentProofSchema.safeParse({
+    dueDate: formData.get("ownerBillingDueDate"),
+    notes: formData.get("ownerBillingPaymentNotes") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect("/dueno/plan?error=invalid-owner-billing-proof");
+  }
+
+  const { supabase, user } = await requireUser();
+  const snapshot = await ownerBillingService.getSnapshot(user.id, { actorUserId: user.id, enforce: false });
+  if (!snapshot?.isConfigured) {
+    redirect("/dueno/plan?error=owner-billing-not-configured");
+  }
+
+  if (snapshot.currentCycle.dueDate !== parsed.data.dueDate) {
+    redirect("/dueno/plan?error=owner-billing-cycle-mismatch");
+  }
+
+  if (snapshot.currentCycle.paidAt) {
+    redirect("/dueno/plan?error=owner-billing-cycle-paid");
+  }
+
+  const proofFile = formData.get("ownerBillingPaymentProofFile") as File | null;
+  if (!proofFile || proofFile.size === 0) {
+    redirect("/dueno/plan?error=owner-billing-proof-required");
+  }
+
+  const proofTypeIsValid = proofFile.type.startsWith("image/") || proofFile.type === "application/pdf";
+  if (!proofTypeIsValid || proofFile.size > MAX_OWNER_BILLING_PAYMENT_PROOF_BYTES) {
+    redirect("/dueno/plan?error=invalid-owner-billing-proof");
+  }
+
+  let proofUrl: string | null = null;
+  try {
+    proofUrl = await uploadPublicImage(proofFile, `platform/owner-billing/${user.id}/proofs`);
+  } catch {
+    redirect("/dueno/plan?error=owner-billing-proof-upload");
+  }
+
+  if (!proofUrl) {
+    redirect("/dueno/plan?error=owner-billing-proof-upload");
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect("/dueno/plan?error=service-role-required");
+  }
+
+  const { error } = await admin
+    .from("owner_platform_payment_cycles")
+    .update({
+      proof_url: proofUrl,
+      proof_uploaded_at: new Date().toISOString(),
+      proof_verified_at: null,
+      proof_verified_by: null,
+      notes: parsed.data.notes ?? null,
+      status: "proof_uploaded",
+    })
+    .eq("id", snapshot.currentCycle.id)
+    .eq("owner_user_id", user.id);
+
+  if (error) {
+    redirect(`/dueno/plan?error=${cashErrorKey(error, "owner-billing-proof-save")}`);
+  }
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: "owner_billing_proof_uploaded",
+    p_entity_type: "owner_platform_payment_cycle",
+    p_entity_id: snapshot.currentCycle.id,
+    p_restaurant_id: null,
+    p_severity: "info",
+    p_metadata: {
+      amountDue: snapshot.currentCycle.amountDue,
+      dueDate: snapshot.currentCycle.dueDate,
+      ownerUserId: user.id,
+    } satisfies Json,
+  });
+
+  revalidatePath("/dueno/plan");
+  revalidatePath("/admin/restaurantes");
+  redirect("/dueno/plan?paymentUploaded=1");
+}
+
+export async function approveOwnerBillingPaymentAction(formData: FormData) {
+  const parsed = resolveOwnerBillingPaymentSchema.safeParse({
+    ownerUserId: formData.get("ownerUserId"),
+    restaurantId: formData.get("restaurantId"),
+    cycleId: formData.get("cycleId"),
+    notes: formData.get("ownerBillingResolutionNotes") || undefined,
+  });
+
+  const fallbackRestaurantId = String(formData.get("restaurantId") || "");
+  const returnTo = ownerAccountPath(fallbackRestaurantId);
+
+  if (!parsed.success) {
+    redirect(`${returnTo}?error=invalid-owner-billing-cycle`);
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+
+  try {
+    await ownerBillingService.markPaid({
+      actorUserId: user.id,
+      cycleId: parsed.data.cycleId,
+      notes: parsed.data.notes,
+      ownerUserId: parsed.data.ownerUserId,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "owner-billing-payment-paid";
+    redirect(`${ownerAccountPath(parsed.data.restaurantId)}?error=${encodeURIComponent(message)}`);
+  }
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: "owner_billing_payment_approved",
+    p_entity_type: "owner_platform_payment_cycle",
+    p_entity_id: parsed.data.cycleId,
+    p_restaurant_id: parsed.data.restaurantId,
+    p_severity: "warning",
+    p_metadata: {
+      ownerUserId: parsed.data.ownerUserId,
+    } satisfies Json,
+  });
+
+  revalidatePath(ownerAccountPath(parsed.data.restaurantId));
+  revalidatePath("/admin/restaurantes");
+  revalidatePath("/dueno");
+  revalidatePath("/dueno/plan");
+  revalidatePath("/dueno/sucursales");
+  redirect(`${ownerAccountPath(parsed.data.restaurantId)}?paymentPaid=1`);
 }
 
 export async function createOwnerChangeRequestAction(formData: FormData) {

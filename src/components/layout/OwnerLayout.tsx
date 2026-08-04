@@ -3,9 +3,11 @@ import { redirect } from "next/navigation";
 import { OwnerShellClient } from "@/components/layout/OwnerShellClient";
 import { authService } from "@/lib/services/auth.service";
 import { membershipService, type UserRestaurantMembership } from "@/lib/services/membership.service";
+import { ownerBillingService } from "@/lib/services/owner-billing.service";
 import { ownerMembershipsForUser } from "@/lib/services/owner-dashboard.service";
 
 const ownerProfileCompletionAllowedRoutes = new Set(["/dueno/cuenta", "/dueno/plan", "/dueno/soporte"]);
+const ownerBillingAllowedRoutes = new Set(["/dueno/cuenta", "/dueno/plan", "/dueno/soporte"]);
 
 export async function getOwnerLayoutContext({ active = "/dueno" }: { active?: string } = {}) {
   const profile = await authService.getCurrentProfile();
@@ -28,6 +30,11 @@ export async function getOwnerLayoutContext({ active = "/dueno" }: { active?: st
 
   if (!profile.ownerProfileComplete && !ownerProfileCompletionAllowedRoutes.has(active)) {
     redirect(`/dueno/cuenta?required=1&from=${encodeURIComponent(active)}`);
+  }
+
+  const billing = await ownerBillingService.getSnapshot(profile.id, { actorUserId: profile.id, enforce: true });
+  if (billing?.isOverdue && !ownerBillingAllowedRoutes.has(active)) {
+    redirect(`/dueno/plan?billing=overdue&from=${encodeURIComponent(active)}`);
   }
 
   const memberships = await membershipService.listActiveRestaurantsForUser(profile.id);

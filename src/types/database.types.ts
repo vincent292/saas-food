@@ -92,6 +92,41 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      owner_platform_billing_settings: Row<{
+        owner_user_id: string;
+        billing_anchor_day: number;
+        next_due_date: string;
+        reminder_days: number;
+        currency: string;
+        platform_qr_url: string | null;
+        platform_qr_note: string | null;
+        created_by: string | null;
+        updated_by: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      owner_platform_payment_cycles: Row<{
+        id: string;
+        owner_user_id: string;
+        due_date: string;
+        period_key: string;
+        branch_count: number;
+        primary_price_monthly: number;
+        additional_price_monthly: number;
+        amount_due: number;
+        currency: string;
+        status: "pending" | "proof_uploaded" | "verified" | "paid" | "overdue" | "cancelled";
+        proof_url: string | null;
+        proof_uploaded_at: string | null;
+        proof_verified_at: string | null;
+        proof_verified_by: string | null;
+        paid_at: string | null;
+        paid_by: string | null;
+        notes: string | null;
+        resolution_notes: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       platform_branch_request_payment_settings: Row<{
         id: boolean;
         amount: number;

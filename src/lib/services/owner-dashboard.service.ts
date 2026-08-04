@@ -806,7 +806,7 @@ export async function getOwnerActivationSummary(ownerUserId: string): Promise<Ow
   const archived = restaurants.filter((restaurant) => restaurant.deleted_at).length;
   const nonArchived = restaurants.length - archived;
   const limit = Math.max(1, Number(entitlementResult.data?.branch_limit ?? 1));
-  const remaining = Math.max(0, limit - active);
+  const remaining = Math.max(0, limit - nonArchived);
 
   return {
     used: active,
@@ -821,7 +821,7 @@ export async function getOwnerActivationSummary(ownerUserId: string): Promise<Ow
     planName: pricing.planName,
     primaryPriceMonthly: pricing.primaryPriceMonthly,
     additionalPriceMonthly: pricing.additionalPriceMonthly,
-    monthlyTotal: active ? pricing.primaryPriceMonthly + Math.max(0, active - 1) * pricing.additionalPriceMonthly : 0,
+    monthlyTotal: nonArchived ? pricing.primaryPriceMonthly + Math.max(0, nonArchived - 1) * pricing.additionalPriceMonthly : 0,
   };
 }
 

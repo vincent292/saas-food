@@ -397,6 +397,7 @@ async function suspendOwnerRestaurantsForBilling(ownerUserId: string, restaurant
       updated_at: now,
     })
     .eq("owner_user_id", ownerUserId)
+    .eq("status", "active")
     .is("deleted_at", null);
 
   await admin.from("restaurant_subscriptions").update({ status: "past_due" }).in("restaurant_id", restaurantIds).in("status", ["trialing", "active"]);
@@ -428,6 +429,7 @@ async function reactivateOwnerRestaurantsAfterPayment(ownerUserId: string, resta
       updated_at: now,
     })
     .eq("owner_user_id", ownerUserId)
+    .is("deactivated_by", null)
     .is("deleted_at", null);
 
   await admin.from("restaurant_subscriptions").update({ status: "active" }).in("restaurant_id", restaurantIds).in("status", ["trialing", "past_due"]);

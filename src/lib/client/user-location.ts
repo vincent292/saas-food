@@ -9,10 +9,23 @@ type StoredUserLocation = GeoPoint & {
   capturedAt: number;
 };
 
+function isValidCoordinate(latitude: unknown, longitude: unknown) {
+  return (
+    typeof latitude === "number" &&
+    typeof longitude === "number" &&
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+}
+
 function isStoredLocation(value: unknown): value is StoredUserLocation {
   if (!value || typeof value !== "object") return false;
   const location = value as Partial<StoredUserLocation>;
-  return typeof location.latitude === "number" && typeof location.longitude === "number" && typeof location.capturedAt === "number";
+  return isValidCoordinate(location.latitude, location.longitude) && typeof location.capturedAt === "number";
 }
 
 export function readUserLocation() {
@@ -33,6 +46,10 @@ export function readUserLocation() {
 }
 
 export function writeUserLocation(location: GeoPoint) {
+  if (!isValidCoordinate(location.latitude, location.longitude)) {
+    return;
+  }
+
   try {
     const stored: StoredUserLocation = { ...location, capturedAt: Date.now() };
     window.localStorage.setItem(USER_LOCATION_STORAGE_KEY, JSON.stringify(stored));

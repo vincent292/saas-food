@@ -158,13 +158,15 @@ export default async function ClientAccountPage({
                 <input name="returnTo" type="hidden" value={`/admin/restaurantes/${baseRestaurant.id}/cuenta`} />
                 {account.owner.userId ? <input name="ownerUserId" type="hidden" value={account.owner.userId} /> : null}
                 <input name="status" type="hidden" value={nextAccountStatus} />
-                <button
-                  className={buttonClasses(nextAccountStatus === "active" ? "primary" : "danger", "w-full")}
+                <FormSubmitButton
+                  className="w-full"
                   disabled={!account.owner.userId || !account.branches.length}
-                  type="submit"
-                >
-                  {nextAccountStatus === "active" ? "Reactivar cuenta" : "Suspender cuenta"}
-                </button>
+                  label={nextAccountStatus === "active" ? "Reactivar cuenta" : "Suspender cuenta"}
+                  overlayDescription="Actualizando el estado de la cuenta, sucursal principal y sucursales asociadas."
+                  overlayTitle={nextAccountStatus === "active" ? "Reactivando cuenta" : "Suspendiendo cuenta"}
+                  pendingLabel={nextAccountStatus === "active" ? "Reactivando..." : "Suspendiendo..."}
+                  variant={nextAccountStatus === "active" ? "primary" : "danger"}
+                />
               </form>
               <p className="text-xs font-bold leading-5 text-[var(--color-secondary-text)]">
                 Al suspender, el dueno y responsables quedan sin acceso operativo hasta la reactivacion.

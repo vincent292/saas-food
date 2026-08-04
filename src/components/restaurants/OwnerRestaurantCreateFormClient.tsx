@@ -17,7 +17,7 @@ import type { BusinessType } from "@/types/restaurant.types";
 const errorMessages: Record<string, string> = {
   invalid: "Revisa los datos obligatorios.",
   "owner-only": "Este formulario es para duenos de negocio, no para superadmin.",
-  "restaurant-exists": "Ya tienes una sucursal activa. Para otra sucursal usa el flujo de sucursales.",
+  "restaurant-exists": "Ya tienes una sucursal no archivada. Para otra sucursal usa el flujo de sucursales.",
   "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para crear el restaurante desde este flujo.",
   "slug-exists": "Ese slug publico ya esta en uso. Prueba con otro.",
   "storage-upload": "No se pudieron subir las imagenes. Intenta con archivos mas livianos.",

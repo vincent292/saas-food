@@ -16,7 +16,22 @@ type RestaurantDistanceBadgeProps = {
 };
 
 function hasCoordinates(latitude?: number, longitude?: number) {
-  return typeof latitude === "number" && typeof longitude === "number";
+  return (
+    typeof latitude === "number" &&
+    typeof longitude === "number" &&
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+}
+
+function isGeoPoint(value: unknown): value is GeoPoint {
+  if (!value || typeof value !== "object") return false;
+  const point = value as Partial<GeoPoint>;
+  return hasCoordinates(point.latitude, point.longitude);
 }
 
 export function RestaurantDistanceBadge({ latitude, longitude, className, variant = "card" }: RestaurantDistanceBadgeProps) {
@@ -59,7 +74,7 @@ export function RestaurantDistanceBadge({ latitude, longitude, className, varian
 
     function handleLocationUpdate(event: Event) {
       const nextLocation = (event as CustomEvent<GeoPoint>).detail;
-      if (nextLocation) {
+      if (isGeoPoint(nextLocation)) {
         setUserLocation(nextLocation);
       }
     }

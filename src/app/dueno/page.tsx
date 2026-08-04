@@ -8,7 +8,7 @@ export default async function OwnerHomePage() {
 
   if (!ownerMemberships.length) {
     const activation = await getOwnerActivationSummary(profile.id);
-    const mode = activation.accountSuspended ? "suspended" : activation.total > 0 ? "expansion" : "first";
+    const mode = activation.accountSuspended ? "suspended" : activation.nonArchived > 0 ? "expansion" : "first";
 
     return <OwnerOnboarding activation={activation} email={profile.email} fullName={profile.fullName} mode={mode} />;
   }

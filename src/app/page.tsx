@@ -28,7 +28,7 @@ import {
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { PartnerLoginButton } from "@/components/auth/PartnerLoginButton";
 import { PublicCustomerAccountButton } from "@/components/customer/PublicCustomerAccountButton";
-import { HomeLocationProvider, HomeNearbyHighlights, HomeNearbyMobileExplorer, HomeNearbyRestaurantSection } from "@/components/home/HomeNearbyDirectory";
+import { HomeLocationProvider, HomeNearbyHighlights, HomeNearbyMobileExplorer, HomeNearbyRestaurantSection, HomeNearestBranchSpotlight } from "@/components/home/HomeNearbyDirectory";
 import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
 import { PendingCartNotice } from "@/components/home/PendingCartNotice";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
@@ -98,6 +98,9 @@ export default async function Home({
                 locations={baseDirectory.locations}
                 restaurants={baseDirectory.restaurants}
               />
+            </div>
+            <div className="mt-4 lg:max-w-6xl">
+              <HomeNearestBranchSpotlight restaurants={baseDirectory.restaurants} />
             </div>
 
             <div className="mt-5 lg:mt-7">

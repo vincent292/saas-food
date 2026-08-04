@@ -94,7 +94,16 @@ function rankRestaurantCards(cards: PublicRestaurantCard[], userLocation: GeoPoi
 function isGeoPoint(value: unknown): value is GeoPoint {
   if (!value || typeof value !== "object") return false;
   const point = value as Partial<GeoPoint>;
-  return typeof point.latitude === "number" && typeof point.longitude === "number";
+  return (
+    typeof point.latitude === "number" &&
+    typeof point.longitude === "number" &&
+    Number.isFinite(point.latitude) &&
+    Number.isFinite(point.longitude) &&
+    point.latitude >= -90 &&
+    point.latitude <= 90 &&
+    point.longitude >= -180 &&
+    point.longitude <= 180
+  );
 }
 
 export function HomeLocationProvider({ children, restaurants }: { children: ReactNode; restaurants: PublicRestaurantCard[] }) {
@@ -278,6 +287,108 @@ export function HomeNearbyMobileExplorer({
             <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Prueba otro rubro, categoria o busqueda.</p>
           </Card>
         )}
+      </div>
+    </div>
+  );
+}
+
+export function HomeNearestBranchSpotlight({ restaurants }: { restaurants: PublicRestaurantCard[] }) {
+  const { requestLocation, status, userLocation } = useHomeLocation();
+  const rankedRestaurants = useMemo(
+    () => rankRestaurantCards(restaurants, userLocation).filter((card) => typeof card.distanceKm === "number"),
+    [restaurants, userLocation],
+  );
+  const closest = rankedRestaurants[0];
+  const alternatives = rankedRestaurants.slice(1, 3);
+  const isLoading = status === "detecting";
+
+  if (status === "idle") {
+    return null;
+  }
+
+  if (isLoading) {
+    return (
+      <div className="rounded-[1.6rem] border border-white/18 bg-white/12 p-4 text-white shadow-[0_20px_55px_rgb(2_10_18_/_0.18)] backdrop-blur lg:rounded-[1.75rem] lg:p-5" aria-live="polite">
+        <div className="flex items-center gap-3">
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]">
+            <LocateFixed className="h-5 w-5 animate-pulse" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-black">Buscando tu sucursal mas cercana</span>
+            <span className="mt-2 block h-3 w-52 max-w-full animate-pulse rounded-full bg-white/24" />
+            <span className="mt-2 block h-3 w-32 max-w-full animate-pulse rounded-full bg-white/18" />
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "detected" && closest) {
+    const imageSrc = isDisplayImage(closest.restaurant.bannerUrl) ? closest.restaurant.bannerUrl : defaultProductImage;
+
+    return (
+      <div className="overflow-hidden rounded-[1.6rem] border border-[var(--accent)]/70 bg-white text-[var(--color-heading)] shadow-[0_24px_70px_rgb(2_10_18_/_0.2)] lg:rounded-[1.85rem]" aria-live="polite">
+        <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="grid gap-4 p-4 sm:grid-cols-[72px_minmax(0,1fr)] sm:p-5 lg:p-6">
+            <RestaurantLogo card={closest} size="sm" />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-black text-[var(--primary)] shadow-[var(--shadow-glow)]">
+                  <MapPin className="h-3.5 w-3.5" />
+                  {formatDistance(closest.distanceKm ?? 0)}
+                </span>
+                <span className="rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-black text-[var(--primary)]">Mas cercana</span>
+              </div>
+              <p className="mt-3 text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Sucursal recomendada por ubicacion</p>
+              <h2 className="mt-1 truncate text-2xl font-black leading-tight sm:text-3xl">{closest.restaurant.name}</h2>
+              <p className="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
+                {closest.categories.slice(0, 2).join(" | ") || closest.popularProducts.slice(0, 2).join(" | ") || closest.restaurant.city || `${businessCatalogLabelTitle(closest.restaurant.businessType)} disponible`}
+              </p>
+              {alternatives.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {alternatives.map((card) => (
+                    <Link
+                      className="inline-flex max-w-full items-center gap-1 rounded-full bg-[var(--color-surface)] px-3 py-1.5 text-xs font-black text-[var(--color-secondary-text)] ring-1 ring-[var(--border)] transition hover:bg-[var(--primary-light)] hover:text-[var(--primary)]"
+                      href={publicRestaurantPath(card.restaurant.slug)}
+                      key={card.restaurant.id}
+                    >
+                      <span className="truncate">{card.restaurant.name}</span>
+                      <span className="shrink-0 text-[var(--primary)]">{formatDistance(card.distanceKm ?? 0)}</span>
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+              <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
+                <Link className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-5 text-sm font-black text-white shadow-sm transition hover:bg-[var(--primary-dark)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href={publicRestaurantPath(closest.restaurant.slug)}>
+                  Pedir en esta sucursal
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-5 text-sm font-black text-[var(--primary)] shadow-[var(--shadow-glow)] transition hover:bg-[#d9ff22] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]" href="#restaurantes">
+                  Ver cercanos
+                </Link>
+              </div>
+            </div>
+          </div>
+          <Link className="group relative hidden min-h-full overflow-hidden bg-[var(--primary)] lg:block" href={publicRestaurantPath(closest.restaurant.slug)}>
+            <Image alt={closest.restaurant.name} className="object-cover transition duration-500 group-hover:scale-105" fill sizes="220px" src={imageSrc} />
+            <span className="absolute inset-0 bg-[linear-gradient(180deg,rgb(8_36_65_/_0.04)_0%,rgb(8_36_65_/_0.44)_100%)]" />
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-[1.6rem] border border-white/16 bg-white/10 p-4 text-white shadow-[0_20px_55px_rgb(2_10_18_/_0.16)] backdrop-blur lg:p-5" aria-live="polite">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <div>
+          <p className="text-sm font-black">{status === "denied" ? "No pudimos usar tu ubicacion" : "Ubicacion no disponible"}</p>
+          <p className="mt-1 text-sm font-semibold text-white/72">Puedes activar el permiso para ordenar negocios por metros y kilometros.</p>
+        </div>
+        <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 text-sm font-black text-[var(--primary)] shadow-[var(--shadow-glow)] transition active:scale-95" onClick={requestLocation} type="button">
+          <LocateFixed className="h-4 w-4" />
+          Usar ubicacion
+        </button>
       </div>
     </div>
   );

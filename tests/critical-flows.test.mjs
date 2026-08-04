@@ -89,11 +89,25 @@ test("owner capacity requests have owner and superadmin workflows", () => {
   assert.match(accountPage, /resolveOwnerBranchCapacityAction/);
 });
 
+test("owner branch activation ignores archived restaurants but counts non-archived slots", () => {
+  const actions = read("src/app/admin/actions.ts");
+  const ownerDashboard = read("src/lib/services/owner-dashboard.service.ts");
+  const ownerPage = read("src/app/dueno/page.tsx");
+  const ownerForm = read("src/components/restaurants/OwnerRestaurantCreateFormClient.tsx");
+
+  assert.match(actions, /\.in\("id", membershipRestaurantIds\)[\s\S]+\.is\("deleted_at", null\)[\s\S]+return restaurantFormError\(formData, "restaurant-exists"\)/);
+  assert.match(actions, /return \{ used: nonArchivedRestaurantIds\.length, limit \}/);
+  assert.match(ownerDashboard, /const remaining = Math\.max\(0, limit - nonArchived\)/);
+  assert.match(ownerPage, /activation\.nonArchived > 0 \? "expansion" : "first"/);
+  assert.match(ownerForm, /sucursal no archivada/);
+});
+
 test("owner account billing has monthly proof and superadmin approval", () => {
   const migration = read("supabase/migrations/0060_owner_account_platform_billing.sql");
   const service = read("src/lib/services/owner-billing.service.ts");
   const ownerPlan = read("src/app/dueno/plan/page.tsx");
   const accountPage = read("src/app/admin/restaurantes/[restaurantId]/cuenta/page.tsx");
+  const actions = read("src/app/admin/actions.ts");
 
   assert.match(migration, /owner_platform_billing_settings/);
   assert.match(migration, /owner_platform_payment_cycles/);
@@ -101,8 +115,12 @@ test("owner account billing has monthly proof and superadmin approval", () => {
   assert.match(migration, /superadmin manages account payment cycles/);
   assert.match(service, /suspendOwnerRestaurantsForBilling/);
   assert.match(service, /reactivateOwnerRestaurantsAfterPayment/);
+  assert.match(service, /\.eq\("status", "active"\)[\s\S]+\.is\("deleted_at", null\)/);
+  assert.match(service, /\.is\("deactivated_by", null\)[\s\S]+\.is\("deleted_at", null\)/);
   assert.match(ownerPlan, /submitOwnerBillingPaymentProofAction/);
   assert.match(accountPage, /approveOwnerBillingPaymentAction/);
+  assert.match(accountPage, /variant=\{nextAccountStatus === "active" \? "primary" : "danger"\}/);
+  assert.match(actions, /restaurant\?\.status === "suspended" && !restaurant\.deactivated_by/);
 });
 
 test("catalog changes are owner-only while branches keep read access", () => {
@@ -118,6 +136,35 @@ test("catalog changes are owner-only while branches keep read access", () => {
   assert.match(productClient, /Catalogo en modo consulta/);
   assert.match(productClient, /onEdit=\{canManageProducts \? \(\) => openEditProductModal\(product\) : undefined\}/);
   assert.match(categoriesPage, /canManageCatalog/);
+});
+
+test("public home requests location and promotes nearest branches first", () => {
+  const home = read("src/app/page.tsx");
+  const nearbyDirectory = read("src/components/home/HomeNearbyDirectory.tsx");
+  const search = read("src/components/home/HomeSearchAutocomplete.tsx");
+  const userLocation = read("src/lib/client/user-location.ts");
+
+  assert.match(home, /HomeLocationProvider restaurants=\{baseDirectory\.restaurants\}/);
+  assert.match(home, /HomeNearestBranchSpotlight restaurants=\{baseDirectory\.restaurants\}/);
+  assert.match(nearbyDirectory, /export function HomeNearestBranchSpotlight/);
+  assert.match(nearbyDirectory, /requestLocation\(\)/);
+  assert.match(nearbyDirectory, /rankRestaurantCards\(restaurants, userLocation\)\.filter/);
+  assert.match(nearbyDirectory, /formatDistance\(closest\.distanceKm/);
+  assert.match(search, /distanceKm: restaurantDistanceKm\(userPosition, card\)/);
+  assert.match(userLocation, /function isValidCoordinate/);
+});
+
+test("panel actions provide navigation feedback and no destructive restaurant delete UI", () => {
+  const navigation = read("src/components/layout/NavigationFeedback.tsx");
+  const submitButton = read("src/components/ui/FormSubmitButton.tsx");
+  const restoration = read("src/app/admin/restauracion/page.tsx");
+  const restaurantsPage = read("src/app/admin/restaurantes/page.tsx");
+
+  assert.match(navigation, /form\.dataset\.yopidoSubmitting === "true"/);
+  assert.match(navigation, /document\.documentElement\.dataset\.yopidoBusy = "true"/);
+  assert.match(submitButton, /variant\?: ComponentProps<typeof Button>\["variant"\]/);
+  assert.doesNotMatch(restoration, /permanentlyDeleteRestaurantAction|Eliminar definitivo|Trash2/);
+  assert.match(restaurantsPage, /Archivados/);
 });
 
 test("saved restaurant theme colors are mapped to the public theme", () => {

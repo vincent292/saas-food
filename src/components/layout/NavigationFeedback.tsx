@@ -68,6 +68,7 @@ export function NavigationFeedback() {
   const clearPending = useCallback(() => {
     pendingRef.current = null;
     setPending(null);
+    document.documentElement.dataset.yopidoBusy = "false";
     if (timeoutRef.current) {
       window.clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
@@ -82,6 +83,7 @@ export function NavigationFeedback() {
     const nextPending = { kind, label: pendingLabel(kind) };
     pendingRef.current = nextPending;
     setPending(nextPending);
+    document.documentElement.dataset.yopidoBusy = "true";
 
     if (timeoutRef.current) {
       window.clearTimeout(timeoutRef.current);
@@ -150,13 +152,13 @@ export function NavigationFeedback() {
   if (!pending) return null;
 
   return (
-    <div aria-busy="true" aria-live="polite" className="fixed inset-0 z-[150] cursor-wait bg-[rgb(8_36_65_/_0.18)] backdrop-blur-[1px]" role="status">
+    <div aria-busy="true" aria-live="polite" className="fixed inset-0 z-[150] cursor-wait bg-[rgb(8_36_65_/_0.24)] backdrop-blur-[1px]" role="status">
       <div className="absolute inset-x-0 top-0 h-1 overflow-hidden bg-[var(--primary-light)]">
         <div className="h-full w-full animate-pulse bg-[var(--accent)]" />
       </div>
-      <div className="absolute left-1/2 top-[calc(0.9rem+env(safe-area-inset-top))] flex min-h-11 -translate-x-1/2 items-center gap-2 rounded-full bg-[var(--primary)] px-4 text-sm font-black text-white shadow-[0_18px_48px_rgb(8_36_65_/_0.28)] ring-1 ring-white/14">
-        <Loader2 className="h-4 w-4 animate-spin text-[var(--accent)]" />
-        {pending.label}
+      <div className="absolute left-1/2 top-[calc(0.9rem+env(safe-area-inset-top))] flex min-h-12 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-3 rounded-full bg-[var(--primary)] px-4 text-sm font-black text-white shadow-[0_18px_48px_rgb(8_36_65_/_0.28)] ring-1 ring-white/14">
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--accent)]" />
+        <span className="truncate">{pending.label}</span>
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/Button";
 import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
+import type { ComponentProps } from "react";
 
 export function FormSubmitButton({
   className,
@@ -11,6 +12,7 @@ export function FormSubmitButton({
   overlayDescription = "Estamos guardando los cambios. En unos segundos actualizamos el panel.",
   overlayTitle = "Guardando",
   pendingLabel = "Guardando...",
+  variant = "primary",
 }: {
   className?: string;
   disabled?: boolean;
@@ -18,12 +20,13 @@ export function FormSubmitButton({
   overlayDescription?: string;
   overlayTitle?: string;
   pendingLabel?: string;
+  variant?: ComponentProps<typeof Button>["variant"];
 }) {
   const { pending } = useFormStatus();
 
   return (
     <>
-      <Button className={className} disabled={disabled || pending} type="submit">
+      <Button className={className} disabled={disabled || pending} type="submit" variant={variant}>
         {pending ? pendingLabel : label}
       </Button>
 

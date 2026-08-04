@@ -1155,9 +1155,9 @@ async function reactivateRestaurantAfterPlatformPayment(
   admin: NonNullable<ReturnType<typeof createAdminClient>>,
   restaurantId: string,
 ) {
-  const { data: restaurant } = await admin.from("restaurants").select("status").eq("id", restaurantId).maybeSingle();
-  if (restaurant?.status === "suspended") {
-    await admin.from("restaurants").update({ status: "active" }).eq("id", restaurantId);
+  const { data: restaurant } = await admin.from("restaurants").select("status,deactivated_by").eq("id", restaurantId).maybeSingle();
+  if (restaurant?.status === "suspended" && !restaurant.deactivated_by) {
+    await admin.from("restaurants").update({ status: "active", deactivated_at: null, deactivated_by: null }).eq("id", restaurantId);
   }
 
   await admin.from("restaurant_subscriptions").update({ status: "active" }).eq("restaurant_id", restaurantId).in("status", ["trialing", "past_due"]);
@@ -1441,11 +1441,10 @@ async function getOwnerBranchQuota(
     .from("restaurants")
     .select("id")
     .in("id", membershipRestaurantIds)
-    .eq("status", "active")
     .is("deleted_at", null);
 
-  const activeRestaurantIds = (restaurants ?? []).map((restaurant) => restaurant.id);
-  return { used: activeRestaurantIds.length, limit };
+  const nonArchivedRestaurantIds = (restaurants ?? []).map((restaurant) => restaurant.id);
+  return { used: nonArchivedRestaurantIds.length, limit };
 }
 
 function throwIfSupabaseError(result: { error: { code?: string; message: string } | null }, operation: string) {
@@ -3105,20 +3104,19 @@ export async function createOwnedRestaurantFormAction(
 
   const membershipRestaurantIds = Array.from(new Set((existingMemberships ?? []).map((membership) => membership.restaurant_id)));
   if (membershipRestaurantIds.length) {
-    const { data: activeOwnedRestaurants, error: activeOwnedError } = await admin
+    const { data: nonArchivedOwnedRestaurants, error: ownedRestaurantsError } = await admin
       .from("restaurants")
       .select("id")
       .in("id", membershipRestaurantIds)
       .eq("owner_user_id", user.id)
-      .eq("status", "active")
       .is("deleted_at", null)
       .limit(1);
 
-    if (activeOwnedError) {
-      return restaurantFormError(formData, activeOwnedError.code ?? "restaurant-check");
+    if (ownedRestaurantsError) {
+      return restaurantFormError(formData, ownedRestaurantsError.code ?? "restaurant-check");
     }
 
-    if (activeOwnedRestaurants?.length) {
+    if (nonArchivedOwnedRestaurants?.length) {
       return restaurantFormError(formData, "restaurant-exists");
     }
   }

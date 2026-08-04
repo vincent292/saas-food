@@ -71,7 +71,16 @@ function nearestRestaurantCity(userPosition: GeoPoint, restaurants: PublicRestau
 function isGeoPoint(value: unknown): value is GeoPoint {
   if (!value || typeof value !== "object") return false;
   const point = value as Partial<GeoPoint>;
-  return typeof point.latitude === "number" && typeof point.longitude === "number";
+  return (
+    typeof point.latitude === "number" &&
+    typeof point.longitude === "number" &&
+    Number.isFinite(point.latitude) &&
+    Number.isFinite(point.longitude) &&
+    point.latitude >= -90 &&
+    point.latitude <= 90 &&
+    point.longitude >= -180 &&
+    point.longitude <= 180
+  );
 }
 
 function directoryHref({ query, location, category, businessType }: { query?: string; location?: string; category?: string; businessType?: string }) {

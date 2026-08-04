@@ -23,7 +23,7 @@ export default async function RestaurantsPage() {
           <div className="flex flex-wrap gap-2">
             <Link className={buttonClasses("secondary")} href="/admin/restauracion">
               <Archive className="h-4 w-4" />
-              Archivados / eliminar
+              Archivados
             </Link>
             <Link className={buttonClasses("primary")} href="/admin/restaurantes/nuevo">
               <Plus className="h-4 w-4" />
@@ -121,7 +121,7 @@ function RestaurantActions({ ownerUserId, restaurantId, status }: { ownerUserId?
         <input name="returnTo" type="hidden" value="/admin/restaurantes" />
         <button className={buttonClasses("danger")} type="submit">
           <Archive className="h-4 w-4" />
-          Archivar sucursal
+          Archivar
         </button>
       </form>
     </div>

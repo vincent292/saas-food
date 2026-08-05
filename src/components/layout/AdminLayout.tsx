@@ -5,7 +5,6 @@ import { authService } from "@/lib/services/auth.service";
 import { membershipService } from "@/lib/services/membership.service";
 import { orderService } from "@/lib/services/order.service";
 import { ownerBillingService } from "@/lib/services/owner-billing.service";
-import { platformBillingService } from "@/lib/services/platform-billing.service";
 import type { ModuleKey, RestaurantStatus } from "@/types/restaurant.types";
 
 export async function AdminLayout({
@@ -68,17 +67,13 @@ export async function AdminLayout({
     }
   }
 
-  const [billingAlert, pendingOrderAlerts] = await Promise.all([
-    restaurantId && restaurantStatus ? platformBillingService.getBillingSnapshot(restaurantId, restaurantStatus).then((snapshot) => snapshot.alert) : Promise.resolve(null),
-    restaurantId ? orderService.listPendingAlerts(restaurantId) : Promise.resolve([]),
-  ]);
+  const pendingOrderAlerts = restaurantId ? await orderService.listPendingAlerts(restaurantId) : [];
   const canSwitchBranches = memberships.length > 1;
   const canAccessOwnerPanel = memberships.some((membership) => membership.role === "restaurant_admin" && membership.restaurant.ownerUserId === profile.id);
 
   return (
     <AdminShellClient
       active={active}
-      billingAlert={billingAlert}
       canAccessOwnerPanel={canAccessOwnerPanel}
       canAccessSuperadmin={profile.globalRole === "superadmin"}
       canSwitchBranches={canSwitchBranches}

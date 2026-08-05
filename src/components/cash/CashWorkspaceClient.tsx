@@ -24,7 +24,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { CashMovement, CashSessionReport, CashSummary } from "@/types/cash.types";
 import type { Order } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
-import type { Restaurant } from "@/types/restaurant.types";
+import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
 
 type CashTab = "venta" | "pedidos" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
 
@@ -66,6 +66,7 @@ function statusMessage(status: CashPageStatus, businessType: Restaurant["busines
   const messages: Record<string, string> = {
     "no-open-session": "Necesitas una caja abierta para operar.",
     "receipt-required": "Para pago QR el comprobante o referencia es obligatorio.",
+    "qr-unavailable": "Esta sucursal no tiene QR configurado para cobrar por QR.",
     "already-paid": "Ese pedido ya fue cobrado.",
     "cash-required": hasKitchenFlow ? "El pedido debe estar cobrado antes de pasar a cocina." : `El pedido debe estar cobrado antes de pasar a ${preparationArea}.`,
     "session-open": "Ya existe una caja abierta para este restaurante.",
@@ -108,6 +109,7 @@ export function CashWorkspaceClient({
   categories,
   products,
   configuration,
+  settings,
   loadedTab,
   movements,
   reports,
@@ -119,6 +121,7 @@ export function CashWorkspaceClient({
   categories: Category[];
   products: Product[];
   configuration: ProductConfiguration;
+  settings: RestaurantSettings | null;
   loadedTab: CashTab;
   movements: CashMovement[];
   reports: CashSessionReport[];
@@ -456,6 +459,7 @@ export function CashWorkspaceClient({
               products={products}
               restaurantId={restaurant.id}
               restaurantSlug={restaurant.slug}
+              settings={settings}
             />
           )}
         </section>

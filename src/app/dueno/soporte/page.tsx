@@ -3,6 +3,7 @@ import { CheckCircle2, Clock3, ExternalLink, LifeBuoy, MessageCircle, Plus, Rece
 import { requestOwnerBranchCapacityAction } from "@/app/admin/actions";
 import { OwnerLayout, getOwnerLayoutContext } from "@/components/layout/OwnerLayout";
 import { BranchRequestFormClient } from "@/components/owner/BranchRequestFormClient";
+import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { SectionTitle } from "@/components/ui/SectionTitle";
@@ -67,10 +68,14 @@ export default async function OwnerSupportPage({ searchParams }: { searchParams:
 
             {paymentSettings.qrUrl ? (
               <div className="grid gap-4 rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 sm:grid-cols-[132px_1fr] sm:items-center">
-                <a className="block overflow-hidden rounded-2xl border border-[var(--border)] bg-white" href={paymentSettings.qrUrl} rel="noreferrer" target="_blank">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img alt="QR de pago para nueva sucursal" className="aspect-square w-full object-cover" src={paymentSettings.qrUrl} />
-                </a>
+                <QrPaymentViewer
+                  alt="QR de pago para nueva sucursal"
+                  downloadFileName="qr-nueva-sucursal.png"
+                  imageClassName="h-28 w-28"
+                  subtitle="Pago para solicitar sucursales"
+                  title="QR nueva sucursal"
+                  url={paymentSettings.qrUrl}
+                />
                 <div>
                   <p className="font-black text-[var(--color-heading)]">Pago directo con QR</p>
                   <p className="mt-1 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">

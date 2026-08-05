@@ -24,6 +24,7 @@ import { clearRateLimit, consumeRateLimit } from "@/lib/security/rate-limit";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import { directionsToMapsUrl, hasValidCoordinates } from "@/lib/utils/google-maps";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
+import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import { toSlug } from "@/lib/utils/slug";
 import type { Json } from "@/types/database.types";
 import type { ModuleKey, PlanKey } from "@/types/restaurant.types";
@@ -139,7 +140,8 @@ const updateRestaurantConfigurationSchema = z.object({
   cashEnabled: z.boolean(),
   kitchenEnabled: z.boolean(),
   deliveryFee: z.coerce.number().nonnegative().default(0),
-  farDeliveryDistanceKm: z.coerce.number().min(1).max(100).default(8),
+  deliveryQrPrepaymentEnabled: z.boolean().default(true),
+  farDeliveryDistanceKm: z.coerce.number().min(1).max(100).default(5),
   freeDeliveryFrom: z.coerce.number().nonnegative().optional(),
   minOrderAmount: z.coerce.number().nonnegative().default(0),
   currency: z.string().min(3).max(3).default("BOB"),
@@ -1648,6 +1650,8 @@ async function cloneBranchRuntimeSettings(
       cash_enabled: true,
       kitchen_enabled: true,
       delivery_fee: settings.delivery_fee,
+      delivery_qr_prepayment_enabled: settings.delivery_qr_prepayment_enabled ?? true,
+      far_delivery_distance_km: settings.far_delivery_distance_km ?? 5,
       free_delivery_from: settings.free_delivery_from,
       min_order_amount: settings.min_order_amount,
       currency: settings.currency,
@@ -1672,6 +1676,8 @@ async function cloneBranchRuntimeSettings(
       cash_enabled: true,
       kitchen_enabled: true,
       delivery_fee: 0,
+      delivery_qr_prepayment_enabled: true,
+      far_delivery_distance_km: 5,
       min_order_amount: 0,
       currency: "BOB",
     }), "settings-create");
@@ -3326,6 +3332,8 @@ export async function createOwnedRestaurantFormAction(
         cash_enabled: enabledPlanModules.includes("cash"),
         kitchen_enabled: enabledPlanModules.includes("kitchen"),
         delivery_fee: 0,
+        delivery_qr_prepayment_enabled: true,
+        far_delivery_distance_km: 5,
         min_order_amount: 0,
         currency: "BOB",
       }),
@@ -3589,14 +3597,6 @@ async function dispatchRestaurantSettingsIntent(rawIntent: string, formData: For
   const configPath = `/admin/restaurantes/${restaurantId}/configuracion?tab=${returnTab}`;
 
   switch (intent) {
-    case "save-platform-billing":
-      return updatePlatformBillingSettingsAction(formData);
-    case "submit-platform-proof":
-      return submitPlatformPaymentProofAction(formData);
-    case "verify-platform-proof":
-      return verifyPlatformPaymentProofAction(formData);
-    case "mark-platform-paid":
-      return markPlatformPaymentPaidAction(formData);
     case "save-delivery-zone":
       return saveDeliveryZoneAction(formData);
     case "toggle-delivery-zone":
@@ -3688,7 +3688,8 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     cashEnabled: booleanFromForm(formData, "cashEnabled"),
     kitchenEnabled: booleanFromForm(formData, "kitchenEnabled"),
     deliveryFee: formData.get("deliveryFee") || 0,
-    farDeliveryDistanceKm: formData.get("farDeliveryDistanceKm") || 8,
+    deliveryQrPrepaymentEnabled: booleanFromForm(formData, "deliveryQrPrepaymentEnabled"),
+    farDeliveryDistanceKm: formData.get("farDeliveryDistanceKm") || 5,
     freeDeliveryFrom: formData.get("freeDeliveryFrom") || undefined,
     minOrderAmount: formData.get("minOrderAmount") || 0,
     currency: String(formData.get("currency") || "BOB").toUpperCase(),
@@ -3731,7 +3732,7 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   const { data: currentSettings } = await supabase
     .from("restaurant_settings")
     .select(
-      "delivery_enabled,pickup_enabled,table_orders_enabled,inventory_enabled,cash_enabled,kitchen_enabled,delivery_fee,far_delivery_distance_km,free_delivery_from,min_order_amount,currency,invoice_enabled,qr_payment_url,qr_account_name,qr_account_document,qr_bank_name,qr_account_type,qr_currency",
+      "delivery_enabled,pickup_enabled,table_orders_enabled,inventory_enabled,cash_enabled,kitchen_enabled,delivery_fee,delivery_qr_prepayment_enabled,far_delivery_distance_km,free_delivery_from,min_order_amount,currency,invoice_enabled,qr_payment_url,qr_account_name,qr_account_document,qr_bank_name,qr_account_type,qr_currency",
     )
     .eq("restaurant_id", parsed.data.restaurantId)
     .maybeSingle();
@@ -3744,6 +3745,9 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   const canManagePayments = canManageOwnerSettings;
   const canManageDeliverySettings = canManageOwnerSettings;
   if (returnTab === "pagos" && !canManagePayments) {
+    redirectWithError(configReturnPath, "owner-required");
+  }
+  if (returnTab === "delivery" && !canManageDeliverySettings) {
     redirectWithError(configReturnPath, "owner-required");
   }
 
@@ -3759,8 +3763,9 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
       : parsed.data.status === "inactive"
         ? "inactive"
         : "active";
+  const canWriteDeliverySettings = canManageDeliverySettings && returnTab === "delivery";
   const moduleState = {
-    deliveryEnabled: currentSettings?.delivery_enabled ?? parsed.data.deliveryEnabled,
+    deliveryEnabled: canWriteDeliverySettings ? parsed.data.deliveryEnabled : (currentSettings?.delivery_enabled ?? parsed.data.deliveryEnabled),
     pickupEnabled: currentSettings?.pickup_enabled ?? parsed.data.pickupEnabled,
     tableOrdersEnabled: allowedModules.includes("table_qr"),
     inventoryEnabled: allowedModules.includes("inventory"),
@@ -3877,16 +3882,18 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=${returnTab}&error=${restaurantError.code}`);
   }
 
-  const deliverySettings = canManageDeliverySettings
+  const deliverySettings = canWriteDeliverySettings
     ? {
         delivery_fee: parsed.data.deliveryFee,
+        delivery_qr_prepayment_enabled: parsed.data.deliveryQrPrepaymentEnabled,
         far_delivery_distance_km: parsed.data.farDeliveryDistanceKm,
         free_delivery_from: parsed.data.freeDeliveryFrom ?? null,
         min_order_amount: parsed.data.minOrderAmount,
       }
     : {
         delivery_fee: currentSettings?.delivery_fee ?? 0,
-        far_delivery_distance_km: currentSettings?.far_delivery_distance_km ?? 8,
+        delivery_qr_prepayment_enabled: currentSettings?.delivery_qr_prepayment_enabled ?? true,
+        far_delivery_distance_km: currentSettings?.far_delivery_distance_km ?? 5,
         free_delivery_from: currentSettings?.free_delivery_from ?? null,
         min_order_amount: currentSettings?.min_order_amount ?? 0,
       };
@@ -5557,11 +5564,11 @@ export async function saveDeliveryZoneAction(formData: FormData) {
 
   const restaurantId = String(formData.get("restaurantId") || "");
   if (!parsed.success) {
-    redirect(`/admin/restaurantes/${restaurantId}/configuracion?tab=ubicacion&error=invalid-zone`);
+    redirect(`/admin/restaurantes/${restaurantId}/configuracion?tab=delivery&error=invalid-zone`);
   }
 
-  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion`);
-  const { supabase } = await requireRestaurantOwnerOrSuperadmin(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion`);
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery`);
+  const { supabase } = await requireRestaurantOwnerOrSuperadmin(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery`);
 
   const payload = {
     restaurant_id: parsed.data.restaurantId,
@@ -5580,11 +5587,11 @@ export async function saveDeliveryZoneAction(formData: FormData) {
     : await supabase.from("restaurant_delivery_zones").insert(payload);
 
   if (response.error) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&error=${response.error.code}`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery&error=${response.error.code}`);
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
-  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&zone=1`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery&zone=1`);
 }
 
 export async function toggleDeliveryZoneAction(formData: FormData) {
@@ -5595,11 +5602,11 @@ export async function toggleDeliveryZoneAction(formData: FormData) {
 
   const restaurantId = String(formData.get("restaurantId") || "");
   if (!parsed.success) {
-    redirect(`/admin/restaurantes/${restaurantId}/configuracion?tab=ubicacion&error=invalid-zone`);
+    redirect(`/admin/restaurantes/${restaurantId}/configuracion?tab=delivery&error=invalid-zone`);
   }
 
-  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion`);
-  const { supabase } = await requireRestaurantOwnerOrSuperadmin(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion`);
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery`);
+  const { supabase } = await requireRestaurantOwnerOrSuperadmin(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery`);
   const { data: zone } = await supabase
     .from("restaurant_delivery_zones")
     .select("is_active")
@@ -5614,11 +5621,11 @@ export async function toggleDeliveryZoneAction(formData: FormData) {
     .eq("id", parsed.data.zoneId);
 
   if (error) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&error=${error.code}`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery&error=${error.code}`);
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
-  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&zone=1`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery&zone=1`);
 }
 
 export async function deleteDeliveryZoneAction(formData: FormData) {
@@ -5629,11 +5636,11 @@ export async function deleteDeliveryZoneAction(formData: FormData) {
 
   const restaurantId = String(formData.get("restaurantId") || "");
   if (!parsed.success) {
-    redirect(`/admin/restaurantes/${restaurantId}/configuracion?tab=ubicacion&error=invalid-zone`);
+    redirect(`/admin/restaurantes/${restaurantId}/configuracion?tab=delivery&error=invalid-zone`);
   }
 
-  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion`);
-  const { supabase } = await requireRestaurantOwnerOrSuperadmin(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion`);
+  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery`);
+  const { supabase } = await requireRestaurantOwnerOrSuperadmin(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery`);
   const { error } = await supabase
     .from("restaurant_delivery_zones")
     .delete()
@@ -5641,11 +5648,11 @@ export async function deleteDeliveryZoneAction(formData: FormData) {
     .eq("id", parsed.data.zoneId);
 
   if (error) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&error=${error.code}`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery&error=${error.code}`);
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
-  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=ubicacion&zone=1`);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=delivery&zone=1`);
 }
 
 export async function openCashSessionAction(formData: FormData) {
@@ -5853,6 +5860,18 @@ export async function createPosSaleAction(formData: FormData) {
 
   const { supabase, user } = await requireUser();
   void user;
+
+  if (parsed.data.paymentMethod === "qr") {
+    const { data: settings } = await supabase
+      .from("restaurant_settings")
+      .select("qr_payment_url")
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .maybeSingle();
+
+    if (!normalizeQrPaymentUrl(settings?.qr_payment_url)) {
+      redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta&error=qr-unavailable`);
+    }
+  }
 
   const receiptFile = formData.get("paymentReceiptFile") as File | null;
   const paymentReceiptUrl =

@@ -32,7 +32,7 @@ import { BrandLogo } from "@/components/brand/BrandLogo";
 import { GlobalOrderSoundAlert } from "@/components/orders/GlobalOrderSoundAlert";
 import { cn } from "@/lib/utils/cn";
 import type { Order } from "@/types/order.types";
-import type { ModuleKey, PlatformBillingAlert, RestaurantStatus } from "@/types/restaurant.types";
+import type { ModuleKey, RestaurantStatus } from "@/types/restaurant.types";
 
 type NavItem = {
   label: string;
@@ -71,7 +71,6 @@ export function AdminShellClient({
   restaurantId = "",
   restaurantName,
   restaurantStatus,
-  billingAlert,
   canAccessOwnerPanel = false,
   canAccessSuperadmin = false,
   canSwitchBranches = false,
@@ -83,7 +82,6 @@ export function AdminShellClient({
   restaurantId?: string;
   restaurantName?: string;
   restaurantStatus?: RestaurantStatus;
-  billingAlert?: PlatformBillingAlert | null;
   canAccessOwnerPanel?: boolean;
   canAccessSuperadmin?: boolean;
   canSwitchBranches?: boolean;
@@ -93,45 +91,12 @@ export function AdminShellClient({
   active?: string;
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [billingModalOpen, setBillingModalOpen] = useState(Boolean(billingAlert?.showModal));
   const nav = restaurantId ? restaurantNav : superAdminNav;
   const statusLabel = restaurantStatus === "active" ? "Activo" : restaurantStatus === "suspended" ? "Suspendido" : restaurantStatus === "inactive" ? "Inactivo" : "";
 
   return (
     <div className="admin-panel min-h-dvh bg-[var(--color-surface)] text-[var(--color-heading)]">
       {restaurantId ? <GlobalOrderSoundAlert orders={pendingOrderAlerts} restaurantId={restaurantId} /> : null}
-
-      {billingAlert && billingModalOpen ? (
-        <div className="fixed inset-0 z-[90] grid place-items-end bg-[var(--color-overlay)] p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
-          <div className="w-full max-w-xl rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:rounded-[1.5rem]">
-            <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] p-4">
-              <div>
-                <p className={cn("text-xs font-black uppercase tracking-[0.16em]", billingAlert.tone === "danger" ? "text-[var(--color-danger-strong)]" : "text-[var(--primary)]")}>Facturacion</p>
-                <h2 className="mt-1 text-2xl font-black text-[var(--color-heading)]">{billingAlert.title}</h2>
-                <p className="mt-2 text-sm font-semibold text-[var(--color-secondary-text)]">{billingAlert.body}</p>
-              </div>
-              <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={() => setBillingModalOpen(false)} type="button">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:justify-end">
-              <button className="inline-flex min-h-11 items-center justify-center rounded-full border border-[var(--border)] px-4 text-sm font-black" onClick={() => setBillingModalOpen(false)} type="button">
-                Cerrar
-              </button>
-              <Link
-                className={cn(
-                  "inline-flex min-h-11 items-center justify-center rounded-full px-4 text-sm font-black",
-                  billingAlert.tone === "danger" ? "bg-[var(--color-danger-strong)] text-[var(--color-on-primary)]" : "bg-[var(--primary)] text-[var(--color-on-primary)]",
-                )}
-                href={billingAlert.actionHref}
-                onClick={() => setBillingModalOpen(false)}
-              >
-                {billingAlert.actionLabel}
-              </Link>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <div className={cn("fixed inset-0 z-40 bg-[var(--color-overlay)] backdrop-blur-sm lg:hidden", sidebarOpen ? "block" : "hidden")} onClick={() => setSidebarOpen(false)} />
       <aside

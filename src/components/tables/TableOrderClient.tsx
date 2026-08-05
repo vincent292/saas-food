@@ -1,15 +1,17 @@
 "use client";
 
-import { CalendarClock, Check, Minus, Plus, ShoppingCart, X } from "lucide-react";
+import { CalendarClock, Check, Minus, Plus, ReceiptText, ShoppingCart, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
+import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button, buttonClasses } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { Input, Select } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { productAvailabilityLabels } from "@/lib/utils/product-availability";
+import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { RestaurantTable } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
 import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
@@ -270,6 +272,10 @@ function OrderErrorMessage({ error }: { error: string }) {
         ? "Para pedidos en mesa el WhatsApp es obligatorio. Lo usamos para avisarte si no pasaste por caja."
       : error === "receipt-required"
         ? "Para pago QR debes subir el comprobante antes de confirmar."
+      : error === "invoice"
+        ? "Completa los datos de factura para confirmar el pedido."
+      : error === "invoice-disabled"
+        ? "Este restaurante no tiene factura habilitada para pedidos en mesa."
       : error === "product-configuration"
         ? "Uno de los productos necesita una variante u opcion valida. Vuelve a agregarlo al pedido."
         : "No se pudo confirmar el pedido. Revisa los datos e intenta nuevamente.";
@@ -523,6 +529,10 @@ function OrderPanel({
   setPaymentMethod: (method: "cash" | "qr") => void;
   setRequiresInvoice: (value: boolean) => void;
 }) {
+  const qrPaymentUrl = normalizeQrPaymentUrl(settings?.qrPaymentUrl);
+  const qrAvailable = hasQrPaymentConfigured(settings);
+  const invoiceEnabled = settings?.invoiceEnabled ?? false;
+
   return (
     <form action={createPublicOrderAction} className={cn("rounded-[1.5rem] bg-[var(--surface)] p-4 text-[var(--text)] shadow-sm", compact && "rounded-none p-0 shadow-none")}>
       <input name="restaurantId" type="hidden" value={restaurant.id} />
@@ -531,7 +541,7 @@ function OrderPanel({
       <input name="tableCode" type="hidden" value={table.code} />
       <input name="orderType" type="hidden" value="table" />
       <input name="paymentMethod" type="hidden" value={paymentMethod} />
-      <input name="invoiceRequired" type="hidden" value={requiresInvoice ? "on" : ""} />
+      <input name="invoiceRequired" type="hidden" value={invoiceEnabled && requiresInvoice ? "on" : ""} />
       <input name="notes" type="hidden" value={notes} />
       <input name="cartJson" type="hidden" value={cartJson} />
 
@@ -577,24 +587,71 @@ function OrderPanel({
         <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--muted)]">Obligatorio para avisarte si el pedido queda pendiente de pago en caja.</span>
       </label>
 
-      <label className="mt-4 flex items-center justify-between text-sm font-black">
-        ¿Requiere factura?
-        <input checked={requiresInvoice} onChange={(event) => setRequiresInvoice(event.target.checked)} type="checkbox" />
-      </label>
+      {invoiceEnabled ? (
+        <section className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--primary-light)] text-[var(--primary)]">
+                <ReceiptText className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-black">Factura</p>
+                <p className="mt-0.5 text-xs font-semibold leading-5 text-[var(--muted)]">Opcional. Se enviara al area de facturas del restaurante.</p>
+              </div>
+            </div>
+            <label className={cn("relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full p-1 transition", requiresInvoice ? "bg-[var(--primary)]" : "bg-[var(--color-neutral-200)]")}>
+              <span className="sr-only">Requiere factura</span>
+              <input checked={requiresInvoice} className="peer sr-only" onChange={(event) => setRequiresInvoice(event.target.checked)} type="checkbox" />
+              <span className="h-5 w-5 rounded-full bg-[var(--surface)] shadow transition peer-checked:translate-x-5" />
+            </label>
+          </div>
+
+          {requiresInvoice ? (
+            <div className="mt-3 grid gap-3">
+              <label className="block text-xs font-black text-[var(--muted)]">
+                Tipo de documento
+                <Select className="mt-1" defaultValue="nit" name="invoiceDocumentType" required={requiresInvoice}>
+                  <option value="nit">NIT</option>
+                  <option value="ci">Carnet</option>
+                  <option value="cex">CEX extranjero</option>
+                  <option value="passport">Pasaporte</option>
+                  <option value="other">Otro documento</option>
+                </Select>
+              </label>
+              <label className="block text-xs font-black text-[var(--muted)]">
+                Numero de documento
+                <Input className="mt-1" name="invoiceDocumentNumber" placeholder="Ej: 123456789" required={requiresInvoice} />
+              </label>
+              <label className="block text-xs font-black text-[var(--muted)]">
+                Nombre o razon social
+                <Input className="mt-1" name="invoiceName" placeholder="Ej: Brava Pizza SRL" required={requiresInvoice} />
+              </label>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <div className="mt-3 grid rounded-2xl bg-[var(--primary-light)] p-1 sm:grid-cols-2">
         <button className={cn("h-12 rounded-full text-sm font-black", paymentMethod === "cash" && "bg-[var(--primary)] text-[var(--color-on-primary)]")} onClick={() => setPaymentMethod("cash")} type="button">
           Caja / efectivo
         </button>
-        <button className={cn("h-12 rounded-full text-sm font-black text-[var(--muted)]", paymentMethod === "qr" && "bg-[var(--primary)] text-[var(--color-on-primary)]")} onClick={() => setPaymentMethod("qr")} type="button">
+        <button className={cn("h-12 rounded-full text-sm font-black text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-45", paymentMethod === "qr" && "bg-[var(--primary)] text-[var(--color-on-primary)]")} disabled={!qrAvailable} onClick={() => setPaymentMethod("qr")} type="button">
           Pago QR
         </button>
       </div>
+      <p className={cn("mt-2 rounded-2xl p-3 text-xs font-bold", qrAvailable ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-card-muted)] text-[var(--muted)]")}>
+        {qrAvailable ? "QR activo para esta mesa/sucursal." : "Sin QR configurado. Puedes confirmar en caja/efectivo."}
+      </p>
 
-      {paymentMethod === "qr" && settings?.qrPaymentUrl ? (
-        <div className="mt-3 grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[92px_1fr] sm:items-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img alt="QR de pago" className="h-24 w-24 rounded-2xl border border-[var(--border)] object-cover" src={settings.qrPaymentUrl} />
+      {paymentMethod === "qr" && qrAvailable ? (
+        <div className="mt-3 grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[140px_1fr] sm:items-center">
+          <QrPaymentViewer
+            downloadFileName={`${restaurant.slug}-mesa-${table.code}-qr-pago.png`}
+            imageClassName="h-24 w-24"
+            subtitle={`Mesa ${table.name}`}
+            title="QR de pago"
+            url={qrPaymentUrl}
+          />
           <div>
             <p className="text-sm font-black text-[var(--text)]">Escanea el QR del restaurante</p>
             <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Puedes pagar con QR y caja lo validara antes de mandar el pedido a cocina.</p>
@@ -602,11 +659,13 @@ function OrderPanel({
         </div>
       ) : null}
 
-      {paymentMethod === "qr" ? (
+      {paymentMethod === "qr" && qrAvailable ? (
         <CompressedImageInput acceptPdf className="mt-3" help="Opcional en mesa. Si no lo subes aqui, caja puede registrar la referencia cuando pagues." label="Comprobante QR opcional" name="paymentReceiptFile" />
       ) : null}
 
-      <p className="mt-4 rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">`r`n        Para procesar tu pedido, por favor acercate a caja y confirma el pago indicando tu numero de pedido y mesa.`r`n      </p>
+      <p className="mt-4 rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">
+        Para procesar tu pedido, por favor acercate a caja y confirma el pago indicando tu numero de pedido y mesa.
+      </p>
 
       <Button className="mt-5 min-h-13 w-full" disabled={!cart.length} type="submit">
         Confirmar pedido

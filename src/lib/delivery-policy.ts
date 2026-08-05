@@ -1,7 +1,7 @@
 import { calculateDistanceKm, type GeoPoint } from "@/lib/utils/geo-distance";
 import type { RestaurantDeliveryZone } from "@/types/restaurant.types";
 
-export const DEFAULT_FAR_DELIVERY_DISTANCE_KM = 8;
+export const DEFAULT_QR_PREPAYMENT_DISTANCE_KM = 5;
 export const DEFAULT_SAME_CITY_MAX_DISTANCE_KM = 50;
 
 type DeliveryPolicyInput = {
@@ -13,6 +13,7 @@ type DeliveryPolicyInput = {
   subtotal: number;
   baseDeliveryFee: number;
   baseMinOrderAmount: number;
+  qrPrepaymentEnabled?: boolean;
   freeDeliveryFrom?: number;
   farDeliveryDistanceKm?: number;
 };
@@ -55,8 +56,9 @@ export function resolveDeliveryPolicy({
   subtotal,
   baseDeliveryFee,
   baseMinOrderAmount,
+  qrPrepaymentEnabled = true,
   freeDeliveryFrom = 0,
-  farDeliveryDistanceKm = DEFAULT_FAR_DELIVERY_DISTANCE_KM,
+  farDeliveryDistanceKm = DEFAULT_QR_PREPAYMENT_DISTANCE_KM,
 }: DeliveryPolicyInput): DeliveryPolicy {
   const normalizedRestaurantCity = normalizeCity(restaurantCity);
   const normalizedDeliveryCity = normalizeCity(deliveryCity);
@@ -92,13 +94,13 @@ export function resolveDeliveryPolicy({
   const configuredFee = matchedZone?.deliveryFee ?? baseDeliveryFee;
   const deliveryFee = freeDeliveryFrom > 0 && subtotal >= freeDeliveryFrom ? 0 : configuredFee;
   const minOrderAmount = matchedZone?.minOrderAmount ?? baseMinOrderAmount;
-  const safeFarDistance = Math.max(1, Number(farDeliveryDistanceKm) || DEFAULT_FAR_DELIVERY_DISTANCE_KM);
+  const safeFarDistance = Math.max(1, Number(farDeliveryDistanceKm) || DEFAULT_QR_PREPAYMENT_DISTANCE_KM);
 
   return {
     distanceKm,
     deliveryFee,
     minOrderAmount,
-    requiresQrPrepayment: distanceKm != null && distanceKm > safeFarDistance,
+    requiresQrPrepayment: qrPrepaymentEnabled && distanceKm != null && distanceKm >= safeFarDistance,
     sameCity,
     matchedZone,
   };

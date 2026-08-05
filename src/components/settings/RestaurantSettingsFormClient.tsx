@@ -6,25 +6,23 @@ import {
   CheckCircle2,
   Clock3,
   CreditCard,
-  ExternalLink,
   Filter,
   ImageIcon,
+  Bike,
   Megaphone,
   MapPin,
   Power,
   Printer,
   ReceiptText,
   RotateCcw,
-  Settings2,
-  ShieldCheck,
   Store,
-  Upload,
   UserRound,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { updateRestaurantConfigurationAction } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
+import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { ModuleToggle } from "@/components/settings/ModuleToggle";
 import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
@@ -43,13 +41,11 @@ import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type {
   BusinessHour,
   OwnerChangePolicy,
-  PlatformBilling,
   Restaurant,
   RestaurantDeliveryZone,
   RestaurantAnnouncement,
   RestaurantOwnerChangeRequest,
   RestaurantSettings,
-  SubscriptionPlan,
 } from "@/types/restaurant.types";
 import type { Order } from "@/types/order.types";
 
@@ -60,16 +56,15 @@ const tabs = [
   { key: "estilo", label: "Imagenes", icon: ImageIcon },
   { key: "pagos", label: "Pagos", icon: CreditCard },
   { key: "facturas", label: "Facturas", icon: ReceiptText },
-  { key: "plataforma", label: "Plataforma", icon: ShieldCheck },
-  { key: "operacion", label: "Operacion", icon: Settings2 },
   { key: "impresion", label: "Impresion", icon: Printer },
   { key: "ubicacion", label: "Ubicacion", icon: MapPin },
+  { key: "delivery", label: "Delivery", icon: Bike },
   { key: "horarios", label: "Horarios", icon: Clock3 },
   { key: "avisos", label: "Avisos", icon: Megaphone },
   { key: "responsable", label: "Responsable", icon: UserRound },
 ] as const;
 
-const saveableTabs = new Set<(typeof tabs)[number]["key"]>(["general", "estilo", "pagos", "operacion", "impresion", "ubicacion", "horarios"]);
+const saveableTabs = new Set<(typeof tabs)[number]["key"]>(["general", "estilo", "pagos", "impresion", "ubicacion", "delivery", "horarios"]);
 
 const errorMessages: Record<string, string> = {
   invalid: "Revisa los datos obligatorios.",
@@ -79,17 +74,7 @@ const errorMessages: Record<string, string> = {
   "restaurant-not-found": "No se encontro el restaurante para guardar la configuracion.",
   "admin-required": "Solo el responsable principal o superadmin puede guardar esta configuracion.",
   "owner-required": "Solo el dueno de la cuenta puede cambiar esta configuracion sensible.",
-  "superadmin-required": "Solo superadmin puede cambiar tarifa, estado o facturacion de plataforma.",
-  "invalid-platform-billing": "Revisa la fecha de renovacion y los datos de la facturacion de plataforma.",
-  "invalid-platform-proof": "No se pudo procesar el comprobante de plataforma.",
-  "platform-billing-not-configured": "Aun no hay QR o fecha de renovacion configurados para la plataforma.",
-  "platform-cycle-mismatch": "La fecha del ciclo ya cambio. Recarga la vista y vuelve a subir el comprobante.",
-  "platform-proof-required": "Debes subir un comprobante para registrar el pago de plataforma.",
-  "platform-cycle-paid": "Ese ciclo ya fue marcado como pagado.",
-  "platform-proof-upload": "No se pudo subir el comprobante de plataforma.",
-  "platform-proof-missing": "Todavia no hay comprobante cargado para verificar.",
-  "platform-cycle-missing": "No se encontro el ciclo de facturacion a actualizar.",
-  "invalid-platform-cycle": "No se pudo resolver el ciclo de pago de plataforma.",
+  "superadmin-required": "Solo superadmin puede cambiar esta configuracion sensible.",
   "invalid-owner-request": "Revisa el nombre y correo del nuevo responsable.",
   "owner-change-pending": "Ya existe una solicitud pendiente de cambio de responsable.",
   "owner-change-cooldown": "Todavia no se puede pedir otro cambio de responsable por la ventana de seguridad.",
@@ -114,11 +99,6 @@ function toDateTimeLocalInput(date: Date) {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
-function toDateInput(date: Date) {
-  const offsetMs = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
-}
-
 function endOfToday() {
   const date = new Date();
   date.setHours(23, 59, 59, 999);
@@ -130,12 +110,6 @@ function formatDateTime(value: string) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("es-BO", {
-    dateStyle: "medium",
-  }).format(new Date(`${value}T00:00:00`));
 }
 
 function ownerRequestStatusLabel(status: RestaurantOwnerChangeRequest["status"]) {
@@ -164,42 +138,6 @@ function ownerRequestStatusClass(status: RestaurantOwnerChangeRequest["status"])
   }
 }
 
-function platformStateLabel(billing: PlatformBilling | null) {
-  if (!billing) {
-    return "Sin configurar";
-  }
-  if (billing.currentCycle?.paidAt) {
-    return "Pagado";
-  }
-  if (billing.currentCycle?.proofVerifiedAt) {
-    return "Verificado";
-  }
-  if (billing.currentCycle?.proofUploadedAt) {
-    return "Comprobante subido";
-  }
-  if (billing.isOverdue) {
-    return "Vencido";
-  }
-  return "Pendiente";
-}
-
-function billingCountdownLabel(billing: PlatformBilling | null) {
-  if (!billing || billing.daysUntilDue === undefined) {
-    return "Sin vencimiento definido";
-  }
-  if (billing.currentCycle?.paidAt) {
-    return "Ciclo actual pagado";
-  }
-  if (billing.daysUntilDue < 0) {
-    const overdueDays = Math.abs(billing.daysUntilDue);
-    return overdueDays === 1 ? "Vencio hace 1 dia" : `Vencio hace ${overdueDays} dias`;
-  }
-  if (billing.daysUntilDue === 0) {
-    return "Vence hoy";
-  }
-  return billing.daysUntilDue === 1 ? "Vence en 1 dia" : `Vence en ${billing.daysUntilDue} dias`;
-}
-
 function ownerPolicyMessage(policy: OwnerChangePolicy) {
   if (policy.canRequestNow) {
     return policy.approvedCount === 0
@@ -219,10 +157,6 @@ function savedMessage({
   announcementCreated,
   closureCreated,
   announcementDisabled,
-  billingSaved,
-  paymentUploaded,
-  paymentVerified,
-  paymentPaid,
   ownerRequest,
   ownerApproved,
   ownerRejected,
@@ -233,10 +167,6 @@ function savedMessage({
   announcementCreated?: string;
   closureCreated?: string;
   announcementDisabled?: string;
-  billingSaved?: string;
-  paymentUploaded?: string;
-  paymentVerified?: string;
-  paymentPaid?: string;
   ownerRequest?: string;
   ownerApproved?: string;
   ownerRejected?: string;
@@ -248,10 +178,6 @@ function savedMessage({
   if (announcementCreated) return "Comunicado publicado.";
   if (closureCreated) return "Cierre temporal publicado para hoy.";
   if (announcementDisabled) return "Aviso desactivado.";
-  if (billingSaved) return "Facturacion de plataforma actualizada.";
-  if (paymentUploaded) return "Comprobante subido. Queda pendiente de verificacion.";
-  if (paymentVerified) return "Comprobante verificado.";
-  if (paymentPaid) return "Pago confirmado y restaurante actualizado.";
   if (ownerRequest) return "Solicitud de cambio de responsable enviada.";
   if (ownerApproved) return "Cambio de responsable aprobado.";
   if (ownerRejected) return "Solicitud de responsable rechazada.";
@@ -265,17 +191,11 @@ export function RestaurantSettingsFormClient({
   settings,
   businessHours,
   announcements,
-  plans,
-  billing,
   saved,
   error,
   announcementCreated,
   closureCreated,
   announcementDisabled,
-  billingSaved,
-  paymentUploaded,
-  paymentVerified,
-  paymentPaid,
   ownerRequest,
   ownerApproved,
   ownerRejected,
@@ -295,17 +215,11 @@ export function RestaurantSettingsFormClient({
   settings: RestaurantSettings | null;
   businessHours: BusinessHour[];
   announcements: RestaurantAnnouncement[];
-  plans: SubscriptionPlan[];
-  billing: PlatformBilling | null;
   saved?: string;
   error?: string;
   announcementCreated?: string;
   closureCreated?: string;
   announcementDisabled?: string;
-  billingSaved?: string;
-  paymentUploaded?: string;
-  paymentVerified?: string;
-  paymentPaid?: string;
   ownerRequest?: string;
   ownerApproved?: string;
   ownerRejected?: string;
@@ -326,7 +240,6 @@ export function RestaurantSettingsFormClient({
   ownerChangeRequests: RestaurantOwnerChangeRequest[];
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeTab(initialTab));
-  const [selectedPlanKey, setSelectedPlanKey] = useState(() => restaurant.planKey ?? plans[0]?.key ?? "premium");
   const [invoiceDateFromFilter, setInvoiceDateFromFilter] = useState(invoiceFilters.dateFrom);
   const [invoiceDateToFilter, setInvoiceDateToFilter] = useState(invoiceFilters.dateTo);
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState(invoiceFilters.status);
@@ -335,10 +248,6 @@ export function RestaurantSettingsFormClient({
     announcementCreated,
     closureCreated,
     announcementDisabled,
-    billingSaved,
-    paymentUploaded,
-    paymentVerified,
-    paymentPaid,
     ownerRequest,
     ownerApproved,
     ownerRejected,
@@ -347,13 +256,11 @@ export function RestaurantSettingsFormClient({
   });
   const [showSuccessModal, setShowSuccessModal] = useState(Boolean(successMessage));
 
-  const selectedPlan = useMemo(() => plans.find((plan) => plan.key === selectedPlanKey), [plans, selectedPlanKey]);
   const pendingOwnerRequest = useMemo(() => ownerChangeRequests.find((request) => request.status === "pending") ?? null, [ownerChangeRequests]);
   const hoursByDay = new Map(businessHours.map((hour) => [hour.dayOfWeek, hour]));
   const logoIsImage = isImageUrl(restaurant.logoUrl);
   const bannerIsImage = isImageUrl(restaurant.bannerUrl);
   const qrIsImage = isImageUrl(settings?.qrPaymentUrl);
-  const platformQrIsImage = isImageUrl(billing?.platformQrUrl);
   const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
   const pendingInvoiceRequests = invoiceRequests.filter((order) => !order.invoiceIssuedAt);
   const moduleReadState = {
@@ -366,8 +273,10 @@ export function RestaurantSettingsFormClient({
   };
   const nowInputValue = toDateTimeLocalInput(new Date());
   const endOfTodayInputValue = toDateTimeLocalInput(endOfToday());
-  const defaultBillingDate = billing?.nextDueDate ?? toDateInput(new Date());
-  const canSaveActiveTab = saveableTabs.has(activeTab) && (activeTab !== "pagos" || canManagePayments);
+  const canSaveActiveTab =
+    saveableTabs.has(activeTab) &&
+    (activeTab !== "pagos" || canManagePayments) &&
+    (activeTab !== "delivery" || canManageDeliverySettings);
   const showStickySave = canSaveActiveTab;
   const invoiceFilterHref = useMemo(() => {
     const params = new URLSearchParams({ tab: "facturas" });
@@ -399,13 +308,11 @@ export function RestaurantSettingsFormClient({
       <input name="currentSlug" type="hidden" value={restaurant.slug} />
       <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
       <input name="currentQrPaymentUrl" type="hidden" value={settings?.qrPaymentUrl ?? ""} />
-      <input name="currentPlatformQrUrl" type="hidden" value={billing?.platformQrUrl ?? ""} />
       <input name="currentMenuBackgroundImageUrl" type="hidden" value={restaurant.menuBackgroundImageUrl} />
       <input name="tab" type="hidden" value={activeTab} />
       <input name="invoiceFrom" type="hidden" value={invoiceFilters.dateFrom} />
       <input name="invoiceTo" type="hidden" value={invoiceFilters.dateTo} />
       <input name="invoiceStatus" type="hidden" value={invoiceFilters.status} />
-      {moduleReadState.deliveryEnabled ? <input name="deliveryEnabled" type="hidden" value="on" /> : null}
       {moduleReadState.pickupEnabled ? <input name="pickupEnabled" type="hidden" value="on" /> : null}
       {moduleReadState.tableOrdersEnabled ? <input name="tableOrdersEnabled" type="hidden" value="on" /> : null}
       {moduleReadState.inventoryEnabled ? <input name="inventoryEnabled" type="hidden" value="on" /> : null}
@@ -416,10 +323,6 @@ export function RestaurantSettingsFormClient({
       {announcementCreated ? <Banner tone="success">{announcementCreated === "updated" ? "Aviso actualizado." : "Comunicado publicado."}</Banner> : null}
       {closureCreated ? <Banner tone="success">Cierre temporal publicado para hoy.</Banner> : null}
       {announcementDisabled ? <Banner tone="success">Aviso desactivado.</Banner> : null}
-      {billingSaved ? <Banner tone="success">Facturacion de plataforma actualizada.</Banner> : null}
-      {paymentUploaded ? <Banner tone="success">Comprobante de plataforma subido. Ahora queda pendiente de verificacion.</Banner> : null}
-      {paymentVerified ? <Banner tone="success">Comprobante verificado por la plataforma.</Banner> : null}
-      {paymentPaid ? <Banner tone="success">Pago confirmado. Si estaba suspendido por mora, el restaurante ya puede volver a operar.</Banner> : null}
       {ownerRequest ? <Banner tone="success">Solicitud de cambio de responsable enviada.</Banner> : null}
       {ownerApproved ? <Banner tone="success">Solicitud aprobada. El acceso principal ya fue actualizado.</Banner> : null}
       {ownerRejected ? <Banner tone="success">Solicitud rechazada.</Banner> : null}
@@ -486,30 +389,15 @@ export function RestaurantSettingsFormClient({
             <FieldSelect label="Estado publico">
               {restaurant.status === "suspended" && !canManagePlan ? (
                 <div className="rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] px-4 py-3 text-sm font-black text-[var(--color-danger-strong)]">
-                  Suspendido por plataforma
+                  Suspendido por cuenta
                   <input name="status" type="hidden" value="suspended" />
                 </div>
               ) : (
                 <Select defaultValue={restaurant.status === "suspended" ? "suspended" : restaurant.status} name="status">
                   <option value="active">Activo: visible y recibe pedidos</option>
                   <option value="inactive">Inactivo: visible/cerrado sin recibir pedidos</option>
-                  {canManagePlan ? <option value="suspended">Suspendido por plataforma</option> : null}
+                  {canManagePlan ? <option value="suspended">Suspendido por cuenta</option> : null}
                 </Select>
-              )}
-            </FieldSelect>
-            <FieldSelect label="Tarifa asignada">
-              {canManagePlan ? (
-                <Select name="planKey" onChange={(event) => setSelectedPlanKey(event.target.value as typeof selectedPlanKey)} value={selectedPlanKey}>
-                  {plans.map((plan) => (
-                    <option key={plan.key} value={plan.key}>
-                      {plan.name} - Bs {plan.priceMonthly}/mes + Bs {plan.additionalRestaurantPriceMonthly}/adicional
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] px-4 py-3 text-sm font-black text-[var(--color-heading)]">
-                  {selectedPlan?.name ?? "Tarifa asignada por plataforma"}
-                </div>
               )}
             </FieldSelect>
             <Textarea className="md:col-span-2" defaultValue={restaurant.description} name="description" placeholder="Descripcion del negocio" />
@@ -618,7 +506,17 @@ export function RestaurantSettingsFormClient({
 
           <Card className="space-y-4">
             <SectionTitle title="QR actual" description="El equipo y los clientes veran este QR al elegir pago QR." />
-            <PreviewMedia label="QR de pago" title="QR de pago" url={qrIsImage ? settings?.qrPaymentUrl ?? "" : ""} fallback="Sin QR" square />
+            {qrIsImage ? (
+              <QrPaymentViewer
+                downloadFileName={`${restaurant.slug}-qr-pago.png`}
+                imageClassName="h-40 w-40"
+                subtitle="QR visible para pedidos publicos, mesas y POS."
+                title="QR de pago"
+                url={settings?.qrPaymentUrl ?? ""}
+              />
+            ) : (
+              <PreviewMedia label="QR de pago" title="QR de pago" url="" fallback="Sin QR" square />
+            )}
           </Card>
         </div>
       </div>
@@ -715,166 +613,6 @@ export function RestaurantSettingsFormClient({
         </div>
       </div>
 
-      <div className={cn(activeTab === "plataforma" ? "block" : "hidden")}>
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="space-y-6">
-            <Card className="space-y-5">
-              <SectionTitle title="Cobro de plataforma" description="Renovacion mensual, control del comprobante y suspension automatica por mora." />
-              <div className="grid gap-3 md:grid-cols-3">
-                <InfoMetric label="Estado" value={platformStateLabel(billing)} />
-                <InfoMetric label="Renovacion" value={billing ? formatDate(billing.nextDueDate) : "Sin fecha"} />
-                <InfoMetric label="Seguimiento" value={billingCountdownLabel(billing)} />
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <BillingStep completed={Boolean(billing?.currentCycle?.proofUploadedAt)} detail={billing?.currentCycle?.proofUploadedAt ? formatDateTime(billing.currentCycle.proofUploadedAt) : "Sin carga"} label="Subido" />
-                <BillingStep completed={Boolean(billing?.currentCycle?.proofVerifiedAt)} detail={billing?.currentCycle?.proofVerifiedAt ? formatDateTime(billing.currentCycle.proofVerifiedAt) : "Pendiente"} label="Verificado" />
-                <BillingStep completed={Boolean(billing?.currentCycle?.paidAt)} detail={billing?.currentCycle?.paidAt ? formatDateTime(billing.currentCycle.paidAt) : "Pendiente"} label="Pagado" />
-              </div>
-              <div className={cn("rounded-2xl p-4 text-sm font-semibold", billing?.isSuspendedForBilling ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]" : "bg-[var(--color-surface)] text-[var(--color-body)]")}>
-                {billing?.isSuspendedForBilling
-                  ? "La plataforma esta suspendida por vencimiento. El restaurante conserva acceso a esta configuracion para subir el comprobante y esperar la validacion."
-                  : "Cuatro dias antes del vencimiento aparece el aviso dentro del panel para que el restaurante suba el comprobante a tiempo."}
-              </div>
-            </Card>
-
-            {canManagePlan ? (
-              <Card className="grid gap-4 md:grid-cols-2">
-                <SectionTitle title="Configurar facturacion" description="Solo superadmin define la fecha de renovacion, recordatorio y QR de la plataforma." />
-                <div className="md:col-span-2" />
-                <Input defaultValue={defaultBillingDate} name="platformNextDueDate" type="date" />
-                <Input defaultValue={billing?.reminderDays ?? 4} max="15" min="0" name="platformReminderDays" placeholder="Dias de recordatorio" type="number" />
-                <div className="md:col-span-2">
-                  <CompressedImageInput help="Este QR es el que usa el restaurante para pagarte la mensualidad de la plataforma." label="QR de la plataforma" name="platformQrFile" previewClassName="aspect-square" />
-                </div>
-                <Textarea className="md:col-span-2" defaultValue={billing?.platformQrNote ?? ""} name="platformQrNote" placeholder="Indicaciones de pago, alias, cuenta o condiciones de validacion" />
-                <div className="md:col-span-2 flex justify-end">
-                  <SettingsSubmitButton name="settingsIntent" pendingLabel="Guardando facturacion..." value="save-platform-billing">
-                    <ShieldCheck className="h-4 w-4" />
-                    Guardar facturacion
-                  </SettingsSubmitButton>
-                </div>
-              </Card>
-            ) : null}
-
-            <Card className="grid gap-4 md:grid-cols-2">
-              <SectionTitle title="Subir comprobante" description="El restaurante carga aqui la evidencia del pago mensual a la plataforma." />
-              <div className="md:col-span-2 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-                {billing?.isConfigured
-                  ? `Vencimiento actual: ${formatDate(billing.nextDueDate)}. Si el cliente no esta dentro del local, el sistema igual conserva su acceso a esta seccion para regularizar el pago.`
-                  : "Aun falta que la plataforma configure la fecha de renovacion y el QR para poder subir un comprobante."}
-              </div>
-              <Input defaultValue={billing?.nextDueDate ?? ""} name="platformDueDate" readOnly type="date" />
-              <Input defaultValue={billing?.planPriceMonthly ? `Bs ${billing.planPriceMonthly}` : "Tarifa Full"} disabled />
-              <div className="md:col-span-2">
-                <CompressedImageInput acceptPdf help="Puedes subir imagen o PDF del comprobante. Se guarda como evidencia del ciclo mensual." label="Comprobante de pago" name="platformPaymentProofFile" />
-              </div>
-              <Textarea className="md:col-span-2" defaultValue={billing?.currentCycle?.notes ?? ""} name="platformPaymentNotes" placeholder="Referencia, banco, numero de transaccion o detalle para validacion" />
-              <div className="md:col-span-2 flex justify-end">
-                <SettingsSubmitButton disabled={!billing?.isConfigured || Boolean(billing?.currentCycle?.paidAt)} name="settingsIntent" pendingLabel="Subiendo comprobante..." value="submit-platform-proof">
-                  <Upload className="h-4 w-4" />
-                  Subir comprobante
-                </SettingsSubmitButton>
-              </div>
-            </Card>
-
-            {canManagePlan && billing?.currentCycle ? (
-              <Card className="grid gap-4 md:grid-cols-2">
-                <SectionTitle title="Validar ciclo actual" description="Verificacion manual del comprobante y reactivacion despues del pago." />
-                <div className="md:col-span-2" />
-                <input name="cycleId" type="hidden" value={billing.currentCycle.id} />
-                <div className="md:col-span-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-                  <p>Ciclo: {formatDate(billing.currentCycle.dueDate)}</p>
-                  <p className="mt-2">Estado actual: {platformStateLabel(billing)}</p>
-                  {billing.currentCycle.proofUrl ? (
-                    <a className="mt-3 inline-flex items-center gap-2 font-black text-[var(--primary)]" href={billing.currentCycle.proofUrl} rel="noreferrer" target="_blank">
-                      Abrir comprobante
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  ) : (
-                    <p className="mt-2 text-[var(--color-secondary-text)]">Aun no hay comprobante para revisar.</p>
-                  )}
-                </div>
-                <Textarea className="md:col-span-2" defaultValue={billing.currentCycle.notes ?? ""} name="platformResolutionNotes" placeholder="Notas internas de verificacion o confirmacion de pago" />
-                <div className="md:col-span-2 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                  <SettingsSubmitButton disabled={!billing.currentCycle.proofUrl || Boolean(billing.currentCycle.proofVerifiedAt)} name="settingsIntent" pendingLabel="Verificando..." value="verify-platform-proof" variant="secondary">
-                    Verificar comprobante
-                  </SettingsSubmitButton>
-                  <SettingsSubmitButton disabled={!billing.currentCycle.proofUrl || Boolean(billing.currentCycle.paidAt)} name="settingsIntent" pendingLabel="Confirmando pago..." value="mark-platform-paid">
-                    Marcar como pagado
-                  </SettingsSubmitButton>
-                </div>
-              </Card>
-            ) : null}
-          </div>
-
-          <div className="space-y-6">
-            <Card className="space-y-4">
-              <SectionTitle title="QR de la plataforma" description="El restaurante usa este QR para pagar su mensualidad." />
-              <PreviewMedia label="QR" title="QR de la plataforma" url={platformQrIsImage ? billing?.platformQrUrl ?? "" : ""} fallback="Sin QR" square />
-              <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-                {billing?.platformQrNote || "Sin instrucciones adicionales todavia."}
-              </div>
-            </Card>
-
-            <Card className="space-y-4">
-              <SectionTitle title="Regla de suspension" description="Como se comporta el panel cuando se vence la renovacion." />
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-                <p>1. Cuatro dias antes del vencimiento aparece una alerta modal.</p>
-                <p className="mt-2">2. Si no hay pago al llegar la fecha, el restaurante pasa a suspendido.</p>
-                <p className="mt-2">3. Las funciones operativas se bloquean hasta que superadmin verifique y marque el ciclo como pagado.</p>
-              </div>
-            </Card>
-          </div>
-        </div>
-      </div>
-
-      <div className={cn(activeTab === "operacion" ? "block" : "hidden")}>
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <Card>
-            <SectionTitle title="Funciones incluidas" description="La tarifa Full habilita todo. La operacion diaria sigue separada por sucursal." />
-            <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4">
-              <p className="text-sm font-black text-[var(--color-heading)]">{selectedPlan?.name ?? "Full"}</p>
-              <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">{selectedPlan?.description ?? "Todo incluido para sucursales activas."}</p>
-              <p className="mt-2 text-xs font-black uppercase text-[var(--color-success-strong)]">{selectedPlan?.modules.length ?? 8} funciones incluidas</p>
-            </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <ModuleStatusCard enabled={moduleReadState.deliveryEnabled} label="Envio a domicilio" note="Depende de la operacion y cobertura configurada." />
-              <ModuleStatusCard enabled={moduleReadState.pickupEnabled} label="Recojo" note="Disponible para pedidos que retira el cliente." />
-              <ModuleStatusCard enabled={moduleReadState.tableOrdersEnabled} label="Pedidos en mesa" note="Incluido en Full." />
-              <ModuleStatusCard enabled={moduleReadState.inventoryEnabled} label="Inventario" note="Incluido en Full." />
-              <ModuleStatusCard enabled={moduleReadState.cashEnabled} label="Caja / POS" note="Incluido en Full." />
-              <ModuleStatusCard enabled={moduleReadState.kitchenEnabled} label="Cocina / preparacion" note="Incluido en Full." />
-            </div>
-          </Card>
-
-          <div className="space-y-6">
-            <Card className="space-y-4">
-              <SectionTitle title="Estado operativo" description="Visibilidad y publicacion del restaurante." />
-              <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-                {restaurant.status === "active"
-                  ? `El ${catalogLabelTitle.toLowerCase()} publico esta habilitado y puede recibir pedidos.`
-                  : `El ${catalogLabelTitle.toLowerCase()} publico esta cerrado porque el negocio no esta activo.`}
-              </div>
-              <div className={cn("inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black", canManagePlan ? "bg-[var(--primary-light)] text-[var(--primary)]" : "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]")}>
-                <ShieldCheck className="h-4 w-4" />
-                Las funciones no se venden por separado: la tarifa Full habilita todo para sucursales activas.
-              </div>
-            </Card>
-
-            <Card className="space-y-3">
-              <SectionTitle title="Resumen rapido" description="Atajos mentales para el equipo operativo." />
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-                <p>Tarifa actual: {selectedPlan?.name ?? "Full"}</p>
-                <p className="mt-2">Responsable: {restaurant.ownerEmail || "Sin responsable"}</p>
-                <p className="mt-2">Ciudad: {restaurant.city || "Sin ciudad"}</p>
-                <p className="mt-2">Rubro: {restaurantBusinessTypeOptions.find((item) => item.value === restaurant.businessType)?.label ?? "Sin rubro"}</p>
-                <p className="mt-2">Estado de plataforma: {platformStateLabel(billing)}</p>
-              </div>
-            </Card>
-          </div>
-        </div>
-      </div>
-
       <div className={cn(activeTab === "impresion" ? "block" : "hidden")}>
         <Card className="grid gap-4 md:grid-cols-2">
           <SectionTitle title="Impresion" description="Tamano y formato por defecto para pedidos de caja y cocina." />
@@ -899,48 +637,70 @@ export function RestaurantSettingsFormClient({
       </div>
 
       <div className={cn(activeTab === "ubicacion" ? "block" : "hidden")}>
+        <Card className="grid gap-4 md:grid-cols-2">
+          <SectionTitle title="Ubicacion" description="Direccion del local, referencia y punto de Google Maps para recojo y calculo de distancia." />
+          <div className="md:col-span-2" />
+          <Input className="md:col-span-2" defaultValue={restaurant.address} name="address" placeholder="Direccion del local" />
+          <Input className="md:col-span-2" defaultValue={restaurant.addressReference} name="addressReference" placeholder="Referencia, piso, zona o indicaciones" />
+          <GoogleLocationFields
+            defaultLatitude={restaurant.latitude}
+            defaultLongitude={restaurant.longitude}
+            defaultMapsUrl={restaurant.mapsUrl}
+            hideCoordinateInputs
+            hideMapsUrlInput
+            label={restaurant.name}
+            showMapByDefault
+          />
+        </Card>
+      </div>
+
+      <div className={cn(activeTab === "delivery" ? "block" : "hidden")}>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
           <div className="space-y-6">
             <Card className="grid gap-4 md:grid-cols-2">
-              <SectionTitle title="Ubicacion" description="Direccion del local, referencia y punto de Google Maps para recojo y calculos futuros." />
-              <div className="md:col-span-2" />
-              <Input className="md:col-span-2" defaultValue={restaurant.address} name="address" placeholder="Direccion del local" />
-              <Input className="md:col-span-2" defaultValue={restaurant.addressReference} name="addressReference" placeholder="Referencia, piso, zona o indicaciones" />
-              <GoogleLocationFields
-                defaultLatitude={restaurant.latitude}
-                defaultLongitude={restaurant.longitude}
-                defaultMapsUrl={restaurant.mapsUrl}
-                hideCoordinateInputs
-                hideMapsUrlInput
-                label={restaurant.name}
-                showMapByDefault
-              />
-            </Card>
-
-            <Card className="grid gap-4 md:grid-cols-2">
-              <SectionTitle title="Reglas de delivery" description="Costos base, pedido minimo, envio gratis y prepagos por distancia." />
+              <SectionTitle title="Estado y costos" description="Activa delivery, define costo base, pedido minimo y envio gratis por subtotal." />
               {!canManageDeliverySettings ? (
                 <div className="md:col-span-2 rounded-2xl border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-4 text-sm font-bold leading-6 text-[var(--color-warning-strong)]">
                   Solo el dueno de la cuenta puede cambiar costos y reglas de delivery.
                 </div>
               ) : null}
-              <div className="md:col-span-2" />
-              <Input defaultValue={settings?.deliveryFee ?? 0} disabled={!canManageDeliverySettings} min="0" name="deliveryFee" placeholder="Costo base de delivery en Bs" step="0.01" type="number" />
-              <Input defaultValue={settings?.minOrderAmount ?? 0} disabled={!canManageDeliverySettings} min="0" name="minOrderAmount" placeholder="Pedido minimo para delivery" step="0.01" type="number" />
-              <Input defaultValue={settings?.freeDeliveryFrom || ""} disabled={!canManageDeliverySettings} min="0" name="freeDeliveryFrom" placeholder="Envio gratis desde Bs (opcional)" step="0.01" type="number" />
-              <Input defaultValue={settings?.farDeliveryDistanceKm ?? 8} disabled={!canManageDeliverySettings} min="1" name="farDeliveryDistanceKm" placeholder="Exigir QR desde (km)" step="0.5" type="number" />
+              <div className="md:col-span-2">
+                <ModuleToggle disabled={!canManageDeliverySettings} enabled={settings?.deliveryEnabled ?? true} label="Aceptar pedidos delivery" name="deliveryEnabled" />
+              </div>
+              <FieldSelect label="Costo base">
+                <Input defaultValue={settings?.deliveryFee ?? 0} disabled={!canManageDeliverySettings} min="0" name="deliveryFee" placeholder="Bs 0 para delivery gratis" step="0.01" type="number" />
+              </FieldSelect>
+              <FieldSelect label="Pedido minimo">
+                <Input defaultValue={settings?.minOrderAmount ?? 0} disabled={!canManageDeliverySettings} min="0" name="minOrderAmount" placeholder="Pedido minimo para delivery" step="0.01" type="number" />
+              </FieldSelect>
+              <FieldSelect label="Envio gratis desde">
+                <Input defaultValue={settings?.freeDeliveryFrom || ""} disabled={!canManageDeliverySettings} min="0" name="freeDeliveryFrom" placeholder="Opcional por subtotal" step="0.01" type="number" />
+              </FieldSelect>
               <div className="md:col-span-2 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
-                Estas reglas aplican como base. Si una zona coincide con el cliente, el sistema usa el costo y minimo de esa zona; el envio gratis se calcula sobre el subtotal.
+                Para delivery gratis deja el costo base en 0. Si una zona coincide con el cliente, el sistema usa el costo y minimo de esa zona.
+              </div>
+            </Card>
+
+            <Card className="grid gap-4 md:grid-cols-2">
+              <SectionTitle title="Seguridad del pedido" description="Reduce pedidos falsos pidiendo pago anticipado por QR cuando la distancia sea alta." />
+              <div className="md:col-span-2">
+                <ModuleToggle disabled={!canManageDeliverySettings} enabled={settings?.deliveryQrPrepaymentEnabled ?? true} label="Pedir QR obligatorio por distancia" name="deliveryQrPrepaymentEnabled" />
+              </div>
+              <FieldSelect label="Aplicar desde">
+                <Input defaultValue={settings?.farDeliveryDistanceKm ?? 5} disabled={!canManageDeliverySettings} min="1" name="farDeliveryDistanceKm" placeholder="5 km" step="0.5" type="number" />
+              </FieldSelect>
+              <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+                Default del sistema: 5 km. Si esta regla esta apagada, el cliente podra elegir efectivo aunque viva lejos.
               </div>
             </Card>
           </div>
 
           <Card className="space-y-4">
-            <SectionTitle title="Nueva zona de delivery" description="Sirve para explicar cobertura: desde que punto se mide, hasta que radio llega y cuanto cuesta enviar ahi." />
+            <SectionTitle title="Zona con precio especial" description="Crea excepciones al costo base: por ejemplo 3 km gratis y otra zona mas amplia con costo." />
             {canManageDeliverySettings ? (
               <>
                 <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
-                  Ejemplo: Centro, radio 3 km, envio Bs 10. Si luego usamos calculo automatico, estas zonas seran la base.
+                  Si el cliente cae dentro de una zona activa, se aplica el costo de esa zona. Usa costo 0 para cobertura gratis.
                 </div>
                 <Input name="zoneName" placeholder="Nombre visible, ej: Centro / Norte / Zona Muyurina" />
                 <Input defaultValue={restaurant.city} name="zoneCity" placeholder="Ciudad de esta zona" />
@@ -988,7 +748,7 @@ export function RestaurantSettingsFormClient({
                     </div>
                     <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-bold text-[var(--color-body)]">
                       <span className="rounded-xl bg-[var(--color-surface)] p-2">Radio {zone.radiusKm} km</span>
-                      <span className="rounded-xl bg-[var(--color-surface)] p-2">Envio Bs {zone.deliveryFee}</span>
+                      <span className="rounded-xl bg-[var(--color-surface)] p-2">{zone.deliveryFee > 0 ? `Envio Bs ${zone.deliveryFee}` : "Envio gratis"}</span>
                       <span className="rounded-xl bg-[var(--color-surface)] p-2">Minimo Bs {zone.minOrderAmount}</span>
                     </div>
                     {canManageDeliverySettings ? (
@@ -1316,34 +1076,6 @@ function InfoMetric({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
       <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">{label}</p>
       <p className="mt-2 text-sm font-black text-[var(--color-heading)]">{value}</p>
-    </div>
-  );
-}
-
-function BillingStep({ label, detail, completed }: { label: string; detail: string; completed: boolean }) {
-  return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-      <div className="flex items-center gap-3">
-        <span className={cn("h-3.5 w-3.5 rounded-full", completed ? "bg-[var(--color-success-strong)]" : "bg-[var(--color-danger-strong)]")} />
-        <p className="text-sm font-black text-[var(--color-heading)]">{label}</p>
-      </div>
-      <p className="mt-2 text-xs font-semibold text-[var(--color-secondary-text)]">{detail}</p>
-    </div>
-  );
-}
-
-function ModuleStatusCard({ label, note, enabled }: { label: string; note: string; enabled: boolean }) {
-  return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-black text-[var(--color-heading)]">{label}</p>
-          <p className="mt-1 text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">{note}</p>
-        </div>
-        <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black", enabled ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]")}>
-          {enabled ? "Incluido" : "No incluido"}
-        </span>
-      </div>
     </div>
   );
 }

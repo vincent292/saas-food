@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, Plus, ReceiptText, Upload, WalletCards } from "lucide-react";
 import { submitOwnerBillingPaymentProofAction } from "@/app/admin/actions";
 import { OwnerLayout, getOwnerLayoutContext } from "@/components/layout/OwnerLayout";
+import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
@@ -152,10 +153,14 @@ export default async function OwnerPlanPage({
             <Card className="space-y-4">
               <SectionTitle title="QR de pago" description="Usa este QR para pagar la mensualidad de la plataforma." />
               {billing.settings.platformQrUrl ? (
-                <a className="block overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-white" href={billing.settings.platformQrUrl} rel="noreferrer" target="_blank">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img alt="QR de pago mensual" className="aspect-square w-full object-cover" src={billing.settings.platformQrUrl} />
-                </a>
+                <QrPaymentViewer
+                  alt="QR de pago mensual"
+                  downloadFileName={`mensualidad-${currentCycle.periodKey}-qr.png`}
+                  imageClassName="h-auto w-full max-w-[280px] aspect-square"
+                  subtitle={`Mensualidad ${currentCycle.periodKey}`}
+                  title="QR de pago mensual"
+                  url={billing.settings.platformQrUrl}
+                />
               ) : (
                 <div className="grid aspect-square place-items-center rounded-[var(--radius-card)] border border-dashed border-[var(--border)] bg-[var(--color-neutral-50)] text-sm font-bold text-[var(--color-secondary-text)]">
                   QR pendiente

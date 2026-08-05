@@ -43,8 +43,9 @@ export default async function CashPage({
   const needsMovements = activeTab === "movimientos";
   const needsReports = activeTab === "cierre" || activeTab === "reportes";
 
-  const [summary, products, categories, configuration, movements, orders, reports] = await Promise.all([
+  const [summary, settings, products, categories, configuration, movements, orders, reports] = await Promise.all([
     cashService.getSummary(restaurant.id),
+    restaurantService.getSettings(restaurant.id),
     needsPosCatalog ? productService.listAvailableByRestaurant(restaurant.id) : Promise.resolve([]),
     needsPosCatalog ? categoryService.listByRestaurant(restaurant.id) : Promise.resolve([]),
     needsPosCatalog ? productService.listConfigurationsByRestaurant(restaurant.id) : Promise.resolve(emptyConfiguration),
@@ -87,6 +88,7 @@ export default async function CashPage({
         products={products}
         reports={reports}
         restaurant={restaurant}
+        settings={settings}
         status={status}
         summary={summary}
       />

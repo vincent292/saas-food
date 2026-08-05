@@ -186,6 +186,7 @@ export type Database = {
         cash_enabled: boolean;
         kitchen_enabled: boolean;
         delivery_fee: number;
+        delivery_qr_prepayment_enabled: boolean;
         far_delivery_distance_km: number;
         free_delivery_from: number | null;
         min_order_amount: number;

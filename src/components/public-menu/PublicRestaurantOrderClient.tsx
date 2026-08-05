@@ -6,6 +6,7 @@ import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEff
 import { createPublicOrderAction } from "@/app/r/actions";
 import { PublicCustomerAccountButton } from "@/components/customer/PublicCustomerAccountButton";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
+import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
@@ -20,6 +21,7 @@ import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { productAvailabilityLabels } from "@/lib/utils/product-availability";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
+import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductStockAvailability, ProductVariant } from "@/types/product.types";
 import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
@@ -1094,7 +1096,8 @@ function PublicOrderPanel({
   const deliveryEnabled = settings?.deliveryEnabled ?? true;
   const pickupEnabled = settings?.pickupEnabled ?? true;
   const invoiceEnabled = settings?.invoiceEnabled ?? false;
-  const qrAvailable = Boolean(settings?.qrPaymentUrl);
+  const qrPaymentUrl = normalizeQrPaymentUrl(settings?.qrPaymentUrl);
+  const qrAvailable = hasQrPaymentConfigured(settings);
   const nowAvailable = !activeClosure && (!businessStatus.hasSchedule || businessStatus.isOpen);
   const [deliveryCoordinates, setDeliveryCoordinates] = useState<{ latitude: number; longitude: number }>();
   const deliveryPolicy = useMemo(
@@ -1111,12 +1114,21 @@ function PublicOrderPanel({
         subtotal: total,
         baseDeliveryFee: settings?.deliveryFee ?? 0,
         baseMinOrderAmount: settings?.minOrderAmount ?? 0,
+        qrPrepaymentEnabled: settings?.deliveryQrPrepaymentEnabled ?? true,
         freeDeliveryFrom: settings?.freeDeliveryFrom ?? 0,
         farDeliveryDistanceKm: settings?.farDeliveryDistanceKm,
       }),
     [deliveryCoordinates, deliveryZones, restaurant.city, restaurant.latitude, restaurant.longitude, settings, total],
   );
   const deliveryFee = orderType === "delivery" ? deliveryPolicy.deliveryFee : 0;
+  const deliveryPreviewFee = deliveryPolicy.deliveryFee;
+  const deliveryFeeLabel = orderType === "delivery" && deliveryFee <= 0 ? "Gratis" : formatMoney(deliveryFee, settings?.currency);
+  const deliveryChoiceText = !deliveryEnabled ? "No disponible" : deliveryPreviewFee > 0 ? `${formatMoney(deliveryPreviewFee, settings?.currency)} de envio` : "Envio gratis";
+  const deliveryDistanceHint = deliveryPolicy.requiresQrPrepayment
+    ? "Por seguridad, esta distancia requiere pago QR con comprobante."
+    : deliveryFee > 0
+      ? `${formatMoney(deliveryFee, settings?.currency)} de envio. Puedes pagar en efectivo o QR.`
+      : "Envio gratis aplicado. Puedes pagar en efectivo o QR.";
   const grandTotal = total + deliveryFee;
   const effectivePaymentMethod = orderType === "delivery" && deliveryPolicy.requiresQrPrepayment ? "qr" : paymentMethod;
   const paymentReceiptRef = useRef<HTMLInputElement>(null);
@@ -1399,7 +1411,7 @@ function PublicOrderPanel({
         <StepIntro icon={<Store className="h-5 w-5" />} title="Como quieres recibirlo" description="Primero elegimos recojo o envio; despues aparecen solo los datos necesarios." />
         <div className="grid gap-3 sm:grid-cols-2">
           <ChoiceCard active={orderType === "pickup"} disabled={!pickupEnabled} icon={<Store className="h-5 w-5" />} label="Recojo en local" onClick={() => setOrderType("pickup")} text={restaurant.address || "El restaurante confirmara la direccion."} />
-          <ChoiceCard active={orderType === "delivery"} disabled={!deliveryEnabled} icon={<Bike className="h-5 w-5" />} label="Envio a domicilio" onClick={() => setOrderType("delivery")} text={deliveryFee ? `${formatMoney(deliveryFee, settings?.currency)} de envio` : "Delivery disponible"} />
+          <ChoiceCard active={orderType === "delivery"} disabled={!deliveryEnabled} icon={<Bike className="h-5 w-5" />} label="Envio a domicilio" onClick={() => setOrderType("delivery")} text={deliveryChoiceText} />
         </div>
 
         <StepIntro icon={<CalendarClock className="h-5 w-5" />} title="Cuando lo necesitas" description={businessStatus.hasSchedule ? `Horario de hoy: ${businessStatus.todayHours}` : "Este restaurante aun no configuro horarios; permitimos pedidos por ahora."} />
@@ -1498,7 +1510,7 @@ function PublicOrderPanel({
                 {deliveryPolicy.distanceKm != null ? (
                   <div className={cn("rounded-2xl p-3 text-sm font-bold", deliveryPolicy.requiresQrPrepayment ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]")}>
                     <p>{deliveryPolicy.distanceKm.toFixed(1)} km desde el local{deliveryPolicy.matchedZone ? ` · ${deliveryPolicy.matchedZone.name}` : ""}.</p>
-                    <p className="mt-1 text-xs">{deliveryPolicy.requiresQrPrepayment ? "Por seguridad, esta distancia requiere pago QR con comprobante." : "Puedes pagar en efectivo o QR."}</p>
+                    <p className="mt-1 text-xs">{deliveryDistanceHint}</p>
                   </div>
                 ) : null}
               </div>
@@ -1550,7 +1562,7 @@ function PublicOrderPanel({
           {deliveryPolicy.distanceKm != null ? (
             <div className={cn("rounded-2xl p-3 text-sm font-bold", deliveryPolicy.requiresQrPrepayment ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]")}>
               <p>{deliveryPolicy.distanceKm.toFixed(1)} km desde el local{deliveryPolicy.matchedZone ? ` · ${deliveryPolicy.matchedZone.name}` : ""}.</p>
-              <p className="mt-1 text-xs">{deliveryPolicy.requiresQrPrepayment ? "Por seguridad, esta distancia requiere pago QR con comprobante." : "Puedes pagar en efectivo o QR."}</p>
+              <p className="mt-1 text-xs">{deliveryDistanceHint}</p>
             </div>
           ) : null}
           {restaurant.city ? (
@@ -1598,11 +1610,16 @@ function PublicOrderPanel({
         <StepIntro icon={<CreditCard className="h-5 w-5" />} title="Forma de pago" description="El efectivo queda registrado para caja. En QR el comprobante es obligatorio." />
         <div className="grid gap-3 sm:grid-cols-2">
           <ChoiceCard active={effectivePaymentMethod === "cash"} disabled={orderType === "delivery" && deliveryPolicy.requiresQrPrepayment} icon={<CreditCard className="h-5 w-5" />} label="Efectivo" onClick={() => setPaymentMethod("cash")} text={deliveryPolicy.requiresQrPrepayment ? "No disponible por distancia." : "Caja validara el cobro antes de preparar."} />
-          <ChoiceCard active={effectivePaymentMethod === "qr"} disabled={!qrAvailable} icon={<ReceiptText className="h-5 w-5" />} label="Pago QR" onClick={() => setPaymentMethod("qr")} text={qrAvailable ? "Escanea y sube comprobante." : "Sin QR configurado."} />
+          <ChoiceCard active={effectivePaymentMethod === "qr"} disabled={!qrAvailable} icon={<ReceiptText className="h-5 w-5" />} label="Pago QR" onClick={() => setPaymentMethod("qr")} text={qrAvailable ? "QR activo para esta sucursal." : "Sin QR configurado."} />
         </div>
-        <div className={cn(effectivePaymentMethod === "qr" && qrAvailable ? "grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[108px_1fr] sm:items-center" : "hidden")}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img alt="QR de pago" className="h-28 w-28 rounded-2xl border border-[var(--border)] object-cover" src={settings?.qrPaymentUrl} />
+        <div className={cn(effectivePaymentMethod === "qr" && qrAvailable ? "grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[150px_1fr] sm:items-center" : "hidden")}>
+          <QrPaymentViewer
+            downloadFileName={`${restaurant.slug}-qr-pago.png`}
+            imageClassName="h-28 w-28"
+            subtitle="QR de pago de esta sucursal."
+            title="QR de pago"
+            url={qrPaymentUrl}
+          />
           <div>
             <p className="text-sm font-black text-[var(--text)]">Escanea el QR del restaurante</p>
             <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Realiza el pago y luego sube el comprobante para que el equipo lo valide.</p>
@@ -1616,7 +1633,7 @@ function PublicOrderPanel({
             ) : null}
           </div>
         </div>
-        <div className={cn(effectivePaymentMethod === "qr" ? "block" : "hidden")}>
+        <div className={cn(effectivePaymentMethod === "qr" && qrAvailable ? "block" : "hidden")}>
           <CompressedImageInput acceptPdf help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." inputRef={paymentReceiptRef} label="Comprobante QR" name="paymentReceiptFile" />
         </div>
         <p className="rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">
@@ -1679,7 +1696,7 @@ function PublicOrderPanel({
         </div>
         <div className="mt-2 flex items-center justify-between">
           <span className="font-semibold text-[var(--muted)]">Envio</span>
-          <strong>{formatMoney(deliveryFee, settings?.currency)}</strong>
+          <strong>{deliveryFeeLabel}</strong>
         </div>
         <div className="mt-3 flex items-center justify-between border-t border-dashed border-[var(--border)] pt-3">
           <span className="font-black">Total a pagar</span>

@@ -5,7 +5,6 @@ import { modulesForAdminLayout } from "@/lib/modules";
 import { authService } from "@/lib/services/auth.service";
 import { announcementService } from "@/lib/services/announcement.service";
 import { orderService } from "@/lib/services/order.service";
-import { planService } from "@/lib/services/plan.service";
 import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
@@ -33,10 +32,6 @@ export default async function SettingsPage({
     announcement?: string;
     closed?: string;
     disabled?: string;
-    billingSaved?: string;
-    paymentUploaded?: string;
-    paymentVerified?: string;
-    paymentPaid?: string;
     ownerRequest?: string;
     ownerApproved?: string;
     ownerRejected?: string;
@@ -48,7 +43,7 @@ export default async function SettingsPage({
   }>;
 }) {
   const { restaurantId } = await params;
-  const { saved, error, tab, announcement, closed, disabled, billingSaved, paymentUploaded, paymentVerified, paymentPaid, ownerRequest, ownerApproved, ownerRejected, zone, invoiceMarked, invoiceFrom, invoiceTo, invoiceStatus } = await searchParams;
+  const { saved, error, tab, announcement, closed, disabled, ownerRequest, ownerApproved, ownerRejected, zone, invoiceMarked, invoiceFrom, invoiceTo, invoiceStatus } = await searchParams;
   const restaurant = await restaurantService.getById(restaurantId);
 
   if (!restaurant) {
@@ -62,13 +57,11 @@ export default async function SettingsPage({
     dateTo: normalizeInvoiceDateFilter(invoiceTo),
     status: normalizeInvoiceStatusFilter(invoiceStatus),
   };
-  const [settings, businessHours, plans, profile, announcements, billingSnapshot, ownerChangePolicy, ownerChangeRequests, deliveryZones, invoiceRequests] = await Promise.all([
+  const [settings, businessHours, profile, announcements, ownerChangePolicy, ownerChangeRequests, deliveryZones, invoiceRequests] = await Promise.all([
     restaurantService.getSettings(restaurant.id),
     settingsService.listBusinessHours(restaurant.id),
-    planService.listPlans(),
     authService.getCurrentProfile(),
     announcementService.listForAdmin(restaurant.id),
-    platformBillingService.getBillingSnapshot(restaurant.id, restaurant.status),
     platformBillingService.getOwnerChangePolicy(restaurant.id),
     platformBillingService.listOwnerChangeRequests(restaurant.id),
     restaurantService.listDeliveryZones(restaurant.id),
@@ -94,8 +87,6 @@ export default async function SettingsPage({
         canManageDeliverySettings={canManageOwnerSettings}
         canManagePayments={canManageOwnerSettings}
         announcementCreated={announcement}
-        billing={billingSnapshot.billing}
-        billingSaved={billingSaved}
         closureCreated={closed}
         announcementDisabled={disabled}
         error={error}
@@ -112,10 +103,6 @@ export default async function SettingsPage({
         ownerChangeRequests={ownerChangeRequests}
         ownerRejected={ownerRejected}
         ownerRequest={ownerRequest}
-        paymentPaid={paymentPaid}
-        paymentUploaded={paymentUploaded}
-        paymentVerified={paymentVerified}
-        plans={plans}
         restaurant={restaurant}
         saved={saved}
         settings={settings}

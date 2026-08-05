@@ -31,8 +31,9 @@ export default async function PublicCashPage({ params }: { params: Promise<{ res
 
   await restaurantAccessService.claimOrRedirect(restaurant.id, `/caja/${restaurant.slug}`);
 
-  const [summary, categories, products] = await Promise.all([
+  const [summary, settings, categories, products] = await Promise.all([
     cashService.getSummary(restaurant.id),
+    restaurantService.getSettings(restaurant.id),
     categoryService.listByRestaurant(restaurant.id),
     productService.listAvailableByRestaurant(restaurant.id),
   ]);
@@ -49,7 +50,7 @@ export default async function PublicCashPage({ params }: { params: Promise<{ res
           <CashSummaryCard amount={summary.netTotal} label="Neto turno" />
         </div>
         <div className="mt-6">
-          <POSProductGrid businessType={restaurant.businessType} categories={categories} configuration={configuration} disabled={!summary.session} products={products} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} />
+          <POSProductGrid businessType={restaurant.businessType} categories={categories} configuration={configuration} disabled={!summary.session} products={products} restaurantId={restaurant.id} restaurantSlug={restaurant.slug} settings={settings} />
         </div>
       </main>
     </RestaurantThemeProvider>

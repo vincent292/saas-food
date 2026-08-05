@@ -2,6 +2,7 @@ import { CheckCircle2, ExternalLink, LockOpen, QrCode, ReceiptText, XCircle } fr
 import Link from "next/link";
 import { createSupportTicketAction, releaseAccessSessionByIdAction, resolveOwnerBranchCapacityAction, updateBranchRequestPaymentSettingsAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { SupportManualsPanel } from "@/components/support/SupportManualsPanel";
 import { SupportTicketList } from "@/components/support/SupportTicketList";
@@ -227,10 +228,15 @@ function BranchRequestsPanel({
           <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">Monto por sucursal</p>
           <p className="mt-1 text-2xl font-black text-[var(--color-heading)]">{formatMoney(settings.amount, settings.currency)}</p>
           {settings.qrUrl ? (
-            <a className="mt-4 block overflow-hidden rounded-2xl border border-[var(--border)] bg-white" href={settings.qrUrl} rel="noreferrer" target="_blank">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt="QR actual para solicitudes de sucursal" className="aspect-square w-full object-cover" src={settings.qrUrl} />
-            </a>
+            <QrPaymentViewer
+              alt="QR actual para solicitudes de sucursal"
+              className="mt-4"
+              downloadFileName="qr-solicitudes-sucursal.png"
+              imageClassName="h-auto w-full aspect-square"
+              subtitle="QR visible para los duenos al solicitar sucursales."
+              title="QR solicitudes de sucursal"
+              url={settings.qrUrl}
+            />
           ) : (
             <div className="mt-4 grid aspect-square place-items-center rounded-2xl border border-dashed border-[var(--border)] text-sm font-bold text-[var(--color-secondary-text)]">
               Sin QR

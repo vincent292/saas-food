@@ -6,6 +6,7 @@ import { useDeferredValue, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { createPosSaleAction } from "@/app/admin/actions";
 import { orderOriginLabels } from "@/components/orders/orderPresentation";
+import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
 import { Button, buttonClasses } from "@/components/ui/Button";
@@ -15,9 +16,10 @@ import { businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
+import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { OrderOrigin } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
-import type { BusinessType } from "@/types/restaurant.types";
+import type { BusinessType, RestaurantSettings } from "@/types/restaurant.types";
 
 type SelectedOptions = Record<string, string[]>;
 type ProductConfigMap = Record<string, { variants: ProductVariant[]; optionGroups: ProductOptionGroup[] }>;
@@ -43,6 +45,7 @@ export function POSProductGrid({
   restaurantId,
   restaurantSlug,
   businessType,
+  settings,
   disabled,
 }: {
   categories: Category[];
@@ -51,6 +54,7 @@ export function POSProductGrid({
   restaurantId: string;
   restaurantSlug: string;
   businessType: BusinessType;
+  settings: RestaurantSettings | null;
   disabled?: boolean;
 }) {
   const [categoryId, setCategoryId] = useState("all");
@@ -93,6 +97,8 @@ export function POSProductGrid({
   const cartJson = JSON.stringify(cart.map(({ productId, variantId, optionIds, name, price, quantity, notes }) => ({ productId, variantId, optionIds, name, price, quantity, notes })));
   const preparationAreaLabel = businessPreparationAreaLabel(businessType);
   const submitLabel = businessTypeSupportsKitchen(businessType) ? "Cobrar y enviar a cocina" : "Cobrar y registrar pedido";
+  const qrPaymentUrl = normalizeQrPaymentUrl(settings?.qrPaymentUrl);
+  const qrAvailable = hasQrPaymentConfigured(settings);
 
   function addConfiguredProduct(product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) {
     const price = product.price + (variant?.priceDelta ?? 0) + selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
@@ -221,6 +227,9 @@ export function POSProductGrid({
               onPaymentMethodChange={setPaymentMethod}
               orderOrigin={orderOrigin}
               paymentMethod={paymentMethod}
+              qrAvailable={qrAvailable}
+              qrPaymentUrl={qrPaymentUrl}
+              qrSettings={settings}
               submitLabel={submitLabel}
               preparationAreaLabel={preparationAreaLabel}
               removeItem={removeItem}
@@ -270,6 +279,9 @@ export function POSProductGrid({
               onPaymentMethodChange={setPaymentMethod}
               orderOrigin={orderOrigin}
               paymentMethod={paymentMethod}
+              qrAvailable={qrAvailable}
+              qrPaymentUrl={qrPaymentUrl}
+              qrSettings={settings}
               submitLabel={submitLabel}
               preparationAreaLabel={preparationAreaLabel}
               removeItem={removeItem}
@@ -306,6 +318,9 @@ function PosCartPanel({
   onPaymentMethodChange,
   orderOrigin,
   paymentMethod,
+  qrAvailable,
+  qrPaymentUrl,
+  qrSettings,
   submitLabel,
   preparationAreaLabel,
   removeItem,
@@ -325,6 +340,9 @@ function PosCartPanel({
   onPaymentMethodChange: (value: string) => void;
   orderOrigin: OrderOrigin;
   paymentMethod: string;
+  qrAvailable: boolean;
+  qrPaymentUrl: string;
+  qrSettings: RestaurantSettings | null;
   submitLabel: string;
   preparationAreaLabel: string;
   removeItem: (cartId: string) => void;
@@ -416,13 +434,33 @@ function PosCartPanel({
         <Input name="customerPhone" placeholder="Telefono o WhatsApp del cliente" />
         <Select name="paymentMethod" onChange={(event) => onPaymentMethodChange(event.target.value)} value={paymentMethod}>
           <option value="cash">Efectivo</option>
-          <option value="qr">QR</option>
+          <option disabled={!qrAvailable} value="qr">QR {qrAvailable ? "activo" : "sin configurar"}</option>
           <option value="bank_transfer">Transferencia</option>
           <option value="card">Tarjeta</option>
           <option value="other">Otro</option>
         </Select>
-        {paymentMethod === "qr" ? (
+        <p className={cn("rounded-2xl p-3 text-xs font-bold", qrAvailable ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-card-muted)] text-[var(--muted)]")}>
+          {qrAvailable ? "QR activo para esta sucursal." : "Sin QR configurado para esta sucursal."}
+        </p>
+        {paymentMethod === "qr" && qrAvailable ? (
           <div className="space-y-2 rounded-2xl border border-[var(--border)] p-3">
+            <div className="grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[140px_1fr] sm:items-center">
+              <QrPaymentViewer
+                downloadFileName={`${restaurantSlug}-pos-qr-pago.png`}
+                imageClassName="h-24 w-24"
+                subtitle="QR de pago POS"
+                title="QR de pago"
+                url={qrPaymentUrl}
+              />
+              <div>
+                <p className="text-sm font-black text-[var(--text)]">QR listo para cobrar</p>
+                <p className="mt-1 text-xs font-semibold text-[var(--muted)]">
+                  {qrSettings?.qrAccountName || qrSettings?.qrBankName
+                    ? `${qrSettings?.qrAccountName ?? "Cuenta QR"}${qrSettings?.qrBankName ? ` - ${qrSettings.qrBankName}` : ""}`
+                    : "Muestra este QR al cliente y registra referencia o comprobante."}
+                </p>
+              </div>
+            </div>
             <Input name="paymentReceiptReference" placeholder="Numero de comprobante o referencia QR" />
             <CompressedImageInput acceptPdf help="Opcional: captura o PDF del pago. Las imagenes se optimizan en WebP." label="Comprobante QR" name="paymentReceiptFile" />
             <p className="text-xs font-semibold text-[var(--muted)]">En POS puedes subir una captura o registrar la referencia del pago digital.</p>

@@ -21,15 +21,20 @@ test("phase one delivery policy allows city-wide orders and requires QR by dista
   const action = read("src/app/r/actions.ts");
   const policy = read("src/lib/delivery-policy.ts");
   const migration = read("supabase/migrations/0051_phase_one_delivery_and_order_rules.sql");
+  const qrToggleMigration = read("supabase/migrations/0061_delivery_qr_prepayment_toggle.sql");
   const refundMigration = read("supabase/migrations/0052_atomic_order_refunds.sql");
   const ownerDashboard = read("src/lib/services/owner-dashboard.service.ts");
 
   assert.match(action, /resolveDeliveryPolicy/);
   assert.match(action, /qr-required-distance/);
+  assert.match(action, /delivery_qr_prepayment_enabled/);
   assert.doesNotMatch(action, /has_open_cash_session_public/);
-  assert.match(policy, /requiresQrPrepayment:\s*distanceKm != null && distanceKm > safeFarDistance/);
+  assert.match(policy, /DEFAULT_QR_PREPAYMENT_DISTANCE_KM = 5/);
+  assert.match(policy, /qrPrepaymentEnabled && distanceKm != null && distanceKm >= safeFarDistance/);
   assert.doesNotMatch(migration, /from cash_sessions/);
   assert.match(migration, /orders_validate_status_transition/);
+  assert.match(qrToggleMigration, /delivery_qr_prepayment_enabled boolean not null default true/);
+  assert.match(qrToggleMigration, /alter column far_delivery_distance_km set default 5/);
   assert.match(refundMigration, /create or replace function refund_order_atomic/);
   assert.match(refundMigration, /perform reverse_order_inventory_usage/);
   assert.match(ownerDashboard, /\.eq\("payment_status", "paid"\)/);
@@ -108,6 +113,8 @@ test("owner account billing has monthly proof and superadmin approval", () => {
   const ownerPlan = read("src/app/dueno/plan/page.tsx");
   const accountPage = read("src/app/admin/restaurantes/[restaurantId]/cuenta/page.tsx");
   const actions = read("src/app/admin/actions.ts");
+  const settingsClient = read("src/components/settings/RestaurantSettingsFormClient.tsx");
+  const adminLayout = read("src/components/layout/AdminLayout.tsx");
 
   assert.match(migration, /owner_platform_billing_settings/);
   assert.match(migration, /owner_platform_payment_cycles/);
@@ -121,6 +128,12 @@ test("owner account billing has monthly proof and superadmin approval", () => {
   assert.match(accountPage, /approveOwnerBillingPaymentAction/);
   assert.match(accountPage, /variant=\{nextAccountStatus === "active" \? "primary" : "danger"\}/);
   assert.match(actions, /restaurant\?\.status === "suspended" && !restaurant\.deactivated_by/);
+  assert.doesNotMatch(settingsClient, /key: "plataforma"/);
+  assert.doesNotMatch(settingsClient, /key: "operacion"/);
+  assert.doesNotMatch(settingsClient, /Cobro de plataforma/);
+  assert.doesNotMatch(settingsClient, /Subir comprobante/);
+  assert.doesNotMatch(adminLayout, /platformBillingService/);
+  assert.doesNotMatch(adminLayout, /billingAlert/);
 });
 
 test("catalog changes are owner-only while branches keep read access", () => {
@@ -142,14 +155,25 @@ test("payment settings are owner-only and invoice requests are filterable", () =
   const actions = read("src/app/admin/actions.ts");
   const settingsPage = read("src/app/admin/restaurantes/[restaurantId]/configuracion/page.tsx");
   const settingsClient = read("src/components/settings/RestaurantSettingsFormClient.tsx");
+  const qrViewer = read("src/components/payments/QrPaymentViewer.tsx");
   const orderService = read("src/lib/services/order.service.ts");
   const publicActions = read("src/app/r/actions.ts");
+  const restaurantService = read("src/lib/services/restaurant.service.ts");
+  const publicOrder = read("src/components/public-menu/PublicRestaurantOrderClient.tsx");
+  const tableOrder = read("src/components/tables/TableOrderClient.tsx");
+  const pos = read("src/components/cash/POSProductGrid.tsx");
+  const cashPage = read("src/app/admin/restaurantes/[restaurantId]/caja/page.tsx");
+  const ownerPlan = read("src/app/dueno/plan/page.tsx");
+  const ownerSupport = read("src/app/dueno/soporte/page.tsx");
+  const adminSupport = read("src/app/admin/soporte/page.tsx");
+  const accountPage = read("src/app/admin/restaurantes/[restaurantId]/cuenta/page.tsx");
 
   assert.match(actions, /const canManageOwnerSettings = isSuperadmin \|\| currentRestaurant\.owner_user_id === user\.id/);
   assert.match(actions, /const canManagePayments = canManageOwnerSettings/);
   assert.match(actions, /returnTab === "pagos" && !canManagePayments/);
   assert.match(actions, /const qrPaymentUrl = canManagePayments[\s\S]+currentSettings\?\.qr_payment_url/);
   assert.match(actions, /const paymentSettings = canManagePayments/);
+  assert.match(actions, /normalizeQrPaymentUrl\(settings\?\.qr_payment_url\)/);
   assert.match(actions, /function invoiceConfigurationPath/);
   assert.match(settingsPage, /normalizeInvoiceDateFilter/);
   assert.match(settingsPage, /orderService\.listInvoiceRequests\(restaurant\.id, invoiceFilters\)/);
@@ -158,28 +182,70 @@ test("payment settings are owner-only and invoice requests are filterable", () =
   assert.match(settingsClient, /Pagos y factura/);
   assert.match(settingsClient, /invoiceFilterHref/);
   assert.match(settingsClient, /name="invoiceFrom" type="hidden"/);
+  assert.match(settingsClient, /QrPaymentViewer/);
+  assert.match(qrViewer, /Ver grande/);
+  assert.match(qrViewer, /Descargar/);
+  assert.match(qrViewer, /URL\.createObjectURL/);
+  assert.match(qrViewer, /window\.open\(normalizedUrl/);
   assert.match(orderService, /async listInvoiceRequests\([\s\S]+filters:/);
   assert.match(orderService, /\.is\("invoice_issued_at", null\)/);
   assert.match(orderService, /\.not\("invoice_issued_at", "is", null\)/);
   assert.match(orderService, /businessDateBoundaryIso/);
   assert.match(publicActions, /if \(parsed\.data\.invoiceRequired && !settings\.invoice_enabled\)/);
+  assert.match(publicActions, /normalizeQrPaymentUrl\(settings\.qr_payment_url\)/);
+  assert.match(restaurantService, /async getPublicSettings/);
+  assert.match(restaurantService, /const admin = createAdminClient\(\)/);
+  assert.match(publicOrder, /hasQrPaymentConfigured\(settings\)/);
+  assert.match(publicOrder, /QR activo para esta sucursal/);
+  assert.match(publicOrder, /QrPaymentViewer/);
+  assert.match(tableOrder, /hasQrPaymentConfigured\(settings\)/);
+  assert.match(tableOrder, /disabled=\{!qrAvailable\}/);
+  assert.match(tableOrder, /QrPaymentViewer/);
+  assert.match(tableOrder, /settings\?\.invoiceEnabled/);
+  assert.match(tableOrder, /name="invoiceRequired" type="hidden"/);
+  assert.match(tableOrder, /name="invoiceDocumentType"/);
+  assert.match(tableOrder, /name="invoiceDocumentNumber"/);
+  assert.match(tableOrder, /name="invoiceName"/);
+  assert.match(tableOrder, /error === "invoice"/);
+  assert.match(pos, /settings: RestaurantSettings \| null/);
+  assert.match(pos, /QR \{qrAvailable \? "activo" : "sin configurar"\}/);
+  assert.match(pos, /QrPaymentViewer/);
+  assert.match(cashPage, /restaurantService\.getSettings\(restaurant\.id\)/);
+  assert.match(ownerPlan, /QrPaymentViewer/);
+  assert.match(ownerSupport, /QrPaymentViewer/);
+  assert.match(adminSupport, /QrPaymentViewer/);
+  assert.match(accountPage, /QrPaymentViewer/);
 });
 
-test("delivery pricing lives under location and zones are owner-only", () => {
+test("delivery pricing lives in its own owner-only delivery tab", () => {
   const actions = read("src/app/admin/actions.ts");
   const settingsPage = read("src/app/admin/restaurantes/[restaurantId]/configuracion/page.tsx");
   const settingsClient = read("src/components/settings/RestaurantSettingsFormClient.tsx");
+  const publicOrder = read("src/components/public-menu/PublicRestaurantOrderClient.tsx");
 
   assert.match(settingsPage, /canManageDeliverySettings=\{canManageOwnerSettings\}/);
   assert.match(settingsClient, /canManageDeliverySettings: boolean/);
-  assert.match(settingsClient, /Reglas de delivery/);
+  assert.match(settingsClient, /key: "delivery"/);
+  assert.match(settingsClient, /activeTab === "delivery"/);
+  assert.match(settingsClient, /Aceptar pedidos delivery/);
+  assert.match(settingsClient, /Estado y costos/);
+  assert.match(settingsClient, /Seguridad del pedido/);
+  assert.match(settingsClient, /Pedir QR obligatorio por distancia/);
   assert.match(settingsClient, /name="deliveryFee"/);
+  assert.match(settingsClient, /name="deliveryQrPrepaymentEnabled"/);
   assert.match(settingsClient, /name="freeDeliveryFrom"/);
+  assert.match(settingsClient, /Envio gratis/);
   assert.match(settingsClient, /disabled=\{!canManageDeliverySettings\}/);
   assert.doesNotMatch(settingsClient, /Pagos y factura[\s\S]{0,900}name="deliveryFee"/);
+  assert.doesNotMatch(settingsClient, /activeTab === "ubicacion"[\s\S]{0,900}Estado y costos/);
   assert.match(actions, /const canManageDeliverySettings = canManageOwnerSettings/);
-  assert.match(actions, /const deliverySettings = canManageDeliverySettings/);
-  assert.match(actions, /await requireRestaurantOwnerOrSuperadmin\(parsed\.data\.restaurantId, `\/admin\/restaurantes\/\$\{parsed\.data\.restaurantId\}\/configuracion\?tab=ubicacion`\)/);
+  assert.match(actions, /const canWriteDeliverySettings = canManageDeliverySettings && returnTab === "delivery"/);
+  assert.match(actions, /const deliverySettings = canWriteDeliverySettings/);
+  assert.match(actions, /deliveryEnabled: canWriteDeliverySettings \? parsed\.data\.deliveryEnabled/);
+  assert.match(actions, /delivery_qr_prepayment_enabled: parsed\.data\.deliveryQrPrepaymentEnabled/);
+  assert.match(actions, /await requireRestaurantOwnerOrSuperadmin\(parsed\.data\.restaurantId, `\/admin\/restaurantes\/\$\{parsed\.data\.restaurantId\}\/configuracion\?tab=delivery`\)/);
+  assert.match(publicOrder, /deliveryFeeLabel/);
+  assert.match(publicOrder, /Envio gratis/);
 });
 
 test("catalog availability days do not turn an empty form value into Sunday-only products", () => {
@@ -312,7 +378,7 @@ test("remote critical migrations and service-only rate limiter are available", a
     supabase.from("owner_branch_capacity_requests").select("id", { head: true, count: "exact" }),
     supabase.from("products").select("product_kind,compare_at_price,available_days,available_start_time,available_end_time", { head: true, count: "exact" }),
     supabase.from("product_options").select("inventory_item_id,inventory_quantity,inventory_waste_factor", { head: true, count: "exact" }),
-    supabase.from("restaurant_settings").select("far_delivery_distance_km", { head: true, count: "exact" }),
+    supabase.from("restaurant_settings").select("far_delivery_distance_km,delivery_qr_prepayment_enabled", { head: true, count: "exact" }),
     supabase.from("orders").select("delivery_distance_km,requires_prepayment", { head: true, count: "exact" }),
     supabase.rpc("create_public_order_transaction", {
       p_request_id: crypto.randomUUID(),

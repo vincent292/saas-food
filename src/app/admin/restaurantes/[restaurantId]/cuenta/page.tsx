@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { CreditCard, ExternalLink, ReceiptText, ShieldCheck, Store, WalletCards } from "lucide-react";
 import { approveOwnerBillingPaymentAction, resolveOwnerBranchCapacityAction, setOwnerAccountStatusAction, updateOwnerBillingSettingsAction, updateOwnerBranchEntitlementAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
@@ -241,6 +242,16 @@ export default async function ClientAccountPage({
                       <Input defaultValue={ownerBilling.settings.currency} maxLength={3} minLength={3} name="ownerBillingCurrency" placeholder="Moneda" />
                     </div>
                     <CompressedImageInput help="QR que el dueno usara para pagar la mensualidad de la plataforma." label="QR mensual" name="ownerBillingQrFile" previewClassName="aspect-square" />
+                    {ownerBilling.settings.platformQrUrl ? (
+                      <QrPaymentViewer
+                        alt="QR mensual actual"
+                        downloadFileName={`${baseRestaurant.slug}-qr-mensual.png`}
+                        imageClassName="h-32 w-32"
+                        subtitle="QR guardado para el cobro mensual de esta cuenta."
+                        title="QR mensual actual"
+                        url={ownerBilling.settings.platformQrUrl}
+                      />
+                    ) : null}
                     <Textarea defaultValue={ownerBilling.settings.platformQrNote ?? ""} name="ownerBillingQrNote" placeholder="Instrucciones de pago para el dueno" />
                     <FormSubmitButton
                       className="w-full"

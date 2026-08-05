@@ -1,9 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createPublicServerClient } from "@/lib/supabase/public-server";
 import { fullPlanModules } from "@/lib/billing/full-plan";
 import { inferRestaurantCategory, normalizeRestaurantBusinessType, normalizeRestaurantCategory } from "@/lib/restaurant-directory-options";
-import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import type { PlanKey, Restaurant, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
@@ -150,6 +150,7 @@ function mapSettings(row: {
   cash_enabled: boolean;
   kitchen_enabled: boolean;
   delivery_fee: number;
+  delivery_qr_prepayment_enabled?: boolean | null;
   far_delivery_distance_km?: number | null;
   free_delivery_from: number | null;
   min_order_amount: number;
@@ -174,7 +175,8 @@ function mapSettings(row: {
     cashEnabled: row.cash_enabled,
     kitchenEnabled: row.kitchen_enabled,
     deliveryFee: Number(row.delivery_fee),
-    farDeliveryDistanceKm: Number(row.far_delivery_distance_km ?? 8),
+    deliveryQrPrepaymentEnabled: row.delivery_qr_prepayment_enabled ?? true,
+    farDeliveryDistanceKm: Number(row.far_delivery_distance_km ?? 5),
     freeDeliveryFrom: Number(row.free_delivery_from ?? 0),
     minOrderAmount: Number(row.min_order_amount),
     currency: row.currency,
@@ -335,12 +337,11 @@ export const restaurantService = {
       return null;
     }
 
-    const enforcedStatus = await platformBillingService.enforceRestaurantStatus(rawRestaurant.id);
     const { data, error } = await supabase
       .from("restaurants")
       .select("*")
       .eq("slug", slug)
-      .eq("status", enforcedStatus ?? "active")
+      .eq("status", "active")
       .is("deleted_at", null)
       .maybeSingle();
 
@@ -364,12 +365,11 @@ export const restaurantService = {
       return null;
     }
 
-    const enforcedStatus = await platformBillingService.enforceRestaurantStatus(rawRestaurant.id);
     const { data, error } = await supabase
       .from("restaurants")
       .select("*")
       .eq("slug", slug)
-      .eq("status", enforcedStatus ?? "active")
+      .eq("status", "active")
       .is("deleted_at", null)
       .maybeSingle();
 
@@ -386,7 +386,6 @@ export const restaurantService = {
       return null;
     }
 
-    await platformBillingService.enforceRestaurantStatus(restaurantId);
     const supabase = await createClient();
     const { data, error } = await supabase.from("restaurants").select("*").eq("id", restaurantId).maybeSingle();
 
@@ -441,11 +440,24 @@ export const restaurantService = {
     }
 
     const supabase = createPublicServerClient();
-    if (!supabase) {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("restaurant_settings")
+        .select("*")
+        .eq("restaurant_id", restaurantId)
+        .maybeSingle();
+
+      if (!error && data) {
+        return mapSettings(data);
+      }
+    }
+
+    const admin = createAdminClient();
+    if (!admin) {
       return null;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await admin
       .from("restaurant_settings")
       .select("*")
       .eq("restaurant_id", restaurantId)

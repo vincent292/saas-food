@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { PublicRestaurantOrderClient } from "@/components/public-menu/PublicRestaurantOrderClient";
 import { RestaurantThemeProvider } from "@/components/restaurant/RestaurantThemeProvider";
 import { categoryService } from "@/lib/services/category.service";
@@ -26,19 +27,13 @@ type PublicRestaurantPageData = {
   deliveryZones: RestaurantDeliveryZone[];
 };
 
-const PUBLIC_RESTAURANT_PAGE_TTL_MS = 15_000;
-const publicRestaurantPageCache = new Map<string, { expiresAt: number; data: PublicRestaurantPageData | null }>();
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-async function getPublicRestaurantPageData(restaurantSlug: string) {
-  const cached = publicRestaurantPageCache.get(restaurantSlug);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.data;
-  }
-
+const getPublicRestaurantPageData = cache(async (restaurantSlug: string): Promise<PublicRestaurantPageData | null> => {
   const restaurant = await restaurantService.getPublicBySlug(restaurantSlug);
 
   if (!restaurant) {
-    publicRestaurantPageCache.set(restaurantSlug, { expiresAt: Date.now() + PUBLIC_RESTAURANT_PAGE_TTL_MS, data: null });
     return null;
   }
 
@@ -54,10 +49,8 @@ async function getPublicRestaurantPageData(restaurantSlug: string) {
   const stockAvailability = await productService.listPublicStockAvailability(restaurant, products);
 
   const data = { restaurant, settings, businessHours, categories, products, stockAvailability, configuration, announcements, deliveryZones };
-  publicRestaurantPageCache.set(restaurantSlug, { expiresAt: Date.now() + PUBLIC_RESTAURANT_PAGE_TTL_MS, data });
-
   return data;
-}
+});
 
 export async function generateMetadata({
   params,

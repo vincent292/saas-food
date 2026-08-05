@@ -508,7 +508,7 @@ function ProductOptionModal({
 }) {
   const variants = config?.variants ?? [];
   const optionGroups = config?.optionGroups ?? [];
-  const [variantId, setVariantId] = useState(variants.length === 1 ? (variants[0]?.id ?? "") : "");
+  const [variantId, setVariantId] = useState("");
   const [selectedOptions, setSelectedOptions] = useState<SelectedOptions>(() => {
     const initial: SelectedOptions = {};
     for (const group of optionGroups) {
@@ -525,6 +525,7 @@ function ProductOptionModal({
     .filter((option): option is ProductOption => Boolean(option));
   const total = product.price + (selectedVariant?.priceDelta ?? 0) + chosenOptions.reduce((sum, option) => sum + option.priceDelta, 0);
   const canAdd = (!variants.length || Boolean(selectedVariant)) && optionGroups.every((group) => (selectedOptions[group.id]?.length ?? 0) >= group.minChoices);
+  const totalLabel = variants.length && !selectedVariant ? `Desde ${formatMoney(product.price)}` : formatMoney(total);
 
   function toggleOption(group: ProductOptionGroup, option: ProductOption) {
     setSelectedOptions((current) => {
@@ -580,7 +581,7 @@ function ProductOptionModal({
                       variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]",
                     )}
                     key={variant.id}
-                    onClick={() => setVariantId(variant.id)}
+                    onClick={() => setVariantId((current) => (current === variant.id ? "" : variant.id))}
                     type="button"
                   >
                     <span>
@@ -650,10 +651,10 @@ function ProductOptionModal({
         <div className="sticky bottom-0 grid gap-3 border-t border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_-18px_40px_rgb(255_255_255_/_0.92)] sm:grid-cols-[1fr_auto] sm:items-center sm:p-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">Total producto</p>
-            <p className="text-2xl font-black text-[var(--primary)]">{formatMoney(total)}</p>
+            <p className="text-2xl font-black text-[var(--primary)]">{totalLabel}</p>
           </div>
           <Button className="min-h-12 px-8" disabled={!canAdd} onClick={() => onAdd(product, selectedVariant, chosenOptions)} type="button">
-            {canAdd ? "Agregar al pedido POS" : "Completa opciones"}
+            {canAdd ? "Agregar al pedido POS" : variants.length && !selectedVariant ? "Elige una variante" : "Completa opciones"}
           </Button>
         </div>
       </div>

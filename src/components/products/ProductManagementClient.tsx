@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CalendarClock, Flame, Grid2X2, LayoutList, LockKeyhole, PackageCheck, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, Flame, Grid2X2, LayoutList, LockKeyhole, PackageCheck, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { createCategoryAction, createProductAction, updateProductAction } from "@/app/admin/actions";
@@ -63,6 +63,9 @@ const saveErrorMessages: Record<string, string> = {
   "owner-required": "Solo el dueno de la cuenta puede cambiar catalogo, precios y promociones.",
   "42501": "Tu usuario no tiene permiso para guardar en este restaurante.",
   "23503": "La categoria seleccionada no pertenece a este restaurante.",
+  "schedule-past": "La fecha de programacion no puede ser anterior a hoy.",
+  "schedule-order": "La fecha y hora de fin debe ser posterior al inicio.",
+  "time-order": "La hora fin debe ser posterior a la hora inicio.",
   "product-create": "No se pudo crear el producto.",
   "option-group": "No se pudo guardar el grupo de opciones.",
   "option-group-update": "No se pudo actualizar el grupo de opciones.",
@@ -498,6 +501,7 @@ export function ProductManagementClient({
                     days={selectedDays}
                     endTime={editingProduct?.availableEndTime}
                     kind={productKind}
+                    onClearDays={() => setSelectedDays([])}
                     onToggleDay={toggleDay}
                     startTime={editingProduct?.availableStartTime}
                   />
@@ -901,6 +905,21 @@ const dayOptions = [
   { value: 0, label: "Dom" },
 ];
 
+const timeOptions = Array.from({ length: 24 * 12 }, (_, index) => {
+  const totalMinutes = index * 5;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+});
+
+function localDateValue(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function localTimeValue(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 function toDateTimeLocal(value?: string) {
   if (!value) return "";
   const date = new Date(value);
@@ -909,12 +928,71 @@ function toDateTimeLocal(value?: string) {
   return offsetDate.toISOString().slice(0, 16);
 }
 
+function splitDateTimeLocal(value?: string) {
+  const normalized = toDateTimeLocal(value);
+  const [date = "", time = ""] = normalized.split("T");
+  return { date, time: time.slice(0, 5) };
+}
+
+function normalizeTimeValue(value?: string) {
+  const normalized = value?.slice(0, 5) ?? "";
+  return /^\d{2}:\d{2}$/.test(normalized) ? normalized : "";
+}
+
+function isTimeBefore(time: string, minTime: string) {
+  return Boolean(minTime && time < minTime);
+}
+
+function isTimeAfter(time: string, maxTime: string) {
+  return Boolean(maxTime && time <= maxTime);
+}
+
+function firstSelectableTime(minTime = "") {
+  return timeOptions.find((time) => !isTimeBefore(time, minTime)) ?? "";
+}
+
+function firstSelectableScheduleTime(minTime = "", requireTimeAfter = "") {
+  return timeOptions.find((time) => !isTimeBefore(time, minTime) && !isTimeAfter(time, requireTimeAfter)) ?? "";
+}
+
+function dateFromLocalValue(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) {
+    return new Date();
+  }
+  return new Date(year, month - 1, day);
+}
+
+function localValueFromDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function formatScheduleDate(value: string) {
+  if (!value) return "Elegir fecha";
+  return new Intl.DateTimeFormat("es-BO", { day: "2-digit", month: "short", year: "numeric" }).format(dateFromLocalValue(value));
+}
+
+function calendarDaysForMonth(monthDate: Date) {
+  const firstDay = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const firstWeekday = firstDay.getDay();
+  const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+  return [
+    ...Array.from({ length: firstWeekday }, () => ""),
+    ...Array.from({ length: daysInMonth }, (_, index) => localValueFromDate(new Date(monthDate.getFullYear(), monthDate.getMonth(), index + 1))),
+  ];
+}
+
 function ProductSchedulePanel({
   availableFrom,
   availableUntil,
   days,
   endTime,
   kind,
+  onClearDays,
   onToggleDay,
   startTime,
 }: {
@@ -923,6 +1001,7 @@ function ProductSchedulePanel({
   days: number[];
   endTime?: string;
   kind: ProductKind;
+  onClearDays: () => void;
   onToggleDay: (day: number) => void;
   startTime?: string;
 }) {
@@ -933,9 +1012,70 @@ function ProductSchedulePanel({
       : kind === "lunch"
         ? "Carga almuerzos por semana o por mes y limita los dias en que apareceran."
         : "Puedes dejarlo vacio para vender este producto todos los dias.";
+  const initialFrom = splitDateTimeLocal(availableFrom);
+  const initialUntil = splitDateTimeLocal(availableUntil);
+  const [fromDate, setFromDate] = useState(initialFrom.date);
+  const [fromTime, setFromTime] = useState(initialFrom.time);
+  const [untilDate, setUntilDate] = useState(initialUntil.date);
+  const [untilTime, setUntilTime] = useState(initialUntil.time);
+  const [dailyStartTime, setDailyStartTime] = useState(normalizeTimeValue(startTime));
+  const [dailyEndTime, setDailyEndTime] = useState(normalizeTimeValue(endTime));
+  const todayDate = localDateValue();
+  const nowTime = localTimeValue();
+  const minFromTime = fromDate === todayDate ? nowTime : "";
+  const minUntilTime = untilDate === todayDate ? nowTime : untilDate && fromDate && untilDate === fromDate ? fromTime : "";
+  const availableFromValue = fromDate && fromTime ? `${fromDate}T${fromTime}` : "";
+  const availableUntilValue = untilDate && untilTime ? `${untilDate}T${untilTime}` : "";
+
+  function handleFromDateChange(value: string) {
+    setFromDate(value);
+    if (!value) {
+      setFromTime("");
+      return;
+    }
+
+    const minTime = value === todayDate ? nowTime : "";
+    const nextFromTime = fromTime && !isTimeBefore(fromTime, minTime) ? fromTime : firstSelectableTime(minTime);
+    const nextUntilDate = untilDate && untilDate < value ? value : untilDate;
+    setFromTime(nextFromTime);
+    setUntilDate(nextUntilDate);
+    if (nextUntilDate === value && nextFromTime && untilTime && isTimeAfter(untilTime, nextFromTime)) {
+      setUntilTime(firstSelectableScheduleTime("", nextFromTime));
+    }
+  }
+
+  function handleFromTimeChange(value: string) {
+    setFromTime(value);
+    if (untilDate && fromDate && untilDate === fromDate && value && untilTime && isTimeAfter(untilTime, value)) {
+      setUntilTime("");
+    }
+  }
+
+  function handleUntilDateChange(value: string) {
+    setUntilDate(value);
+    if (!value) {
+      setUntilTime("");
+      return;
+    }
+
+    const minTime = value === todayDate ? nowTime : "";
+    const requiredAfter = value && fromDate && value === fromDate ? fromTime : "";
+    setUntilTime((current) => (current && !isTimeBefore(current, minTime) && !isTimeAfter(current, requiredAfter) ? current : firstSelectableScheduleTime(minTime, requiredAfter)));
+  }
+
+  function handleDailyStartTimeChange(value: string) {
+    setDailyStartTime(value);
+    if (value && dailyEndTime && isTimeAfter(dailyEndTime, value)) {
+      setDailyEndTime("");
+    }
+  }
 
   return (
     <section className="rounded-[1.35rem] border border-[var(--border)] bg-[var(--color-card-muted)] p-4">
+      <input name="availableFrom" type="hidden" value={availableFromValue} />
+      <input name="availableUntil" type="hidden" value={availableUntilValue} />
+      <input name="availableStartTime" type="hidden" value={dailyStartTime} />
+      <input name="availableEndTime" type="hidden" value={dailyEndTime} />
       <div className="flex items-start gap-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--primary)] text-[var(--color-on-primary)]">
           <CalendarClock className="h-5 w-5" />
@@ -945,23 +1085,42 @@ function ProductSchedulePanel({
           <p className="mt-1 text-sm font-semibold text-[var(--muted)]">{description}</p>
         </div>
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <Labeled label="Desde">
-          <Input defaultValue={toDateTimeLocal(availableFrom)} name="availableFrom" type="datetime-local" />
-        </Labeled>
-        <Labeled label="Hasta">
-          <Input defaultValue={toDateTimeLocal(availableUntil)} name="availableUntil" type="datetime-local" />
-        </Labeled>
-        <Labeled label="Hora inicio">
-          <Input defaultValue={startTime?.slice(0, 5) ?? ""} name="availableStartTime" type="time" />
-        </Labeled>
-        <Labeled label="Hora fin">
-          <Input defaultValue={endTime?.slice(0, 5) ?? ""} name="availableEndTime" type="time" />
-        </Labeled>
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <ScheduleDateTimeField
+          dateValue={fromDate}
+          label="Desde"
+          minDate={todayDate}
+          minTime={minFromTime}
+          onDateChange={handleFromDateChange}
+          onTimeChange={handleFromTimeChange}
+          timeValue={fromTime}
+        />
+        <ScheduleDateTimeField
+          dateValue={untilDate}
+          label="Hasta"
+          minDate={fromDate || todayDate}
+          minTime={minUntilTime}
+          onDateChange={handleUntilDateChange}
+          onTimeChange={setUntilTime}
+          requireTimeAfter={untilDate && fromDate && untilDate === fromDate ? fromTime : ""}
+          timeValue={untilTime}
+        />
+        <ScheduleTimeSelect label="Hora inicio diaria (24h)" onChange={handleDailyStartTimeChange} value={dailyStartTime} />
+        <ScheduleTimeSelect label="Hora fin diaria (24h)" onChange={setDailyEndTime} requireTimeAfter={dailyStartTime} value={dailyEndTime} />
       </div>
       <div className="mt-4">
         <p className="text-sm font-black text-[var(--text)]">Dias activos</p>
         <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            className={cn(
+              "h-10 rounded-full border px-4 text-sm font-black transition",
+              days.length === 0 ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]" : "border-[var(--border)] bg-[var(--surface)] text-[var(--text)]",
+            )}
+            onClick={onClearDays}
+            type="button"
+          >
+            Todos
+          </button>
           {dayOptions.map((day) => {
             const active = days.includes(day.value);
             return (
@@ -982,6 +1141,175 @@ function ProductSchedulePanel({
         <p className="mt-2 text-xs font-semibold text-[var(--muted)]">Si no eliges dias, queda disponible todos los dias dentro de las fechas configuradas.</p>
       </div>
     </section>
+  );
+}
+
+function ScheduleDateTimeField({
+  dateValue,
+  label,
+  minDate,
+  minTime = "",
+  onDateChange,
+  onTimeChange,
+  requireTimeAfter = "",
+  timeValue,
+}: {
+  dateValue: string;
+  label: string;
+  minDate: string;
+  minTime?: string;
+  onDateChange: (value: string) => void;
+  onTimeChange: (value: string) => void;
+  requireTimeAfter?: string;
+  timeValue: string;
+}) {
+  return (
+    <div className="space-y-2 text-sm font-black text-[var(--text)]">
+      <div className="flex items-center justify-between gap-3">
+        <span>{label}</span>
+        <span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-black text-[var(--muted)]">24h</span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_140px]">
+        <ScheduleCalendarDropdown label={label} minDate={minDate} onChange={onDateChange} value={dateValue} />
+        <Select aria-label={`${label} hora en formato 24 horas`} disabled={!dateValue} onChange={(event) => onTimeChange(event.target.value)} value={timeValue}>
+          <option value="">Hora</option>
+          {timeOptions.map((time) => (
+            <option disabled={isTimeBefore(time, minTime) || isTimeAfter(time, requireTimeAfter)} key={time} value={time}>
+              {time}
+            </option>
+          ))}
+        </Select>
+      </div>
+    </div>
+  );
+}
+
+function ScheduleCalendarDropdown({
+  label,
+  minDate,
+  onChange,
+  value,
+}: {
+  label: string;
+  minDate: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => dateFromLocalValue(value || minDate || localDateValue()));
+  const minMonthKey = minDate.slice(0, 7);
+  const rawVisibleMonthKey = localValueFromDate(visibleMonth).slice(0, 7);
+  const renderedMonth = rawVisibleMonthKey < minMonthKey ? dateFromLocalValue(minDate) : visibleMonth;
+  const monthLabel = new Intl.DateTimeFormat("es-BO", { month: "long", year: "numeric" }).format(renderedMonth);
+  const days = calendarDaysForMonth(renderedMonth);
+  const visibleMonthKey = localValueFromDate(renderedMonth).slice(0, 7);
+  const previousDisabled = visibleMonthKey <= minMonthKey;
+
+  function chooseDate(nextValue: string) {
+    onChange(nextValue);
+    setOpen(false);
+  }
+
+  function clearDate() {
+    onChange("");
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative">
+      <button
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className={cn(
+          "flex min-h-11 w-full items-center justify-between gap-2 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--color-input)] px-4 text-left text-sm text-[var(--text)] outline-none transition hover:border-[var(--primary-light)] focus:border-[var(--primary)] focus:bg-[var(--surface)] focus:ring-4 focus:ring-[var(--primary-light)]",
+          !value && "text-[var(--color-placeholder)]",
+        )}
+        aria-label={`${label} fecha`}
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        <span className="min-w-0 truncate">{formatScheduleDate(value)}</span>
+        <CalendarClock className="h-4 w-4 shrink-0 text-[var(--primary)]" />
+      </button>
+      {open ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[70] rounded-[1.1rem] border border-[var(--border)] bg-[var(--surface)] p-3 text-[var(--text)] shadow-2xl sm:right-auto sm:w-[320px]">
+          <div className="flex items-center justify-between gap-2">
+            <button className="grid h-9 w-9 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--primary)] disabled:text-[var(--color-disabled)]" disabled={previousDisabled} onClick={() => setVisibleMonth(addMonths(renderedMonth, -1))} type="button" aria-label="Mes anterior">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <p className="text-sm font-black capitalize">{monthLabel}</p>
+            <button className="grid h-9 w-9 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--primary)]" onClick={() => setVisibleMonth(addMonths(renderedMonth, 1))} type="button" aria-label="Mes siguiente">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="mt-3 grid grid-cols-7 gap-1 text-center text-[10px] font-black uppercase text-[var(--muted)]">
+            {["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"].map((day) => (
+              <span key={day}>{day}</span>
+            ))}
+          </div>
+          <div className="mt-2 grid grid-cols-7 gap-1">
+            {days.map((day, index) => {
+              const disabled = !day || day < minDate;
+              const active = day === value;
+              return day ? (
+                <button
+                  className={cn(
+                    "grid h-9 place-items-center rounded-full text-sm font-black transition",
+                    active ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "bg-[var(--color-surface)] text-[var(--text)] hover:bg-[var(--primary-light)]",
+                    disabled && "cursor-not-allowed bg-transparent text-[var(--color-disabled)] hover:bg-transparent",
+                  )}
+                  disabled={disabled}
+                  key={day}
+                  onClick={() => chooseDate(day)}
+                  type="button"
+                >
+                  {Number(day.slice(-2))}
+                </button>
+              ) : (
+                <span key={`blank-${index}`} />
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <button className={buttonClasses("ghost", "min-h-9 px-3 text-xs")} onClick={clearDate} type="button">
+              Limpiar
+            </button>
+            <button className={buttonClasses("secondary", "min-h-9 px-3 text-xs")} onClick={() => setOpen(false)} type="button">
+              Listo
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ScheduleTimeSelect({
+  label,
+  onChange,
+  requireTimeAfter = "",
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  requireTimeAfter?: string;
+  value: string;
+}) {
+  return (
+    <div className="space-y-2 text-sm font-black text-[var(--text)]">
+      <div className="flex items-center justify-between gap-3">
+        <span>{label}</span>
+        {requireTimeAfter ? <span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-black text-[var(--muted)]">Despues de {requireTimeAfter}</span> : null}
+      </div>
+      <Select aria-label={label} onChange={(event) => onChange(event.target.value)} value={value}>
+        <option value="">Sin limite</option>
+        {timeOptions.map((time) => (
+          <option disabled={isTimeAfter(time, requireTimeAfter)} key={time} value={time}>
+            {time}
+          </option>
+        ))}
+      </Select>
+    </div>
   );
 }
 

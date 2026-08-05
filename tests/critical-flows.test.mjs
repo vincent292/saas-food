@@ -138,6 +138,100 @@ test("catalog changes are owner-only while branches keep read access", () => {
   assert.match(categoriesPage, /canManageCatalog/);
 });
 
+test("payment settings are owner-only and invoice requests are filterable", () => {
+  const actions = read("src/app/admin/actions.ts");
+  const settingsPage = read("src/app/admin/restaurantes/[restaurantId]/configuracion/page.tsx");
+  const settingsClient = read("src/components/settings/RestaurantSettingsFormClient.tsx");
+  const orderService = read("src/lib/services/order.service.ts");
+  const publicActions = read("src/app/r/actions.ts");
+
+  assert.match(actions, /const canManageOwnerSettings = isSuperadmin \|\| currentRestaurant\.owner_user_id === user\.id/);
+  assert.match(actions, /const canManagePayments = canManageOwnerSettings/);
+  assert.match(actions, /returnTab === "pagos" && !canManagePayments/);
+  assert.match(actions, /const qrPaymentUrl = canManagePayments[\s\S]+currentSettings\?\.qr_payment_url/);
+  assert.match(actions, /const paymentSettings = canManagePayments/);
+  assert.match(actions, /function invoiceConfigurationPath/);
+  assert.match(settingsPage, /normalizeInvoiceDateFilter/);
+  assert.match(settingsPage, /orderService\.listInvoiceRequests\(restaurant\.id, invoiceFilters\)/);
+  assert.match(settingsPage, /canManagePayments=\{canManageOwnerSettings\}/);
+  assert.match(settingsClient, /canManagePayments: boolean/);
+  assert.match(settingsClient, /Pagos y factura/);
+  assert.match(settingsClient, /invoiceFilterHref/);
+  assert.match(settingsClient, /name="invoiceFrom" type="hidden"/);
+  assert.match(orderService, /async listInvoiceRequests\([\s\S]+filters:/);
+  assert.match(orderService, /\.is\("invoice_issued_at", null\)/);
+  assert.match(orderService, /\.not\("invoice_issued_at", "is", null\)/);
+  assert.match(orderService, /businessDateBoundaryIso/);
+  assert.match(publicActions, /if \(parsed\.data\.invoiceRequired && !settings\.invoice_enabled\)/);
+});
+
+test("delivery pricing lives under location and zones are owner-only", () => {
+  const actions = read("src/app/admin/actions.ts");
+  const settingsPage = read("src/app/admin/restaurantes/[restaurantId]/configuracion/page.tsx");
+  const settingsClient = read("src/components/settings/RestaurantSettingsFormClient.tsx");
+
+  assert.match(settingsPage, /canManageDeliverySettings=\{canManageOwnerSettings\}/);
+  assert.match(settingsClient, /canManageDeliverySettings: boolean/);
+  assert.match(settingsClient, /Reglas de delivery/);
+  assert.match(settingsClient, /name="deliveryFee"/);
+  assert.match(settingsClient, /name="freeDeliveryFrom"/);
+  assert.match(settingsClient, /disabled=\{!canManageDeliverySettings\}/);
+  assert.doesNotMatch(settingsClient, /Pagos y factura[\s\S]{0,900}name="deliveryFee"/);
+  assert.match(actions, /const canManageDeliverySettings = canManageOwnerSettings/);
+  assert.match(actions, /const deliverySettings = canManageDeliverySettings/);
+  assert.match(actions, /await requireRestaurantOwnerOrSuperadmin\(parsed\.data\.restaurantId, `\/admin\/restaurantes\/\$\{parsed\.data\.restaurantId\}\/configuracion\?tab=ubicacion`\)/);
+});
+
+test("catalog availability days do not turn an empty form value into Sunday-only products", () => {
+  const actions = read("src/app/admin/actions.ts");
+  const productClient = read("src/components/products/ProductManagementClient.tsx");
+  const publicPage = read("src/app/r/[restaurantSlug]/page.tsx");
+  const publicOrder = read("src/components/public-menu/PublicRestaurantOrderClient.tsx");
+  const tableOrder = read("src/components/tables/TableOrderClient.tsx");
+
+  assert.match(actions, /String\(value \?\? ""\)[\s\S]+\.map\(\(item\) => item\.trim\(\)\)[\s\S]+\.filter\(Boolean\)[\s\S]+\.map\(\(item\) => Number\(item\)\)/);
+  assert.match(actions, /async function revalidateRestaurantCatalogPaths/);
+  assert.match(actions, /revalidatePath\(publicRestaurantPath\(restaurantSlug\)\)/);
+  assert.match(actions, /revalidatePath\(`\/r\/\$\{restaurantSlug\}`\)/);
+  assert.match(productClient, />\s*Todos\s*<\/button>/);
+  assert.match(productClient, /<input name="availableFrom" type="hidden" value=\{availableFromValue\}/);
+  assert.match(productClient, /<input name="availableUntil" type="hidden" value=\{availableUntilValue\}/);
+  assert.match(productClient, /ScheduleDateTimeField/);
+  assert.match(productClient, /ScheduleCalendarDropdown/);
+  assert.match(productClient, /calendarDaysForMonth/);
+  assert.match(productClient, /Hora inicio diaria \(24h\)/);
+  assert.doesNotMatch(productClient, /datetime-local|type="time"|type="date"/);
+  assert.match(actions, /function validateProductScheduleInput/);
+  assert.match(actions, /schedule-past/);
+  assert.match(actions, /schedule-order/);
+  assert.match(actions, /time-order/);
+  assert.match(actions, /\^\(\[01\]\\d\|2\[0-3\]\):\[0-5\]\\d\$/);
+  assert.match(publicOrder, /productAvailabilityLabels\(product\)/);
+  assert.match(tableOrder, /productAvailabilityLabels\(product\)/);
+  assert.match(publicPage, /export const dynamic = "force-dynamic"/);
+  assert.doesNotMatch(publicPage, /PUBLIC_RESTAURANT_PAGE_TTL_MS|publicRestaurantPageCache/);
+});
+
+test("configurable products require an explicit variant before ordering", () => {
+  const actions = read("src/app/r/actions.ts");
+  const publicOrder = read("src/components/public-menu/PublicRestaurantOrderClient.tsx");
+  const tableOrder = read("src/components/tables/TableOrderClient.tsx");
+  const pos = read("src/components/cash/POSProductGrid.tsx");
+
+  assert.match(actions, /resolvedCart = await resolvePublicCartItems\(writeClient, parsed\.data\.restaurantId, parsed\.data\.cart\)/);
+  assert.match(actions, /if \(!item\.variantId && \(activeVariantsByProduct\.get\(item\.productId\)\?\.length \?\? 0\) > 0\)/);
+  assert.match(publicOrder, /const \[variantId, setVariantId\] = useState\(""\)/);
+  assert.match(tableOrder, /const \[variantId, setVariantId\] = useState\(""\)/);
+  assert.match(pos, /const \[variantId, setVariantId\] = useState\(""\)/);
+  assert.match(publicOrder, /const canAdd = \(!variants\.length \|\| Boolean\(selectedVariant\)\) &&/);
+  assert.match(tableOrder, /const canAdd = \(!variants\.length \|\| Boolean\(selectedVariant\)\) &&/);
+  assert.match(pos, /const canAdd = \(!variants\.length \|\| Boolean\(selectedVariant\)\) &&/);
+  assert.match(publicOrder, /setVariantId\(\(current\) => \(current === variant\.id \? "" : variant\.id\)\)/);
+  assert.match(tableOrder, /setVariantId\(\(current\) => \(current === variant\.id \? "" : variant\.id\)\)/);
+  assert.match(pos, /setVariantId\(\(current\) => \(current === variant\.id \? "" : variant\.id\)\)/);
+  assert.match(tableOrder, /error === "product-configuration"/);
+});
+
 test("public home requests location and promotes nearest branches first", () => {
   const home = read("src/app/page.tsx");
   const nearbyDirectory = read("src/components/home/HomeNearbyDirectory.tsx");

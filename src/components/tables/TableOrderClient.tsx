@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Minus, Plus, ShoppingCart, X } from "lucide-react";
+import { CalendarClock, Check, Minus, Plus, ShoppingCart, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
+import { productAvailabilityLabels } from "@/lib/utils/product-availability";
 import type { RestaurantTable } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
 import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
@@ -269,6 +270,8 @@ function OrderErrorMessage({ error }: { error: string }) {
         ? "Para pedidos en mesa el WhatsApp es obligatorio. Lo usamos para avisarte si no pasaste por caja."
       : error === "receipt-required"
         ? "Para pago QR debes subir el comprobante antes de confirmar."
+      : error === "product-configuration"
+        ? "Uno de los productos necesita una variante u opcion valida. Vuelve a agregarlo al pedido."
         : "No se pudo confirmar el pedido. Revisa los datos e intenta nuevamente.";
 
   return <div className="mt-4 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">{message}</div>;
@@ -276,6 +279,7 @@ function OrderErrorMessage({ error }: { error: string }) {
 
 function ProductTile({ product, config, onSelect }: { product: Product; config?: ProductConfigMap[string]; onSelect: () => void }) {
   const hasConfiguration = Boolean(config?.variants.length || config?.optionGroups.length);
+  const availabilityLabels = productAvailabilityLabels(product);
 
   return (
     <article className="grid grid-cols-[88px_1fr] gap-3 rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 text-[var(--text)] shadow-sm sm:block sm:p-4">
@@ -290,6 +294,16 @@ function ProductTile({ product, config, onSelect }: { product: Product; config?:
         </div>
         <h3 className="truncate text-lg font-black leading-5">{product.name}</h3>
         <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--muted)]">{product.description || "Listo para pedir en mesa."}</p>
+        {availabilityLabels.length ? (
+          <span className="mt-2 flex flex-wrap gap-1.5">
+            {availabilityLabels.slice(0, 2).map((label) => (
+              <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]" key={label}>
+                <CalendarClock className="h-3 w-3 shrink-0" />
+                <span className="truncate">{label}</span>
+              </span>
+            ))}
+          </span>
+        ) : null}
         <button className={buttonClasses("secondary", "mt-3 min-h-10 w-full bg-[var(--color-neutral-100)] font-black")} onClick={onSelect} type="button">
           {hasConfiguration ? "Personalizar" : "Agregar"} {formatMoney(product.price)}
         </button>
@@ -311,7 +325,7 @@ function ProductOptionModal({
 }) {
   const variants = config?.variants ?? [];
   const optionGroups = config?.optionGroups ?? [];
-  const [variantId, setVariantId] = useState(variants[0]?.id ?? "");
+  const [variantId, setVariantId] = useState("");
   const [selectedOptions, setSelectedOptions] = useState<SelectedOptions>(() => {
     const initial: SelectedOptions = {};
     for (const group of optionGroups) {
@@ -331,7 +345,9 @@ function ProductOptionModal({
     .map((optionId) => flatOptions.find((option) => option.id === optionId))
     .filter((option): option is ProductOption => Boolean(option));
   const total = product.price + (selectedVariant?.priceDelta ?? 0) + chosenOptions.reduce((sum, option) => sum + option.priceDelta, 0);
-  const canAdd = optionGroups.every((group) => (selectedOptions[group.id]?.length ?? 0) >= group.minChoices);
+  const canAdd = (!variants.length || Boolean(selectedVariant)) && optionGroups.every((group) => (selectedOptions[group.id]?.length ?? 0) >= group.minChoices);
+  const totalLabel = variants.length && !selectedVariant ? `Desde ${formatMoney(product.price)}` : formatMoney(total);
+  const availabilityLabels = productAvailabilityLabels(product);
 
   function toggleOption(group: ProductOptionGroup, option: ProductOption) {
     setSelectedOptions((current) => {
@@ -373,12 +389,27 @@ function ProductOptionModal({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img alt={product.name} className="aspect-[4/3] h-full w-full object-cover sm:aspect-square" src={product.imageUrl || defaultImage} />
             </div>
-            <p className="text-sm leading-6 text-[var(--muted)]">{product.description || "Configura tu producto antes de agregarlo al pedido."}</p>
+            <div className="text-sm leading-6 text-[var(--muted)]">
+              <p>{product.description || "Configura tu producto antes de agregarlo al pedido."}</p>
+              {availabilityLabels.length ? (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {availabilityLabels.map((label) => (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--primary-light)] px-2.5 py-1 text-[11px] font-black leading-4 text-[var(--primary-dark)]" key={label}>
+                      <CalendarClock className="h-3.5 w-3.5" />
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
 
           {variants.length ? (
             <section>
-              <h3 className="text-sm font-black">Variante</h3>
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-black">Variante</h3>
+                {!selectedVariant ? <span className="rounded-full bg-[var(--color-warning-soft)] px-3 py-1 text-xs font-black text-[var(--color-warning-strong)]">Elige una</span> : null}
+              </div>
               <div className="mt-2 grid gap-2">
                 {variants.map((variant) => (
                   <button
@@ -387,7 +418,7 @@ function ProductOptionModal({
                       variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]",
                     )}
                     key={variant.id}
-                    onClick={() => setVariantId(variant.id)}
+                    onClick={() => setVariantId((current) => (current === variant.id ? "" : variant.id))}
                     type="button"
                   >
                     <span>
@@ -452,10 +483,10 @@ function ProductOptionModal({
         <div className="sticky bottom-0 grid gap-3 border-t border-[var(--border)] bg-[var(--surface)] p-4 sm:grid-cols-[1fr_auto] sm:items-center">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">Total producto</p>
-            <p className="text-2xl font-black text-[var(--primary)]">{formatMoney(total)}</p>
+            <p className="text-2xl font-black text-[var(--primary)]">{totalLabel}</p>
           </div>
           <Button className="min-h-12 px-8" disabled={!canAdd} onClick={() => onAdd(product, selectedVariant, chosenOptions)} type="button">
-            Agregar al pedido
+            {canAdd ? "Agregar al pedido" : variants.length && !selectedVariant ? "Elige una variante" : "Completa opciones"}
           </Button>
         </div>
       </div>

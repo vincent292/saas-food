@@ -18,6 +18,7 @@ import { DEFAULT_RESTAURANT_TIME_ZONE, formatBusinessHour, getBusinessStatus, is
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
+import { productAvailabilityLabels } from "@/lib/utils/product-availability";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductStockAvailability, ProductVariant } from "@/types/product.types";
 import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
@@ -783,6 +784,7 @@ function ProductTile({ product, config, availability, onSelect }: { product: Pro
   const hasConfiguration = Boolean(config?.variants.length || config?.optionGroups.length);
   const isStockAvailable = availability?.isAvailableHere ?? true;
   const firstAlternative = availability?.alternatives[0];
+  const availabilityLabels = productAvailabilityLabels(product);
 
   return (
     <div className={cn("grid grid-cols-[92px_minmax(0,1fr)_42px] items-center gap-2.5 rounded-[1.15rem] border border-[var(--border)] bg-[var(--surface)] p-2 text-left text-[var(--text)] shadow-[0_12px_32px_rgb(18_53_91_/_0.07)] transition sm:grid-cols-[132px_minmax(0,1fr)_52px] sm:gap-3 sm:rounded-[1.35rem] sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]", isStockAvailable ? "hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] hover:shadow-[0_22px_56px_rgb(18_53_91_/_0.12)]" : "opacity-80")}>
@@ -798,6 +800,16 @@ function ProductTile({ product, config, availability, onSelect }: { product: Pro
         </span>
         <span className="mt-1 block line-clamp-2 text-base font-black leading-5 sm:text-lg">{product.name}</span>
         <span className="mt-1 hidden line-clamp-2 text-sm leading-5 text-[var(--muted)] min-[420px]:block">{product.description || "Listo para pedir."}</span>
+        {availabilityLabels.length ? (
+          <span className="mt-2 flex flex-wrap gap-1.5">
+            {availabilityLabels.slice(0, 2).map((label) => (
+              <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)]" key={label}>
+                <CalendarClock className="h-3 w-3 shrink-0" />
+                <span className="truncate">{label}</span>
+              </span>
+            ))}
+          </span>
+        ) : null}
         <span className="mt-2 flex items-center gap-2 text-sm font-black sm:mt-3 sm:gap-3">
           {product.orderCount ? <span className="hidden items-center gap-1 rounded-full bg-[var(--primary-light)] px-2 py-1 text-[var(--primary)] min-[420px]:inline-flex">{product.orderCount} pedidos</span> : null}
           <span className="inline-flex items-baseline gap-2 text-base text-[var(--primary)]">
@@ -840,7 +852,7 @@ function ProductOptionModal({
 }) {
   const variants = config?.variants ?? [];
   const optionGroups = config?.optionGroups ?? [];
-  const [variantId, setVariantId] = useState(variants[0]?.id ?? "");
+  const [variantId, setVariantId] = useState("");
   const [selectedOptions, setSelectedOptions] = useState<SelectedOptions>(() => {
     const initial: SelectedOptions = {};
     for (const group of optionGroups) {
@@ -858,7 +870,9 @@ function ProductOptionModal({
     .map((optionId) => flatOptions.find((option) => option.id === optionId))
     .filter((option): option is ProductOption => Boolean(option));
   const total = product.price + (selectedVariant?.priceDelta ?? 0) + chosenOptions.reduce((sum, option) => sum + option.priceDelta, 0);
-  const canAdd = optionGroups.every((group) => (selectedOptions[group.id]?.length ?? 0) >= group.minChoices);
+  const canAdd = (!variants.length || Boolean(selectedVariant)) && optionGroups.every((group) => (selectedOptions[group.id]?.length ?? 0) >= group.minChoices);
+  const totalLabel = variants.length && !selectedVariant ? `Desde ${formatMoney(product.price)}` : formatMoney(total);
+  const availabilityLabels = productAvailabilityLabels(product);
 
   function toggleOption(group: ProductOptionGroup, option: ProductOption) {
     setSelectedOptions((current) => {
@@ -930,6 +944,16 @@ function ProductOptionModal({
               <p className="text-xs font-black uppercase text-[var(--primary)]">Personalizar</p>
               <h2 className="mt-1 text-3xl font-black leading-tight">{product.name}</h2>
               <p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-[var(--muted)]">{product.description || "Elige las opciones y agrega este producto a tu pedido."}</p>
+              {availabilityLabels.length ? (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {availabilityLabels.map((label) => (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--primary-light)] px-2.5 py-1 text-[11px] font-black text-[var(--primary-dark)]" key={label}>
+                      <CalendarClock className="h-3.5 w-3.5" />
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2 border-y border-[var(--border)] py-3 text-center text-xs font-bold text-[var(--muted)]">
@@ -948,10 +972,13 @@ function ProductOptionModal({
           </div>
           {variants.length ? (
             <section>
-              <h3 className="text-sm font-black">Variante</h3>
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-black">Variante</h3>
+                {!selectedVariant ? <span className="rounded-full bg-[var(--color-warning-soft)] px-3 py-1 text-xs font-black text-[var(--color-warning-strong)]">Elige una</span> : null}
+              </div>
               <div className="mt-2 grid gap-2">
                 {variants.map((variant) => (
-                  <button className={cn("flex min-h-14 items-center justify-between rounded-2xl border px-4 text-left transition", variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]")} key={variant.id} onClick={() => setVariantId(variant.id)} type="button">
+                  <button className={cn("flex min-h-14 items-center justify-between rounded-2xl border px-4 text-left transition", variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]")} key={variant.id} onClick={() => setVariantId((current) => (current === variant.id ? "" : variant.id))} type="button">
                     <span>
                       <span className="block text-sm font-black">{variant.name}</span>
                       {variant.description ? <span className="block text-xs font-semibold text-[var(--muted)]">{variant.description}</span> : null}
@@ -1005,10 +1032,10 @@ function ProductOptionModal({
         <div className="sticky bottom-0 z-30 grid gap-3 border-t border-[var(--border)] bg-[var(--color-card-elevated)] p-4 backdrop-blur sm:grid-cols-[1fr_auto] sm:items-center">
           <div>
             <p className="text-xs font-black uppercase text-[var(--muted)]">Total producto</p>
-            <p className="text-2xl font-black text-[var(--primary)]">{formatMoney(total)}</p>
+            <p className="text-2xl font-black text-[var(--primary)]">{totalLabel}</p>
           </div>
           <Button className="min-h-14 rounded-[1.1rem] bg-[var(--accent)] px-8 text-[var(--primary)] shadow-[var(--shadow-glow)] hover:bg-[#d9ff22]" disabled={!canAdd} onClick={() => onAdd(product, selectedVariant, chosenOptions)} type="button">
-            Agregar al pedido
+            {canAdd ? "Agregar al pedido" : variants.length && !selectedVariant ? "Elige una variante" : "Completa opciones"}
             <ArrowRight className="h-4 w-4" />
           </Button>
         </div>

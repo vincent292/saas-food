@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { announcementService } from "@/lib/services/announcement.service";
@@ -11,7 +12,10 @@ import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTimeWithinBusinessHours, localDateTimeInputToIso } from "@/lib/utils/business-hours";
 import { publicRestaurantOrderPath, publicRestaurantPath } from "@/lib/utils/public-routes";
+import type { Database } from "@/types/database.types";
 import type { BusinessHour, BusinessType, RestaurantDeliveryZone } from "@/types/restaurant.types";
+
+type SupabaseDatabaseClient = SupabaseClient<Database>;
 
 const cartItemSchema = z.object({
   productId: z.string().uuid(),
@@ -275,7 +279,7 @@ async function listPublicBusinessHours(supabase: Awaited<ReturnType<typeof creat
   })) satisfies BusinessHour[];
 }
 
-async function resolvePublicCartItems(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string, cart: ParsedCartItem[]) {
+async function resolvePublicCartItems(supabase: SupabaseDatabaseClient, restaurantId: string, cart: ParsedCartItem[]) {
   const productIds = Array.from(new Set(cart.map((item) => item.productId)));
   const optionIds = Array.from(new Set(cart.flatMap((item) => item.optionIds ?? [])));
 
@@ -472,7 +476,7 @@ export async function createPublicOrderAction(formData: FormData) {
 
   let resolvedCart: ResolvedCartItem[];
   try {
-    resolvedCart = await resolvePublicCartItems(supabase, parsed.data.restaurantId, parsed.data.cart);
+    resolvedCart = await resolvePublicCartItems(writeClient, parsed.data.restaurantId, parsed.data.cart);
   } catch (error) {
     const key = error instanceof Error ? error.message : "invalid-cart";
     redirect(`${failPath}?error=${encodeURIComponent(key)}`);

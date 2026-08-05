@@ -1,17 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import {
   CalendarClock,
   CheckCircle2,
   Clock3,
   CreditCard,
   ExternalLink,
+  Filter,
   ImageIcon,
   Megaphone,
   MapPin,
   Power,
   Printer,
   ReceiptText,
+  RotateCcw,
   Settings2,
   ShieldCheck,
   Store,
@@ -25,7 +28,7 @@ import { GoogleLocationFields } from "@/components/location/GoogleLocationFields
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { ModuleToggle } from "@/components/settings/ModuleToggle";
 import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
@@ -75,6 +78,7 @@ const errorMessages: Record<string, string> = {
   "owner-not-found": "No se pudo encontrar o crear el usuario responsable.",
   "restaurant-not-found": "No se encontro el restaurante para guardar la configuracion.",
   "admin-required": "Solo el responsable principal o superadmin puede guardar esta configuracion.",
+  "owner-required": "Solo el dueno de la cuenta puede cambiar esta configuracion sensible.",
   "superadmin-required": "Solo superadmin puede cambiar tarifa, estado o facturacion de plataforma.",
   "invalid-platform-billing": "Revisa la fecha de renovacion y los datos de la facturacion de plataforma.",
   "invalid-platform-proof": "No se pudo procesar el comprobante de plataforma.",
@@ -281,6 +285,9 @@ export function RestaurantSettingsFormClient({
   invoiceRequests,
   initialTab,
   canManagePlan,
+  canManageDeliverySettings,
+  canManagePayments,
+  invoiceFilters,
   ownerChangePolicy,
   ownerChangeRequests,
 }: {
@@ -308,11 +315,21 @@ export function RestaurantSettingsFormClient({
   invoiceRequests: Order[];
   initialTab?: string;
   canManagePlan: boolean;
+  canManageDeliverySettings: boolean;
+  canManagePayments: boolean;
+  invoiceFilters: {
+    dateFrom: string;
+    dateTo: string;
+    status: "all" | "pending" | "issued";
+  };
   ownerChangePolicy: OwnerChangePolicy;
   ownerChangeRequests: RestaurantOwnerChangeRequest[];
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeTab(initialTab));
   const [selectedPlanKey, setSelectedPlanKey] = useState(() => restaurant.planKey ?? plans[0]?.key ?? "premium");
+  const [invoiceDateFromFilter, setInvoiceDateFromFilter] = useState(invoiceFilters.dateFrom);
+  const [invoiceDateToFilter, setInvoiceDateToFilter] = useState(invoiceFilters.dateTo);
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState(invoiceFilters.status);
   const successMessage = savedMessage({
     saved,
     announcementCreated,
@@ -350,7 +367,16 @@ export function RestaurantSettingsFormClient({
   const nowInputValue = toDateTimeLocalInput(new Date());
   const endOfTodayInputValue = toDateTimeLocalInput(endOfToday());
   const defaultBillingDate = billing?.nextDueDate ?? toDateInput(new Date());
-  const showStickySave = saveableTabs.has(activeTab);
+  const canSaveActiveTab = saveableTabs.has(activeTab) && (activeTab !== "pagos" || canManagePayments);
+  const showStickySave = canSaveActiveTab;
+  const invoiceFilterHref = useMemo(() => {
+    const params = new URLSearchParams({ tab: "facturas" });
+    if (invoiceDateFromFilter) params.set("invoiceFrom", invoiceDateFromFilter);
+    if (invoiceDateToFilter) params.set("invoiceTo", invoiceDateToFilter);
+    if (invoiceStatusFilter !== "all") params.set("invoiceStatus", invoiceStatusFilter);
+    return `/admin/restaurantes/${restaurant.id}/configuracion?${params.toString()}`;
+  }, [invoiceDateFromFilter, invoiceDateToFilter, invoiceStatusFilter, restaurant.id]);
+  const invoiceResetHref = `/admin/restaurantes/${restaurant.id}/configuracion?tab=facturas`;
 
   useEffect(() => {
     if (!successMessage) {
@@ -376,6 +402,9 @@ export function RestaurantSettingsFormClient({
       <input name="currentPlatformQrUrl" type="hidden" value={billing?.platformQrUrl ?? ""} />
       <input name="currentMenuBackgroundImageUrl" type="hidden" value={restaurant.menuBackgroundImageUrl} />
       <input name="tab" type="hidden" value={activeTab} />
+      <input name="invoiceFrom" type="hidden" value={invoiceFilters.dateFrom} />
+      <input name="invoiceTo" type="hidden" value={invoiceFilters.dateTo} />
+      <input name="invoiceStatus" type="hidden" value={invoiceFilters.status} />
       {moduleReadState.deliveryEnabled ? <input name="deliveryEnabled" type="hidden" value="on" /> : null}
       {moduleReadState.pickupEnabled ? <input name="pickupEnabled" type="hidden" value="on" /> : null}
       {moduleReadState.tableOrdersEnabled ? <input name="tableOrdersEnabled" type="hidden" value="on" /> : null}
@@ -557,23 +586,30 @@ export function RestaurantSettingsFormClient({
       <div className={cn(activeTab === "pagos" ? "block" : "hidden")}>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
           <Card className="grid gap-4 md:grid-cols-2">
-            <SectionTitle title="Pedidos y pagos" description="Delivery, pedido minimo y QR real del restaurante." />
+            <SectionTitle title="Pagos y factura" description="QR real del restaurante, datos de cuenta y solicitud de factura publica." />
+            {!canManagePayments ? (
+              <div className="md:col-span-2 rounded-2xl border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-4 text-sm font-bold leading-6 text-[var(--color-warning-strong)]">
+                Solo el dueno de la cuenta puede cambiar QR, datos de cobro y solicitud de factura. El equipo de la sucursal puede consultarlos.
+              </div>
+            ) : null}
             <div className="md:col-span-2" />
-            <Input defaultValue={settings?.deliveryFee ?? 0} min="0" name="deliveryFee" placeholder="Costo base de delivery en Bs" step="0.01" type="number" />
-            <Input defaultValue={settings?.farDeliveryDistanceKm ?? 8} min="1" name="farDeliveryDistanceKm" placeholder="Exigir QR desde (km)" step="0.5" type="number" />
-            <Input defaultValue={settings?.freeDeliveryFrom || ""} min="0" name="freeDeliveryFrom" placeholder="Envio gratis desde Bs" step="0.01" type="number" />
-            <Input defaultValue={settings?.minOrderAmount ?? 0} min="0" name="minOrderAmount" placeholder="Pedido minimo para aceptar" step="0.01" type="number" />
             <input name="currency" type="hidden" value={settings?.currency ?? "BOB"} />
             <input name="qrAccountType" type="hidden" value={settings?.qrAccountType ?? ""} />
             <input name="qrCurrency" type="hidden" value={settings?.qrCurrency ?? settings?.currency ?? "BOB"} />
             <div className="md:col-span-2">
-              <ModuleToggle enabled={settings?.invoiceEnabled ?? false} label="Mostrar solicitud de factura en pedidos publicos" name="invoiceEnabled" />
+              <ModuleToggle disabled={!canManagePayments} enabled={settings?.invoiceEnabled ?? false} label="Mostrar solicitud de factura en pedidos publicos" name="invoiceEnabled" />
             </div>
-            <Input defaultValue={settings?.qrAccountName} name="qrAccountName" placeholder="Titular de cuenta QR" />
-            <Input defaultValue={settings?.qrAccountDocument} name="qrAccountDocument" placeholder="CI / NIT del titular" />
-            <Input defaultValue={settings?.qrBankName} name="qrBankName" placeholder="Banco" />
+            <Input defaultValue={settings?.qrAccountName} disabled={!canManagePayments} name="qrAccountName" placeholder="Titular de cuenta QR" />
+            <Input defaultValue={settings?.qrAccountDocument} disabled={!canManagePayments} name="qrAccountDocument" placeholder="CI / NIT del titular" />
+            <Input defaultValue={settings?.qrBankName} disabled={!canManagePayments} name="qrBankName" placeholder="Banco" />
             <div className="md:col-span-2">
-              <CompressedImageInput help="Recomendado: QR cuadrado, nitido y sin bordes cortados. Se subira como WebP." label="QR de pago" name="qrPaymentFile" previewClassName="aspect-square" />
+              {canManagePayments ? (
+                <CompressedImageInput help="Recomendado: QR cuadrado, nitido y sin bordes cortados. Se subira como WebP." label="QR de pago" name="qrPaymentFile" previewClassName="aspect-square" />
+              ) : (
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
+                  El QR actual se muestra al costado. Para cambiarlo debe ingresar el dueno desde su cuenta.
+                </div>
+              )}
             </div>
             <div className="md:col-span-2 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
               Este QR se muestra en el pedido publico y en mesa para que el cliente pague y luego suba su comprobante.
@@ -591,6 +627,31 @@ export function RestaurantSettingsFormClient({
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
           <Card className="space-y-4">
             <SectionTitle title="Solicitudes de factura" description="Pedidos donde el cliente pidio factura. Marca emitido cuando ya generaste la factura para no duplicar." />
+            <div className="grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
+              <FieldSelect label="Estado">
+                <Select onChange={(event) => setInvoiceStatusFilter(event.target.value as "all" | "pending" | "issued")} value={invoiceStatusFilter}>
+                  <option value="all">Todas</option>
+                  <option value="pending">Pendientes</option>
+                  <option value="issued">Emitidas</option>
+                </Select>
+              </FieldSelect>
+              <FieldSelect label="Desde">
+                <Input max={invoiceDateToFilter || undefined} onChange={(event) => setInvoiceDateFromFilter(event.target.value)} type="date" value={invoiceDateFromFilter} />
+              </FieldSelect>
+              <FieldSelect label="Hasta">
+                <Input min={invoiceDateFromFilter || undefined} onChange={(event) => setInvoiceDateToFilter(event.target.value)} type="date" value={invoiceDateToFilter} />
+              </FieldSelect>
+              <div className="flex flex-wrap gap-2">
+                <Link className={buttonClasses("primary", "min-h-11 flex-1 px-5 lg:flex-none")} href={invoiceFilterHref}>
+                  <Filter className="h-4 w-4" />
+                  Filtrar
+                </Link>
+                <Link className={buttonClasses("secondary", "min-h-11 flex-1 px-5 lg:flex-none")} href={invoiceResetHref}>
+                  <RotateCcw className="h-4 w-4" />
+                  Limpiar
+                </Link>
+              </div>
+            </div>
             {invoiceRequests.length ? (
               <div className="space-y-3">
                 {invoiceRequests.map((order) => {
@@ -839,48 +900,75 @@ export function RestaurantSettingsFormClient({
 
       <div className={cn(activeTab === "ubicacion" ? "block" : "hidden")}>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-          <Card className="grid gap-4 md:grid-cols-2">
-            <SectionTitle title="Ubicacion" description="Direccion del local, referencia y punto de Google Maps para recojo y calculos futuros." />
-            <div className="md:col-span-2" />
-            <Input className="md:col-span-2" defaultValue={restaurant.address} name="address" placeholder="Direccion del local" />
-            <Input className="md:col-span-2" defaultValue={restaurant.addressReference} name="addressReference" placeholder="Referencia, piso, zona o indicaciones" />
-            <GoogleLocationFields
-              defaultLatitude={restaurant.latitude}
-              defaultLongitude={restaurant.longitude}
-              defaultMapsUrl={restaurant.mapsUrl}
-              hideCoordinateInputs
-              hideMapsUrlInput
-              label={restaurant.name}
-              showMapByDefault
-            />
-          </Card>
+          <div className="space-y-6">
+            <Card className="grid gap-4 md:grid-cols-2">
+              <SectionTitle title="Ubicacion" description="Direccion del local, referencia y punto de Google Maps para recojo y calculos futuros." />
+              <div className="md:col-span-2" />
+              <Input className="md:col-span-2" defaultValue={restaurant.address} name="address" placeholder="Direccion del local" />
+              <Input className="md:col-span-2" defaultValue={restaurant.addressReference} name="addressReference" placeholder="Referencia, piso, zona o indicaciones" />
+              <GoogleLocationFields
+                defaultLatitude={restaurant.latitude}
+                defaultLongitude={restaurant.longitude}
+                defaultMapsUrl={restaurant.mapsUrl}
+                hideCoordinateInputs
+                hideMapsUrlInput
+                label={restaurant.name}
+                showMapByDefault
+              />
+            </Card>
+
+            <Card className="grid gap-4 md:grid-cols-2">
+              <SectionTitle title="Reglas de delivery" description="Costos base, pedido minimo, envio gratis y prepagos por distancia." />
+              {!canManageDeliverySettings ? (
+                <div className="md:col-span-2 rounded-2xl border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-4 text-sm font-bold leading-6 text-[var(--color-warning-strong)]">
+                  Solo el dueno de la cuenta puede cambiar costos y reglas de delivery.
+                </div>
+              ) : null}
+              <div className="md:col-span-2" />
+              <Input defaultValue={settings?.deliveryFee ?? 0} disabled={!canManageDeliverySettings} min="0" name="deliveryFee" placeholder="Costo base de delivery en Bs" step="0.01" type="number" />
+              <Input defaultValue={settings?.minOrderAmount ?? 0} disabled={!canManageDeliverySettings} min="0" name="minOrderAmount" placeholder="Pedido minimo para delivery" step="0.01" type="number" />
+              <Input defaultValue={settings?.freeDeliveryFrom || ""} disabled={!canManageDeliverySettings} min="0" name="freeDeliveryFrom" placeholder="Envio gratis desde Bs (opcional)" step="0.01" type="number" />
+              <Input defaultValue={settings?.farDeliveryDistanceKm ?? 8} disabled={!canManageDeliverySettings} min="1" name="farDeliveryDistanceKm" placeholder="Exigir QR desde (km)" step="0.5" type="number" />
+              <div className="md:col-span-2 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+                Estas reglas aplican como base. Si una zona coincide con el cliente, el sistema usa el costo y minimo de esa zona; el envio gratis se calcula sobre el subtotal.
+              </div>
+            </Card>
+          </div>
 
           <Card className="space-y-4">
             <SectionTitle title="Nueva zona de delivery" description="Sirve para explicar cobertura: desde que punto se mide, hasta que radio llega y cuanto cuesta enviar ahi." />
-            <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
-              Ejemplo: Centro, radio 3 km, envio Bs 10. Si luego usamos calculo automatico, estas zonas seran la base.
-            </div>
-            <Input name="zoneName" placeholder="Nombre visible, ej: Centro / Norte / Zona Muyurina" />
-            <Input defaultValue={restaurant.city} name="zoneCity" placeholder="Ciudad de esta zona" />
-            <GoogleLocationFields
-              hideCoordinateInputs
-              hideMapsUrlInput
-              label="Centro de zona"
-              latitudeName="zoneLatitude"
-              longitudeName="zoneLongitude"
-              mapHeightClassName="h-64"
-              mapsUrlName="zoneMapsUrl"
-              showMapByDefault
-            />
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Input defaultValue="3" name="zoneRadiusKm" placeholder="Cobertura en km" step="0.1" type="number" />
-              <Input defaultValue={settings?.deliveryFee ?? 0} name="zoneDeliveryFee" placeholder="Costo envio Bs" step="0.01" type="number" />
-              <Input defaultValue={settings?.minOrderAmount ?? 0} name="zoneMinOrderAmount" placeholder="Minimo pedido Bs" step="0.01" type="number" />
-            </div>
-            <SettingsSubmitButton name="settingsIntent" pendingLabel="Guardando zona..." value="save-delivery-zone">
-              <MapPin className="h-4 w-4" />
-              Guardar zona
-            </SettingsSubmitButton>
+            {canManageDeliverySettings ? (
+              <>
+                <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+                  Ejemplo: Centro, radio 3 km, envio Bs 10. Si luego usamos calculo automatico, estas zonas seran la base.
+                </div>
+                <Input name="zoneName" placeholder="Nombre visible, ej: Centro / Norte / Zona Muyurina" />
+                <Input defaultValue={restaurant.city} name="zoneCity" placeholder="Ciudad de esta zona" />
+                <GoogleLocationFields
+                  hideCoordinateInputs
+                  hideMapsUrlInput
+                  label="Centro de zona"
+                  latitudeName="zoneLatitude"
+                  longitudeName="zoneLongitude"
+                  mapHeightClassName="h-64"
+                  mapsUrlName="zoneMapsUrl"
+                  showMapByDefault
+                />
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Input defaultValue="3" min="0.1" name="zoneRadiusKm" placeholder="Cobertura en km" step="0.1" type="number" />
+                  <Input defaultValue={settings?.deliveryFee ?? 0} min="0" name="zoneDeliveryFee" placeholder="Costo envio Bs" step="0.01" type="number" />
+                  <Input defaultValue={settings?.minOrderAmount ?? 0} min="0" name="zoneMinOrderAmount" placeholder="Minimo pedido Bs" step="0.01" type="number" />
+                </div>
+                <SettingsSubmitButton name="settingsIntent" pendingLabel="Guardando zona..." value="save-delivery-zone">
+                  <MapPin className="h-4 w-4" />
+                  Guardar zona
+                </SettingsSubmitButton>
+              </>
+            ) : (
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
+                Las zonas estan visibles para operacion, pero solo el dueno puede crear, pausar o eliminar cobertura.
+              </div>
+            )}
           </Card>
 
           <Card className="space-y-4 xl:col-span-2">
@@ -903,14 +991,16 @@ export function RestaurantSettingsFormClient({
                       <span className="rounded-xl bg-[var(--color-surface)] p-2">Envio Bs {zone.deliveryFee}</span>
                       <span className="rounded-xl bg-[var(--color-surface)] p-2">Minimo Bs {zone.minOrderAmount}</span>
                     </div>
-                    <div className="mt-3 flex gap-2">
-                      <SettingsSubmitButton className="min-h-10 flex-1 text-xs" name="settingsIntent" pendingLabel="Actualizando..." value={`toggle-delivery-zone:${zone.id}`} variant="secondary">
-                        {zone.isActive ? "Pausar" : "Activar"}
-                      </SettingsSubmitButton>
-                      <SettingsSubmitButton className="min-h-10 flex-1 text-xs" name="settingsIntent" pendingLabel="Eliminando..." value={`delete-delivery-zone:${zone.id}`} variant="secondary">
-                        Eliminar
-                      </SettingsSubmitButton>
-                    </div>
+                    {canManageDeliverySettings ? (
+                      <div className="mt-3 flex gap-2">
+                        <SettingsSubmitButton className="min-h-10 flex-1 text-xs" name="settingsIntent" pendingLabel="Actualizando..." value={`toggle-delivery-zone:${zone.id}`} variant="secondary">
+                          {zone.isActive ? "Pausar" : "Activar"}
+                        </SettingsSubmitButton>
+                        <SettingsSubmitButton className="min-h-10 flex-1 text-xs" name="settingsIntent" pendingLabel="Eliminando..." value={`delete-delivery-zone:${zone.id}`} variant="secondary">
+                          Eliminar
+                        </SettingsSubmitButton>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

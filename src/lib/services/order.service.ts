@@ -328,6 +328,15 @@ function startOfBusinessDayIso() {
   return new Date(`${year}-${month}-${day}T00:00:00-04:00`).toISOString();
 }
 
+function businessDateBoundaryIso(value: string, boundary: "start" | "end") {
+  const time = boundary === "start" ? "00:00:00.000" : "23:59:59.999";
+  return new Date(`${value}T${time}-04:00`).toISOString();
+}
+
+function isBusinessDateFilter(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
 function groupItemsByOrder(items: ItemRow[]) {
   const grouped = new Map<string, OrderItem[]>();
 
@@ -444,20 +453,45 @@ export const orderService = {
     return orders.map((order) => mapOrder(order as OrderRow, []));
   },
 
-  async listInvoiceRequests(restaurantId: string) {
+  async listInvoiceRequests(
+    restaurantId: string,
+    filters: {
+      dateFrom?: string;
+      dateTo?: string;
+      status?: "all" | "pending" | "issued";
+    } = {},
+  ) {
     if (!hasSupabaseEnv()) {
       return [];
     }
 
     const supabase = await createClient();
-    const { data: orders, error } = await supabase
+    let query = supabase
       .from("orders")
       .select(
         "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,invoice_required,invoice_document_type,invoice_document_number,invoice_name,invoice_issued_at,invoice_issued_by,invoice_number,invoice_notes,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,subtotal,delivery_fee,discount_total,total,notes,created_at,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
       )
       .eq("restaurant_id", restaurantId)
       .eq("invoice_required", true)
-      .neq("status", "cancelled")
+      .neq("status", "cancelled");
+
+    if (filters.status === "pending") {
+      query = query.is("invoice_issued_at", null);
+    }
+
+    if (filters.status === "issued") {
+      query = query.not("invoice_issued_at", "is", null);
+    }
+
+    if (filters.dateFrom && isBusinessDateFilter(filters.dateFrom)) {
+      query = query.gte("created_at", businessDateBoundaryIso(filters.dateFrom, "start"));
+    }
+
+    if (filters.dateTo && isBusinessDateFilter(filters.dateTo)) {
+      query = query.lte("created_at", businessDateBoundaryIso(filters.dateTo, "end"));
+    }
+
+    const { data: orders, error } = await query
       .order("invoice_issued_at", { ascending: true, nullsFirst: true })
       .order("created_at", { ascending: false })
       .limit(100);

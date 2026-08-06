@@ -6,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { announcementService } from "@/lib/services/announcement.service";
-import { uploadPublicImage } from "@/lib/supabase/storage";
+import { uploadPrivateFile } from "@/lib/supabase/storage";
 import { businessTypeSupportsTableQr, normalizeRestaurantBusinessType } from "@/lib/restaurant-directory-options";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -588,7 +588,7 @@ export async function createPublicOrderAction(formData: FormData) {
 
   const paymentReceiptUrl =
     parsed.data.paymentMethod === "qr"
-      ? await uploadPublicImage(paymentReceiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
+      ? await uploadPrivateFile(paymentReceiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
       : null;
 
   const deliveryFee = deliveryPolicy?.deliveryFee ?? 0;

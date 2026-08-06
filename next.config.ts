@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const isDevelopment = process.env.NODE_ENV !== "production";
+const r2PublicUrl = process.env.R2_PUBLIC_URL;
+const r2Endpoint = process.env.R2_ENDPOINT;
+const r2AccountId = process.env.R2_ACCOUNT_ID;
 const contentSecurityPolicy = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""} https://maps.googleapis.com https://maps.gstatic.com`,
@@ -15,6 +18,45 @@ const contentSecurityPolicy = [
   "frame-ancestors 'self'",
   "object-src 'none'",
 ].join("; ");
+
+function remoteImagePatternFromUrl(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") {
+      return null;
+    }
+
+    return {
+      protocol: "https" as const,
+      hostname: url.hostname,
+    };
+  } catch {
+    return null;
+  }
+}
+
+const r2RemotePatterns = [
+  {
+    protocol: "https" as const,
+    hostname: "**.r2.dev",
+  },
+  {
+    protocol: "https" as const,
+    hostname: "**.r2.cloudflarestorage.com",
+  },
+  remoteImagePatternFromUrl(r2PublicUrl),
+  remoteImagePatternFromUrl(r2Endpoint),
+  r2AccountId
+    ? {
+        protocol: "https" as const,
+        hostname: `${r2AccountId}.r2.cloudflarestorage.com`,
+      }
+    : null,
+].filter((pattern): pattern is { protocol: "https"; hostname: string } => Boolean(pattern));
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: process.cwd(),
@@ -67,6 +109,7 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "**.supabase.co",
       },
+      ...r2RemotePatterns,
     ],
   },
 };

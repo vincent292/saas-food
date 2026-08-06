@@ -12,6 +12,8 @@
     "test": "node --use-system-ca --env-file=.env --test tests/*.test.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1104.0",
+    "@aws-sdk/s3-request-presigner": "^3.1104.0",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
     "clsx": "^2.1.1",

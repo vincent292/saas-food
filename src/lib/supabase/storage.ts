@@ -1,7 +1,59 @@
+import {
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createClient } from "./server";
 import { createAdminClient } from "./admin";
 
-const bucketName = "restaurant-assets";
+const supabaseBucketName = "restaurant-assets";
+const defaultR2Region = "auto";
+const privateUrlPrefix = "/api/storage/private";
+
+let r2Client: S3Client | null = null;
+
+function getR2Config() {
+  const accountId = process.env.R2_ACCOUNT_ID;
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  const publicBucket = process.env.R2_PUBLIC_BUCKET;
+  const privateBucket = process.env.R2_PRIVATE_BUCKET;
+
+  if (!accountId || !accessKeyId || !secretAccessKey || !publicBucket || !privateBucket) {
+    return null;
+  }
+
+  return {
+    endpoint: process.env.R2_ENDPOINT || `https://${accountId}.r2.cloudflarestorage.com`,
+    accessKeyId,
+    secretAccessKey,
+    publicBucket,
+    privateBucket,
+    publicUrl: process.env.R2_PUBLIC_URL?.replace(/\/$/, "") || "",
+    region: process.env.R2_REGION || defaultR2Region,
+  };
+}
+
+function getR2Client() {
+  const config = getR2Config();
+  if (!config) {
+    return null;
+  }
+
+  r2Client ??= new S3Client({
+    endpoint: config.endpoint,
+    region: config.region,
+    credentials: {
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey,
+    },
+  });
+
+  return { client: r2Client, config };
+}
 
 function extensionFromFile(file: File) {
   const nameExtension = file.name.split(".").pop();
@@ -17,10 +69,22 @@ export async function uploadPublicImage(file: File | null, folder: string) {
     return null;
   }
 
+  const r2 = getR2Client();
+  if (r2) {
+    if (!r2.config.publicUrl) {
+      throw new Error("R2_PUBLIC_URL is required to upload public assets to R2.");
+    }
+
+    const extension = extensionFromFile(file);
+    const path = `${folder}/${crypto.randomUUID()}.${extension}`;
+    await putR2Object(r2.client, r2.config.publicBucket, path, file, "public, max-age=31536000, immutable");
+    return `${r2.config.publicUrl}/${path}`;
+  }
+
   const supabase = createAdminClient() ?? (await createClient());
   const extension = extensionFromFile(file);
   const path = `${folder}/${crypto.randomUUID()}.${extension}`;
-  const { error } = await supabase.storage.from(bucketName).upload(path, file, {
+  const { error } = await supabase.storage.from(supabaseBucketName).upload(path, file, {
     cacheControl: "3600",
     contentType: file.type,
     upsert: false,
@@ -30,13 +94,61 @@ export async function uploadPublicImage(file: File | null, folder: string) {
     throw error;
   }
 
-  const { data } = supabase.storage.from(bucketName).getPublicUrl(path);
+  const { data } = supabase.storage.from(supabaseBucketName).getPublicUrl(path);
   return data.publicUrl;
+}
+
+export async function uploadPrivateFile(file: File | null, folder: string) {
+  if (!file || file.size === 0) {
+    return null;
+  }
+
+  const r2 = getR2Client();
+  if (!r2) {
+    return uploadPublicImage(file, folder);
+  }
+
+  const extension = extensionFromFile(file);
+  const path = `${folder}/${crypto.randomUUID()}.${extension}`;
+  await putR2Object(r2.client, r2.config.privateBucket, path, file, "private, no-store");
+  return privateObjectUrl(path);
+}
+
+export async function getPrivateFileSignedUrl(path: string) {
+  const r2 = getR2Client();
+  if (!r2) {
+    return null;
+  }
+
+  return getSignedUrl(
+    r2.client,
+    new GetObjectCommand({
+      Bucket: r2.config.privateBucket,
+      Key: path,
+    }),
+    { expiresIn: 60 * 5 },
+  );
+}
+
+async function putR2Object(client: S3Client, bucket: string, path: string, file: File, cacheControl: string) {
+  await client.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: path,
+      Body: Buffer.from(await file.arrayBuffer()),
+      ContentType: file.type || "application/octet-stream",
+      CacheControl: cacheControl,
+    }),
+  );
+}
+
+function privateObjectUrl(path: string) {
+  return `${privateUrlPrefix}/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 async function listStoragePaths(folder: string): Promise<string[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase.storage.from(bucketName).list(folder, {
+  const { data, error } = await supabase.storage.from(supabaseBucketName).list(folder, {
     limit: 1000,
     sortBy: { column: "name", order: "asc" },
   });
@@ -60,6 +172,16 @@ async function listStoragePaths(folder: string): Promise<string[]> {
 }
 
 export async function deleteRestaurantAssets(restaurantId: string, slug: string) {
+  const r2 = getR2Client();
+  if (r2) {
+    const prefixes = Array.from(new Set([`restaurants/${restaurantId}`, `restaurants/${slug}`]));
+    await Promise.all([
+      ...prefixes.map((prefix) => deleteR2Prefix(r2.client, r2.config.publicBucket, prefix)),
+      ...prefixes.map((prefix) => deleteR2Prefix(r2.client, r2.config.privateBucket, prefix)),
+    ]);
+    return;
+  }
+
   const supabase = await createClient();
   const prefixes = Array.from(new Set([`restaurants/${restaurantId}`, `restaurants/${slug}`]));
   const paths = (await Promise.all(prefixes.map((prefix) => listStoragePaths(prefix)))).flat();
@@ -67,7 +189,34 @@ export async function deleteRestaurantAssets(restaurantId: string, slug: string)
   for (let index = 0; index < paths.length; index += 100) {
     const chunk = paths.slice(index, index + 100);
     if (chunk.length) {
-      await supabase.storage.from(bucketName).remove(chunk);
+      await supabase.storage.from(supabaseBucketName).remove(chunk);
     }
   }
+}
+
+async function deleteR2Prefix(client: S3Client, bucket: string, prefix: string) {
+  let continuationToken: string | undefined;
+
+  do {
+    const listed = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      }),
+    );
+
+    const objects = listed.Contents?.map((entry) => (entry.Key ? { Key: entry.Key } : null)).filter((entry): entry is { Key: string } => Boolean(entry)) ?? [];
+
+    if (objects.length) {
+      await client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: objects },
+        }),
+      );
+    }
+
+    continuationToken = listed.NextContinuationToken;
+  } while (continuationToken);
 }

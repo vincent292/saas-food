@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { deleteRestaurantAssets, uploadPublicImage } from "@/lib/supabase/storage";
+import { deleteRestaurantAssets, uploadPrivateFile, uploadPublicImage } from "@/lib/supabase/storage";
 import { fullPlanKey, fullPlanModules } from "@/lib/billing/full-plan";
 import {
   normalizeRestaurantBusinessType,
@@ -2296,7 +2296,7 @@ export async function createSupportTicketAction(formData: FormData) {
 
     for (const file of files) {
       const folder = parsed.data.restaurantId ? `restaurants/${parsed.data.restaurantId}/support/${ticket.id}` : `platform/support/${ticket.id}`;
-      const fileUrl = await uploadPublicImage(file, folder);
+      const fileUrl = await uploadPrivateFile(file, folder);
 
       if (!fileUrl) {
         continue;
@@ -2700,7 +2700,7 @@ export async function requestOwnerBranchCapacityAction(formData: FormData) {
   let proofUrl: string | null = null;
 
   try {
-    proofUrl = await uploadPublicImage(proofFile, `platform/branch-requests/proofs/${user.id}`);
+    proofUrl = await uploadPrivateFile(proofFile, `platform/branch-requests/proofs/${user.id}`);
   } catch {
     redirect("/dueno/soporte?error=branch-payment-proof-upload");
   }
@@ -4083,7 +4083,7 @@ export async function submitPlatformPaymentProofAction(formData: FormData) {
     redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=platform-cycle-paid`);
   }
 
-  const proofUrl = await uploadPublicImage(proofFile, `platform/payments/${parsed.data.restaurantId}`);
+  const proofUrl = await uploadPrivateFile(proofFile, `platform/payments/${parsed.data.restaurantId}`);
   if (!proofUrl) {
     redirect(`${platformConfigPath(parsed.data.restaurantId)}&error=platform-proof-upload`);
   }
@@ -4315,7 +4315,7 @@ export async function submitOwnerBillingPaymentProofAction(formData: FormData) {
 
   let proofUrl: string | null = null;
   try {
-    proofUrl = await uploadPublicImage(proofFile, `platform/owner-billing/${user.id}/proofs`);
+    proofUrl = await uploadPrivateFile(proofFile, `platform/owner-billing/${user.id}/proofs`);
   } catch {
     redirect("/dueno/plan?error=owner-billing-proof-upload");
   }
@@ -5776,7 +5776,7 @@ export async function chargeOrderAction(formData: FormData) {
   const receiptFile = formData.get("paymentReceiptFile") as File | null;
   const uploadedReceiptUrl =
     receiptFile && receiptFile.size > 0
-      ? await uploadPublicImage(receiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
+      ? await uploadPrivateFile(receiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
       : null;
 
   const { error } = await supabase.rpc("charge_order_with_cash_movement", {
@@ -5876,7 +5876,7 @@ export async function createPosSaleAction(formData: FormData) {
   const receiptFile = formData.get("paymentReceiptFile") as File | null;
   const paymentReceiptUrl =
     parsed.data.paymentMethod === "qr" && receiptFile && receiptFile.size > 0
-      ? await uploadPublicImage(receiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
+      ? await uploadPrivateFile(receiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
       : null;
 
   if (parsed.data.paymentMethod === "qr" && !paymentReceiptUrl && !parsed.data.paymentReceiptReference) {

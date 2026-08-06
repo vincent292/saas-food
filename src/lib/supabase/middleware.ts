@@ -60,19 +60,5 @@ export async function updateSession(request: NextRequest) {
     return redirectResponse;
   }
 
-  const [{ data: profile }, { data: customerProfile }] = await Promise.all([
-    supabase.from("profiles").select("id").eq("id", user.id).maybeSingle(),
-    supabase.from("customer_profiles").select("id").eq("id", user.id).maybeSingle(),
-  ]);
-
-  if (!profile && customerProfile) {
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/admin/login";
-    loginUrl.search = "?error=customer-account";
-    const redirectResponse = NextResponse.redirect(loginUrl);
-    clearSupabaseCookies(request, redirectResponse);
-    return redirectResponse;
-  }
-
   return response;
 }

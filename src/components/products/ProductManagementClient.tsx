@@ -26,6 +26,7 @@ import {
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
+import { defaultProductImageFit, productImageFitStyle } from "@/lib/utils/product-image-fit";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
 import type { InventoryItem } from "@/types/inventory.types";
 import type { BusinessType } from "@/types/restaurant.types";
@@ -137,6 +138,10 @@ export function ProductManagementClient({
   const [optionGroups, setOptionGroups] = useState<DraftOptionGroup[]>([]);
   const [productKind, setProductKind] = useState<ProductKind>("standard");
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
+  const [productImagePreviewUrl, setProductImagePreviewUrl] = useState("");
+  const [imagePositionX, setImagePositionX] = useState(defaultProductImageFit.imagePositionX);
+  const [imagePositionY, setImagePositionY] = useState(defaultProductImageFit.imagePositionY);
+  const [imageZoom, setImageZoom] = useState(defaultProductImageFit.imageZoom);
 
   const categoryById = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
   const productCountsByCategory = useMemo(() => {
@@ -369,7 +374,7 @@ export function ProductManagementClient({
             <div className="space-y-3">
               {filteredProducts.map((product) => (
                 <Card className="grid gap-4 p-4 md:grid-cols-[92px_1fr_auto_auto] md:items-center" key={product.id}>
-                  <ProductThumb imageUrl={product.imageUrl} name={product.name} />
+                  <ProductThumb fit={product} imageUrl={product.imageUrl} name={product.name} />
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-black text-[var(--text)]">{product.name}</h3>
@@ -451,6 +456,9 @@ export function ProductManagementClient({
             <input name="variantsJson" type="hidden" value={variantsJson} />
             <input name="optionGroupsJson" type="hidden" value={optionGroupsJson} />
             <input name="availableDays" type="hidden" value={selectedDays.join(",")} />
+            <input name="imagePositionX" type="hidden" value={imagePositionX} />
+            <input name="imagePositionY" type="hidden" value={imagePositionY} />
+            <input name="imageZoom" type="hidden" value={imageZoom} />
 
             <div className="grid grid-cols-2 gap-2 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--color-card-muted)] p-3 sm:grid-cols-4">
               <PresetButton icon={<Sparkles className="h-4 w-4" />} label="Simple" onClick={() => applyPreset("simple")} />
@@ -460,7 +468,7 @@ export function ProductManagementClient({
             </div>
 
             <div className="grid gap-4 xl:grid-cols-[280px_1fr]">
-              <PreviewBanner className="min-h-56 xl:min-h-full" imageUrl={editingProduct?.imageUrl} label={editingProduct?.name || "Nuevo producto"} />
+              <PreviewBanner className="min-h-56 xl:min-h-full" fit={{ imagePositionX, imagePositionY, imageZoom }} imageUrl={productImagePreviewUrl || editingProduct?.imageUrl} label={editingProduct?.name || "Nuevo producto"} />
               <div className="grid gap-3 sm:grid-cols-2">
                 <Labeled label="Nombre">
                   <Input defaultValue={editingProduct?.name} name="name" required />
@@ -507,7 +515,17 @@ export function ProductManagementClient({
                   />
                 </div>
                 <div className="sm:col-span-2">
-                <CompressedImageInput help={businessProductImageHelp(businessType)} label="Imagen" name="imageFile" />
+                  <CompressedImageInput help={businessProductImageHelp(businessType)} label="Imagen" name="imageFile" onPreviewUrlChange={setProductImagePreviewUrl} />
+                  <ProductImageFrameEditor
+                    fit={{ imagePositionX, imagePositionY, imageZoom }}
+                    imageUrl={productImagePreviewUrl || editingProduct?.imageUrl || defaultProductImage}
+                    label={editingProduct?.name || "Producto"}
+                    onChange={(nextFit) => {
+                      setImagePositionX(nextFit.imagePositionX);
+                      setImagePositionY(nextFit.imagePositionY);
+                      setImageZoom(nextFit.imageZoom);
+                    }}
+                  />
                 </div>
                 <label className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
                   <input defaultChecked={editingProduct?.isAvailable ?? true} name="isAvailable" type="checkbox" />
@@ -687,6 +705,10 @@ export function ProductManagementClient({
       return;
     }
     setEditingProduct(null);
+    setProductImagePreviewUrl("");
+    setImagePositionX(defaultProductImageFit.imagePositionX);
+    setImagePositionY(defaultProductImageFit.imagePositionY);
+    setImageZoom(defaultProductImageFit.imageZoom);
     applyPreset(preset);
     setProductModalOpen(true);
   }
@@ -731,6 +753,10 @@ export function ProductManagementClient({
     setOptionGroups(productGroups);
     setProductKind(product.productKind ?? "standard");
     setSelectedDays(product.availableDays ?? []);
+    setProductImagePreviewUrl("");
+    setImagePositionX(product.imagePositionX ?? defaultProductImageFit.imagePositionX);
+    setImagePositionY(product.imagePositionY ?? defaultProductImageFit.imagePositionY);
+    setImageZoom(product.imageZoom ?? defaultProductImageFit.imageZoom);
     setProductModalOpen(true);
   }
 
@@ -739,6 +765,10 @@ export function ProductManagementClient({
     setEditingProduct(null);
     setSelectedDays([]);
     setProductKind("standard");
+    setProductImagePreviewUrl("");
+    setImagePositionX(defaultProductImageFit.imagePositionX);
+    setImagePositionY(defaultProductImageFit.imagePositionY);
+    setImageZoom(defaultProductImageFit.imageZoom);
   }
 
   function toggleDay(day: number) {
@@ -863,20 +893,97 @@ function CategoryTile({ label, count, imageUrl, active, onClick }: { label: stri
   );
 }
 
-function ProductThumb({ imageUrl, name, small = false }: { imageUrl?: string; name: string; small?: boolean }) {
+function ProductThumb({ fit, imageUrl, name, small = false }: { fit?: { imagePositionX?: number; imagePositionY?: number; imageZoom?: number }; imageUrl?: string; name: string; small?: boolean }) {
   return (
     <div className={cn("grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-[var(--primary-light)]", small ? "h-12 w-12" : "h-24 w-24")}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img alt={name} className="h-full w-full object-cover" src={imageUrl || defaultProductImage} />
+      <img alt={name} className="h-full w-full object-cover" src={imageUrl || defaultProductImage} style={productImageFitStyle(fit)} />
     </div>
   );
 }
 
-function PreviewBanner({ label, className, imageUrl }: { label: string; className?: string; imageUrl?: string }) {
+function ProductImageFrameEditor({
+  fit,
+  imageUrl,
+  label,
+  onChange,
+}: {
+  fit: { imagePositionX: number; imagePositionY: number; imageZoom: number };
+  imageUrl: string;
+  label: string;
+  onChange: (fit: { imagePositionX: number; imagePositionY: number; imageZoom: number }) => void;
+}) {
+  return (
+    <div className="mt-3 grid gap-3 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--color-card-muted)] p-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <FramePreview aspectClassName="aspect-[4/3]" imageUrl={imageUrl} label={label} title="Tarjeta" fit={fit} />
+        <FramePreview aspectClassName="aspect-[16/10]" imageUrl={imageUrl} label={label} title="Detalle movil" fit={fit} />
+      </div>
+      <div className="grid content-center gap-3">
+        <RangeField
+          label="Horizontal"
+          max={100}
+          min={0}
+          onChange={(value) => onChange({ ...fit, imagePositionX: value })}
+          value={fit.imagePositionX}
+        />
+        <RangeField
+          label="Vertical"
+          max={100}
+          min={0}
+          onChange={(value) => onChange({ ...fit, imagePositionY: value })}
+          value={fit.imagePositionY}
+        />
+        <RangeField
+          label="Zoom"
+          max={2}
+          min={1}
+          onChange={(value) => onChange({ ...fit, imageZoom: value })}
+          step={0.05}
+          value={fit.imageZoom}
+        />
+      </div>
+    </div>
+  );
+}
+
+function FramePreview({ aspectClassName, fit, imageUrl, label, title }: { aspectClassName: string; fit: { imagePositionX: number; imagePositionY: number; imageZoom: number }; imageUrl: string; label: string; title: string }) {
+  return (
+    <div>
+      <p className="mb-2 text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">{title}</p>
+      <div className={cn("overflow-hidden rounded-2xl bg-[var(--primary-light)]", aspectClassName)}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img alt={label} className="h-full w-full object-cover" src={imageUrl} style={productImageFitStyle(fit)} />
+      </div>
+    </div>
+  );
+}
+
+function RangeField({ label, max, min, onChange, step = 1, value }: { label: string; max: number; min: number; onChange: (value: number) => void; step?: number; value: number }) {
+  return (
+    <label className="grid gap-1 text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">
+      <span className="flex items-center justify-between gap-2">
+        {label}
+        <span className="text-[var(--text)]">{step < 1 ? value.toFixed(2) : Math.round(value)}</span>
+      </span>
+      <input
+        className="accent-[var(--primary)]"
+        max={max}
+        min={min}
+        onChange={(event) => onChange(Number(event.currentTarget.value))}
+        step={step}
+        type="range"
+        value={value}
+      />
+    </label>
+  );
+}
+
+function PreviewBanner({ label, className, fit, imageUrl }: { label: string; className?: string; fit: { imagePositionX: number; imagePositionY: number; imageZoom: number }; imageUrl?: string }) {
   return (
     <div className={cn("relative flex min-h-44 items-end overflow-hidden rounded-3xl bg-[var(--primary-light)] p-3", className)}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img alt={label} className="absolute inset-0 h-full w-full object-cover opacity-75" src={imageUrl || defaultProductImage} />
+      <img alt={label} className="absolute inset-0 h-full w-full object-cover opacity-75" src={imageUrl || defaultProductImage} style={productImageFitStyle(fit)} />
       <div className="absolute inset-0 bg-gradient-to-t from-[var(--color-image-overlay-strong)] via-[var(--color-image-overlay-medium)] to-[var(--color-image-overlay-none)]" />
       <div className="relative w-full rounded-2xl bg-[var(--color-overlay)] p-3 text-[var(--color-on-primary)]">
         <p className="text-xs font-black uppercase text-[var(--color-on-primary-muted)]">Catalogo</p>

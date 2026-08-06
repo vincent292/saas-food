@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { productAvailabilityLabels } from "@/lib/utils/product-availability";
+import { productImageFitStyle, type ProductImageFit } from "@/lib/utils/product-image-fit";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductStockAvailability, ProductVariant } from "@/types/product.types";
@@ -405,7 +406,7 @@ export function PublicRestaurantOrderClient({
               <div className="-mx-1 mt-3 flex snap-x gap-2 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-3 sm:gap-3 sm:overflow-visible sm:px-0">
                 {topOrderedProducts.map((product) => (
                   <button className="grid min-w-[82%] snap-start grid-cols-[66px_1fr_38px] items-center gap-3 rounded-[1.1rem] bg-[var(--color-surface)] p-2 text-left shadow-sm ring-1 ring-[var(--border)] transition hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] sm:min-w-0 sm:grid-cols-[78px_1fr_auto] sm:rounded-[1.25rem]" key={product.id} onClick={() => setSelectedProduct(product)} type="button">
-                    <ProductVisual className="h-16 w-[66px] rounded-[0.95rem] sm:h-20 sm:w-[78px] sm:rounded-[1.1rem]" name={product.name} src={product.imageUrl} />
+                    <ProductVisual className="h-16 w-[66px] rounded-[0.95rem] sm:h-20 sm:w-[78px] sm:rounded-[1.1rem]" fit={product} name={product.name} src={product.imageUrl} />
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-black">{product.name}</span>
                       <span className="block text-xs font-bold text-[var(--muted)]">{product.orderCount} pedidos</span>
@@ -737,6 +738,10 @@ function OrderErrorMessage({ error }: { error: string }) {
             ? "El restaurante esta cerrado temporalmente y no esta recibiendo pedidos."
           : error === "outside-hours"
             ? "El restaurante esta fuera de horario. Programa el pedido dentro del horario de atencion."
+            : error === "no-open-cash"
+              ? "El restaurante no tiene caja abierta para pedidos inmediatos. Puedes programar el pedido dentro del horario de atencion."
+              : error === "scheduled-not-available"
+                ? "Los pedidos programados solo estan disponibles para recojo o envio."
             : error === "schedule-past"
               ? "La hora programada debe ser posterior a la hora actual."
               : error === "invoice-disabled"
@@ -760,11 +765,11 @@ function OrderErrorMessage({ error }: { error: string }) {
   return <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)] md:col-span-2">{message}</div>;
 }
 
-function ProductVisual({ name, src, className }: { name: string; src?: string | null; className?: string }) {
+function ProductVisual({ fit, name, src, className }: { fit?: ProductImageFit; name: string; src?: string | null; className?: string }) {
   if (isDisplayImage(src)) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img alt={name} className={cn("object-cover", className)} src={src ?? undefined} />
+      <img alt={name} className={cn("object-cover", className)} src={src ?? undefined} style={productImageFitStyle(fit)} />
     );
   }
 
@@ -791,7 +796,7 @@ function ProductTile({ product, config, availability, onSelect }: { product: Pro
   return (
     <div className={cn("grid grid-cols-[92px_minmax(0,1fr)_42px] items-center gap-2.5 rounded-[1.15rem] border border-[var(--border)] bg-[var(--surface)] p-2 text-left text-[var(--text)] shadow-[0_12px_32px_rgb(18_53_91_/_0.07)] transition sm:grid-cols-[132px_minmax(0,1fr)_52px] sm:gap-3 sm:rounded-[1.35rem] sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]", isStockAvailable ? "hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] hover:shadow-[0_22px_56px_rgb(18_53_91_/_0.12)]" : "opacity-80")}>
       <span className="relative h-24 overflow-hidden rounded-[1rem] bg-[var(--primary-light)] sm:h-32 sm:rounded-[1.2rem]">
-        <ProductVisual className="h-full w-full" name={product.name} src={product.imageUrl} />
+        <ProductVisual className="h-full w-full" fit={product} name={product.name} src={product.imageUrl} />
         {product.isAutoFeatured || product.isFeatured ? <span className="absolute left-2 top-2 rounded-full bg-[var(--accent)] px-2 py-1 text-[10px] font-black text-[var(--primary)]">Top</span> : null}
         {!isStockAvailable ? <span className="absolute inset-x-2 bottom-2 rounded-full bg-[var(--color-danger)] px-2 py-1 text-center text-[10px] font-black text-white">Agotado aqui</span> : null}
       </span>
@@ -926,7 +931,7 @@ function ProductOptionModal({
     <div className="fixed inset-0 z-[60] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4" onClick={requestClose}>
       <div className={cn("relative isolate max-h-[94dvh] w-full overflow-y-auto overscroll-contain rounded-t-[2rem] bg-[var(--surface)] shadow-2xl sm:max-h-[94vh] sm:max-w-3xl sm:rounded-[2rem]", isClosing ? "public-sheet-exit" : "public-sheet-enter")} onClick={(event) => event.stopPropagation()}>
         <div className="relative z-0 h-72 overflow-hidden bg-[var(--primary)] sm:h-80">
-          <ProductVisual className="pointer-events-none h-full w-full" name={product.name} src={product.imageUrl} />
+          <ProductVisual className="pointer-events-none h-full w-full" fit={product} name={product.name} src={product.imageUrl} />
           <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/42 to-transparent" />
           <div className="pointer-events-none absolute left-4 right-4 top-[calc(1rem+env(safe-area-inset-top))] z-40 flex items-center justify-between">
             <button aria-label="Volver" className="pointer-events-auto grid h-12 w-12 shrink-0 touch-manipulation place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl transition hover:scale-105 active:scale-95" data-product-modal-close="" onClick={requestClose} type="button">

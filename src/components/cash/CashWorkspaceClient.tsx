@@ -28,7 +28,10 @@ import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
 
 type CashTab = "venta" | "pedidos" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
 
-const CASH_REFRESH_INTERVAL_MS = 5000;
+const CASH_REFRESH_FAST_INTERVAL_MS = 5000;
+const CASH_REFRESH_QUIET_INTERVAL_MS = 10000;
+const CASH_REALTIME_REFRESH_DEBOUNCE_MS = 250;
+const CASH_REFRESH_MIN_GAP_MS = 3000;
 
 function normalizeTab(value: string | undefined): CashTab {
   if (value === "pedidos" || value === "delivery" || value === "recojo" || value === "movimientos" || value === "egresos" || value === "cierre" || value === "reportes") {
@@ -137,6 +140,7 @@ export function CashWorkspaceClient({
   const [copied, setCopied] = useState(false);
   const [clientOrigin, setClientOrigin] = useState("");
   const refreshTimeoutRef = useRef<number | null>(null);
+  const lastRefreshAtRef = useRef(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setClientOrigin(window.location.origin), 0);
@@ -154,9 +158,10 @@ export function CashWorkspaceClient({
       }
 
       refreshTimeoutRef.current = window.setTimeout(() => {
+        lastRefreshAtRef.current = Date.now();
         router.refresh();
         refreshTimeoutRef.current = null;
-      }, 250);
+      }, CASH_REALTIME_REFRESH_DEBOUNCE_MS);
     };
     const supabase = createClient();
     const channel = supabase
@@ -172,25 +177,6 @@ export function CashWorkspaceClient({
       supabase.removeChannel(channel);
     };
   }, [restaurant.id, router]);
-
-  useEffect(() => {
-    const refreshIfVisible = () => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-      router.refresh();
-    };
-
-    const interval = window.setInterval(refreshIfVisible, CASH_REFRESH_INTERVAL_MS);
-    window.addEventListener("focus", refreshIfVisible);
-    document.addEventListener("visibilitychange", refreshIfVisible);
-
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("focus", refreshIfVisible);
-      document.removeEventListener("visibilitychange", refreshIfVisible);
-    };
-  }, [router]);
 
   const todaysOrders = useMemo(() => orders.filter((order) => isSameBusinessDay(order.createdAt)), [orders]);
   const pendingOrders = useMemo(() => todaysOrders.filter((order) => order.status === "pending" && order.orderType !== "delivery" && order.orderType !== "pickup"), [todaysOrders]);
@@ -219,6 +205,15 @@ export function CashWorkspaceClient({
   const visibleActiveTableOrders = useMemo(() => activeTableOrders.filter(matchesOrderSearch), [activeTableOrders, matchesOrderSearch]);
   const visibleDeliveryOrders = useMemo(() => deliveryOrders.filter(matchesOrderSearch), [deliveryOrders, matchesOrderSearch]);
   const visiblePickupOrders = useMemo(() => pickupOrders.filter(matchesOrderSearch), [pickupOrders, matchesOrderSearch]);
+  const activeOperationalOrderCount = useMemo(
+    () =>
+      pendingOrders.length +
+      activeTableOrders.length +
+      deliveryOrders.filter((order) => order.status !== "delivered").length +
+      pickupOrders.filter((order) => order.status !== "delivered").length,
+    [activeTableOrders.length, deliveryOrders, pendingOrders.length, pickupOrders],
+  );
+  const fallbackRefreshIntervalMs = activeOperationalOrderCount > 0 ? CASH_REFRESH_FAST_INTERVAL_MS : CASH_REFRESH_QUIET_INTERVAL_MS;
   const ordersById = useMemo(() => new Map(todaysOrders.map((order) => [order.id, order])), [todaysOrders]);
   const latestReport = reports[0];
   const banner = statusMessage(status, restaurant.businessType);
@@ -245,6 +240,32 @@ export function CashWorkspaceClient({
     { key: "cierre", label: "Cierre", icon: Calculator },
     { key: "reportes", label: "Reportes", icon: FileText, count: loadedTab === "reportes" ? reports.length : undefined },
   ];
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastRefreshAtRef.current < CASH_REFRESH_MIN_GAP_MS) {
+        return;
+      }
+
+      lastRefreshAtRef.current = now;
+      router.refresh();
+    };
+
+    const interval = window.setInterval(refreshIfVisible, fallbackRefreshIntervalMs);
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [fallbackRefreshIntervalMs, router]);
 
   function switchTab(nextTab: CashTab) {
     setActiveTab(nextTab);

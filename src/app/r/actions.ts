@@ -281,6 +281,18 @@ async function listPublicBusinessHours(supabase: Awaited<ReturnType<typeof creat
   })) satisfies BusinessHour[];
 }
 
+async function hasOpenCashSession(supabase: SupabaseDatabaseClient, restaurantId: string) {
+  const { data } = await supabase
+    .from("cash_sessions")
+    .select("id")
+    .eq("restaurant_id", restaurantId)
+    .eq("status", "open")
+    .limit(1)
+    .maybeSingle();
+
+  return Boolean(data);
+}
+
 async function resolvePublicCartItems(supabase: SupabaseDatabaseClient, restaurantId: string, cart: ParsedCartItem[]) {
   const productIds = Array.from(new Set(cart.map((item) => item.productId)));
   const optionIds = Array.from(new Set(cart.flatMap((item) => item.optionIds ?? [])));
@@ -490,6 +502,7 @@ export async function createPublicOrderAction(formData: FormData) {
   const requestedFulfillmentAt = parsed.data.requestedFulfillmentAt?.trim();
   const isPublicFulfillmentOrder = parsed.data.orderType === "delivery" || parsed.data.orderType === "pickup";
   const nowInput = formatLocalDateTimeInput(new Date(), DEFAULT_RESTAURANT_TIME_ZONE);
+  const nowWithinBusinessHours = isLocalDateTimeWithinBusinessHours(nowInput, businessHours);
 
   const orderTypeEnabled =
     (parsed.data.orderType === "delivery" && settings.delivery_enabled) ||
@@ -570,20 +583,27 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${failPath}?error=receipt-required`);
   }
 
-  if (isPublicFulfillmentOrder) {
-    if (!requestedFulfillmentAt && !isLocalDateTimeWithinBusinessHours(nowInput, businessHours)) {
+  if (requestedFulfillmentAt && !isPublicFulfillmentOrder) {
+    redirect(`${failPath}?error=scheduled-not-available`);
+  }
+
+  if (!requestedFulfillmentAt && !nowWithinBusinessHours) {
+    redirect(`${failPath}?error=outside-hours`);
+  }
+
+  if (requestedFulfillmentAt) {
+    if (requestedFulfillmentAt < nowInput) {
+      redirect(`${failPath}?error=schedule-past`);
+    }
+
+    if (!isLocalDateTimeWithinBusinessHours(requestedFulfillmentAt, businessHours)) {
       redirect(`${failPath}?error=outside-hours`);
     }
+  }
 
-    if (requestedFulfillmentAt) {
-      if (requestedFulfillmentAt < nowInput) {
-        redirect(`${failPath}?error=schedule-past`);
-      }
-
-      if (!isLocalDateTimeWithinBusinessHours(requestedFulfillmentAt, businessHours)) {
-        redirect(`${failPath}?error=outside-hours`);
-      }
-    }
+  const requiresOpenCash = parsed.data.orderType === "table" || !requestedFulfillmentAt;
+  if (requiresOpenCash && !(await hasOpenCashSession(writeClient, parsed.data.restaurantId))) {
+    redirect(`${failPath}?error=no-open-cash`);
   }
 
   const paymentReceiptUrl =

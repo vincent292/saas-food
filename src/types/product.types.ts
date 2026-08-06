@@ -17,6 +17,9 @@ export type Product = {
   price: number;
   compareAtPrice?: number;
   imageUrl: string;
+  imagePositionX: number;
+  imagePositionY: number;
+  imageZoom: number;
   isAvailable: boolean;
   isFeatured: boolean;
   isAutoFeatured?: boolean;

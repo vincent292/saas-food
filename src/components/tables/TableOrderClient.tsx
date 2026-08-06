@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { productAvailabilityLabels } from "@/lib/utils/product-availability";
+import { productImageFitStyle } from "@/lib/utils/product-image-fit";
 import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { RestaurantTable } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
@@ -291,7 +292,7 @@ function ProductTile({ product, config, onSelect }: { product: Product; config?:
     <article className="grid grid-cols-[88px_1fr] gap-3 rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 text-[var(--text)] shadow-sm sm:block sm:p-4">
       <div className="aspect-square overflow-hidden rounded-2xl bg-[var(--primary-light)] sm:aspect-[4/3]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img alt={product.name} className="h-full w-full object-cover" src={product.imageUrl || defaultImage} />
+        <img alt={product.name} className="h-full w-full object-cover" src={product.imageUrl || defaultImage} style={productImageFitStyle(product)} />
       </div>
       <div className="min-w-0 sm:mt-3">
         <div className="flex items-center justify-between gap-2">
@@ -393,7 +394,7 @@ function ProductOptionModal({
           <div className="grid gap-4 sm:grid-cols-[180px_1fr]">
             <div className="overflow-hidden rounded-2xl bg-[var(--primary-light)]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt={product.name} className="aspect-[4/3] h-full w-full object-cover sm:aspect-square" src={product.imageUrl || defaultImage} />
+              <img alt={product.name} className="aspect-[4/3] h-full w-full object-cover sm:aspect-square" src={product.imageUrl || defaultImage} style={productImageFitStyle(product)} />
             </div>
             <div className="text-sm leading-6 text-[var(--muted)]">
               <p>{product.description || "Configura tu producto antes de agregarlo al pedido."}</p>

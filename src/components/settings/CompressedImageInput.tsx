@@ -18,6 +18,7 @@ export function CompressedImageInput({
   className,
   inputRef,
   multiple,
+  onPreviewUrlChange,
 }: {
   name: string;
   label: string;
@@ -28,6 +29,7 @@ export function CompressedImageInput({
   className?: string;
   inputRef?: RefObject<HTMLInputElement | null>;
   multiple?: boolean;
+  onPreviewUrlChange?: (url: string) => void;
 }) {
   const fallbackInputRef = useRef<HTMLInputElement>(null);
   const resolvedInputRef = inputRef ?? fallbackInputRef;
@@ -47,6 +49,7 @@ export function CompressedImageInput({
     if (!selectedFiles.length) {
       setMessage("");
       setPreviewUrl("");
+      onPreviewUrlChange?.("");
       return;
     }
 
@@ -81,6 +84,7 @@ export function CompressedImageInput({
       if (!dataTransfer.files.length) {
         setMessage("");
         setPreviewUrl("");
+        onPreviewUrlChange?.("");
         return;
       }
 
@@ -92,7 +96,9 @@ export function CompressedImageInput({
         URL.revokeObjectURL(previewUrl);
       }
 
-      setPreviewUrl(firstPreviewFile ? URL.createObjectURL(firstPreviewFile) : "");
+      const nextPreviewUrl = firstPreviewFile ? URL.createObjectURL(firstPreviewFile) : "";
+      setPreviewUrl(nextPreviewUrl);
+      onPreviewUrlChange?.(nextPreviewUrl);
       const originalMb = originalBytes / 1024 / 1024;
       const optimizedMb = optimizedBytes / 1024 / 1024;
       const suffix = documentCount ? ` + ${documentCount} PDF` : "";

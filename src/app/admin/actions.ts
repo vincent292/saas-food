@@ -23,6 +23,7 @@ import { moduleCatalog } from "@/lib/modules";
 import { clearRateLimit, consumeRateLimit } from "@/lib/security/rate-limit";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import { directionsToMapsUrl, hasValidCoordinates } from "@/lib/utils/google-maps";
+import { clampProductImagePosition, clampProductImageZoom } from "@/lib/utils/product-image-fit";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import { toSlug } from "@/lib/utils/slug";
@@ -367,6 +368,9 @@ const createProductSchema = z.object({
   price: z.coerce.number().nonnegative(),
   compareAtPrice: z.coerce.number().nonnegative().optional(),
   imageUrl: z.string().url().optional().or(z.literal("")),
+  imagePositionX: z.coerce.number().min(0).max(100).default(50),
+  imagePositionY: z.coerce.number().min(0).max(100).default(50),
+  imageZoom: z.coerce.number().min(1).max(2).default(1),
   isAvailable: z.coerce.boolean().default(true),
   isFeatured: z.coerce.boolean().default(false),
   trackStock: z.coerce.boolean().default(false),
@@ -752,6 +756,14 @@ function branchFormError(formData: FormData, error: string): CreateBranchFormSta
     error,
     values: branchFormValues(formData),
   };
+}
+
+function actionErrorDetail(error: { code?: string; message?: string } | null | undefined, fallback: string) {
+  if (!error) {
+    return fallback;
+  }
+
+  return [error.code, error.message].filter(Boolean).join(":") || fallback;
 }
 
 function ownerFormValues(formData: FormData): Record<string, string> {
@@ -1489,7 +1501,7 @@ async function cloneBranchCatalog(
 
   const productsResult = await admin
     .from("products")
-    .select("id,category_id,name,description,price,image_url,is_available,is_featured,track_stock,sort_order")
+    .select("id,category_id,name,description,price,image_url,image_position_x,image_position_y,image_zoom,is_available,is_featured,track_stock,sort_order")
     .eq("restaurant_id", sourceRestaurantId)
     .order("sort_order");
   throwIfSupabaseError(productsResult, "products-read");
@@ -1507,6 +1519,9 @@ async function cloneBranchCatalog(
       description: product.description,
       price: product.price,
       image_url: product.image_url,
+      image_position_x: product.image_position_x,
+      image_position_y: product.image_position_y,
+      image_zoom: product.image_zoom,
       is_available: product.is_available,
       is_featured: product.is_featured,
       track_stock: product.track_stock,
@@ -3273,7 +3288,8 @@ export async function createOwnedRestaurantFormAction(
     .single();
 
   if (restaurantError || !restaurant) {
-    return restaurantFormError(formData, restaurantError?.code ?? "create");
+    console.error("createOwnedRestaurantFormAction:restaurants.insert", restaurantError);
+    return restaurantFormError(formData, `create:${actionErrorDetail(restaurantError, "insert-empty")}`);
   }
 
   const branchUserName = parsed.data.branchUserName.trim();
@@ -3504,7 +3520,8 @@ async function createBranchResult(formData: FormData): Promise<CreateBranchFormS
     .single();
 
   if (branchError || !branch) {
-    return branchFormError(formData, branchError?.code ?? "create");
+    console.error("createBranchFormAction:restaurants.insert", branchError);
+    return branchFormError(formData, `create:${actionErrorDetail(branchError, "insert-empty")}`);
   }
 
   const branchUserName = parsed.data.branchUserName.trim();
@@ -4893,6 +4910,9 @@ export async function createProductAction(formData: FormData) {
     price: formData.get("price"),
     compareAtPrice: formData.get("compareAtPrice") || undefined,
     imageUrl: "",
+    imagePositionX: formData.get("imagePositionX") || 50,
+    imagePositionY: formData.get("imagePositionY") || 50,
+    imageZoom: formData.get("imageZoom") || 1,
     isAvailable: formData.get("isAvailable") === "on",
     isFeatured: formData.get("isFeatured") === "on",
     trackStock: formData.get("trackStock") === "on",
@@ -4940,6 +4960,9 @@ export async function createProductAction(formData: FormData) {
       price: parsed.data.price,
       compare_at_price: parsed.data.compareAtPrice ?? null,
       image_url: imageUrl,
+      image_position_x: clampProductImagePosition(parsed.data.imagePositionX),
+      image_position_y: clampProductImagePosition(parsed.data.imagePositionY),
+      image_zoom: clampProductImageZoom(parsed.data.imageZoom),
       is_available: parsed.data.isAvailable,
       is_featured: parsed.data.isFeatured,
       track_stock: parsed.data.trackStock,
@@ -5037,6 +5060,9 @@ export async function updateProductAction(formData: FormData) {
     price: formData.get("price"),
     compareAtPrice: formData.get("compareAtPrice") || undefined,
     imageUrl: "",
+    imagePositionX: formData.get("imagePositionX") || 50,
+    imagePositionY: formData.get("imagePositionY") || 50,
+    imageZoom: formData.get("imageZoom") || 1,
     isAvailable: formData.get("isAvailable") === "on",
     isFeatured: formData.get("isFeatured") === "on",
     trackStock: formData.get("trackStock") === "on",
@@ -5091,6 +5117,9 @@ export async function updateProductAction(formData: FormData) {
     available_end_time: string | null;
     sort_order: number;
     image_url?: string | null;
+    image_position_x: number;
+    image_position_y: number;
+    image_zoom: number;
   } = {
     category_id: parsed.data.categoryId ?? null,
     name: parsed.data.name,
@@ -5107,6 +5136,9 @@ export async function updateProductAction(formData: FormData) {
     available_start_time: optionalTimeInput(parsed.data.availableStartTime),
     available_end_time: optionalTimeInput(parsed.data.availableEndTime),
     sort_order: parsed.data.sortOrder,
+    image_position_x: clampProductImagePosition(parsed.data.imagePositionX),
+    image_position_y: clampProductImagePosition(parsed.data.imagePositionY),
+    image_zoom: clampProductImageZoom(parsed.data.imageZoom),
   };
 
   if (imageUrl) {

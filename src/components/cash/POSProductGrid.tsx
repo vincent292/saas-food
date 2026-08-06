@@ -16,6 +16,7 @@ import { businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
+import { productImageFitStyle } from "@/lib/utils/product-image-fit";
 import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { OrderOrigin } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
@@ -516,7 +517,7 @@ function ProductCard({
     >
       <div className="aspect-square overflow-hidden rounded-[0.9rem] bg-[var(--primary-light)] sm:aspect-[4/3] sm:rounded-2xl">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img alt={product.name} className="h-full w-full object-cover" src={product.imageUrl || defaultImage} />
+        <img alt={product.name} className="h-full w-full object-cover" src={product.imageUrl || defaultImage} style={productImageFitStyle(product)} />
       </div>
       <div className="min-w-0 self-center sm:mt-3">
         <div className="flex items-start justify-between gap-2">
@@ -600,7 +601,7 @@ function ProductOptionModal({
           <div className="grid grid-cols-[84px_minmax(0,1fr)] gap-3 sm:grid-cols-[180px_1fr] sm:gap-4">
             <div className="overflow-hidden rounded-[0.9rem] bg-[var(--primary-light)] sm:rounded-2xl">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt={product.name} className="aspect-square h-full w-full object-cover" src={product.imageUrl || defaultImage} />
+              <img alt={product.name} className="aspect-square h-full w-full object-cover" src={product.imageUrl || defaultImage} style={productImageFitStyle(product)} />
             </div>
             <p className="self-center text-sm font-semibold leading-5 text-[var(--muted)] sm:font-normal sm:leading-6">{product.description || "Configura el producto antes de cobrarlo."}</p>
           </div>

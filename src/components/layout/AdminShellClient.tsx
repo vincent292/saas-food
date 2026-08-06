@@ -106,7 +106,7 @@ export function AdminShellClient({
         )}
       >
         <div className="flex items-center justify-between gap-3">
-          <Link className="flex min-w-0 flex-1 flex-col items-start gap-2 rounded-[var(--radius-card)] bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href={restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}>
+          <Link className="flex min-w-0 flex-1 flex-col items-start gap-2 rounded-[var(--radius-card)] bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href={restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"} prefetch={false}>
             <BrandLogo className="h-6 w-auto max-w-[160px]" variant="dark" />
             <span className="max-w-full truncate text-xs font-black text-white/82">{restaurantName || "Panel administrativo"}</span>
           </Link>
@@ -135,6 +135,7 @@ export function AdminShellClient({
                 href={href}
                 key={item.href}
                 onClick={() => setSidebarOpen(false)}
+                prefetch={false}
               >
                 <item.icon className="h-4 w-4 shrink-0" />
                 <span className="truncate">{item.label}</span>
@@ -145,18 +146,18 @@ export function AdminShellClient({
 
         <div className="mt-4 grid gap-2">
           {canAccessOwnerPanel ? (
-            <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/dueno">
+            <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/dueno" prefetch={false}>
               <Store className="h-4 w-4" />
               Panel de dueno
             </Link>
           ) : null}
           {canSwitchBranches ? (
-            <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/admin">
+            <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/admin" prefetch={false}>
               <Store className="h-4 w-4" />
               Sucursales
             </Link>
           ) : null}
-          <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/">
+          <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/" prefetch={false}>
             <Home className="h-4 w-4" />
             Inicio
           </Link>
@@ -182,6 +183,7 @@ export function AdminShellClient({
             <Link
               className="hidden min-h-10 shrink-0 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)] sm:inline-flex"
               href={canAccessSuperadmin ? "/admin/restaurantes" : canAccessOwnerPanel ? "/dueno" : canSwitchBranches ? "/admin" : restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}
+              prefetch={false}
             >
               <BarChart3 className="h-4 w-4" />
               {canAccessSuperadmin ? "Restaurantes" : canAccessOwnerPanel ? "Panel dueno" : canSwitchBranches ? "Sucursales" : "Mi sucursal"}

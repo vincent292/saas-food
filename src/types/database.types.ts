@@ -261,6 +261,9 @@ export type Database = {
         price: number;
         compare_at_price: number | null;
         image_url: string | null;
+        image_position_x: number;
+        image_position_y: number;
+        image_zoom: number;
         is_available: boolean;
         is_featured: boolean;
         product_kind: "standard" | "promotion" | "lunch";

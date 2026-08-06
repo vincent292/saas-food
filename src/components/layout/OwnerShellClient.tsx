@@ -75,7 +75,7 @@ export function OwnerShellClient({
         )}
       >
         <div className="flex items-center justify-between gap-3">
-          <Link className="flex min-w-0 flex-1 flex-col items-start gap-2 rounded-2xl bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href="/dueno">
+          <Link className="flex min-w-0 flex-1 flex-col items-start gap-2 rounded-2xl bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href="/dueno" prefetch={false}>
             <BrandLogo className="h-6 w-auto max-w-[160px]" variant="dark" />
             <span className="max-w-full truncate text-xs font-black text-white/82">{ownerName || ownerEmail}</span>
           </Link>
@@ -109,6 +109,7 @@ export function OwnerShellClient({
                 href={locked ? "/dueno/cuenta?required=1" : item.href}
                 key={item.href}
                 onClick={() => setSidebarOpen(false)}
+                prefetch={false}
               >
                 <item.icon className="h-4 w-4 shrink-0" />
                 <span className="truncate">{item.label}</span>
@@ -119,12 +120,12 @@ export function OwnerShellClient({
 
         <div className="mt-4 grid gap-2">
           {firstRestaurantId && ownerProfileComplete ? (
-            <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href={`/admin/restaurantes/${firstRestaurantId}/dashboard`}>
+            <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href={`/admin/restaurantes/${firstRestaurantId}/dashboard`} prefetch={false}>
               <Building2 className="h-4 w-4" />
               Entrar a sucursal
             </Link>
           ) : null}
-          <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/">
+          <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/" prefetch={false}>
             <Home className="h-4 w-4" />
             Inicio
           </Link>
@@ -157,7 +158,7 @@ export function OwnerShellClient({
                 {branchCount} sucursal{branchCount === 1 ? "" : "es"}
               </Badge>
               {firstRestaurantId && ownerProfileComplete ? (
-                <Link className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)]" href={`/admin/restaurantes/${firstRestaurantId}/dashboard`}>
+                <Link className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)]" href={`/admin/restaurantes/${firstRestaurantId}/dashboard`} prefetch={false}>
                   <ClipboardList className="h-4 w-4" />
                   Operar
                 </Link>

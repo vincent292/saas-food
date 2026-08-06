@@ -35,6 +35,17 @@ const errorMessages: Record<string, string> = {
 
 const initialState: CreateBranchFormState = {};
 
+function readableBranchError(error?: string) {
+  if (!error) return "";
+  if (error.startsWith("create:")) {
+    return `No se pudo crear la sucursal. Detalle tecnico: ${error.replace("create:", "")}`;
+  }
+  if (error.startsWith("setup:")) {
+    return `La sucursal se creo, pero fallo la configuracion inicial. Detalle tecnico: ${error.replace("setup:", "")}`;
+  }
+  return errorMessages[error] ?? "No se pudo crear la sucursal. Revisa los datos e intenta nuevamente.";
+}
+
 export function BranchCreateFormClient({
   ownerMemberships,
   serverError,
@@ -84,13 +95,13 @@ export function BranchCreateFormClient({
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
-      <form action={formAction}>
+      <form action={formAction} data-navigation-feedback="off">
         <Card className="grid gap-4 md:grid-cols-2">
           <SectionTitle className="md:col-span-2" description="La sucursal nace separada en pedidos, caja, inventario y reportes." title="Datos de la sucursal" />
 
           {error ? (
             <div className="rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] p-4 text-sm font-semibold text-[var(--color-danger-strong)] md:col-span-2" role="alert">
-              {errorMessages[error] ?? "No se pudo crear la sucursal. Revisa los datos e intenta nuevamente."}
+              {readableBranchError(error)}
             </div>
           ) : null}
 

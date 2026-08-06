@@ -6,6 +6,7 @@ import { createOwnerClientAction, type CreateOwnerFormState } from "@/app/admin/
 import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { BirthDateInput } from "@/components/ui/DateInput";
 import { Input } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 
@@ -30,7 +31,7 @@ export function NewOwnerFormClient() {
       : "";
 
   return (
-    <form action={formAction}>
+    <form action={formAction} data-navigation-feedback="off">
       {state.error ? (
         <div className="mt-6 rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] p-4 text-sm font-semibold text-[var(--color-danger-strong)]" role="alert">
           {errorMessage}
@@ -69,7 +70,7 @@ export function NewOwnerFormClient() {
         <Input defaultValue={values.ownerDocumentNumber} name="ownerDocumentNumber" placeholder="Carnet / documento" required />
         <label className="grid gap-1.5">
           <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Fecha de nacimiento</span>
-          <Input defaultValue={values.ownerBirthDate} name="ownerBirthDate" required type="date" />
+          <BirthDateInput defaultValue={values.ownerBirthDate} name="ownerBirthDate" required />
           <span className="text-xs font-semibold text-[var(--color-secondary-text)]">
             Dato obligatorio para validar identidad del titular. Debe ser mayor de edad.
           </span>

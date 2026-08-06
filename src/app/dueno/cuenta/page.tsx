@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, IdCard, Mail, Phone, UserRound } from "luc
 import { updateOwnerProfileAction } from "@/app/admin/actions";
 import { OwnerLayout, getOwnerLayoutContext } from "@/components/layout/OwnerLayout";
 import { Card } from "@/components/ui/Card";
+import { BirthDateInput } from "@/components/ui/DateInput";
 import { FormSubmitButton } from "@/components/ui/FormSubmitButton";
 import { Input } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
@@ -81,7 +82,7 @@ export default async function OwnerAccountPage({
           <AccountInfoCard icon={<IdCard className="h-5 w-5" />} label="Carnet / documento" value={profile.documentNumber || "Pendiente"} />
         </div>
 
-        <form action={updateOwnerProfileAction}>
+        <form action={updateOwnerProfileAction} data-navigation-feedback="off">
           <Card className="grid gap-4 md:grid-cols-2">
             <SectionTitle
               className="md:col-span-2"
@@ -95,7 +96,7 @@ export default async function OwnerAccountPage({
 
             <label className="grid gap-1 text-sm font-bold text-[var(--color-secondary-text)]">
               Fecha de nacimiento
-              <Input defaultValue={profile.birthDate ?? ""} name="birthDate" required type="date" />
+              <BirthDateInput defaultValue={profile.birthDate ?? ""} name="birthDate" required />
             </label>
 
             <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--color-neutral-50)] p-4 text-sm text-[var(--color-secondary-text)] md:col-span-2">

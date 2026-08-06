@@ -119,7 +119,34 @@ function deliveryElapsedLabel(order: Order) {
   return formatDuration(elapsedMs);
 }
 
+function formatScheduledFulfillment(value?: string) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("es-BO", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "America/La_Paz",
+  }).format(date);
+}
+
 function trackingHeroCopy(order: Order, businessType: BusinessType) {
+  const scheduledFulfillment = formatScheduledFulfillment(order.requestedFulfillmentAt);
+
+  if (scheduledFulfillment && order.status === "pending" && (order.orderType === "pickup" || order.orderType === "delivery")) {
+    return {
+      title: "Pedido programado recibido",
+      description: `Tu pedido fue recibido y se preparara para ${scheduledFulfillment}. El restaurante lo aprobara cuando este listo para operarlo.`,
+      mode: order.orderType === "delivery" ? "Envio programado" : "Recojo programado",
+    };
+  }
+
   if (order.orderType === "pickup") {
     if (order.status === "ready") {
       return {

@@ -29,6 +29,17 @@ const errorMessages: Record<string, string> = {
 
 const initialState: CreateRestaurantFormState = {};
 
+function readableCreateError(error?: string) {
+  if (!error) return "";
+  if (error.startsWith("create:")) {
+    return `No se pudo crear el restaurante. Detalle tecnico: ${error.replace("create:", "")}`;
+  }
+  if (error.startsWith("setup:")) {
+    return `El restaurante se creo, pero fallo la configuracion inicial. Detalle tecnico: ${error.replace("setup:", "")}`;
+  }
+  return errorMessages[error] ?? errorMessages.create;
+}
+
 export function OwnerRestaurantCreateFormClient({
   description = "Completa los datos publicos de tu negocio. Luego entraras al panel para crear productos, horarios, caja e inventario.",
   submitLabel = "Crear mi restaurante",
@@ -82,10 +93,10 @@ export function OwnerRestaurantCreateFormClient({
   }
 
   return (
-    <form action={formAction}>
+    <form action={formAction} data-navigation-feedback="off">
       {state.error ? (
         <div className="mb-5 rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] p-4 text-sm font-semibold text-[var(--color-danger-strong)]" role="alert">
-          {errorMessages[state.error] ?? errorMessages.create}
+          {readableCreateError(state.error)}
         </div>
       ) : null}
 

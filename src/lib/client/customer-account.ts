@@ -27,9 +27,24 @@ export type PublicCustomerAddress = {
   updatedAt: string;
 };
 
+export type PublicCustomerOrder = {
+  id: string;
+  restaurantName: string;
+  restaurantSlug: string;
+  orderNumber: string;
+  customerPhone: string;
+  trackingToken: string;
+  orderType: "delivery" | "pickup" | "table" | "pos";
+  status: "pending" | "accepted" | "preparing" | "ready" | "delivered" | "cancelled";
+  total: number;
+  createdAt: string;
+};
+
 export type PublicCustomerAccount = {
   profile: PublicCustomerProfile | null;
   addresses: PublicCustomerAddress[];
+  favorites?: unknown[];
+  orders?: PublicCustomerOrder[];
 };
 
 export const customerAccountChangedEvent = "yopido:customer-account-changed";
@@ -98,13 +113,13 @@ export async function signOutPublicCustomer() {
 
 export async function fetchPublicCustomerAccount(): Promise<PublicCustomerAccount> {
   const token = await accessToken();
-  if (!token) return { profile: null, addresses: [] };
+  if (!token) return { profile: null, addresses: [], orders: [] };
 
   const response = await fetch("/api/customers/profile", {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!response.ok) {
-    if (response.status === 401) return { profile: null, addresses: [] };
+    if (response.status === 401) return { profile: null, addresses: [], orders: [] };
     await parseApiError(response);
   }
   return (await response.json()) as PublicCustomerAccount;

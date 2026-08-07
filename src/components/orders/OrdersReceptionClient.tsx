@@ -21,7 +21,6 @@ import {
   businessOrderAdvanceLabel,
   businessOrderReadyLabel,
   businessOrderStatusLabel,
-  businessPreparationAreaLabel,
   businessQueueEmptyLabel,
   businessQueueLabel,
   businessTypeSupportsKitchen,
@@ -29,7 +28,7 @@ import {
 import type { Order } from "@/types/order.types";
 import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
 
-type ReceptionTab = "nuevos" | "cocina" | "historial";
+type ReceptionTab = "todos" | "nuevos" | "cocina" | "historial";
 
 type ReceptionStatus = {
   updated?: string;
@@ -41,15 +40,14 @@ type ReceptionStatus = {
 };
 
 function normalizeReceptionTab(value?: string): ReceptionTab {
-  return value === "cocina" || value === "historial" || value === "nuevos" ? value : "nuevos";
+  return value === "todos" || value === "cocina" || value === "historial" || value === "nuevos" ? value : "todos";
 }
 
-function statusMessage(status: ReceptionStatus, restaurant: Restaurant) {
-  const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
-  const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType);
+function statusMessage(status: ReceptionStatus, restaurant: Restaurant, settings: RestaurantSettings | null) {
+  const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType) && (settings?.kitchenEnabled ?? true);
 
   if (status.charged) {
-    return { tone: "success", text: hasKitchenFlow ? "Pedido aprobado, cobrado y enviado a cocina." : `Pedido aprobado, cobrado y enviado a ${preparationArea}.` };
+    return { tone: "success", text: hasKitchenFlow ? "Pedido aprobado, cobrado y enviado a cocina." : "Pedido aprobado, cobrado y marcado listo." };
   }
   if (status.rejected) {
     return { tone: "success", text: "Pedido rechazado correctamente." };
@@ -163,6 +161,7 @@ export function OrdersReceptionClient({
   const todayOrders = useMemo(() => orders.filter((order) => isSameBusinessDay(order.createdAt)), [orders]);
   const groups = useMemo(
     () => ({
+      todos: todayOrders,
       nuevos: todayOrders.filter((order) => order.status === "pending"),
       cocina: todayOrders.filter((order) => ["accepted", "preparing", "ready"].includes(order.status)),
       historial: todayOrders.filter((order) => ["delivered", "cancelled"].includes(order.status)).slice(0, 40),
@@ -170,10 +169,9 @@ export function OrdersReceptionClient({
     [todayOrders],
   );
 
-  const banner = statusMessage(status, restaurant);
+  const banner = statusMessage(status, restaurant, settings);
   const visibleOrders = groups[activeTab];
-  const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType);
-  const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
+  const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType) && (settings?.kitchenEnabled ?? true);
   const queueLabel = businessQueueLabel(restaurant.businessType);
 
   return (
@@ -185,7 +183,7 @@ export function OrdersReceptionClient({
           <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">
             {hasKitchenFlow
               ? "Aqui llegan los pedidos de mesa y de afuera. Caja o recepcion los aprueba, valida el comprobante y los manda a cocina."
-              : `Aqui llegan pedidos web, POS, celular y plataformas externas. Caja o recepcion los aprueba y los envia a ${preparationArea}.`}
+              : "Aqui llegan pedidos web, POS, celular y plataformas externas. Caja o recepcion los aprueba y quedan listos para entregar."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -227,10 +225,11 @@ export function OrdersReceptionClient({
       <section className="grid gap-3 md:grid-cols-3">
         <SummaryCard count={groups.nuevos.length} icon={<Clock className="h-5 w-5" />} label="Nuevos por aprobar" />
         <SummaryCard count={groups.cocina.length} icon={<CheckCircle2 className="h-5 w-5" />} label={queueLabel} />
-        <SummaryCard count={groups.historial.length} icon={<Truck className="h-5 w-5" />} label="Cerrados recientes" />
+        <SummaryCard count={groups.todos.length} icon={<Truck className="h-5 w-5" />} label="Todos hoy" />
       </section>
 
       <div className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
+        <TabButton active={activeTab === "todos"} count={groups.todos.length} label="Todos" onClick={() => setActiveTab("todos")} />
         <TabButton active={activeTab === "nuevos"} count={groups.nuevos.length} label="Nuevos" onClick={() => setActiveTab("nuevos")} />
         <TabButton active={activeTab === "cocina"} count={groups.cocina.length} label={queueLabel} onClick={() => setActiveTab("cocina")} />
         <TabButton active={activeTab === "historial"} count={groups.historial.length} label="Historial" onClick={() => setActiveTab("historial")} />
@@ -240,11 +239,17 @@ export function OrdersReceptionClient({
         <section className="grid gap-4">
           {activeTab === "nuevos"
             ? groups.nuevos.map((order) => <PendingOrderReviewCard businessType={restaurant.businessType} context="pedidos" disabled={!hasOpenSession} key={order.id} order={order} restaurantSlug={restaurant.slug} />)
-            : visibleOrders.map((order) => <ReceptionOrderCard defaultPrintFormat={settings?.printFormat ?? "thermal_80"} key={order.id} order={order} restaurant={restaurant} />)}
+            : visibleOrders.map((order) =>
+                order.status === "pending" ? (
+                  <PendingOrderReviewCard businessType={restaurant.businessType} context="pedidos" disabled={!hasOpenSession} key={order.id} order={order} restaurantSlug={restaurant.slug} />
+                ) : (
+                  <ReceptionOrderCard defaultPrintFormat={settings?.printFormat ?? "thermal_80"} hasKitchenFlow={hasKitchenFlow} key={order.id} order={order} restaurant={restaurant} />
+                ),
+              )}
         </section>
       ) : (
         <EmptyState
-          title={activeTab === "nuevos" ? "Sin pedidos nuevos" : activeTab === "cocina" ? businessQueueEmptyLabel(restaurant.businessType) : "Sin historial reciente"}
+          title={activeTab === "todos" ? "Sin pedidos hoy" : activeTab === "nuevos" ? "Sin pedidos nuevos" : activeTab === "cocina" ? businessQueueEmptyLabel(restaurant.businessType) : "Sin historial reciente"}
           description="Cuando Supabase reciba o actualice pedidos aparecerán aquí automáticamente."
         />
       )}
@@ -276,16 +281,17 @@ function ReceptionOrderCard({
   order,
   restaurant,
   defaultPrintFormat,
+  hasKitchenFlow,
 }: {
   order: Order;
   restaurant: Restaurant;
   defaultPrintFormat: PrintFormat;
+  hasKitchenFlow: boolean;
 }) {
   const minutes = minutesSince(order.createdAt, new Date());
-  const nextKitchenStatus = order.status === "accepted" ? "preparing" : order.status === "preparing" ? "ready" : null;
-  const nextKitchenLabel = businessOrderAdvanceLabel(order.status, restaurant.businessType);
+  const nextKitchenStatus = !hasKitchenFlow && order.status === "accepted" ? "ready" : order.status === "accepted" ? "preparing" : order.status === "preparing" ? "ready" : null;
+  const nextKitchenLabel = !hasKitchenFlow && order.status === "accepted" ? "Marcar listo" : businessOrderAdvanceLabel(order.status, restaurant.businessType);
   const readyLabel = businessOrderReadyLabel(order.orderType, restaurant.businessType);
-  const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType);
 
   return (
     <Card className="rounded-[1.25rem] p-4">

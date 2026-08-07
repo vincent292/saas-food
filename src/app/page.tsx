@@ -47,9 +47,9 @@ import type { BusinessType } from "@/types/restaurant.types";
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; categoria?: string; ubicacion?: string; rubro?: string; miYopido?: string }>;
+  searchParams: Promise<{ q?: string; categoria?: string; ubicacion?: string; rubro?: string; miYopido?: string; buscar?: string }>;
 }) {
-  const { q = "", categoria = "", ubicacion = "", rubro = "", miYopido = "" } = await searchParams;
+  const { q = "", categoria = "", ubicacion = "", rubro = "", miYopido = "", buscar = "" } = await searchParams;
   const hasActiveFilter = Boolean(q || categoria || ubicacion || rubro);
   const miYopidoMode = miYopido === "registro" || miYopido === "register" ? "register" : "login";
   const openMiYopido = miYopido === "login" || miYopido === "ingresar" || miYopido === "registro" || miYopido === "register";
@@ -94,6 +94,7 @@ export default async function Home({
                 categories={baseDirectory.categoryCards}
                 dishes={baseDirectory.dishSuggestions}
                 initialLocation={ubicacion}
+                initialOpen={buscar === "1"}
                 initialQuery={q}
                 locations={baseDirectory.locations}
                 restaurants={baseDirectory.restaurants}

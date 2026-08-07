@@ -18,6 +18,7 @@ import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
 const defaultImage = defaultProductImage;
+export const PUBLIC_SEARCH_OPEN_EVENT = "yopido:open-public-search";
 type ActivePublicTheme = "light" | "dark";
 type SearchRestaurantCard = PublicRestaurantCard & { distanceKm?: number };
 
@@ -101,6 +102,7 @@ export function HomeSearchAutocomplete({
   locations,
   initialQuery = "",
   initialLocation = "",
+  initialOpen = false,
 }: {
   restaurants: PublicRestaurantCard[];
   dishes: PublicDishCard[];
@@ -109,12 +111,13 @@ export function HomeSearchAutocomplete({
   locations: string[];
   initialQuery?: string;
   initialLocation?: string;
+  initialOpen?: boolean;
 }) {
   const router = useRouter();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState(initialQuery);
   const [location, setLocation] = useState(initialLocation);
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(initialOpen);
   const [isClosing, setIsClosing] = useState(false);
   const [autoLocationStatus, setAutoLocationStatus] = useState<"idle" | "detecting" | "detected" | "denied" | "unavailable">("idle");
   const [userPosition, setUserPosition] = useState<GeoPoint | null>(null);
@@ -292,13 +295,18 @@ export function HomeSearchAutocomplete({
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  function openSearch() {
+  const openSearch = useCallback(() => {
     setIsClosing(false);
     if (!location && !userChangedLocation && autoLocationStatus === "idle") {
       setAutoLocationStatus("geolocation" in navigator ? "detecting" : "unavailable");
     }
     setIsOpen(true);
-  }
+  }, [autoLocationStatus, location, userChangedLocation]);
+
+  useEffect(() => {
+    window.addEventListener(PUBLIC_SEARCH_OPEN_EVENT, openSearch);
+    return () => window.removeEventListener(PUBLIC_SEARCH_OPEN_EVENT, openSearch);
+  }, [openSearch]);
 
   const requestUserLocation = useCallback(() => {
     if (!("geolocation" in navigator)) {

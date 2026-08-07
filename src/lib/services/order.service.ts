@@ -403,7 +403,7 @@ export const orderService = {
       )
       .eq("restaurant_id", restaurantId)
       .gte("created_at", startOfBusinessDayIso())
-      .in("status", ["pending", "accepted", "preparing", "ready", "delivered"])
+      .in("status", ["pending", "accepted", "preparing", "ready", "delivered", "cancelled"])
       .order("created_at", { ascending: false })
       .limit(160);
 

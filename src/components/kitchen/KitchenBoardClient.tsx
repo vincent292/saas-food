@@ -374,7 +374,7 @@ function KitchenCard({
         </div>
 
         {nextStatus ? (
-          <form action={updateOrderStatusAction}>
+          <form action={updateOrderStatusAction} data-navigation-feedback="off">
             <input name="restaurantId" type="hidden" value={order.restaurantId} />
             <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
             <input name="orderId" type="hidden" value={order.id} />

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
-import type { CashMovement, CashSession, CashSessionReport, CashSummary } from "@/types/cash.types";
+import type { CashAuditSnapshot, CashMovement, CashSession, CashSessionReport, CashSummary } from "@/types/cash.types";
 import type { PaymentMethodType } from "@/types/order.types";
 
 type CashSessionRow = {
@@ -103,6 +104,17 @@ function emptySummary(session: CashSession | null = null): CashSummary {
     adjustmentTotal: 0,
     expectedCash: session?.openingAmount ?? 0,
     netTotal: 0,
+  };
+}
+
+function emptyAuditSnapshot(): CashAuditSnapshot {
+  return {
+    refundCount: 0,
+    refundTotal: 0,
+    pendingCancellationReviews: 0,
+    approvedCancellationReviews: 0,
+    observedCancellationReviews: 0,
+    cashLinkedCancellationReviews: 0,
   };
 }
 
@@ -245,6 +257,64 @@ export const cashService = {
       adjustmentTotal: report.adjustmentTotal,
       expectedCash: report.expectedCash,
       netTotal: report.netTotal,
+    };
+  },
+
+  async countPendingCashCancellationReviews(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return 0;
+    }
+
+    const admin = createAdminClient();
+    const supabase = admin ?? (await createClient());
+    const { count, error } = await supabase
+      .from("order_cancellation_reviews")
+      .select("id", { count: "exact", head: true })
+      .eq("restaurant_id", restaurantId)
+      .eq("owner_review_status", "pending")
+      .or("payment_status_at_cancellation.eq.paid,cash_session_id.not.is.null");
+
+    if (error) {
+      return 0;
+    }
+
+    return count ?? 0;
+  },
+
+  async getAuditSnapshot(restaurantId: string): Promise<CashAuditSnapshot> {
+    if (!hasSupabaseEnv()) {
+      return emptyAuditSnapshot();
+    }
+
+    const session = await this.getOpenSession(restaurantId);
+    const since = session?.openedAt ?? startOfTodayIso();
+    const admin = createAdminClient();
+    const supabase = admin ?? (await createClient());
+
+    const [{ data: refundMovements }, { data: cancellationReviews }] = await Promise.all([
+      supabase
+        .from("cash_movements")
+        .select("amount,created_at,type,description")
+        .eq("restaurant_id", restaurantId)
+        .eq("type", "expense")
+        .ilike("description", "Reembolso%")
+        .gte("created_at", since),
+      supabase
+        .from("order_cancellation_reviews")
+        .select("owner_review_status,payment_status_at_cancellation,cash_session_id,cancelled_at")
+        .eq("restaurant_id", restaurantId)
+        .gte("cancelled_at", since),
+    ]);
+
+    const reviews = cancellationReviews ?? [];
+
+    return {
+      refundCount: refundMovements?.length ?? 0,
+      refundTotal: (refundMovements ?? []).reduce((sum, movement) => sum + Number(movement.amount ?? 0), 0),
+      pendingCancellationReviews: reviews.filter((review) => review.owner_review_status === "pending").length,
+      approvedCancellationReviews: reviews.filter((review) => review.owner_review_status === "approved").length,
+      observedCancellationReviews: reviews.filter((review) => review.owner_review_status === "observed").length,
+      cashLinkedCancellationReviews: reviews.filter((review) => Boolean(review.cash_session_id) || review.payment_status_at_cancellation === "paid").length,
     };
   },
 

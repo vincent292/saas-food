@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 import { NavigationFeedback } from "@/components/layout/NavigationFeedback";
+import { PublicBottomNavigation } from "@/components/customer/PublicBottomNavigation";
 import { getSiteUrl } from "@/lib/seo/site-url";
 import "./globals.css";
 
@@ -78,6 +79,7 @@ export default function RootLayout({
           <NavigationFeedback />
         </Suspense>
         {children}
+        <PublicBottomNavigation />
       </body>
     </html>
   );

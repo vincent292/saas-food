@@ -1,9 +1,11 @@
 "use client";
 
-import { Banknote, Bike, Calculator, Copy, CreditCard, ExternalLink, FileText, History, MessageCircle, PackageSearch, ReceiptText, Search, ShoppingBag, Store, X, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Banknote, Bike, Calculator, Copy, CreditCard, ExternalLink, FileText, History, Maximize2, MessageCircle, PackageSearch, QrCode, ReceiptText, Search, ShoppingBag, Store, X, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
+import QRCode from "qrcode";
 import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, updateOrderStatusAction } from "@/app/admin/actions";
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
@@ -21,7 +23,7 @@ import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import { createClient } from "@/lib/supabase/client";
-import type { CashMovement, CashSessionReport, CashSummary } from "@/types/cash.types";
+import type { CashAuditSnapshot, CashMovement, CashSessionReport, CashSummary } from "@/types/cash.types";
 import type { Order } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
 import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
@@ -40,9 +42,9 @@ function normalizeTab(value: string | undefined): CashTab {
   return "venta";
 }
 
-function statusMessage(status: CashPageStatus, businessType: Restaurant["businessType"]) {
-  const preparationArea = businessPreparationAreaLabel(businessType);
-  const hasKitchenFlow = businessTypeSupportsKitchen(businessType);
+function statusMessage(status: CashPageStatus, businessType: Restaurant["businessType"], kitchenEnabled = true) {
+  const hasKitchenFlow = businessTypeSupportsKitchen(businessType) && kitchenEnabled;
+  const preparationArea = hasKitchenFlow ? businessPreparationAreaLabel(businessType) : "alistado";
 
   if (status.opened) {
     return { tone: "success", text: "Caja abierta correctamente." };
@@ -51,10 +53,10 @@ function statusMessage(status: CashPageStatus, businessType: Restaurant["busines
     return { tone: "success", text: "Caja cerrada correctamente. El reporte quedó guardado." };
   }
   if (status.charged) {
-    return { tone: "success", text: hasKitchenFlow ? "Pedido aprobado, cobrado y enviado a cocina." : `Pedido aprobado, cobrado y enviado a ${preparationArea}.` };
+    return { tone: "success", text: hasKitchenFlow ? "Pedido aprobado, cobrado y enviado a cocina." : "Pedido aprobado, cobrado y marcado listo." };
   }
   if (status.pos) {
-    return { tone: "success", text: hasKitchenFlow ? "Venta POS cobrada y enviada a cocina." : `Venta POS cobrada y enviada a ${preparationArea}.` };
+    return { tone: "success", text: hasKitchenFlow ? "Venta POS cobrada y enviada a cocina." : "Venta POS cobrada y cerrada." };
   }
   if (status.expense) {
     return { tone: "success", text: "Movimiento registrado correctamente." };
@@ -82,6 +84,7 @@ function statusMessage(status: CashPageStatus, businessType: Restaurant["busines
     "refund-reason-required": "Escribe un motivo de al menos 5 caracteres para el reembolso.",
     "already-refunded": "Ese pedido ya fue reembolsado.",
     "order-not-paid": "Solo se pueden reembolsar pedidos pagados.",
+    "pending-cancellation-review": "Hay anulaciones cobradas pendientes de aprobacion del dueno. Revisa Anulaciones antes de cerrar caja.",
   };
 
   if (status.error.startsWith("negative-stock")) {
@@ -118,6 +121,8 @@ export function CashWorkspaceClient({
   reports,
   orders,
   status,
+  pendingCancellationReviews,
+  cashAudit,
 }: {
   restaurant: Restaurant;
   summary: CashSummary;
@@ -130,14 +135,18 @@ export function CashWorkspaceClient({
   reports: CashSessionReport[];
   orders: Order[];
   status: CashPageStatus;
+  pendingCancellationReviews: number;
+  cashAudit: CashAuditSnapshot | null;
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<CashTab>(() => normalizeTab(status.tab));
   const [isTabPending, startTabTransition] = useTransition();
   const [showPosCreatedModal, setShowPosCreatedModal] = useState(Boolean(status.pos && status.posOrderId && status.posTrackingToken));
+  const [showLargeTrackingQr, setShowLargeTrackingQr] = useState(false);
   const [posWhatsAppPhone, setPosWhatsAppPhone] = useState(status.posCustomerPhone ?? "");
   const [orderSearch, setOrderSearch] = useState("");
   const [copied, setCopied] = useState(false);
+  const [trackingQrUrl, setTrackingQrUrl] = useState("");
   const [clientOrigin, setClientOrigin] = useState("");
   const refreshTimeoutRef = useRef<number | null>(null);
   const lastRefreshAtRef = useRef(0);
@@ -216,12 +225,12 @@ export function CashWorkspaceClient({
   const fallbackRefreshIntervalMs = activeOperationalOrderCount > 0 ? CASH_REFRESH_FAST_INTERVAL_MS : CASH_REFRESH_QUIET_INTERVAL_MS;
   const ordersById = useMemo(() => new Map(todaysOrders.map((order) => [order.id, order])), [todaysOrders]);
   const latestReport = reports[0];
-  const banner = statusMessage(status, restaurant.businessType);
+  const banner = statusMessage(status, restaurant.businessType, settings?.kitchenEnabled ?? true);
   const hasOperationalCounts = true;
   const activeTabIsLoaded = activeTab === loadedTab;
   const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
   const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
-  const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType);
+  const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType) && (settings?.kitchenEnabled ?? true);
   const trackingUrl =
     status.posOrderId && status.posTrackingToken && clientOrigin
       ? `${clientOrigin}${publicRestaurantPath(restaurant.slug, `pedido/${status.posOrderId}`)}?token=${status.posTrackingToken}`
@@ -230,6 +239,30 @@ export function CashWorkspaceClient({
     posWhatsAppPhone.replace(/\D/g, "") && trackingUrl
       ? `https://wa.me/${posWhatsAppPhone.replace(/\D/g, "")}?text=${encodeURIComponent(`Tu pedido ${status.posOrderNumber ?? ""} ya fue registrado. Puedes seguirlo aqui: ${trackingUrl}`)}`
       : "";
+
+  useEffect(() => {
+    let active = true;
+    if (!trackingUrl) {
+      return;
+    }
+
+    QRCode.toDataURL(trackingUrl, { errorCorrectionLevel: "M", margin: 2, width: 320 })
+      .then((dataUrl) => {
+        if (active) {
+          setTrackingQrUrl(dataUrl);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setTrackingQrUrl("");
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [trackingUrl]);
+
   const tabs: { key: CashTab; label: string; icon: LucideIcon; count?: number }[] = [
     { key: "venta", label: "Venta POS", icon: Store },
     { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: hasOperationalCounts ? pendingOrders.length + activeTableOrders.length : undefined },
@@ -348,10 +381,15 @@ export function CashWorkspaceClient({
                 <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Debe haber en efectivo</p>
                 <p className="text-2xl font-black text-[var(--color-heading)]">{formatMoney(summary.expectedCash)}</p>
               </div>
+              {pendingCancellationReviews > 0 ? (
+                <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">
+                  Hay {pendingCancellationReviews} anulacion{pendingCancellationReviews === 1 ? "" : "es"} cobrada{pendingCancellationReviews === 1 ? "" : "s"} pendiente{pendingCancellationReviews === 1 ? "" : "s"} de aprobacion del dueno.
+                </div>
+              ) : null}
               <Input min={0} name="countedAmount" placeholder="Efectivo contado al cierre" required step="0.01" type="number" />
               <Textarea name="notes" placeholder="Notas de cierre" />
-              <Button className="w-full" type="submit" variant="danger">
-                Cerrar caja
+              <Button className="w-full" disabled={pendingCancellationReviews > 0} type="submit" variant="danger">
+                {pendingCancellationReviews > 0 ? "Requiere aprobacion del dueno" : "Cerrar caja"}
               </Button>
             </form>
           ) : (
@@ -396,6 +434,30 @@ export function CashWorkspaceClient({
                 <p className="mt-2 break-all text-sm font-semibold text-[var(--color-body)]">{trackingUrl || "Abriendo enlace..."}</p>
               </div>
 
+              <div className="grid gap-3 rounded-2xl border border-[var(--border)] p-3 sm:grid-cols-[auto_1fr] sm:items-center">
+                <button
+                  className="mx-auto grid h-36 w-36 place-items-center rounded-2xl bg-white p-2 shadow-sm"
+                  disabled={!trackingQrUrl}
+                  onClick={() => setShowLargeTrackingQr(true)}
+                  type="button"
+                >
+                  {trackingQrUrl ? <Image alt="QR de seguimiento del pedido" className="h-full w-full" height={128} src={trackingQrUrl} unoptimized width={128} /> : <QrCode className="h-12 w-12 text-[var(--color-secondary-text)]" />}
+                </button>
+                <div>
+                  <p className="text-sm font-black text-[var(--color-heading)]">QR para el cliente</p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Escanea y abre el seguimiento del pedido directamente.</p>
+                  <button
+                    className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-[var(--border)] px-4 text-sm font-black disabled:opacity-50"
+                    disabled={!trackingQrUrl}
+                    onClick={() => setShowLargeTrackingQr(true)}
+                    type="button"
+                  >
+                    <Maximize2 className="h-4 w-4" />
+                    Ver QR grande
+                  </button>
+                </div>
+              </div>
+
               <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                 <Input name="posModalPhone" onChange={(event) => setPosWhatsAppPhone(event.target.value)} placeholder="Telefono o WhatsApp del cliente" value={posWhatsAppPhone} />
                 <button
@@ -432,6 +494,26 @@ export function CashWorkspaceClient({
                 </a>
               </div>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showLargeTrackingQr && trackingQrUrl ? (
+        <div className="fixed inset-0 z-[95] grid place-items-center bg-[var(--color-overlay)] p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-[1.5rem] bg-[var(--surface)] p-5 text-center shadow-2xl">
+            <div className="flex items-center justify-between gap-3 text-left">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Seguimiento</p>
+                <h2 className="text-xl font-black text-[var(--color-heading)]">Pedido {status.posOrderNumber}</h2>
+              </div>
+              <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={() => setShowLargeTrackingQr(false)} type="button">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="mx-auto mt-5 grid max-w-sm place-items-center rounded-[1.25rem] bg-white p-5">
+              <Image alt="QR grande de seguimiento del pedido" className="h-full w-full" height={360} src={trackingQrUrl} unoptimized width={360} />
+            </div>
+            <p className="mt-4 break-all text-sm font-semibold text-[var(--color-secondary-text)]">{trackingUrl}</p>
           </div>
         </div>
       ) : null}
@@ -591,7 +673,7 @@ export function CashWorkspaceClient({
 
       {activeTab === "cierre" ? (
         <section className="space-y-6">
-          <CashSessionControl latestReport={latestReport} restaurantId={restaurant.id} summary={summary} />
+          <CashSessionControl cashAudit={cashAudit} latestReport={latestReport} pendingCancellationReviews={pendingCancellationReviews} restaurantId={restaurant.id} summary={summary} />
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <CashSummaryCard amount={summary.expectedCash} detail="Apertura + efectivo - egresos" label="Efectivo esperado" />
             <CashSummaryCard amount={summary.cashTotal} label="Ventas efectivo" />
@@ -642,7 +724,19 @@ function CompactCashMetric({ label, amount, tone = "neutral" }: { label: string;
   );
 }
 
-function CashSessionControl({ restaurantId, summary, latestReport }: { restaurantId: string; summary: CashSummary; latestReport?: CashSessionReport }) {
+function CashSessionControl({
+  restaurantId,
+  summary,
+  latestReport,
+  pendingCancellationReviews,
+  cashAudit,
+}: {
+  restaurantId: string;
+  summary: CashSummary;
+  latestReport?: CashSessionReport;
+  pendingCancellationReviews: number;
+  cashAudit: CashAuditSnapshot | null;
+}) {
   return (
     <Card className="p-4 sm:p-5">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -663,6 +757,27 @@ function CashSessionControl({ restaurantId, summary, latestReport }: { restauran
             <SessionMetric amount={summary.digitalTotal} label="Cobros digitales" />
             <SessionMetric amount={summary.cashExpenses} danger label="Egresos efectivo" />
           </div>
+
+          {cashAudit ? (
+            <div className="mt-4 rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3">
+              <div className="flex items-start gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]">
+                  <AlertTriangle className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-[var(--text)]">Auditoria del turno</p>
+                  <p className="text-xs font-bold text-[var(--muted)]">Revisa anulaciones y reembolsos antes de cuadrar caja.</p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                <AuditMetric label="Reembolsos" value={`${cashAudit.refundCount} / ${formatMoney(cashAudit.refundTotal)}`} />
+                <AuditMetric label="Pendientes" tone={cashAudit.pendingCancellationReviews > 0 ? "warning" : "neutral"} value={String(cashAudit.pendingCancellationReviews)} />
+                <AuditMetric label="Aprobadas" value={String(cashAudit.approvedCancellationReviews)} />
+                <AuditMetric label="Observadas" tone={cashAudit.observedCancellationReviews > 0 ? "warning" : "neutral"} value={String(cashAudit.observedCancellationReviews)} />
+                <AuditMetric label="Afectan caja" tone={cashAudit.cashLinkedCancellationReviews > 0 ? "warning" : "neutral"} value={String(cashAudit.cashLinkedCancellationReviews)} />
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-surface)] p-3">
@@ -674,10 +789,15 @@ function CashSessionControl({ restaurantId, summary, latestReport }: { restauran
                 <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Debe haber en efectivo</p>
                 <p className="text-2xl font-black text-[var(--color-heading)]">{formatMoney(summary.expectedCash)}</p>
               </div>
+              {pendingCancellationReviews > 0 ? (
+                <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">
+                  Hay {pendingCancellationReviews} anulacion{pendingCancellationReviews === 1 ? "" : "es"} cobrada{pendingCancellationReviews === 1 ? "" : "s"} pendiente{pendingCancellationReviews === 1 ? "" : "s"} de aprobacion del dueno.
+                </div>
+              ) : null}
               <Input min={0} name="countedAmount" placeholder="Efectivo contado al cierre" required step="0.01" type="number" />
               <Textarea name="notes" placeholder="Notas de cierre" />
-              <Button className="w-full" type="submit" variant="danger">
-                Cerrar caja
+              <Button className="w-full" disabled={pendingCancellationReviews > 0} type="submit" variant="danger">
+                {pendingCancellationReviews > 0 ? "Requiere aprobacion del dueno" : "Cerrar caja"}
               </Button>
             </form>
           ) : (
@@ -828,6 +948,15 @@ function SessionMetric({ label, amount, detail, danger }: { label: string; amoun
       <p className="text-sm font-semibold text-[var(--color-secondary-text)]">{label}</p>
       <p className={cn("mt-1 text-2xl font-black", danger ? "text-[var(--color-danger)]" : "text-[var(--color-heading)]")}>{formatMoney(amount)}</p>
       {detail ? <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">{detail}</p> : null}
+    </div>
+  );
+}
+
+function AuditMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "warning" }) {
+  return (
+    <div className={cn("rounded-2xl px-3 py-2", tone === "warning" ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--color-surface)] text-[var(--color-heading)]")}>
+      <p className="text-[10px] font-black uppercase tracking-[0.12em]">{label}</p>
+      <p className="mt-1 truncate text-sm font-black">{value}</p>
     </div>
   );
 }

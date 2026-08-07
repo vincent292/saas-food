@@ -19,23 +19,35 @@ import {
 } from "@/lib/client/customer-account";
 import { createCustomerClient } from "@/lib/supabase/customer-client";
 import { cn } from "@/lib/utils/cn";
+import { formatShortDate } from "@/lib/utils/dates";
+import { formatMoney } from "@/lib/utils/money";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
 type ButtonTone = "onPrimary" | "surface" | "plain";
 type CustomerAuthMode = "login" | "register";
+type CustomerPanel = "profile" | "orders";
 
 export function PublicCustomerAccountButton({
+  buttonClassName,
+  buttonContent,
   compact = false,
   initialMode = "login",
   initialOpen = false,
+  initialPanel = "profile",
+  showCompactLabel = false,
   tone = "onPrimary",
 }: {
+  buttonClassName?: string;
+  buttonContent?: ReactNode;
   compact?: boolean;
   initialMode?: CustomerAuthMode;
   initialOpen?: boolean;
+  initialPanel?: CustomerPanel;
+  showCompactLabel?: boolean;
   tone?: ButtonTone;
 }) {
   const [open, setOpen] = useState(initialOpen);
-  const [account, setAccount] = useState<PublicCustomerAccount>({ profile: null, addresses: [] });
+  const [account, setAccount] = useState<PublicCustomerAccount>({ profile: null, addresses: [], orders: [] });
   const [sessionEmail, setSessionEmail] = useState("");
   const [loading, setLoading] = useState(!initialOpen);
 
@@ -45,7 +57,7 @@ export function PublicCustomerAccountButton({
       const supabase = createCustomerClient();
       const { data } = await supabase.auth.getSession();
       setSessionEmail(data.session?.user.email ?? "");
-      setAccount(data.session ? await fetchPublicCustomerAccount() : { profile: null, addresses: [] });
+      setAccount(data.session ? await fetchPublicCustomerAccount() : { profile: null, addresses: [], orders: [] });
     } finally {
       setLoading(false);
     }
@@ -68,7 +80,7 @@ export function PublicCustomerAccountButton({
   }, []);
 
   const label = account.profile?.fullName?.split(" ")[0] || sessionEmail.split("@")[0] || "Mi Yopido";
-  const buttonClassName = cn(
+  const defaultButtonClassName = cn(
     "inline-flex shrink-0 items-center justify-center gap-2 rounded-full text-sm font-black transition active:scale-95 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)]",
     compact ? "h-10 w-10" : "min-h-10 px-3 sm:min-h-12 sm:px-4",
     tone === "onPrimary" && "border border-white/22 bg-white/8 text-white shadow-sm backdrop-blur hover:bg-white/14",
@@ -78,9 +90,13 @@ export function PublicCustomerAccountButton({
 
   return (
     <>
-      <button aria-label="Abrir Mi Yopido" className={buttonClassName} onClick={() => setOpen(true)} type="button">
-        <UserRound className="h-5 w-5 sm:h-6 sm:w-6" />
-        {!compact ? <span className="hidden sm:inline">{sessionEmail ? label : "Mi Yopido"}</span> : null}
+      <button aria-label="Abrir Mi Yopido" className={buttonClassName ?? defaultButtonClassName} onClick={() => setOpen(true)} type="button">
+        {buttonContent ?? (
+          <>
+            <UserRound className="h-5 w-5 sm:h-6 sm:w-6" />
+            {!compact || showCompactLabel ? <span className={compact && !showCompactLabel ? "hidden" : "hidden sm:inline"}>{sessionEmail ? label : "Mi Yopido"}</span> : null}
+          </>
+        )}
       </button>
       {open ? (
         <CustomerAccountModal
@@ -88,6 +104,7 @@ export function PublicCustomerAccountButton({
           key={`${sessionEmail}:${account.profile?.updatedAt ?? account.profile?.id ?? "guest"}`}
           loading={loading}
           initialMode={initialMode}
+          initialPanel={initialPanel}
           onClose={() => setOpen(false)}
           onRefresh={refreshAccount}
           sessionEmail={sessionEmail}
@@ -97,10 +114,27 @@ export function PublicCustomerAccountButton({
   );
 }
 
+const orderStatusLabels = {
+  pending: "Recibido",
+  accepted: "Aceptado",
+  preparing: "Preparando",
+  ready: "Listo",
+  delivered: "Entregado",
+  cancelled: "Cancelado",
+} as const;
+
+const orderTypeLabels = {
+  delivery: "Delivery",
+  pickup: "Recojo",
+  table: "Mesa",
+  pos: "POS",
+} as const;
+
 function CustomerAccountModal({
   account,
   loading,
   initialMode,
+  initialPanel,
   onClose,
   onRefresh,
   sessionEmail,
@@ -108,11 +142,13 @@ function CustomerAccountModal({
   account: PublicCustomerAccount;
   loading: boolean;
   initialMode: CustomerAuthMode;
+  initialPanel: CustomerPanel;
   onClose: () => void;
   onRefresh: () => Promise<void>;
   sessionEmail: string;
 }) {
   const [mode, setMode] = useState<CustomerAuthMode>(initialMode);
+  const [panel, setPanel] = useState<CustomerPanel>(initialPanel);
   const [email, setEmail] = useState(sessionEmail);
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState(account.profile?.fullName ?? "");
@@ -128,6 +164,7 @@ function CustomerAccountModal({
 
   const loggedIn = Boolean(sessionEmail);
   const profileComplete = Boolean(account.profile);
+  const orders = account.orders ?? [];
   const firstName = useMemo(() => {
     const fromProfile = account.profile?.fullName?.trim().split(/\s+/)[0];
     return fromProfile || sessionEmail.split("@")[0] || "";
@@ -209,9 +246,27 @@ function CustomerAccountModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[130] grid place-items-end bg-[rgb(8_36_65_/_0.68)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Mi Yopido">
-      <div className="max-h-[92dvh] w-full overflow-hidden rounded-t-[1.8rem] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[2rem]">
-        <div className={cn("flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[#12355B] text-white", loggedIn ? "p-5" : "px-5 py-4")}>
+    <div
+      className="fixed inset-0 z-[130] grid place-items-end bg-[rgb(8_36_65_/_0.68)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Mi Yopido"
+    >
+      <div
+        className="relative flex max-h-[94dvh] w-full max-w-[min(100vw,62rem)] flex-col overflow-hidden rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:max-h-[90dvh] sm:rounded-[1.5rem]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          aria-label="Cerrar Mi Yopido"
+          className="absolute right-3 top-3 z-20 grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl ring-1 ring-black/8 transition hover:scale-105 active:scale-95"
+          onClick={onClose}
+          type="button"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
+        <div className={cn("flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] bg-[#12355B] pr-20 text-white", loggedIn ? "p-5 pr-20" : "px-5 py-4 pr-20")}>
           <div>
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[var(--accent)]">Mi Yopido</p>
             {loggedIn ? (
@@ -221,35 +276,39 @@ function CustomerAccountModal({
               </>
             ) : null}
           </div>
-          <button aria-label="Cerrar Mi Yopido" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/12 text-white" onClick={onClose} type="button">
-            <X className="h-5 w-5" />
-          </button>
         </div>
 
-        <div className="admin-scrollbar max-h-[calc(92dvh-108px)] overflow-y-auto p-4 sm:p-5">
+        <div className="admin-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
           {loading ? <div className="rounded-3xl bg-[var(--color-surface)] p-5 text-sm font-black text-[var(--muted)]">Cargando Mi Yopido...</div> : null}
 
           {!loading && !loggedIn ? (
-            <form className="grid gap-4" onSubmit={submitAuth}>
+            <form className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(20rem,1fr)] lg:items-start" onSubmit={submitAuth}>
               <AuthWelcomePanel mode={mode} />
-              <div className="grid grid-cols-2 gap-2 rounded-[1.25rem] bg-[var(--primary-light)] p-1">
-                <button className={cn("min-h-11 rounded-full text-sm font-black text-[var(--muted)] transition", mode === "login" && "bg-[var(--primary)] text-white shadow-sm")} onClick={() => setMode("login")} type="button">Ingresar</button>
-                <button className={cn("min-h-11 rounded-full text-sm font-black text-[var(--muted)] transition", mode === "register" && "bg-[var(--primary)] text-white shadow-sm")} onClick={() => setMode("register")} type="button">Registro</button>
-              </div>
-              <div className="grid gap-3 rounded-[1.45rem] border border-[var(--border)] bg-[var(--color-card)] p-3 shadow-[0_18px_48px_rgb(18_53_91_/_0.08)] sm:p-4">
-                {mode === "register" ? (
-                  <>
-                    <Input onChange={(event) => setFullName(event.target.value)} placeholder="Nombre completo" required value={fullName} />
-                    <Input onChange={(event) => setPhone(event.target.value)} placeholder="Telefono / WhatsApp" required type="tel" value={phone} />
-                    <Input onChange={(event) => setDocumentNumber(event.target.value)} placeholder="Carnet de identidad" required value={documentNumber} />
-                  </>
+              <div className="grid gap-4">
+                {initialPanel === "orders" ? (
+                  <div className="rounded-[1.25rem] bg-[var(--accent-soft)] p-3 text-sm font-bold text-[var(--primary)]">
+                    Puedes pedir sin cuenta. Inicia sesion solo si quieres guardar tus pedidos y verlos despues aqui.
+                  </div>
                 ) : null}
-                <Input autoCapitalize="none" onChange={(event) => setEmail(event.target.value)} placeholder="Correo electronico" required type="email" value={email} />
-                <Input onChange={(event) => setPassword(event.target.value)} placeholder="Contrasena" required type="password" value={password} />
+                <div className="grid grid-cols-2 gap-2 rounded-[1.25rem] bg-[var(--primary-light)] p-1">
+                  <button className={cn("min-h-11 rounded-full text-sm font-black text-[var(--muted)] transition", mode === "login" && "bg-[var(--primary)] text-white shadow-sm")} onClick={() => setMode("login")} type="button">Ingresar</button>
+                  <button className={cn("min-h-11 rounded-full text-sm font-black text-[var(--muted)] transition", mode === "register" && "bg-[var(--primary)] text-white shadow-sm")} onClick={() => setMode("register")} type="button">Registro</button>
+                </div>
+                <div className="grid gap-3 rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-card)] p-3 shadow-[0_18px_48px_rgb(18_53_91_/_0.08)] sm:p-4">
+                  {mode === "register" ? (
+                    <>
+                      <Input onChange={(event) => setFullName(event.target.value)} placeholder="Nombre completo" required value={fullName} />
+                      <Input onChange={(event) => setPhone(event.target.value)} placeholder="Telefono / WhatsApp" required type="tel" value={phone} />
+                      <Input onChange={(event) => setDocumentNumber(event.target.value)} placeholder="Carnet de identidad" required value={documentNumber} />
+                    </>
+                  ) : null}
+                  <Input autoCapitalize="none" onChange={(event) => setEmail(event.target.value)} placeholder="Correo electronico" required type="email" value={email} />
+                  <Input onChange={(event) => setPassword(event.target.value)} placeholder="Contrasena" required type="password" value={password} />
+                </div>
+                {error ? <Feedback tone="error">{error}</Feedback> : null}
+                {message ? <Feedback tone="success">{message}</Feedback> : null}
+                <Button className="min-h-12 w-full" disabled={saving} type="submit">{saving ? "Validando..." : mode === "login" ? "Iniciar sesion" : "Crear cuenta"}</Button>
               </div>
-              {error ? <Feedback tone="error">{error}</Feedback> : null}
-              {message ? <Feedback tone="success">{message}</Feedback> : null}
-              <Button disabled={saving} type="submit">{saving ? "Validando..." : mode === "login" ? "Iniciar sesion" : "Crear cuenta"}</Button>
             </form>
           ) : null}
 
@@ -258,9 +317,20 @@ function CustomerAccountModal({
               <div className="grid gap-3 sm:grid-cols-3">
                 <SummaryCard icon={<CheckCircle2 className="h-5 w-5" />} label="Perfil" value={profileComplete ? "Listo" : "Falta"} />
                 <SummaryCard icon={<MapPin className="h-5 w-5" />} label="Direcciones" value={String(account.addresses.length)} />
-                <SummaryCard icon={<ReceiptText className="h-5 w-5" />} label="Pedidos" value="Listos" />
+                <SummaryCard icon={<ReceiptText className="h-5 w-5" />} label="Pedidos" value={String(orders.length)} />
               </div>
 
+              <div className="grid grid-cols-2 gap-2 rounded-[1.25rem] bg-[var(--primary-light)] p-1">
+                <button className={cn("min-h-11 rounded-full text-sm font-black text-[var(--muted)] transition", panel === "profile" && "bg-[var(--primary)] text-white shadow-sm")} onClick={() => setPanel("profile")} type="button">
+                  Perfil
+                </button>
+                <button className={cn("min-h-11 rounded-full text-sm font-black text-[var(--muted)] transition", panel === "orders" && "bg-[var(--primary)] text-white shadow-sm")} onClick={() => setPanel("orders")} type="button">
+                  Pedidos
+                </button>
+              </div>
+
+              {panel === "profile" ? (
+                <>
               <section className="rounded-[1.4rem] border border-[var(--border)] bg-[var(--color-card)] p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -328,6 +398,50 @@ function CustomerAccountModal({
                   </form>
                 ) : null}
               </section>
+                </>
+              ) : (
+                <section className="rounded-[1.4rem] border border-[var(--border)] bg-[var(--color-card)] p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--primary)] text-white"><ReceiptText className="h-5 w-5" /></span>
+                    <div>
+                      <h3 className="text-lg font-black">Tus pedidos</h3>
+                      <p className="text-sm font-semibold text-[var(--muted)]">Guardamos los pedidos hechos con tu cuenta o con tu telefono registrado.</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3">
+                    {orders.length ? orders.map((order) => (
+                      <div className="rounded-[1.15rem] bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]" key={order.id}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-base font-black text-[var(--text)]">{order.restaurantName}</p>
+                            <p className="mt-1 text-xs font-bold text-[var(--muted)]">
+                              {order.orderNumber} | {orderTypeLabels[order.orderType]} | {formatShortDate(order.createdAt)}
+                            </p>
+                          </div>
+                          <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-xs font-black", order.status === "cancelled" ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]" : order.status === "delivered" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--primary-light)] text-[var(--primary)]")}>
+                            {orderStatusLabels[order.status]}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-lg font-black text-[var(--primary)]">{formatMoney(order.total)}</p>
+                          {order.restaurantSlug ? (
+                            <a
+                              className="inline-flex min-h-10 items-center justify-center rounded-full bg-[var(--primary)] px-4 text-sm font-black text-white"
+                              href={`${publicRestaurantPath(order.restaurantSlug, `pedido/${order.id}`)}?token=${order.trackingToken}`}
+                            >
+                              Ver seguimiento
+                            </a>
+                          ) : null}
+                        </div>
+                      </div>
+                    )) : (
+                      <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-bold text-[var(--muted)]">
+                        Todavia no hay pedidos guardados. Igual puedes pedir sin cuenta; si usas este telefono, apareceran aqui cuando inicies sesion.
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
 
               {error ? <Feedback tone="error">{error}</Feedback> : null}
               {message ? <Feedback tone="success">{message}</Feedback> : null}

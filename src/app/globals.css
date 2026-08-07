@@ -450,6 +450,18 @@ body.public-search-open .public-site-header {
   visibility: hidden;
 }
 
+body.public-search-open .public-bottom-navigation,
+body.public-restaurant-order-page .public-bottom-navigation {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(100%);
+}
+
+body.public-search-open .public-bottom-navigation-spacer,
+body.public-restaurant-order-page .public-bottom-navigation-spacer {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

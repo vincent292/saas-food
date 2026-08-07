@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteRestaurantAssets, uploadPrivateFile, uploadPublicImage } from "@/lib/supabase/storage";
 import { fullPlanKey, fullPlanModules } from "@/lib/billing/full-plan";
 import {
+  businessTypeSupportsKitchen,
   normalizeRestaurantBusinessType,
   normalizeRestaurantCategory,
   restaurantBusinessTypeValues,
@@ -413,6 +414,7 @@ const updateOrderStatusSchema = z.object({
   status: z.enum(["pending", "accepted", "preparing", "ready", "delivered", "cancelled"]),
   source: z.enum(["admin", "kitchen", "pedidos", "caja"]).default("admin"),
   tab: z.enum(["delivery", "recojo", "pedidos"]).optional(),
+  reason: z.string().optional(),
 });
 
 const createDeliveryLinkSchema = z.object({
@@ -481,6 +483,12 @@ const rejectCashOrderSchema = z.object({
   restaurantSlug: z.string().min(1).optional(),
   source: z.enum(["pedidos", "caja"]).default("caja"),
   reason: z.string().min(3, "Ingresa un motivo"),
+});
+
+const reviewOrderCancellationSchema = z.object({
+  reviewId: z.string().uuid(),
+  notes: z.string().optional(),
+  returnTo: z.string().optional(),
 });
 
 const posCartItemSchema = z.object({
@@ -1743,6 +1751,15 @@ async function getOpenCashSession(restaurantId: string) {
   return data;
 }
 
+async function restaurantUsesKitchenFlow(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {
+  const [{ data: restaurant }, { data: settings }] = await Promise.all([
+    supabase.from("restaurants").select("business_type").eq("id", restaurantId).maybeSingle(),
+    supabase.from("restaurant_settings").select("kitchen_enabled").eq("restaurant_id", restaurantId).maybeSingle(),
+  ]);
+
+  return businessTypeSupportsKitchen(restaurant?.business_type) && settings?.kitchen_enabled !== false;
+}
+
 function cashErrorKey(error: { message?: string; code?: string } | null | undefined, fallback: string) {
   const raw = error?.message || error?.code || fallback;
   return raw
@@ -1767,6 +1784,111 @@ async function revalidateOrderDecisionPaths(restaurantId: string, restaurantSlug
     revalidatePath(publicRestaurantPath(restaurantSlug, "seguimiento"));
     revalidatePath(`/r/${restaurantSlug}`);
     revalidatePath(`/r/${restaurantSlug}/seguimiento`);
+  }
+}
+
+async function createOrderCancellationReview({
+  supabase,
+  restaurantId,
+  orderId,
+  actorUserId,
+  kind,
+  reason,
+  orderStatusAtCancellation,
+  paymentStatusAtCancellation,
+}: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  restaurantId: string;
+  orderId: string;
+  actorUserId: string;
+  kind: "rejected" | "cancelled" | "deleted";
+  reason: string;
+  orderStatusAtCancellation?: OrderStatus;
+  paymentStatusAtCancellation?: "pending" | "paid" | "cancelled" | "refunded";
+}) {
+  const [{ data: order }, { data: items }, { data: deliveryLink }, { data: cashMovement }, { data: actorProfile }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select(
+        "id,restaurant_id,order_number,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,subtotal,delivery_fee,discount_total,total,notes,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,created_at,updated_at",
+      )
+      .eq("restaurant_id", restaurantId)
+      .eq("id", orderId)
+      .maybeSingle(),
+    supabase
+      .from("order_items")
+      .select("id,order_id,product_id,product_name,unit_price,quantity,subtotal,notes")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("order_delivery_links")
+      .select("status,delivery_phone,delivery_name,created_at,opened_at,arrived_at,delivered_at")
+      .eq("restaurant_id", restaurantId)
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("cash_movements")
+      .select("id,cash_session_id,amount,payment_method,description,created_at")
+      .eq("restaurant_id", restaurantId)
+      .eq("order_id", orderId)
+      .eq("type", "sale")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase.from("profiles").select("full_name,email").eq("id", actorUserId).maybeSingle(),
+  ]);
+
+  if (!order) {
+    return;
+  }
+
+  const dispatchedAt = deliveryLink?.created_at ?? null;
+  const snapshot = {
+    order,
+    items: items ?? [],
+    deliveryDispatch: deliveryLink ?? null,
+    cashMovement: cashMovement ?? null,
+  } satisfies Json;
+
+  const { error } = await supabase.from("order_cancellation_reviews").upsert(
+    {
+      restaurant_id: restaurantId,
+      order_id: orderId,
+      order_number: order.order_number,
+      order_status_at_cancellation: orderStatusAtCancellation ?? order.status,
+      payment_status_at_cancellation: paymentStatusAtCancellation ?? order.payment_status,
+      order_type: order.order_type,
+      total: order.total,
+      payment_method: order.payment_method,
+      cancellation_kind: kind,
+      reason,
+      cancelled_by: actorUserId,
+      cancelled_by_name: actorProfile?.full_name ?? null,
+      cancelled_by_email: actorProfile?.email ?? null,
+      cancelled_at: new Date().toISOString(),
+      payment_receipt_url: order.payment_receipt_url,
+      payment_receipt_reference: order.payment_receipt_reference,
+      payment_receipt_uploaded_at: order.payment_receipt_uploaded_at,
+      requested_fulfillment_at: order.requested_fulfillment_at,
+      accepted_at: order.accepted_at,
+      ready_at: order.ready_at,
+      dispatched_at: dispatchedAt,
+      delivered_at: order.delivered_at ?? deliveryLink?.delivered_at ?? null,
+      cash_session_id: cashMovement?.cash_session_id ?? null,
+      cash_movement_id: cashMovement?.id ?? null,
+      owner_review_status: "pending",
+      owner_review_notes: null,
+      owner_reviewed_by: null,
+      owner_reviewed_at: null,
+      snapshot,
+    },
+    { onConflict: "order_id" },
+  );
+
+  if (error) {
+    console.error("order-cancellation-review-failed", error);
   }
 }
 
@@ -3761,10 +3883,14 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
   const canManageOwnerSettings = isSuperadmin || currentRestaurant.owner_user_id === user.id;
   const canManagePayments = canManageOwnerSettings;
   const canManageDeliverySettings = canManageOwnerSettings;
+  const canManageOperationSettings = canManageOwnerSettings;
   if (returnTab === "pagos" && !canManagePayments) {
     redirectWithError(configReturnPath, "owner-required");
   }
   if (returnTab === "delivery" && !canManageDeliverySettings) {
+    redirectWithError(configReturnPath, "owner-required");
+  }
+  if (returnTab === "operacion" && !canManageOperationSettings) {
     redirectWithError(configReturnPath, "owner-required");
   }
 
@@ -3781,13 +3907,14 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
         ? "inactive"
         : "active";
   const canWriteDeliverySettings = canManageDeliverySettings && returnTab === "delivery";
+  const canWriteOperationSettings = canManageOperationSettings && returnTab === "operacion";
   const moduleState = {
     deliveryEnabled: canWriteDeliverySettings ? parsed.data.deliveryEnabled : (currentSettings?.delivery_enabled ?? parsed.data.deliveryEnabled),
     pickupEnabled: currentSettings?.pickup_enabled ?? parsed.data.pickupEnabled,
     tableOrdersEnabled: allowedModules.includes("table_qr"),
     inventoryEnabled: allowedModules.includes("inventory"),
     cashEnabled: allowedModules.includes("cash"),
-    kitchenEnabled: allowedModules.includes("kitchen"),
+    kitchenEnabled: allowedModules.includes("kitchen") && (canWriteOperationSettings ? parsed.data.kitchenEnabled : (currentSettings?.kitchen_enabled ?? parsed.data.kitchenEnabled)),
   };
 
   if (canChangePlan && parsed.data.planKey) {
@@ -5334,6 +5461,7 @@ export async function updateOrderStatusAction(formData: FormData) {
     status: formData.get("status"),
     source: formData.get("source") || "admin",
     tab: formData.get("tab") || undefined,
+    reason: formData.get("reason") || undefined,
   });
 
   if (!parsed.success) {
@@ -5343,7 +5471,7 @@ export async function updateOrderStatusAction(formData: FormData) {
   await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/pedidos`);
 
   const nextStatus = parsed.data.status as OrderStatus;
-  const supabase = await createClient();
+  const { supabase, user } = await requireUser();
   const now = new Date().toISOString();
   const { data: order } = await supabase
     .from("orders")
@@ -5358,7 +5486,7 @@ export async function updateOrderStatusAction(formData: FormData) {
 
   const validTransitions: Record<OrderStatus, OrderStatus[]> = {
     pending: ["accepted", "cancelled"],
-    accepted: ["preparing", "cancelled"],
+    accepted: ["preparing", "ready", "cancelled"],
     preparing: ["ready", "cancelled"],
     ready: ["delivered", "cancelled"],
     delivered: [],
@@ -5417,6 +5545,16 @@ export async function updateOrderStatusAction(formData: FormData) {
   }
 
   if (nextStatus === "cancelled") {
+    await createOrderCancellationReview({
+      supabase,
+      restaurantId: parsed.data.restaurantId,
+      orderId: parsed.data.orderId,
+      actorUserId: user.id,
+      kind: "cancelled",
+      reason: parsed.data.reason?.trim() || "Cancelado desde el panel operativo.",
+      orderStatusAtCancellation: order.status as OrderStatus,
+      paymentStatusAtCancellation: order.payment_status as "pending" | "paid" | "cancelled" | "refunded",
+    });
     await supabase.rpc("reverse_order_inventory_usage", {
       p_order_id: parsed.data.orderId,
       p_reason: "Reversión por cancelación de pedido",
@@ -5447,7 +5585,7 @@ export async function updateOrderStatusAction(formData: FormData) {
   }
 
   if (parsed.data.source === "pedidos") {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?updated=1&tab=cocina`);
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?updated=1&tab=todos`);
   }
 
   if (parsed.data.source === "caja") {
@@ -5732,6 +5870,19 @@ export async function closeCashSessionAction(formData: FormData) {
 
   const { supabase, user } = await requireUser();
   void user;
+  const reviewClient = createAdminClient() ?? supabase;
+  const { data: pendingCancellationReviews } = await reviewClient
+    .from("order_cancellation_reviews")
+    .select("id")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("owner_review_status", "pending")
+    .or("payment_status_at_cancellation.eq.paid,cash_session_id.not.is.null")
+    .limit(1);
+
+  if (pendingCancellationReviews?.length) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=cierre&error=pending-cancellation-review`);
+  }
+
   const { error } = await supabase.rpc("close_cash_session_atomic", {
     p_restaurant_id: parsed.data.restaurantId,
     p_counted_amount: parsed.data.countedAmount,
@@ -5823,6 +5974,20 @@ export async function chargeOrderAction(formData: FormData) {
     redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=${cashErrorKey(error, "charge-order")}`);
   }
 
+  if (!(await restaurantUsesKitchenFlow(supabase, parsed.data.restaurantId))) {
+    const now = new Date().toISOString();
+    await supabase
+      .from("orders")
+      .update({
+        status: "ready",
+        accepted_at: now,
+        ready_at: now,
+      })
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .eq("id", parsed.data.orderId)
+      .in("status", ["accepted", "preparing"]);
+  }
+
   await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
   redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}charged=1`);
 }
@@ -5843,8 +6008,14 @@ export async function rejectCashOrderAction(formData: FormData) {
 
   await requireRestaurantAccess(parsed.data.restaurantId, orderDecisionRedirectPath(parsed.data.restaurantId, parsed.data.source));
 
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const redirectPath = orderDecisionRedirectPath(parsed.data.restaurantId, parsed.data.source);
+  const { data: orderBeforeReject } = await supabase
+    .from("orders")
+    .select("status,payment_status")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("id", parsed.data.orderId)
+    .maybeSingle();
   const { error } = await supabase
     .from("orders")
     .update({
@@ -5860,8 +6031,107 @@ export async function rejectCashOrderAction(formData: FormData) {
     redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=${error.code}`);
   }
 
+  await createOrderCancellationReview({
+    supabase,
+    restaurantId: parsed.data.restaurantId,
+    orderId: parsed.data.orderId,
+    actorUserId: user.id,
+    kind: "rejected",
+    reason: parsed.data.reason,
+    orderStatusAtCancellation: orderBeforeReject?.status as OrderStatus | undefined,
+    paymentStatusAtCancellation: orderBeforeReject?.payment_status as "pending" | "paid" | "cancelled" | "refunded" | undefined,
+  });
+
   await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
   redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}rejected=1`);
+}
+
+export async function approveOrderCancellationReviewAction(formData: FormData) {
+  const parsed = reviewOrderCancellationSchema.safeParse({
+    reviewId: formData.get("reviewId"),
+    notes: formData.get("notes") || undefined,
+    returnTo: formData.get("returnTo") || undefined,
+  });
+
+  const fallback = "/dueno/anulaciones";
+  if (!parsed.success) {
+    redirect(`${fallback}?error=invalid-review`);
+  }
+
+  const returnTo = parsed.data.returnTo?.startsWith("/dueno/anulaciones") ? parsed.data.returnTo : fallback;
+  const { supabase, user } = await requireUser();
+  const { data: review } = await supabase
+    .from("order_cancellation_reviews")
+    .select("id,restaurant_id")
+    .eq("id", parsed.data.reviewId)
+    .maybeSingle();
+
+  if (!review) {
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=review-not-found`);
+  }
+
+  const { error } = await supabase
+    .from("order_cancellation_reviews")
+    .update({
+      owner_review_status: "approved",
+      owner_review_notes: parsed.data.notes?.trim() || null,
+      owner_reviewed_by: user.id,
+      owner_reviewed_at: new Date().toISOString(),
+    })
+    .eq("id", review.id)
+    .eq("restaurant_id", review.restaurant_id);
+
+  if (error) {
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${error.code}`);
+  }
+
+  revalidatePath("/dueno/anulaciones");
+  revalidatePath(`/admin/restaurantes/${review.restaurant_id}/caja`);
+  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}approved=1`);
+}
+
+export async function observeOrderCancellationReviewAction(formData: FormData) {
+  const parsed = reviewOrderCancellationSchema.safeParse({
+    reviewId: formData.get("reviewId"),
+    notes: formData.get("notes") || undefined,
+    returnTo: formData.get("returnTo") || undefined,
+  });
+
+  const fallback = "/dueno/anulaciones";
+  if (!parsed.success) {
+    redirect(`${fallback}?error=invalid-review`);
+  }
+
+  const returnTo = parsed.data.returnTo?.startsWith("/dueno/anulaciones") ? parsed.data.returnTo : fallback;
+  const { supabase, user } = await requireUser();
+  const { data: review } = await supabase
+    .from("order_cancellation_reviews")
+    .select("id,restaurant_id")
+    .eq("id", parsed.data.reviewId)
+    .maybeSingle();
+
+  if (!review) {
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=review-not-found`);
+  }
+
+  const { error } = await supabase
+    .from("order_cancellation_reviews")
+    .update({
+      owner_review_status: "observed",
+      owner_review_notes: parsed.data.notes?.trim() || "Observado por el dueno.",
+      owner_reviewed_by: user.id,
+      owner_reviewed_at: new Date().toISOString(),
+    })
+    .eq("id", review.id)
+    .eq("restaurant_id", review.restaurant_id);
+
+  if (error) {
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${error.code}`);
+  }
+
+  revalidatePath("/dueno/anulaciones");
+  revalidatePath(`/admin/restaurantes/${review.restaurant_id}/caja`);
+  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}observed=1`);
 }
 
 export async function createPosSaleAction(formData: FormData) {
@@ -5933,6 +6203,20 @@ export async function createPosSaleAction(formData: FormData) {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta&error=${cashErrorKey(error, "pos-order")}`);
   }
 
+  if (orderId && !(await restaurantUsesKitchenFlow(supabase, parsed.data.restaurantId))) {
+    const now = new Date().toISOString();
+    await supabase
+      .from("orders")
+      .update({
+        status: "delivered",
+        accepted_at: now,
+        ready_at: now,
+        delivered_at: now,
+      })
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .eq("id", orderId);
+  }
+
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/caja`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
@@ -5978,7 +6262,13 @@ export async function refundOrderAction(formData: FormData) {
 
   const redirectPath = orderDecisionRedirectPath(parsed.data.restaurantId, parsed.data.source);
   await requireRestaurantAccess(parsed.data.restaurantId, redirectPath);
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
+  const { data: orderBeforeRefund } = await supabase
+    .from("orders")
+    .select("status,payment_status")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("id", parsed.data.orderId)
+    .maybeSingle();
   const { error } = await supabase.rpc("refund_order_atomic", {
     p_restaurant_id: parsed.data.restaurantId,
     p_order_id: parsed.data.orderId,
@@ -5988,6 +6278,17 @@ export async function refundOrderAction(formData: FormData) {
   if (error) {
     redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=${cashErrorKey(error, "refund-order")}`);
   }
+
+  await createOrderCancellationReview({
+    supabase,
+    restaurantId: parsed.data.restaurantId,
+    orderId: parsed.data.orderId,
+    actorUserId: user.id,
+    kind: "cancelled",
+    reason: parsed.data.reason,
+    orderStatusAtCancellation: orderBeforeRefund?.status as OrderStatus | undefined,
+    paymentStatusAtCancellation: orderBeforeRefund?.payment_status as "pending" | "paid" | "cancelled" | "refunded" | undefined,
+  });
 
   await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
   redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}refunded=1`);

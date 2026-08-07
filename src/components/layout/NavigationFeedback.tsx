@@ -92,8 +92,8 @@ export function NavigationFeedback() {
   }, [clearPending]);
 
   useEffect(() => {
-    const frameId = window.requestAnimationFrame(clearPending);
-    return () => window.cancelAnimationFrame(frameId);
+    const timeoutId = window.setTimeout(clearPending, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [clearPending, routeKey]);
 
   useEffect(() => {

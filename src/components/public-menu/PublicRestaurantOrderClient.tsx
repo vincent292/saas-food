@@ -43,6 +43,7 @@ type CartItem = {
 };
 
 const defaultImage = defaultProductImage;
+const dismissedAnnouncementStoragePrefix = "yopido:dismissed-announcement";
 
 function isDisplayImage(value?: string | null) {
   return Boolean(value && (value.startsWith("http") || value.startsWith("/")) && !value.includes("imagendefault"));
@@ -126,7 +127,15 @@ export function PublicRestaurantOrderClient({
   const [restaurantMenuOpen, setRestaurantMenuOpen] = useState(false);
   const [restaurantInfoOpen, setRestaurantInfoOpen] = useState(false);
   const [restaurantHoursOpen, setRestaurantHoursOpen] = useState(false);
-  const [visibleAnnouncementId, setVisibleAnnouncementId] = useState(() => announcements[0]?.id ?? "");
+  const [visibleAnnouncementId, setVisibleAnnouncementId] = useState(() => {
+    const firstAnnouncementId = announcements[0]?.id ?? "";
+    if (!firstAnnouncementId || typeof window === "undefined") {
+      return firstAnnouncementId;
+    }
+
+    const dismissedId = window.sessionStorage.getItem(`${dismissedAnnouncementStoragePrefix}:${restaurant.id}`);
+    return dismissedId === firstAnnouncementId ? "" : firstAnnouncementId;
+  });
   const businessStatus = useMemo(() => getBusinessStatus(businessHours, new Date(), DEFAULT_RESTAURANT_TIME_ZONE), [businessHours]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "qr">("cash");
   const [requiresInvoice, setRequiresInvoice] = useState(false);
@@ -200,6 +209,11 @@ export function PublicRestaurantOrderClient({
     : {};
 
   useEffect(() => {
+    document.body.classList.add("public-restaurant-order-page");
+    return () => document.body.classList.remove("public-restaurant-order-page");
+  }, []);
+
+  useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setCart(readCart(restaurant.slug) as CartItem[]);
       setCartHydrated(true);
@@ -256,6 +270,13 @@ export function PublicRestaurantOrderClient({
       setDrawerOpen(false);
       setDrawerClosing(false);
     }, 210);
+  }
+
+  function closeAnnouncementModal() {
+    if (visibleAnnouncement) {
+      window.sessionStorage.setItem(`${dismissedAnnouncementStoragePrefix}:${restaurant.id}`, visibleAnnouncement.id);
+    }
+    setVisibleAnnouncementId("");
   }
 
   async function shareRestaurant() {
@@ -319,34 +340,32 @@ export function PublicRestaurantOrderClient({
       </header>
 
       {visibleAnnouncement ? (
-        <div className="fixed inset-0 z-[90] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4" role="dialog" aria-modal="true" aria-label={visibleAnnouncement.title}>
-          <div className="w-full max-w-lg overflow-hidden rounded-t-[1.5rem] border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:rounded-[1.5rem]">
+        <div className="fixed inset-0 z-[90] grid place-items-center bg-[rgb(8_36_65_/_0.72)] p-4 text-[var(--text)] backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={visibleAnnouncement.title} onClick={closeAnnouncementModal}>
+          <div className="public-sheet-enter relative w-full max-w-lg overflow-hidden rounded-[1.6rem] border border-white/12 bg-[var(--surface)] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <button
+              className="absolute right-3 top-3 z-20 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl ring-1 ring-black/8 transition hover:scale-105 active:scale-95"
+              onClick={closeAnnouncementModal}
+              type="button"
+              aria-label="Cerrar comunicado"
+            >
+              <X className="h-5 w-5" />
+            </button>
             {visibleAnnouncement.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img alt={visibleAnnouncement.title} className="h-44 w-full object-cover sm:h-56" src={visibleAnnouncement.imageUrl} />
+              <img alt={visibleAnnouncement.title} className="h-56 w-full object-cover sm:h-64" src={visibleAnnouncement.imageUrl} />
             ) : null}
-            <div className="p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black",
-                      visibleAnnouncement.type === "closure" ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--primary-light)] text-[var(--primary)]",
-                    )}
-                  >
-                    {visibleAnnouncement.type === "closure" ? <AlertTriangle className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
-                    {visibleAnnouncement.type === "closure" ? "Cierre temporal" : "Comunicado"}
-                  </span>
-                  <h2 className="mt-3 text-2xl font-black leading-tight text-[var(--text)]">{visibleAnnouncement.title}</h2>
-                </div>
-                <button className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-surface)] text-[var(--text)]" onClick={() => setVisibleAnnouncementId("")} type="button" aria-label="Cerrar aviso">
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
+            <div className="p-5 sm:p-6">
+              <span
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black",
+                  visibleAnnouncement.type === "closure" ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--primary-light)] text-[var(--primary)]",
+                )}
+              >
+                {visibleAnnouncement.type === "closure" ? <AlertTriangle className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {visibleAnnouncement.type === "closure" ? "Cierre temporal" : "Comunicado"}
+              </span>
+              <h2 className="mt-3 pr-10 text-2xl font-black leading-tight text-[var(--text)] sm:text-3xl">{visibleAnnouncement.title}</h2>
               {visibleAnnouncement.body ? <p className="mt-3 text-sm font-semibold leading-6 text-[var(--muted)]">{visibleAnnouncement.body}</p> : null}
-              <Button className="mt-5 w-full" onClick={() => setVisibleAnnouncementId("")} type="button">
-                Entendido
-              </Button>
             </div>
           </div>
         </div>
@@ -1391,17 +1410,7 @@ function PublicOrderPanel({
       {formError ? <div className="mt-3 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">{formError}</div> : null}
 
       <section className={cn("mt-4 space-y-4", activeStep === "fulfillment" ? "block" : "hidden")}>
-        {activeClosure ? (
-          <div className="rounded-[1.35rem] border border-[var(--color-warning-strong)]/20 bg-[var(--color-warning-soft)] p-4 text-[var(--color-warning-strong)]">
-            <div className="flex gap-3">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-              <div>
-                <p className="font-black">{activeClosure.title}</p>
-                <p className="mt-1 text-sm font-semibold">{activeClosure.body || "El restaurante no recibira pedidos mientras este aviso siga activo."}</p>
-              </div>
-            </div>
-          </div>
-        ) : businessStatus.hasSchedule && !businessStatus.isOpen ? (
+        {businessStatus.hasSchedule && !businessStatus.isOpen ? (
           <div className="rounded-[1.35rem] border border-[var(--color-warning-strong)]/20 bg-[var(--color-warning-soft)] p-4 text-[var(--color-warning-strong)]">
             <div className="flex gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />

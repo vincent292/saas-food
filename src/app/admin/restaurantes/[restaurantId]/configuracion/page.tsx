@@ -5,7 +5,6 @@ import { modulesForAdminLayout } from "@/lib/modules";
 import { authService } from "@/lib/services/auth.service";
 import { announcementService } from "@/lib/services/announcement.service";
 import { orderService } from "@/lib/services/order.service";
-import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { settingsService } from "@/lib/services/settings.service";
@@ -32,9 +31,6 @@ export default async function SettingsPage({
     announcement?: string;
     closed?: string;
     disabled?: string;
-    ownerRequest?: string;
-    ownerApproved?: string;
-    ownerRejected?: string;
     zone?: string;
     invoiceMarked?: string;
     invoiceFrom?: string;
@@ -43,7 +39,7 @@ export default async function SettingsPage({
   }>;
 }) {
   const { restaurantId } = await params;
-  const { saved, error, tab, announcement, closed, disabled, ownerRequest, ownerApproved, ownerRejected, zone, invoiceMarked, invoiceFrom, invoiceTo, invoiceStatus } = await searchParams;
+  const { saved, error, tab, announcement, closed, disabled, zone, invoiceMarked, invoiceFrom, invoiceTo, invoiceStatus } = await searchParams;
   const restaurant = await restaurantService.getById(restaurantId);
 
   if (!restaurant) {
@@ -57,13 +53,11 @@ export default async function SettingsPage({
     dateTo: normalizeInvoiceDateFilter(invoiceTo),
     status: normalizeInvoiceStatusFilter(invoiceStatus),
   };
-  const [settings, businessHours, profile, announcements, ownerChangePolicy, ownerChangeRequests, deliveryZones, invoiceRequests] = await Promise.all([
+  const [settings, businessHours, profile, announcements, deliveryZones, invoiceRequests] = await Promise.all([
     restaurantService.getSettings(restaurant.id),
     settingsService.listBusinessHours(restaurant.id),
     authService.getCurrentProfile(),
     announcementService.listForAdmin(restaurant.id),
-    platformBillingService.getOwnerChangePolicy(restaurant.id),
-    platformBillingService.listOwnerChangeRequests(restaurant.id),
     restaurantService.listDeliveryZones(restaurant.id),
     orderService.listInvoiceRequests(restaurant.id, invoiceFilters),
   ]);
@@ -85,6 +79,7 @@ export default async function SettingsPage({
         announcements={announcements}
         canManagePlan={profile?.globalRole === "superadmin"}
         canManageDeliverySettings={canManageOwnerSettings}
+        canManageOperationSettings={canManageOwnerSettings}
         canManagePayments={canManageOwnerSettings}
         announcementCreated={announcement}
         closureCreated={closed}
@@ -98,11 +93,6 @@ export default async function SettingsPage({
         }}
         invoiceRequests={invoiceRequests}
         invoiceMarked={invoiceMarked}
-        ownerApproved={ownerApproved}
-        ownerChangePolicy={ownerChangePolicy}
-        ownerChangeRequests={ownerChangeRequests}
-        ownerRejected={ownerRejected}
-        ownerRequest={ownerRequest}
         restaurant={restaurant}
         saved={saved}
         settings={settings}

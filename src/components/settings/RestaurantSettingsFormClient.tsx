@@ -16,7 +16,6 @@ import {
   ReceiptText,
   RotateCcw,
   Store,
-  UserRound,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
@@ -40,11 +39,9 @@ import { cn } from "@/lib/utils/cn";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type {
   BusinessHour,
-  OwnerChangePolicy,
   Restaurant,
   RestaurantDeliveryZone,
   RestaurantAnnouncement,
-  RestaurantOwnerChangeRequest,
   RestaurantSettings,
 } from "@/types/restaurant.types";
 import type { Order } from "@/types/order.types";
@@ -59,12 +56,12 @@ const tabs = [
   { key: "impresion", label: "Impresion", icon: Printer },
   { key: "ubicacion", label: "Ubicacion", icon: MapPin },
   { key: "delivery", label: "Delivery", icon: Bike },
+  { key: "operacion", label: "Operacion", icon: Power },
   { key: "horarios", label: "Horarios", icon: Clock3 },
   { key: "avisos", label: "Avisos", icon: Megaphone },
-  { key: "responsable", label: "Responsable", icon: UserRound },
 ] as const;
 
-const saveableTabs = new Set<(typeof tabs)[number]["key"]>(["general", "estilo", "pagos", "impresion", "ubicacion", "delivery", "horarios"]);
+const saveableTabs = new Set<(typeof tabs)[number]["key"]>(["general", "estilo", "pagos", "impresion", "ubicacion", "delivery", "operacion", "horarios"]);
 
 const errorMessages: Record<string, string> = {
   invalid: "Revisa los datos obligatorios.",
@@ -75,11 +72,6 @@ const errorMessages: Record<string, string> = {
   "admin-required": "Solo el responsable principal o superadmin puede guardar esta configuracion.",
   "owner-required": "Solo el dueno de la cuenta puede cambiar esta configuracion sensible.",
   "superadmin-required": "Solo superadmin puede cambiar esta configuracion sensible.",
-  "invalid-owner-request": "Revisa el nombre y correo del nuevo responsable.",
-  "owner-change-pending": "Ya existe una solicitud pendiente de cambio de responsable.",
-  "owner-change-cooldown": "Todavia no se puede pedir otro cambio de responsable por la ventana de seguridad.",
-  "invalid-owner-resolution": "No se pudo resolver la solicitud de cambio de responsable.",
-  "owner-request-missing": "La solicitud ya no existe o ya fue resuelta.",
   "invalid-zone": "Revisa los datos de la zona de delivery.",
   "invalid-invoice": "No se pudo marcar la factura.",
 };
@@ -112,54 +104,11 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
-function ownerRequestStatusLabel(status: RestaurantOwnerChangeRequest["status"]) {
-  switch (status) {
-    case "approved":
-      return "Aprobada";
-    case "rejected":
-      return "Rechazada";
-    case "cancelled":
-      return "Cancelada";
-    default:
-      return "Pendiente";
-  }
-}
-
-function ownerRequestStatusClass(status: RestaurantOwnerChangeRequest["status"]) {
-  switch (status) {
-    case "approved":
-      return "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]";
-    case "rejected":
-      return "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]";
-    case "cancelled":
-      return "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]";
-    default:
-      return "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]";
-  }
-}
-
-function ownerPolicyMessage(policy: OwnerChangePolicy) {
-  if (policy.canRequestNow) {
-    return policy.approvedCount === 0
-      ? "Aun no hubo cambios aprobados, asi que la primera solicitud puede enviarse de inmediato."
-      : `Ya hubo ${policy.approvedCount} cambio${policy.approvedCount === 1 ? "" : "s"} aprobado${policy.approvedCount === 1 ? "" : "s"}. La siguiente solicitud ya esta habilitada.`;
-  }
-
-  if (policy.nextAllowedAt) {
-    return `La siguiente solicitud podra enviarse desde ${formatDateTime(policy.nextAllowedAt)}.`;
-  }
-
-  return "Hay una solicitud pendiente o una ventana de seguridad activa.";
-}
-
 function savedMessage({
   saved,
   announcementCreated,
   closureCreated,
   announcementDisabled,
-  ownerRequest,
-  ownerApproved,
-  ownerRejected,
   zoneSaved,
   invoiceMarked,
 }: {
@@ -167,9 +116,6 @@ function savedMessage({
   announcementCreated?: string;
   closureCreated?: string;
   announcementDisabled?: string;
-  ownerRequest?: string;
-  ownerApproved?: string;
-  ownerRejected?: string;
   zoneSaved?: string;
   invoiceMarked?: string;
 }) {
@@ -178,9 +124,6 @@ function savedMessage({
   if (announcementCreated) return "Comunicado publicado.";
   if (closureCreated) return "Cierre temporal publicado para hoy.";
   if (announcementDisabled) return "Aviso desactivado.";
-  if (ownerRequest) return "Solicitud de cambio de responsable enviada.";
-  if (ownerApproved) return "Cambio de responsable aprobado.";
-  if (ownerRejected) return "Solicitud de responsable rechazada.";
   if (zoneSaved) return "Zona de delivery actualizada.";
   if (invoiceMarked) return "Factura marcada como emitida.";
   return "";
@@ -196,9 +139,6 @@ export function RestaurantSettingsFormClient({
   announcementCreated,
   closureCreated,
   announcementDisabled,
-  ownerRequest,
-  ownerApproved,
-  ownerRejected,
   zoneSaved,
   invoiceMarked,
   deliveryZones,
@@ -206,10 +146,9 @@ export function RestaurantSettingsFormClient({
   initialTab,
   canManagePlan,
   canManageDeliverySettings,
+  canManageOperationSettings,
   canManagePayments,
   invoiceFilters,
-  ownerChangePolicy,
-  ownerChangeRequests,
 }: {
   restaurant: Restaurant;
   settings: RestaurantSettings | null;
@@ -220,9 +159,6 @@ export function RestaurantSettingsFormClient({
   announcementCreated?: string;
   closureCreated?: string;
   announcementDisabled?: string;
-  ownerRequest?: string;
-  ownerApproved?: string;
-  ownerRejected?: string;
   zoneSaved?: string;
   invoiceMarked?: string;
   deliveryZones: RestaurantDeliveryZone[];
@@ -230,14 +166,13 @@ export function RestaurantSettingsFormClient({
   initialTab?: string;
   canManagePlan: boolean;
   canManageDeliverySettings: boolean;
+  canManageOperationSettings: boolean;
   canManagePayments: boolean;
   invoiceFilters: {
     dateFrom: string;
     dateTo: string;
     status: "all" | "pending" | "issued";
   };
-  ownerChangePolicy: OwnerChangePolicy;
-  ownerChangeRequests: RestaurantOwnerChangeRequest[];
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeTab(initialTab));
   const [invoiceDateFromFilter, setInvoiceDateFromFilter] = useState(invoiceFilters.dateFrom);
@@ -248,15 +183,11 @@ export function RestaurantSettingsFormClient({
     announcementCreated,
     closureCreated,
     announcementDisabled,
-    ownerRequest,
-    ownerApproved,
-    ownerRejected,
     zoneSaved,
     invoiceMarked,
   });
   const [showSuccessModal, setShowSuccessModal] = useState(Boolean(successMessage));
 
-  const pendingOwnerRequest = useMemo(() => ownerChangeRequests.find((request) => request.status === "pending") ?? null, [ownerChangeRequests]);
   const hoursByDay = new Map(businessHours.map((hour) => [hour.dayOfWeek, hour]));
   const logoIsImage = isImageUrl(restaurant.logoUrl);
   const bannerIsImage = isImageUrl(restaurant.bannerUrl);
@@ -276,7 +207,8 @@ export function RestaurantSettingsFormClient({
   const canSaveActiveTab =
     saveableTabs.has(activeTab) &&
     (activeTab !== "pagos" || canManagePayments) &&
-    (activeTab !== "delivery" || canManageDeliverySettings);
+    (activeTab !== "delivery" || canManageDeliverySettings) &&
+    (activeTab !== "operacion" || canManageOperationSettings);
   const showStickySave = canSaveActiveTab;
   const invoiceFilterHref = useMemo(() => {
     const params = new URLSearchParams({ tab: "facturas" });
@@ -317,15 +249,12 @@ export function RestaurantSettingsFormClient({
       {moduleReadState.tableOrdersEnabled ? <input name="tableOrdersEnabled" type="hidden" value="on" /> : null}
       {moduleReadState.inventoryEnabled ? <input name="inventoryEnabled" type="hidden" value="on" /> : null}
       {moduleReadState.cashEnabled ? <input name="cashEnabled" type="hidden" value="on" /> : null}
-      {moduleReadState.kitchenEnabled ? <input name="kitchenEnabled" type="hidden" value="on" /> : null}
+      {!canManageOperationSettings && moduleReadState.kitchenEnabled ? <input name="kitchenEnabled" type="hidden" value="on" /> : null}
 
       {saved ? <Banner tone="success">Configuracion general guardada.</Banner> : null}
       {announcementCreated ? <Banner tone="success">{announcementCreated === "updated" ? "Aviso actualizado." : "Comunicado publicado."}</Banner> : null}
       {closureCreated ? <Banner tone="success">Cierre temporal publicado para hoy.</Banner> : null}
       {announcementDisabled ? <Banner tone="success">Aviso desactivado.</Banner> : null}
-      {ownerRequest ? <Banner tone="success">Solicitud de cambio de responsable enviada.</Banner> : null}
-      {ownerApproved ? <Banner tone="success">Solicitud aprobada. El acceso principal ya fue actualizado.</Banner> : null}
-      {ownerRejected ? <Banner tone="success">Solicitud rechazada.</Banner> : null}
       {zoneSaved ? <Banner tone="success">Zona de delivery actualizada.</Banner> : null}
       {invoiceMarked ? <Banner tone="success">Factura marcada como emitida.</Banner> : null}
       {error ? <Banner tone="danger">{errorMessages[error] ?? `No se pudo guardar la configuracion: ${error}.`}</Banner> : null}
@@ -773,6 +702,45 @@ export function RestaurantSettingsFormClient({
         </div>
       </div>
 
+      <div className={cn(activeTab === "operacion" ? "block" : "hidden")}>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <Card className="grid gap-4">
+            <SectionTitle title="Flujo de pedidos" description="Define si esta sucursal trabaja con cocina/preparacion o si entrega directo desde caja." />
+            {!canManageOperationSettings ? (
+              <div className="rounded-2xl border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-4 text-sm font-bold leading-6 text-[var(--color-warning-strong)]">
+                Solo el dueno de la cuenta puede prender o apagar el flujo de cocina de esta sucursal.
+              </div>
+            ) : null}
+            <ModuleToggle
+              disabled={!canManageOperationSettings}
+              enabled={settings?.kitchenEnabled ?? true}
+              label="Usar flujo de cocina/preparacion"
+              name="kitchenEnabled"
+            />
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+                <p className="font-black text-[var(--color-heading)]">Encendido</p>
+                <p className="mt-1">Los pedidos aprobados pasan por cocina o preparacion antes de quedar listos para caja/despacho.</p>
+              </div>
+              <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+                <p className="font-black text-[var(--color-heading)]">Apagado</p>
+                <p className="mt-1">Ideal para heladeria, galleteria o tienda: caja aprueba/cobra y el pedido queda listo sin tablero de cocina.</p>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="space-y-4">
+            <SectionTitle title="Estado actual" description="Resumen rapido de como operara esta sucursal." />
+            <InfoMetric label="Cocina" value={(settings?.kitchenEnabled ?? true) ? "Activa" : "Sin cocina"} />
+            <InfoMetric label="Caja" value={(settings?.cashEnabled ?? true) ? "Activa" : "Inactiva"} />
+            <InfoMetric label="Inventario" value={(settings?.inventoryEnabled ?? true) ? "Activo" : "Inactivo"} />
+            <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+              Este cambio afecta caja, pedidos y cocina. No borra pedidos ni productos; solo cambia el flujo operativo.
+            </div>
+          </Card>
+        </div>
+      </div>
+
       <div className={cn(activeTab === "horarios" ? "block" : "hidden")}>
         <Card>
           <SectionTitle title="Horarios" description="Horario operativo asociado al restaurante." />
@@ -907,94 +875,6 @@ export function RestaurantSettingsFormClient({
               </div>
             ) : (
               <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-secondary-text)]">Todavia no hay avisos publicados para este restaurante.</div>
-            )}
-          </Card>
-        </div>
-      </div>
-
-      <div className={cn(activeTab === "responsable" ? "block" : "hidden")}>
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="space-y-6">
-            <Card className="space-y-4">
-              <SectionTitle title="Responsable actual" description="Referencia rapida del acceso principal asignado hoy." />
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-                <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">Nombre</p>
-                <p className="mt-1 text-lg font-black text-[var(--color-heading)]">{restaurant.ownerName || "Sin responsable"}</p>
-                <p className="mt-4 text-xs font-black uppercase text-[var(--color-secondary-text)]">Correo</p>
-                <p className="mt-1 break-all text-lg font-black text-[var(--color-heading)]">{restaurant.ownerEmail || "Sin correo"}</p>
-              </div>
-            </Card>
-
-            <Card className="grid gap-4 md:grid-cols-2">
-              <SectionTitle title="Solicitar cambio" description="El cambio ya no se hace directo desde el restaurante: queda como solicitud con aprobacion." />
-              <div className="md:col-span-2 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-                <p>{ownerPolicyMessage(ownerChangePolicy)}</p>
-                <p className="mt-2">Escala de espera: primera vez inmediata, segunda 3 dias, tercera 1 semana y luego 1 mes adicional por cada cambio aprobado.</p>
-              </div>
-              <Input defaultValue="" name="requestedOwnerName" placeholder="Nombre del nuevo responsable" />
-              <Input defaultValue="" name="requestedOwnerEmail" placeholder="correo@restaurante.com" type="email" />
-              <Textarea className="md:col-span-2" defaultValue="" name="ownerChangeReason" placeholder="Motivo del cambio o contexto para validacion" />
-              {pendingOwnerRequest ? (
-                <div className="md:col-span-2 rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-semibold text-[var(--color-warning-strong)]">
-                  Ya hay una solicitud pendiente para {pendingOwnerRequest.requestedOwnerName} ({pendingOwnerRequest.requestedOwnerEmail}).
-                </div>
-              ) : null}
-              <div className="md:col-span-2 flex justify-end">
-                <SettingsSubmitButton disabled={!ownerChangePolicy.canRequestNow || Boolean(pendingOwnerRequest)} name="settingsIntent" pendingLabel="Enviando solicitud..." value="create-owner-request">
-                  <UserRound className="h-4 w-4" />
-                  Enviar solicitud
-                </SettingsSubmitButton>
-              </div>
-            </Card>
-
-            {canManagePlan && pendingOwnerRequest ? (
-              <Card className="grid gap-4 md:grid-cols-2">
-                <SectionTitle title="Resolver solicitud pendiente" description="Solo superadmin puede aprobar o rechazar el cambio de responsable." />
-                <div className="md:col-span-2" />
-                <input name="requestId" type="hidden" value={pendingOwnerRequest.id} />
-                <div className="md:col-span-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-                  <p>Solicita: {pendingOwnerRequest.requestedOwnerName}</p>
-                  <p className="mt-2 break-all">Correo nuevo: {pendingOwnerRequest.requestedOwnerEmail}</p>
-                  <p className="mt-2">Enviada: {formatDateTime(pendingOwnerRequest.createdAt)}</p>
-                  {pendingOwnerRequest.reason ? <p className="mt-2">Motivo: {pendingOwnerRequest.reason}</p> : null}
-                </div>
-                <Textarea className="md:col-span-2" defaultValue={pendingOwnerRequest.resolutionNotes ?? ""} name="ownerResolutionNotes" placeholder="Notas internas de aprobacion o rechazo" />
-                <div className="md:col-span-2 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                  <SettingsSubmitButton name="settingsIntent" pendingLabel="Rechazando..." value="reject-owner-request" variant="secondary">
-                    Rechazar solicitud
-                  </SettingsSubmitButton>
-                  <SettingsSubmitButton name="settingsIntent" pendingLabel="Aprobando..." value="approve-owner-request">
-                    Aprobar cambio
-                  </SettingsSubmitButton>
-                </div>
-              </Card>
-            ) : null}
-          </div>
-
-          <Card className="space-y-4">
-            <SectionTitle title="Historial" description="Bitacora de solicitudes de cambio del responsable principal." />
-            {ownerChangeRequests.length ? (
-              <div className="space-y-3">
-                {ownerChangeRequests.map((request) => (
-                  <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4" key={request.id}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-black text-[var(--color-heading)]">{request.requestedOwnerName}</p>
-                        <p className="mt-1 break-all text-sm font-semibold text-[var(--color-secondary-text)]">{request.requestedOwnerEmail}</p>
-                      </div>
-                      <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black", ownerRequestStatusClass(request.status))}>{ownerRequestStatusLabel(request.status)}</span>
-                    </div>
-                    {request.currentOwnerEmail ? <p className="mt-3 text-xs font-semibold text-[var(--color-secondary-text)]">Desde: {request.currentOwnerEmail}</p> : null}
-                    <p className="mt-2 text-xs font-semibold text-[var(--color-secondary-text)]">Enviada: {formatDateTime(request.createdAt)}</p>
-                    {request.approvedAt ? <p className="mt-2 text-xs font-semibold text-[var(--color-secondary-text)]">Aprobada: {formatDateTime(request.approvedAt)}</p> : null}
-                    {request.rejectedAt ? <p className="mt-2 text-xs font-semibold text-[var(--color-secondary-text)]">Rechazada: {formatDateTime(request.rejectedAt)}</p> : null}
-                    {request.reason ? <p className="mt-3 text-sm font-semibold text-[var(--color-body)]">{request.reason}</p> : null}
-                    {request.resolutionNotes ? <p className="mt-2 text-xs font-semibold text-[var(--color-secondary-text)]">Notas: {request.resolutionNotes}</p> : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-secondary-text)]">Todavia no hay solicitudes registradas.</div>
             )}
           </Card>
         </div>

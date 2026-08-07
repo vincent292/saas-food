@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils/cn";
 
 export function AdminLoginFormClient() {
   return (
-    <form action={signInAction} className="mt-6 space-y-3">
+    <form action={signInAction} className="mt-6 space-y-3" data-navigation-feedback="off">
       <LoginFields />
     </form>
   );

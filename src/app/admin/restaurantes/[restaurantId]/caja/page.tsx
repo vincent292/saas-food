@@ -43,7 +43,7 @@ export default async function CashPage({
   const needsMovements = activeTab === "movimientos";
   const needsReports = activeTab === "cierre" || activeTab === "reportes";
 
-  const [summary, settings, products, categories, configuration, movements, orders, reports] = await Promise.all([
+  const [summary, settings, products, categories, configuration, movements, orders, reports, pendingCancellationReviews, cashAudit] = await Promise.all([
     cashService.getSummary(restaurant.id),
     restaurantService.getSettings(restaurant.id),
     needsPosCatalog ? productService.listAvailableByRestaurant(restaurant.id) : Promise.resolve([]),
@@ -52,6 +52,8 @@ export default async function CashPage({
     needsMovements ? cashService.listMovements(restaurant.id) : Promise.resolve([]),
     needsOperationalOrders ? orderService.listCashWorkspaceOrders(restaurant.id) : Promise.resolve([]),
     needsReports ? cashService.listSessionReports(restaurant.id) : Promise.resolve([]),
+    cashService.countPendingCashCancellationReviews(restaurant.id),
+    needsReports ? cashService.getAuditSnapshot(restaurant.id) : Promise.resolve(null),
   ]);
 
   return (
@@ -81,10 +83,12 @@ export default async function CashPage({
           status.rejected ?? "",
         ].join(":")}
         categories={categories}
+        cashAudit={cashAudit}
         configuration={configuration}
         loadedTab={activeTab}
         movements={movements}
         orders={orders}
+        pendingCancellationReviews={pendingCancellationReviews}
         products={products}
         reports={reports}
         restaurant={restaurant}

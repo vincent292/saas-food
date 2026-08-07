@@ -55,6 +55,15 @@ export type CashSummary = {
   netTotal: number;
 };
 
+export type CashAuditSnapshot = {
+  refundCount: number;
+  refundTotal: number;
+  pendingCancellationReviews: number;
+  approvedCancellationReviews: number;
+  observedCancellationReviews: number;
+  cashLinkedCancellationReviews: number;
+};
+
 export type CashSessionReport = {
   session: CashSession;
   movements: CashMovement[];

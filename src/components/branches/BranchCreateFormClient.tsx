@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useActionState, useState, type ReactNode } from "react";
-import { ArrowRight, Building2, CheckCircle2, Copy, MapPin, ShieldCheck } from "lucide-react";
+import { ArrowRight, Building2, CheckCircle2, Copy, Mail, MapPin, ShieldCheck } from "lucide-react";
 import { createBranchFormAction, type CreateBranchFormState } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
@@ -160,6 +160,13 @@ export function BranchCreateFormClient({
           <Field label="Correo de acceso">
             <Input defaultValue={values.branchUserEmail} name="branchUserEmail" placeholder="encargado@sucursal.com" required type="email" />
           </Field>
+
+          <div className="flex gap-3 rounded-2xl border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-4 text-sm font-semibold leading-6 text-[var(--color-warning-strong)] md:col-span-2">
+            <Mail className="mt-0.5 h-5 w-5 shrink-0" />
+            <p>
+              Usa un correo real del responsable. Luego podra vincular Google con ese mismo correo; si escribes un correo inventado, no podra usar acceso con Google.
+            </p>
+          </div>
 
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
             El sistema generara una contrasena temporal segura. Copiala al terminar para entregarla al responsable.

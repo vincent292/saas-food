@@ -414,7 +414,7 @@ export function PublicRestaurantOrderClient({
             </div>
           </div>
 
-          {topOrderedProducts.length ? (
+          {topOrderedProducts.length > 1 ? (
             <div className="mb-4 rounded-[1.35rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_14px_34px_rgb(18_53_91_/_0.07)] sm:rounded-[1.65rem] sm:p-4 sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -439,7 +439,7 @@ export function PublicRestaurantOrderClient({
             </div>
           ) : null}
 
-          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_auto]">
+          <div className="mb-4">
             <label className="flex min-h-14 items-center gap-3 rounded-[1.35rem] border border-[var(--border)] bg-[var(--surface)] px-4 shadow-[0_18px_48px_rgb(18_53_91_/_0.08)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[var(--accent-ring)]">
               <Search className="h-5 w-5 text-[var(--muted)]" />
               <input
@@ -454,9 +454,6 @@ export function PublicRestaurantOrderClient({
                 </button>
               ) : null}
             </label>
-            <Link className="inline-flex rounded-full bg-[var(--primary-light)] px-4 py-2 text-sm font-black text-[var(--primary)] sm:hidden" href={publicRestaurantPath(restaurant.slug, "seguimiento")}>
-              Rastrear pedido
-            </Link>
           </div>
 
           <div className="sticky top-[73px] z-20 -mx-3 mb-4 border-y border-[var(--border)] bg-[var(--color-card-elevated)] px-3 py-2.5 shadow-sm backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border sm:py-3" id="menu">
@@ -812,8 +809,32 @@ function ProductTile({ product, config, availability, onSelect }: { product: Pro
   const firstAlternative = availability?.alternatives[0];
   const availabilityLabels = productAvailabilityLabels(product);
 
+  function selectFromTile(eventTarget: EventTarget | null) {
+    if (!isStockAvailable) {
+      return;
+    }
+
+    if (eventTarget instanceof HTMLElement && eventTarget.closest("a,button")) {
+      return;
+    }
+
+    onSelect();
+  }
+
   return (
-    <div className={cn("grid grid-cols-[92px_minmax(0,1fr)_42px] items-center gap-2.5 rounded-[1.15rem] border border-[var(--border)] bg-[var(--surface)] p-2 text-left text-[var(--text)] shadow-[0_12px_32px_rgb(18_53_91_/_0.07)] transition sm:grid-cols-[132px_minmax(0,1fr)_52px] sm:gap-3 sm:rounded-[1.35rem] sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]", isStockAvailable ? "hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] hover:shadow-[0_22px_56px_rgb(18_53_91_/_0.12)]" : "opacity-80")}>
+    <div
+      aria-disabled={!isStockAvailable}
+      className={cn("grid grid-cols-[92px_minmax(0,1fr)_42px] items-center gap-2.5 rounded-[1.15rem] border border-[var(--border)] bg-[var(--surface)] p-2 text-left text-[var(--text)] shadow-[0_12px_32px_rgb(18_53_91_/_0.07)] transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-ring)] sm:grid-cols-[132px_minmax(0,1fr)_52px] sm:gap-3 sm:rounded-[1.35rem] sm:shadow-[0_18px_48px_rgb(18_53_91_/_0.08)]", isStockAvailable ? "cursor-pointer hover:-translate-y-0.5 hover:bg-[var(--accent-soft)] hover:shadow-[0_22px_56px_rgb(18_53_91_/_0.12)]" : "opacity-80")}
+      onClick={(event) => selectFromTile(event.target)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectFromTile(event.target);
+        }
+      }}
+      role={isStockAvailable ? "button" : undefined}
+      tabIndex={isStockAvailable ? 0 : undefined}
+    >
       <span className="relative h-24 overflow-hidden rounded-[1rem] bg-[var(--primary-light)] sm:h-32 sm:rounded-[1.2rem]">
         <ProductVisual className="h-full w-full" fit={product} name={product.name} src={product.imageUrl} />
         {product.isAutoFeatured || product.isFeatured ? <span className="absolute left-2 top-2 rounded-full bg-[var(--accent)] px-2 py-1 text-[10px] font-black text-[var(--primary)]">Top</span> : null}

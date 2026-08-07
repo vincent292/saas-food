@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useActionState, useState, type ReactNode } from "react";
-import { ArrowRight, Building2, Copy } from "lucide-react";
+import { ArrowRight, Building2, Copy, Mail } from "lucide-react";
 import { createOwnedRestaurantFormAction, type CreateRestaurantFormState } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
@@ -169,6 +169,13 @@ export function OwnerRestaurantCreateFormClient({
         />
         <Input defaultValue={values.branchUserName} name="branchUserName" placeholder="Nombre del responsable" required />
         <Input defaultValue={values.branchUserEmail} name="branchUserEmail" placeholder="responsable@sucursal.com" required type="email" />
+
+        <div className="flex gap-3 rounded-2xl border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-4 text-sm font-semibold leading-6 text-[var(--color-warning-strong)] md:col-span-2">
+          <Mail className="mt-0.5 h-5 w-5 shrink-0" />
+          <p>
+            Usa un correo real del responsable. Luego podra vincular Google con ese mismo correo; si escribes un correo inventado, no podra usar acceso con Google.
+          </p>
+        </div>
 
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)] md:col-span-2">
           El sistema generara una contrasena temporal segura para este responsable. Copiala al terminar; en su primer ingreso debera crear una propia.

@@ -247,6 +247,11 @@ async function getAdmin() {
   return { ok: true as const, admin };
 }
 
+async function isBusinessUser(admin: NonNullable<ReturnType<typeof createAdminClient>>, userId: string) {
+  const { data } = await admin.from("profiles").select("id").eq("id", userId).maybeSingle();
+  return Boolean(data);
+}
+
 export async function getMobileCustomerSession(request: Request) {
   const adminResult = await getAdmin();
   if (!adminResult.ok) return adminResult;
@@ -433,6 +438,10 @@ export async function updateCustomerProfile(
 ): Promise<ServiceResult<CustomerProfileRecord>> {
   const session = await getMobileCustomerSession(request);
   if (!session.ok) return session;
+
+  if (await isBusinessUser(session.admin, session.user.id)) {
+    return { ok: false, error: "business-account-not-allowed", status: 403 };
+  }
 
   const email = session.user.email?.trim().toLowerCase();
   if (!email) {

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, Building2, ClipboardList, Flame, LifeBuoy, LockKeyhole, ShieldCheck, TrendingUp, Utensils, WalletCards } from "lucide-react";
+import { GoogleAccountLinkCard } from "@/components/auth/GoogleAccountLinkCard";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -36,6 +37,8 @@ export async function SuperAdminDashboard() {
           {profile?.globalRole === "superadmin" ? "Superadmin" : "Sin rol superadmin"}
         </Badge>
       </Card>
+
+      <GoogleAccountLinkCard />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={<Building2 className="h-5 w-5" />} label="Restaurantes" value={String(summary.restaurantCount)} detail={`${summary.activeRestaurantCount} activos`} />

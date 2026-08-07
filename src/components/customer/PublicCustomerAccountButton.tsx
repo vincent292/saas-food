@@ -13,6 +13,7 @@ import {
   notifyCustomerAccountChanged,
   registerPublicCustomer,
   signInPublicCustomer,
+  signInPublicCustomerWithGoogle,
   signOutPublicCustomer,
   updatePublicCustomerProfile,
   type PublicCustomerAccount,
@@ -49,6 +50,7 @@ export function PublicCustomerAccountButton({
   const [open, setOpen] = useState(initialOpen);
   const [account, setAccount] = useState<PublicCustomerAccount>({ profile: null, addresses: [], orders: [] });
   const [sessionEmail, setSessionEmail] = useState("");
+  const [sessionName, setSessionName] = useState("");
   const [loading, setLoading] = useState(!initialOpen);
 
   async function refreshAccount() {
@@ -56,7 +58,9 @@ export function PublicCustomerAccountButton({
     try {
       const supabase = createCustomerClient();
       const { data } = await supabase.auth.getSession();
+      const metadata = data.session?.user.user_metadata as { full_name?: string; name?: string } | undefined;
       setSessionEmail(data.session?.user.email ?? "");
+      setSessionName(metadata?.full_name?.trim() || metadata?.name?.trim() || "");
       setAccount(data.session ? await fetchPublicCustomerAccount() : { profile: null, addresses: [], orders: [] });
     } finally {
       setLoading(false);
@@ -101,13 +105,14 @@ export function PublicCustomerAccountButton({
       {open ? (
         <CustomerAccountModal
           account={account}
-          key={`${sessionEmail}:${account.profile?.updatedAt ?? account.profile?.id ?? "guest"}`}
+          key={`${sessionEmail}:${sessionName}:${account.profile?.updatedAt ?? account.profile?.id ?? "guest"}`}
           loading={loading}
           initialMode={initialMode}
           initialPanel={initialPanel}
           onClose={() => setOpen(false)}
           onRefresh={refreshAccount}
           sessionEmail={sessionEmail}
+          sessionName={sessionName}
         />
       ) : null}
     </>
@@ -138,6 +143,7 @@ function CustomerAccountModal({
   onClose,
   onRefresh,
   sessionEmail,
+  sessionName,
 }: {
   account: PublicCustomerAccount;
   loading: boolean;
@@ -146,12 +152,13 @@ function CustomerAccountModal({
   onClose: () => void;
   onRefresh: () => Promise<void>;
   sessionEmail: string;
+  sessionName: string;
 }) {
   const [mode, setMode] = useState<CustomerAuthMode>(initialMode);
   const [panel, setPanel] = useState<CustomerPanel>(initialPanel);
   const [email, setEmail] = useState(sessionEmail);
   const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState(account.profile?.fullName ?? "");
+  const [fullName, setFullName] = useState(account.profile?.fullName ?? sessionName);
   const [phone, setPhone] = useState(account.profile?.phone ?? "");
   const [documentNumber, setDocumentNumber] = useState(account.profile?.documentNumber ?? "");
   const [editingProfile, setEditingProfile] = useState(!account.profile);
@@ -159,6 +166,7 @@ function CustomerAccountModal({
   const [address, setAddress] = useState("");
   const [addressCoordinates, setAddressCoordinates] = useState<{ latitude: number; longitude: number; mapsUrl: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [googleSaving, setGoogleSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -194,6 +202,18 @@ function CustomerAccountModal({
       setError(customerErrorMessage(nextError));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function submitGoogleAuth() {
+    setGoogleSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      await signInPublicCustomerWithGoogle();
+    } catch (nextError) {
+      setGoogleSaving(false);
+      setError(customerErrorMessage(nextError));
     }
   }
 
@@ -290,6 +310,20 @@ function CustomerAccountModal({
                     Puedes pedir sin cuenta. Inicia sesion solo si quieres guardar tus pedidos y verlos despues aqui.
                   </div>
                 ) : null}
+                <button
+                  className="inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-full border border-[var(--border)] bg-white px-4 text-sm font-black text-[var(--text)] shadow-sm transition hover:bg-[var(--color-surface)] active:scale-[0.99] disabled:cursor-wait disabled:opacity-70"
+                  disabled={saving || googleSaving}
+                  onClick={submitGoogleAuth}
+                  type="button"
+                >
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-white text-base font-black text-[#4285F4] shadow-sm ring-1 ring-black/10">G</span>
+                  {googleSaving ? "Conectando con Google..." : "Continuar con Google"}
+                </button>
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-xs font-black uppercase tracking-[0.16em] text-[var(--muted)]">
+                  <span className="h-px bg-[var(--border)]" />
+                  O usa correo
+                  <span className="h-px bg-[var(--border)]" />
+                </div>
                 <div className="grid grid-cols-2 gap-2 rounded-[1.25rem] bg-[var(--primary-light)] p-1">
                   <button className={cn("min-h-11 rounded-full text-sm font-black text-[var(--muted)] transition", mode === "login" && "bg-[var(--primary)] text-white shadow-sm")} onClick={() => setMode("login")} type="button">Ingresar</button>
                   <button className={cn("min-h-11 rounded-full text-sm font-black text-[var(--muted)] transition", mode === "register" && "bg-[var(--primary)] text-white shadow-sm")} onClick={() => setMode("register")} type="button">Registro</button>
@@ -307,7 +341,7 @@ function CustomerAccountModal({
                 </div>
                 {error ? <Feedback tone="error">{error}</Feedback> : null}
                 {message ? <Feedback tone="success">{message}</Feedback> : null}
-                <Button className="min-h-12 w-full" disabled={saving} type="submit">{saving ? "Validando..." : mode === "login" ? "Iniciar sesion" : "Crear cuenta"}</Button>
+                <Button className="min-h-12 w-full" disabled={saving || googleSaving} type="submit">{saving ? "Validando..." : mode === "login" ? "Iniciar sesion" : "Crear cuenta"}</Button>
               </div>
             </form>
           ) : null}

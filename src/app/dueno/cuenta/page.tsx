@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, IdCard, Mail, Phone, UserRound } from "lucide-react";
 import { updateOwnerProfileAction } from "@/app/admin/actions";
+import { GoogleAccountLinkCard } from "@/components/auth/GoogleAccountLinkCard";
 import { OwnerLayout, getOwnerLayoutContext } from "@/components/layout/OwnerLayout";
 import { Card } from "@/components/ui/Card";
 import { BirthDateInput } from "@/components/ui/DateInput";
@@ -81,6 +82,8 @@ export default async function OwnerAccountPage({
           <AccountInfoCard icon={<Phone className="h-5 w-5" />} label="Telefono" value={profile.phone || "Pendiente"} />
           <AccountInfoCard icon={<IdCard className="h-5 w-5" />} label="Carnet / documento" value={profile.documentNumber || "Pendiente"} />
         </div>
+
+        <GoogleAccountLinkCard />
 
         <form action={updateOwnerProfileAction} data-navigation-feedback="off">
           <Card className="grid gap-4 md:grid-cols-2">

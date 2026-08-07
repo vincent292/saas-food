@@ -13,7 +13,7 @@ export function createCustomerClient() {
       {
         auth: {
           autoRefreshToken: true,
-          detectSessionInUrl: false,
+          detectSessionInUrl: true,
           persistSession: true,
           storageKey: "yopido-public-customer-auth",
         },

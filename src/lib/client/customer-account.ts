@@ -64,6 +64,8 @@ export function customerErrorMessage(error: unknown) {
   if (code === "invalid-customer-profile") return "Revisa nombre, telefono y carnet.";
   if (code === "invalid-customer-address") return "Marca una direccion valida en el mapa.";
   if (code === "service-role-required") return "Falta SUPABASE_SERVICE_ROLE_KEY en la web.";
+  if (code === "google-auth-failed") return "No se pudo iniciar sesion con Google. Revisa la configuracion de Supabase.";
+  if (code === "business-account-not-allowed") return "Esta cuenta pertenece a un panel administrativo. Usa otro correo para Mi Yopido.";
   return "No se pudo completar la accion. Intenta nuevamente.";
 }
 
@@ -103,6 +105,21 @@ export async function signInPublicCustomer(email: string, password: string) {
   const supabase = createCustomerClient();
   const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
   if (error) throw error;
+}
+
+export async function signInPublicCustomerWithGoogle() {
+  const supabase = createCustomerClient();
+  const currentUrl = new URL(window.location.href);
+  currentUrl.searchParams.set("miYopido", "login");
+
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: currentUrl.toString(),
+    },
+  });
+
+  if (error) throw new Error("google-auth-failed");
 }
 
 export async function signOutPublicCustomer() {

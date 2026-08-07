@@ -12,6 +12,11 @@ const errorMessages: Record<string, string> = {
   "superadmin-required": "Esta consola requiere usuario superadmin.",
   "customer-account": "Esta cuenta es de cliente para pedidos. Usa Mi Yopido en la pagina publica.",
   "rate-limit": "Demasiados intentos. Espera 15 minutos antes de volver a ingresar.",
+  "business-account-required": "Ese Google no esta vinculado a una cuenta administrativa.",
+  "email-mismatch": "El correo de Google no coincide con el correo administrativo vinculado.",
+  "missing-code": "Google no devolvio un codigo valido. Intenta nuevamente.",
+  "session-error": "No se pudo recuperar la sesion de Google.",
+  error: "No se pudo iniciar sesion con Google.",
 };
 
 export default async function AdminLoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {

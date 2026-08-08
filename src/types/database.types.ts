@@ -738,6 +738,16 @@ export type Database = {
         metadata: Json;
         created_at: string;
       }>;
+      admin_message_templates: Row<{
+        id: string;
+        title: string;
+        body: string;
+        is_active: boolean;
+        created_by: string | null;
+        updated_by: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       support_tickets: Row<{
         id: string;
         restaurant_id: string | null;

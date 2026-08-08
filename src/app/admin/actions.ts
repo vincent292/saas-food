@@ -84,6 +84,16 @@ const changeInitialPasswordSchema = z
     path: ["confirmPassword"],
   });
 
+const adminMessageTemplateSchema = z.object({
+  templateId: z.string().uuid().optional().or(z.literal("")),
+  title: z.string().trim().min(2).max(80),
+  body: z.string().trim().min(2).max(1200),
+});
+
+const adminMessageTemplateIdSchema = z.object({
+  templateId: z.string().uuid(),
+});
+
 const createRestaurantSchema = z.object({
   name: z.string().min(2),
   slug: z.string().optional(),
@@ -6708,4 +6718,108 @@ export async function closeInventoryCountAction(formData: FormData) {
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/inventario`);
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard`);
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/inventario?tab=conteo&count=closed`);
+}
+
+export async function saveAdminMessageTemplateAction(formData: FormData) {
+  const parsed = adminMessageTemplateSchema.safeParse({
+    templateId: formData.get("templateId") || "",
+    title: formData.get("title"),
+    body: formData.get("body"),
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/mensajes?error=invalid-template");
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  const admin = createAdminClient() ?? supabase;
+  const templateId = parsed.data.templateId || "";
+
+  if (templateId) {
+    const { error } = await admin
+      .from("admin_message_templates")
+      .update({
+        title: parsed.data.title,
+        body: parsed.data.body,
+        is_active: true,
+        updated_by: user.id,
+      })
+      .eq("id", templateId);
+
+    if (error) {
+      redirect(`/admin/mensajes?error=${error.code}`);
+    }
+
+    await supabase.rpc("write_admin_audit", {
+      p_action: "admin_message_template_updated",
+      p_entity_type: "admin_message_template",
+      p_entity_id: templateId,
+      p_restaurant_id: null,
+      p_severity: "info",
+      p_metadata: { title: parsed.data.title },
+    });
+  } else {
+    const { data, error } = await admin
+      .from("admin_message_templates")
+      .insert({
+        title: parsed.data.title,
+        body: parsed.data.body,
+        created_by: user.id,
+        updated_by: user.id,
+      })
+      .select("id")
+      .single();
+
+    if (error || !data) {
+      redirect(`/admin/mensajes?error=${error?.code ?? "create-template"}`);
+    }
+
+    await supabase.rpc("write_admin_audit", {
+      p_action: "admin_message_template_created",
+      p_entity_type: "admin_message_template",
+      p_entity_id: data.id,
+      p_restaurant_id: null,
+      p_severity: "info",
+      p_metadata: { title: parsed.data.title },
+    });
+  }
+
+  revalidatePath("/admin/mensajes");
+  redirect("/admin/mensajes?saved=1");
+}
+
+export async function deactivateAdminMessageTemplateAction(formData: FormData) {
+  const parsed = adminMessageTemplateIdSchema.safeParse({
+    templateId: formData.get("templateId"),
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/mensajes?error=invalid-template");
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  const admin = createAdminClient() ?? supabase;
+  const { error } = await admin
+    .from("admin_message_templates")
+    .update({
+      is_active: false,
+      updated_by: user.id,
+    })
+    .eq("id", parsed.data.templateId);
+
+  if (error) {
+    redirect(`/admin/mensajes?error=${error.code}`);
+  }
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: "admin_message_template_deactivated",
+    p_entity_type: "admin_message_template",
+    p_entity_id: parsed.data.templateId,
+    p_restaurant_id: null,
+    p_severity: "warning",
+    p_metadata: {},
+  });
+
+  revalidatePath("/admin/mensajes");
+  redirect("/admin/mensajes?deleted=1");
 }

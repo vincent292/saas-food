@@ -6,7 +6,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateOrderStatusAction } from "@/app/admin/actions";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
-import { elapsedLabel, kitchenStartDate, minutesSince, orderSourceLabel, paymentMethodLabels, timerTone } from "@/components/orders/orderPresentation";
+import { elapsedLabel, groupReceiptLinksFromNotes, kitchenStartDate, minutesSince, orderSourceLabel, paymentMethodLabels, timerTone } from "@/components/orders/orderPresentation";
+import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -18,6 +19,23 @@ import type { Order, OrderStatus } from "@/types/order.types";
 import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
 
 type KitchenView = "operacion" | "historial";
+
+function KitchenReceiptControls({ order }: { order: Order }) {
+  const groupReceipts = groupReceiptLinksFromNotes(order.notes);
+
+  if (!order.paymentReceiptUrl && !groupReceipts.length) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 grid gap-2">
+      {order.paymentReceiptUrl ? <ReceiptViewerButton label="Comprobante final" receiptLabel={`Comprobante final ${order.orderNumber}`} url={order.paymentReceiptUrl} /> : null}
+      {groupReceipts.map((receipt) => (
+        <ReceiptViewerButton key={`${receipt.label}-${receipt.url}`} label={receipt.label} receiptLabel={`Comprobante de ${receipt.label}`} subtitle={order.orderNumber} url={receipt.url} />
+      ))}
+    </div>
+  );
+}
 
 export function KitchenBoardClient({
   restaurant,
@@ -340,11 +358,7 @@ function KitchenCard({
             <h2 className="text-xl font-black text-[var(--text)]">{orderSourceLabel(order)}</h2>
             <p className="mt-1 text-xs font-bold text-[var(--muted)]">{paymentMethodLabels[order.paymentMethod]}</p>
             {order.paymentReceiptReference ? <p className="mt-1 text-xs font-black text-[var(--color-body)]">Referencia: {order.paymentReceiptReference}</p> : null}
-            {order.paymentReceiptUrl ? (
-              <a className="mt-2 inline-flex rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]" href={order.paymentReceiptUrl} rel="noreferrer" target="_blank">
-                Ver comprobante
-              </a>
-            ) : null}
+            <KitchenReceiptControls order={order} />
           </div>
           <OrderStatusBadge status={order.status} />
         </div>

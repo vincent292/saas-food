@@ -62,6 +62,20 @@ export function orderSourceLabel(order: Order) {
   return order.orderType === "pickup" ? "Recojo en mostrador" : "Venta POS";
 }
 
+export function groupReceiptLinksFromNotes(notes?: string) {
+  if (!notes || (!notes.startsWith("Yopido Grupal") && !notes.startsWith("Pedido grupal"))) {
+    return [];
+  }
+
+  return notes
+    .split("\n")
+    .map((line) => {
+      const match = line.match(/^(.+?):.*comprobante:\s*(\S+)/i);
+      return match ? { label: match[1].trim(), url: match[2].trim() } : null;
+    })
+    .filter((item): item is { label: string; url: string } => Boolean(item));
+}
+
 export function kitchenStartDate(order: Order) {
   return order.acceptedAt ?? order.createdAt;
 }

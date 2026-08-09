@@ -17,6 +17,7 @@ import {
   updateGroupParticipantPaymentAction,
 } from "@/app/r/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
+import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { ProductOptionModal, type ProductConfigMap } from "@/components/public-menu/PublicRestaurantOrderClient";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
@@ -569,9 +570,9 @@ export function GroupOrderSessionClient({
                           </p>
                           <p className="text-xs font-bold text-[var(--muted)]">{paymentStatusLabel(participant.paymentStatus)}</p>
                           {participant.paymentReceiptUrl ? (
-                            <a className="mt-1 inline-flex text-xs font-black text-[var(--primary)] underline" href={participant.paymentReceiptUrl} rel="noreferrer" target="_blank">
-                              Ver comprobante
-                            </a>
+                            <div className="mt-2">
+                              <ReceiptViewerButton label="Ver comprobante" receiptLabel={`Comprobante de ${participant.displayName}`} subtitle={paymentStatusLabel(participant.paymentStatus)} url={participant.paymentReceiptUrl} />
+                            </div>
                           ) : null}
                         </div>
                         <span className="shrink-0 text-sm font-black text-[var(--primary)]">{formatMoney(totalsByParticipant.get(participant.id) ?? 0)}</span>

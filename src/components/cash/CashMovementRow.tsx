@@ -1,7 +1,8 @@
 "use client";
 
-import { Eye, ExternalLink, ReceiptText, X } from "lucide-react";
+import { Eye, ReceiptText, X } from "lucide-react";
 import { useState } from "react";
+import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { buttonClasses } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
 import { formatShortDate, formatShortTime } from "@/lib/utils/dates";
@@ -188,10 +189,7 @@ function MovementDetailModal({ movement, order, onClose }: { movement: CashMovem
                   </div>
                 </div>
                 {order?.paymentReceiptUrl ? (
-                  <a className={buttonClasses("secondary", "min-h-11 px-4")} href={order.paymentReceiptUrl} rel="noreferrer" target="_blank">
-                    <ExternalLink className="h-4 w-4" />
-                    Ver comprobante
-                  </a>
+                  <ReceiptViewerButton className="min-h-11 px-4" label="Ver comprobante" receiptLabel={`Comprobante ${order.orderNumber}`} subtitle={order.paymentReceiptReference ? `Referencia: ${order.paymentReceiptReference}` : undefined} url={order.paymentReceiptUrl} />
                 ) : (
                   <span className="rounded-full bg-[var(--color-warning-soft)] px-4 py-2 text-sm font-black text-[var(--color-warning-strong)]">Sin imagen</span>
                 )}

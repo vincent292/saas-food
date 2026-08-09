@@ -7,7 +7,8 @@ import { useRouter } from "next/navigation";
 import { refundOrderAction, updateOrderStatusAction } from "@/app/admin/actions";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
-import { elapsedLabel, minutesSince, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
+import { elapsedLabel, groupReceiptLinksFromNotes, minutesSince, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
+import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -86,6 +87,30 @@ function statusMessage(status: ReceptionStatus, restaurant: Restaurant, settings
               : `No se pudo completar la acción: ${status.error}.`;
 
   return { tone: "error", text: message };
+}
+
+function OrderReceiptControls({ order }: { order: Order }) {
+  const groupReceipts = groupReceiptLinksFromNotes(order.notes);
+
+  if (!order.paymentReceiptUrl && !groupReceipts.length) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 grid gap-2 rounded-2xl bg-[var(--surface)] p-3">
+      {order.paymentReceiptUrl ? (
+        <ReceiptViewerButton label="Comprobante final" receiptLabel={`Comprobante final ${order.orderNumber}`} subtitle={order.paymentReceiptReference ? `Referencia: ${order.paymentReceiptReference}` : undefined} url={order.paymentReceiptUrl} />
+      ) : null}
+      {groupReceipts.length ? (
+        <>
+          <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Comprobantes del grupo</p>
+          {groupReceipts.map((receipt) => (
+            <ReceiptViewerButton key={`${receipt.label}-${receipt.url}`} label={receipt.label} receiptLabel={`Comprobante de ${receipt.label}`} subtitle={order.orderNumber} url={receipt.url} />
+          ))}
+        </>
+      ) : null}
+    </div>
+  );
 }
 
 export function OrdersReceptionClient({
@@ -329,11 +354,7 @@ function ReceptionOrderCard({
             <p className="mt-1 text-2xl font-black text-[var(--primary-dark)]">{formatMoney(order.total)}</p>
             <p className="mt-1 text-xs font-semibold text-[var(--muted)]">{businessOrderStatusLabel(order.status, restaurant.businessType)}</p>
             {order.paymentReceiptReference ? <p className="mt-2 text-xs font-black text-[var(--primary-dark)]">Referencia: {order.paymentReceiptReference}</p> : null}
-            {order.paymentReceiptUrl ? (
-              <a className="mt-3 inline-flex rounded-full bg-[var(--surface)] px-3 py-1 text-xs font-black text-[var(--primary)]" href={order.paymentReceiptUrl} rel="noreferrer" target="_blank">
-                Ver comprobante
-              </a>
-            ) : null}
+            <OrderReceiptControls order={order} />
           </div>
 
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">

@@ -4,7 +4,8 @@ import { ChevronDown, Clock3, ReceiptText, WalletCards } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { chargeOrderAction, rejectCashOrderAction } from "@/app/admin/actions";
-import { orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
+import { groupReceiptLinksFromNotes, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
+import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -46,6 +47,7 @@ export function PendingOrderReviewCard({
   const whatsappUrl = whatsappHref(order);
   const pendingLabel = context === "pedidos" ? "Pendiente por aprobar" : "Pendiente de caja";
   const hasReceiptEvidence = Boolean(order.paymentReceiptUrl || order.paymentReceiptReference);
+  const groupReceipts = groupReceiptLinksFromNotes(order.notes);
   const preparationArea = businessPreparationAreaLabel(businessType);
   const hasKitchenFlow = businessTypeSupportsKitchen(businessType);
   const approvalCopy =
@@ -101,9 +103,17 @@ export function PendingOrderReviewCard({
             </p>
             {order.paymentReceiptReference ? <p className="mt-2 text-xs font-black text-[var(--primary-dark)]">Referencia: {order.paymentReceiptReference}</p> : null}
             {order.paymentReceiptUrl ? (
-              <a className="mt-3 inline-flex rounded-full bg-[var(--surface)] px-3 py-1 text-xs font-black text-[var(--primary)]" href={order.paymentReceiptUrl} rel="noreferrer" target="_blank">
-                Ver comprobante
-              </a>
+              <div className="mt-3">
+                <ReceiptViewerButton label="Ver comprobante final" receiptLabel={`Comprobante final ${order.orderNumber}`} subtitle={order.paymentReceiptReference ? `Referencia: ${order.paymentReceiptReference}` : undefined} url={order.paymentReceiptUrl} />
+              </div>
+            ) : null}
+            {groupReceipts.length ? (
+              <div className="mt-3 grid gap-2 rounded-2xl bg-[var(--surface)] p-3">
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Comprobantes del grupo</p>
+                {groupReceipts.map((receipt) => (
+                  <ReceiptViewerButton key={`${receipt.label}-${receipt.url}`} label={receipt.label} receiptLabel={`Comprobante de ${receipt.label}`} subtitle={order.orderNumber} url={receipt.url} />
+                ))}
+              </div>
             ) : null}
           </div>
 

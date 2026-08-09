@@ -524,9 +524,15 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
     })
     .eq("id", session.id);
 
+  const { data: savedOrder } = await supabase
+    .from("orders")
+    .select("order_number")
+    .eq("id", order.id)
+    .maybeSingle();
+
   return {
     orderId: order.id,
-    orderNumber: order.order_number ?? "",
+    orderNumber: savedOrder?.order_number ?? "",
     trackingToken: order.tracking_token,
   };
 }

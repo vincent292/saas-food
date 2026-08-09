@@ -421,6 +421,9 @@ export type Database = {
         host_phone: string | null;
         collect_mode: "host_collects" | "restaurant_collects" | "internal_cash";
         host_qr_url: string | null;
+        multisite_enabled: boolean;
+        multisite_radius_km: number;
+        multisite_max_pickups: number;
         status: "open" | "locked" | "submitted" | "cancelled" | "expired";
         submitted_order_id: string | null;
         submitted_at: string | null;

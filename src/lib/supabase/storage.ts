@@ -1,5 +1,6 @@
 import {
   DeleteObjectsCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -112,6 +113,45 @@ export async function uploadPrivateFile(file: File | null, folder: string) {
   const path = `${folder}/${crypto.randomUUID()}.${extension}`;
   await putR2Object(r2.client, r2.config.privateBucket, path, file, "private, no-store");
   return privateObjectUrl(path);
+}
+
+export async function uploadTemporaryPublicImage(file: File | null, folder: string, maxAgeSeconds = 60 * 60 * 24 * 2) {
+  if (!file || file.size === 0) {
+    return null;
+  }
+
+  const r2 = getR2Client();
+  if (r2) {
+    if (!r2.config.publicUrl) {
+      throw new Error("R2_PUBLIC_URL is required to upload public assets to R2.");
+    }
+
+    const extension = extensionFromFile(file);
+    const path = `${folder}/${crypto.randomUUID()}.${extension}`;
+    await putR2Object(r2.client, r2.config.publicBucket, path, file, `public, max-age=${maxAgeSeconds}`);
+    return `${r2.config.publicUrl}/${path}`;
+  }
+
+  return uploadPublicImage(file, folder);
+}
+
+export async function deletePublicFileUrl(url?: string | null) {
+  if (!url) return;
+  const r2 = getR2Client();
+  if (!r2?.config.publicUrl) return;
+
+  const publicPrefix = `${r2.config.publicUrl}/`;
+  if (!url.startsWith(publicPrefix)) return;
+
+  const key = decodeURIComponent(url.slice(publicPrefix.length));
+  if (!key) return;
+
+  await r2.client.send(
+    new DeleteObjectCommand({
+      Bucket: r2.config.publicBucket,
+      Key: key,
+    }),
+  );
 }
 
 export async function getPrivateFileSignedUrl(path: string) {

@@ -44,6 +44,9 @@ export type GroupOrderSessionView = {
   hostPhone?: string;
   collectMode: "host_collects" | "restaurant_collects" | "internal_cash";
   hostQrUrl?: string;
+  multisiteEnabled?: boolean;
+  multisiteRadiusKm?: number;
+  multisiteMaxPickups?: number;
   status: "open" | "locked" | "submitted" | "cancelled" | "expired";
   expiresAt: string;
   submittedOrderId?: string;
@@ -727,6 +730,15 @@ export function GroupOrderSessionClient({
                     <option value="restaurant_collects">Cada persona paga al restaurante</option>
                     <option value="internal_cash">Arreglo interno / efectivo</option>
                   </Select>
+                  <label className="flex items-start gap-3 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--color-surface)] p-3 text-sm font-bold">
+                    <input className="mt-1 h-4 w-4 accent-[var(--primary)]" defaultChecked={session.multisiteEnabled ?? false} name="multisiteEnabled" type="checkbox" />
+                    <span>
+                      <span className="block font-black">Permitir multisede</span>
+                      <span className="block text-xs font-semibold leading-5 text-[var(--muted)]">
+                        Hasta {session.multisiteMaxPickups ?? 3} locales en {session.multisiteRadiusKm ?? 3} km alrededor del destino.
+                      </span>
+                    </span>
+                  </label>
                   <label className="grid gap-1 text-sm font-black">
                     Cambiar QR del host
                     <Input accept="image/png,image/jpeg,image/webp,image/avif" name="hostQrFile" type="file" />

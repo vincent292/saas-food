@@ -10,6 +10,10 @@ import type { Database } from "@/types/database.types";
 import type { BusinessHour, RestaurantDeliveryZone } from "@/types/restaurant.types";
 
 type SupabaseDatabaseClient = SupabaseClient<Database>;
+export const groupUploadMaxBytes = 5 * 1024 * 1024;
+export const groupPublicImageTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
+export const groupPrivateReceiptTypes = new Set([...groupPublicImageTypes, "application/pdf"]);
+export const groupTemporaryUploadMaxAgeSeconds = 60 * 60 * 24 * 2;
 
 export const groupCollectModeSchema = z.enum(["host_collects", "restaurant_collects", "internal_cash"]);
 export const groupPaymentStatusSchema = z.enum(["pending", "paid_qr", "cash_pending", "covered_by_host", "excluded"]);
@@ -124,6 +128,20 @@ export function mobileGroupError(error: string, status = 400) {
   return NextResponse.json({ error }, { status });
 }
 
+export function isGroupSessionExpired(session: { expires_at?: string | null }) {
+  return Boolean(session.expires_at && new Date(session.expires_at).getTime() <= Date.now());
+}
+
+export function isNonEmptyFile(file: FormDataEntryValue | null): file is File {
+  return Boolean(file instanceof File && file.size > 0);
+}
+
+export function validateGroupUpload(file: File, allowedTypes: Set<string>, kind: "qr" | "receipt" = "receipt") {
+  if (file.size > groupUploadMaxBytes) return `${kind}-size`;
+  if (!allowedTypes.has(file.type)) return `${kind}-type`;
+  return "";
+}
+
 export function paymentMethodForStatus(status: z.infer<typeof groupPaymentStatusSchema>) {
   if (status === "paid_qr") return "qr";
   if (status === "cash_pending") return "cash";
@@ -219,6 +237,7 @@ export async function buildGroupOrderPayload({
     ? (participants ?? []).find((participant) => participant.participant_token === participantToken)
     : null;
   const isHost = Boolean(hostAccessToken && session.host_access_token === hostAccessToken);
+  const expired = isGroupSessionExpired(session);
 
   return {
     currentParticipantId: currentParticipant?.id ?? null,
@@ -250,8 +269,11 @@ export async function buildGroupOrderPayload({
       hostName: session.host_name,
       hostPhone: session.host_phone ?? "",
       collectMode: session.collect_mode,
-      hostQrUrl: session.host_qr_url ?? "",
-      status: session.status,
+      hostQrUrl: expired ? "" : (session.host_qr_url ?? ""),
+      multisiteEnabled: Boolean(session.multisite_enabled),
+      multisiteRadiusKm: Number(session.multisite_radius_km ?? 3),
+      multisiteMaxPickups: Number(session.multisite_max_pickups ?? 3),
+      status: expired && session.status !== "submitted" && session.status !== "cancelled" ? "expired" : session.status,
       submittedOrderId: session.submitted_order_id ?? "",
       subtotal: Number(session.subtotal),
       deliveryFee: Number(session.delivery_fee),

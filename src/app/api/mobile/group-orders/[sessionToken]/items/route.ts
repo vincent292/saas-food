@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { buildGroupOrderPayload, getMobileGroupAdmin, groupItemSchema, mobileGroupError, resolveGroupCartItems } from "../../_shared";
+import { buildGroupOrderPayload, getMobileGroupAdmin, groupItemSchema, isGroupSessionExpired, mobileGroupError, resolveGroupCartItems } from "../../_shared";
 
 const removeSchema = z.object({
   itemId: z.string().uuid(),
@@ -65,8 +65,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ s
 
   const supabase = await getMobileGroupAdmin();
   if (!supabase) return mobileGroupError("service-role-required", 500);
-  const { data: session } = await supabase.from("group_order_sessions").select("id,status,host_access_token").eq("public_token", sessionToken).maybeSingle();
-  if (!session || !["open", "locked"].includes(session.status)) return mobileGroupError("closed", 409);
+  const { data: session } = await supabase.from("group_order_sessions").select("id,status,host_access_token,expires_at").eq("public_token", sessionToken).maybeSingle();
+  if (!session || !["open", "locked"].includes(session.status) || isGroupSessionExpired(session)) return mobileGroupError("closed", 409);
 
   const { data: item } = await supabase.from("group_order_items").select("id,participant_id").eq("session_id", session.id).eq("id", parsed.data.itemId).maybeSingle();
   if (!item) return mobileGroupError("item", 404);

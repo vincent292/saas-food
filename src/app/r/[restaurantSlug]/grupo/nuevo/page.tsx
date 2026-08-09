@@ -65,6 +65,15 @@ export default async function NewGroupOrderPage({
                 <option value="restaurant_collects">Cada persona paga al restaurante</option>
                 <option value="internal_cash">Arreglo interno / efectivo</option>
               </Select>
+              <label className="flex items-start gap-3 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--color-surface)] p-3 text-sm font-bold">
+                <input className="mt-1 h-4 w-4 accent-[var(--primary)]" name="multisiteEnabled" type="checkbox" />
+                <span>
+                  <span className="block font-black">Permitir multisede</span>
+                  <span className="block text-xs font-semibold leading-5 text-[var(--muted)]">
+                    El grupo podra combinar hasta 3 locales cercanos en una ruta de delivery optimizada.
+                  </span>
+                </span>
+              </label>
               <label className="grid gap-1 text-sm font-black">
                 QR del host opcional
                 <Input accept="image/png,image/jpeg,image/webp,image/avif" name="hostQrFile" type="file" />

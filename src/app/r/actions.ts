@@ -79,6 +79,7 @@ const createGroupOrderSessionSchema = z.object({
   hostName: z.string().trim().min(2).max(120),
   hostPhone: z.string().trim().max(40).optional(),
   collectMode: groupCollectModeSchema.default("host_collects"),
+  multisiteEnabled: z.coerce.boolean().default(false),
 });
 
 const joinGroupOrderSessionSchema = z.object({
@@ -124,6 +125,7 @@ const updateGroupSessionSettingsSchema = z.object({
   sessionToken: z.string().min(8),
   hostAccessToken: z.string().min(12),
   collectMode: groupCollectModeSchema,
+  multisiteEnabled: z.coerce.boolean().default(false),
 });
 
 const updateGroupSessionStatusInputSchema = z.object({
@@ -841,6 +843,7 @@ export async function createGroupOrderSessionAction(formData: FormData) {
     hostName: formData.get("hostName"),
     hostPhone: formData.get("hostPhone") || undefined,
     collectMode: formData.get("collectMode") || "host_collects",
+    multisiteEnabled: formData.get("multisiteEnabled") === "on",
   });
 
   const restaurantSlug = String(formData.get("restaurantSlug") || "");
@@ -904,6 +907,7 @@ export async function createGroupOrderSessionAction(formData: FormData) {
       host_phone: parsed.data.hostPhone || null,
       collect_mode: parsed.data.collectMode,
       host_qr_url: hostQrUrl,
+      multisite_enabled: parsed.data.multisiteEnabled,
     })
     .select("id")
     .single();
@@ -1239,6 +1243,7 @@ export async function updateGroupOrderSessionSettingsAction(formData: FormData) 
     sessionToken: formData.get("sessionToken"),
     hostAccessToken: formData.get("hostAccessToken"),
     collectMode: formData.get("collectMode"),
+    multisiteEnabled: formData.get("multisiteEnabled") === "on",
   });
 
   const restaurantSlug = String(formData.get("restaurantSlug") || "");
@@ -1285,6 +1290,7 @@ export async function updateGroupOrderSessionSettingsAction(formData: FormData) 
     .from("group_order_sessions")
     .update({
       collect_mode: settingsData.collectMode,
+      multisite_enabled: settingsData.multisiteEnabled,
       ...(hostQrUrl ? { host_qr_url: hostQrUrl } : {}),
     })
     .eq("id", session.id);

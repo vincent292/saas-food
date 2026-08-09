@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { buildGroupOrderPayload, createSecretToken, createShortToken, getMobileGroupAdmin, groupCollectModeSchema, mobileGroupError } from "./_shared";
+import { uploadTemporaryPublicImage } from "@/lib/supabase/storage";
+import {
+  buildGroupOrderPayload,
+  createSecretToken,
+  createShortToken,
+  getMobileGroupAdmin,
+  groupCollectModeSchema,
+  groupPublicImageTypes,
+  groupTemporaryUploadMaxAgeSeconds,
+  isNonEmptyFile,
+  mobileGroupError,
+  validateGroupUpload,
+} from "./_shared";
 
 const createSchema = z.object({
   restaurantSlug: z.string().min(1),
@@ -8,18 +20,37 @@ const createSchema = z.object({
   hostPhone: z.string().trim().max(40).optional(),
   collectMode: groupCollectModeSchema.default("host_collects"),
   hostQrUrl: z.string().trim().max(700).optional(),
+  multisiteEnabled: z.boolean().optional().default(false),
 });
 
 export async function POST(request: Request) {
   let body: unknown;
+  let hostQrFile: File | null = null;
   try {
-    body = await request.json();
+    if (request.headers.get("content-type")?.includes("multipart/form-data")) {
+      const formData = await request.formData();
+      body = {
+        collectMode: formData.get("collectMode") || undefined,
+        hostName: formData.get("hostName") || undefined,
+        hostPhone: formData.get("hostPhone") || undefined,
+        multisiteEnabled: formData.get("multisiteEnabled") === "true",
+        restaurantSlug: formData.get("restaurantSlug") || undefined,
+      };
+      const file = formData.get("hostQrFile");
+      hostQrFile = isNonEmptyFile(file) ? file : null;
+    } else {
+      body = await request.json();
+    }
   } catch {
     return mobileGroupError("invalid-json");
   }
 
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) return mobileGroupError("invalid");
+  if (hostQrFile) {
+    const uploadError = validateGroupUpload(hostQrFile, groupPublicImageTypes, "qr");
+    if (uploadError) return mobileGroupError(uploadError);
+  }
 
   const supabase = await getMobileGroupAdmin();
   if (!supabase) return mobileGroupError("service-role-required", 500);
@@ -34,6 +65,11 @@ export async function POST(request: Request) {
 
   if (!restaurant) return mobileGroupError("invalid-restaurant", 404);
 
+  const hostQrUrl =
+    parsed.data.collectMode === "host_collects" && hostQrFile
+      ? await uploadTemporaryPublicImage(hostQrFile, `temporary/group-orders/${restaurant.id}/host-qr`, groupTemporaryUploadMaxAgeSeconds)
+      : parsed.data.hostQrUrl || null;
+
   const sessionToken = createShortToken(12);
   const hostAccessToken = createSecretToken();
   const hostParticipantToken = createSecretToken();
@@ -44,7 +80,8 @@ export async function POST(request: Request) {
       host_access_token: hostAccessToken,
       host_name: parsed.data.hostName,
       host_phone: parsed.data.hostPhone || null,
-      host_qr_url: parsed.data.collectMode === "host_collects" ? parsed.data.hostQrUrl || null : null,
+      host_qr_url: parsed.data.collectMode === "host_collects" ? hostQrUrl : null,
+      multisite_enabled: parsed.data.multisiteEnabled,
       public_token: sessionToken,
       restaurant_id: restaurant.id,
     })

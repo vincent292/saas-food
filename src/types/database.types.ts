@@ -411,6 +411,56 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      group_order_sessions: Row<{
+        id: string;
+        restaurant_id: string;
+        public_token: string;
+        host_access_token: string;
+        host_participant_id: string | null;
+        host_name: string;
+        host_phone: string | null;
+        collect_mode: "host_collects" | "restaurant_collects" | "internal_cash";
+        host_qr_url: string | null;
+        status: "open" | "locked" | "submitted" | "cancelled" | "expired";
+        submitted_order_id: string | null;
+        submitted_at: string | null;
+        subtotal: number;
+        delivery_fee: number;
+        total: number;
+        expires_at: string;
+        created_at: string;
+        updated_at: string;
+      }>;
+      group_order_participants: Row<{
+        id: string;
+        session_id: string;
+        participant_token: string;
+        display_name: string;
+        phone: string | null;
+        role: "host" | "guest";
+        payment_status: "pending" | "paid_qr" | "cash_pending" | "covered_by_host" | "excluded";
+        payment_method: Database["public"]["Enums"]["payment_method_type"] | null;
+        payment_note: string | null;
+        payment_receipt_url: string | null;
+        payment_receipt_uploaded_at: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      group_order_items: Row<{
+        id: string;
+        session_id: string;
+        participant_id: string;
+        product_id: string;
+        product_name: string;
+        variant_id: string | null;
+        option_ids: string[];
+        unit_price: number;
+        quantity: number;
+        subtotal: number;
+        notes: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       order_cancellation_reviews: Row<{
         id: string;
         restaurant_id: string;

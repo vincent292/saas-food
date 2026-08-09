@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCard, Info, MapPin, Minus, MoreVertical, Plus, ReceiptText, Search, Share2, ShoppingCart, Sparkles, Store, UserRound, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bike, CalendarClock, Check, Clock3, CreditCard, Info, MapPin, Minus, MoreVertical, Plus, ReceiptText, Search, Share2, ShoppingCart, Sparkles, Store, UserRound, UsersRound, X } from "lucide-react";
 import Link from "next/link";
 import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
@@ -28,7 +28,7 @@ import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantDelive
 
 type PublicOrderType = "delivery" | "pickup";
 type SelectedOptions = Record<string, string[]>;
-type ProductConfigMap = Record<string, { variants: ProductVariant[]; optionGroups: ProductOptionGroup[] }>;
+export type ProductConfigMap = Record<string, { variants: ProductVariant[]; optionGroups: ProductOptionGroup[] }>;
 
 type CartItem = {
   cartId: string;
@@ -329,6 +329,11 @@ export function PublicRestaurantOrderClient({
               <ReceiptText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               <span className="hidden min-[430px]:inline sm:hidden">Rastrear</span>
               <span className="hidden sm:inline">Rastrear pedido</span>
+            </Link>
+            <Link aria-label="Crear pedido grupal" className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-black text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:h-10 sm:px-3 sm:text-sm" href={publicRestaurantPath(restaurant.slug, "grupo/nuevo")}>
+              <UsersRound className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              <span className="hidden min-[430px]:inline sm:hidden">Grupo</span>
+              <span className="hidden sm:inline">Pedido grupal</span>
             </Link>
             <button aria-label="Tu pedido" className="relative inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 text-[var(--text)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:h-11 sm:px-3" onClick={openDrawer} type="button">
               <ShoppingCart className="h-5 w-5" />
@@ -886,7 +891,7 @@ function ProductTile({ product, config, availability, onSelect }: { product: Pro
   );
 }
 
-function ProductOptionModal({
+export function ProductOptionModal({
   product,
   config,
   onClose,

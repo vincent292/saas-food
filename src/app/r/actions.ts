@@ -6,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { announcementService } from "@/lib/services/announcement.service";
-import { uploadPrivateFile } from "@/lib/supabase/storage";
+import { uploadPrivateFile, uploadPublicImage } from "@/lib/supabase/storage";
 import { businessTypeSupportsTableQr, normalizeRestaurantBusinessType } from "@/lib/restaurant-directory-options";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -59,6 +59,86 @@ const trackingLookupSchema = z.object({
   restaurantSlug: z.string().min(1),
   orderNumber: z.string().min(3),
   customerPhone: z.string().min(4),
+});
+
+const groupCollectModeSchema = z.enum(["host_collects", "restaurant_collects", "internal_cash"]);
+
+const createGroupOrderSessionSchema = z.object({
+  restaurantSlug: z.string().min(1),
+  hostName: z.string().trim().min(2).max(120),
+  hostPhone: z.string().trim().max(40).optional(),
+  collectMode: groupCollectModeSchema.default("host_collects"),
+});
+
+const joinGroupOrderSessionSchema = z.object({
+  restaurantSlug: z.string().min(1),
+  sessionToken: z.string().min(8),
+  displayName: z.string().trim().min(2).max(120),
+  phone: z.string().trim().max(40).optional(),
+});
+
+const groupOrderItemInputSchema = z.object({
+  sessionToken: z.string().min(8),
+  participantToken: z.string().min(12),
+  productId: z.string().uuid(),
+  variantId: z.string().uuid().optional(),
+  optionIds: z.array(z.string().uuid()).optional().default([]),
+  notes: z.string().trim().max(240).optional(),
+});
+
+const removeGroupOrderItemInputSchema = z.object({
+  sessionToken: z.string().min(8),
+  participantToken: z.string().min(12).optional(),
+  hostAccessToken: z.string().min(12).optional(),
+  itemId: z.string().uuid(),
+});
+
+const updateGroupParticipantPaymentInputSchema = z.object({
+  sessionToken: z.string().min(8),
+  participantToken: z.string().min(12),
+  paymentStatus: z.enum(["pending", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
+  paymentNote: z.string().trim().max(240).optional(),
+});
+
+const updateGroupParticipantPaymentFormSchema = z.object({
+  restaurantSlug: z.string().min(1),
+  sessionToken: z.string().min(8),
+  participantToken: z.string().min(12),
+  paymentStatus: z.enum(["pending", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
+  paymentNote: z.string().trim().max(240).optional(),
+});
+
+const updateGroupSessionSettingsSchema = z.object({
+  restaurantSlug: z.string().min(1),
+  sessionToken: z.string().min(8),
+  hostAccessToken: z.string().min(12),
+  collectMode: groupCollectModeSchema,
+});
+
+const updateGroupSessionStatusInputSchema = z.object({
+  restaurantSlug: z.string().min(1),
+  sessionToken: z.string().min(8),
+  hostAccessToken: z.string().min(12),
+  status: z.enum(["open", "locked", "cancelled"]),
+});
+
+const updateGroupParticipantByHostInputSchema = z.object({
+  sessionToken: z.string().min(8),
+  hostAccessToken: z.string().min(12),
+  participantId: z.string().uuid(),
+  paymentStatus: z.enum(["pending", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
+});
+
+const submitGroupOrderSessionSchema = z.object({
+  restaurantSlug: z.string().min(1),
+  sessionToken: z.string().min(8),
+  hostAccessToken: z.string().min(12),
+  orderType: z.enum(["delivery", "pickup"]),
+  customerName: z.string().trim().min(2).max(120),
+  customerPhone: z.string().trim().max(40).optional(),
+  customerAddress: z.string().trim().max(260).optional(),
+  deliveryAddressDetail: z.string().trim().max(180).optional(),
+  paymentMethod: z.enum(["cash", "qr", "bank_transfer", "card"]).default("cash"),
 });
 
 type TrackingLookupPayload = {
@@ -705,4 +785,771 @@ export async function trackPublicOrderAction(formData: FormData) {
   }
 
   redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `pedido/${payload.id}`)}?token=${payload.tracking_token}`);
+}
+
+function createShortToken(length = 12) {
+  return crypto.randomUUID().replace(/-/g, "").slice(0, length).toUpperCase();
+}
+
+function createSecretToken() {
+  return crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+}
+
+function groupOrderUrl(restaurantSlug: string, sessionToken: string, params?: Record<string, string | undefined>) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value) {
+      search.set(key, value);
+    }
+  }
+  const query = search.toString();
+  return `${publicRestaurantPath(restaurantSlug, `grupo/${sessionToken}`)}${query ? `?${query}` : ""}`;
+}
+
+function collectModeLabel(mode: z.infer<typeof groupCollectModeSchema>) {
+  if (mode === "host_collects") return "Todos pagan al host";
+  if (mode === "restaurant_collects") return "Cada persona paga al restaurante";
+  return "Arreglo interno / efectivo";
+}
+
+function participantPaymentLabel(status: string) {
+  if (status === "paid_qr") return "Pago QR marcado";
+  if (status === "cash_pending") return "Efectivo pendiente";
+  if (status === "covered_by_host") return "Cubierto por host";
+  if (status === "excluded") return "Excluido";
+  return "Pendiente";
+}
+
+export async function createGroupOrderSessionAction(formData: FormData) {
+  const parsed = createGroupOrderSessionSchema.safeParse({
+    restaurantSlug: formData.get("restaurantSlug"),
+    hostName: formData.get("hostName"),
+    hostPhone: formData.get("hostPhone") || undefined,
+    collectMode: formData.get("collectMode") || "host_collects",
+  });
+
+  const restaurantSlug = String(formData.get("restaurantSlug") || "");
+  if (!parsed.success) {
+    redirect(`${publicRestaurantPath(restaurantSlug, "grupo/nuevo")}?error=invalid`);
+  }
+
+  const rateLimit = await consumeRateLimit({
+    scope: "group-order-create",
+    identity: `${parsed.data.restaurantSlug}:${parsed.data.hostPhone || parsed.data.hostName}`,
+    maxAttempts: 8,
+    windowSeconds: 10 * 60,
+    blockSeconds: 15 * 60,
+  });
+
+  if (!rateLimit.allowed) {
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=rate-limit`);
+  }
+
+  const supabase = await createClient();
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=service-role-required`);
+  }
+
+  const { data: restaurant } = await supabase
+    .from("restaurants")
+    .select("id,slug")
+    .eq("slug", parsed.data.restaurantSlug)
+    .eq("status", "active")
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (!restaurant) {
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug)}?pedido=1&error=invalid-restaurant`);
+  }
+
+  const hostQrFile = formData.get("hostQrFile") as File | null;
+  if (hostQrFile && hostQrFile.size > 0 && hostQrFile.size > 5 * 1024 * 1024) {
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=qr-size`);
+  }
+
+  const hostQrUrl =
+    parsed.data.collectMode === "host_collects" && hostQrFile && hostQrFile.size > 0
+      ? await uploadPublicImage(hostQrFile, `restaurants/${restaurant.id}/group-host-qr`)
+      : null;
+  const sessionToken = createShortToken(12);
+  const hostAccessToken = createSecretToken();
+  const hostParticipantToken = createSecretToken();
+
+  const { data: session, error: sessionError } = await admin
+    .from("group_order_sessions")
+    .insert({
+      restaurant_id: restaurant.id,
+      public_token: sessionToken,
+      host_access_token: hostAccessToken,
+      host_name: parsed.data.hostName,
+      host_phone: parsed.data.hostPhone || null,
+      collect_mode: parsed.data.collectMode,
+      host_qr_url: hostQrUrl,
+    })
+    .select("id")
+    .single();
+
+  if (sessionError || !session) {
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=create`);
+  }
+
+  const { data: participant, error: participantError } = await admin
+    .from("group_order_participants")
+    .insert({
+      session_id: session.id,
+      participant_token: hostParticipantToken,
+      display_name: parsed.data.hostName,
+      phone: parsed.data.hostPhone || null,
+      role: "host",
+      payment_status: "covered_by_host",
+      payment_method: "other",
+    })
+    .select("id")
+    .single();
+
+  if (participantError || !participant) {
+    await admin.from("group_order_sessions").delete().eq("id", session.id);
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=create`);
+  }
+
+  await admin.from("group_order_sessions").update({ host_participant_id: participant.id }).eq("id", session.id);
+  redirect(groupOrderUrl(parsed.data.restaurantSlug, sessionToken, { host: hostAccessToken, participant: hostParticipantToken }));
+}
+
+export async function joinGroupOrderSessionAction(formData: FormData) {
+  const parsed = joinGroupOrderSessionSchema.safeParse({
+    restaurantSlug: formData.get("restaurantSlug"),
+    sessionToken: formData.get("sessionToken"),
+    displayName: formData.get("displayName"),
+    phone: formData.get("phone") || undefined,
+  });
+
+  const restaurantSlug = String(formData.get("restaurantSlug") || "");
+  const sessionToken = String(formData.get("sessionToken") || "");
+  if (!parsed.success) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { error: "invalid-join" }));
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { error: "service-role-required" }));
+  }
+
+  const { data: session } = await admin
+    .from("group_order_sessions")
+    .select("id,status,expires_at,restaurant_id")
+    .eq("public_token", parsed.data.sessionToken)
+    .maybeSingle();
+
+  if (!session || session.status !== "open" || new Date(session.expires_at).getTime() <= Date.now()) {
+    redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { error: "closed" }));
+  }
+
+  const participantToken = createSecretToken();
+  const { error } = await admin.from("group_order_participants").insert({
+    session_id: session.id,
+    participant_token: participantToken,
+    display_name: parsed.data.displayName,
+    phone: parsed.data.phone || null,
+    role: "guest",
+  });
+
+  if (error) {
+    redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { error: "join" }));
+  }
+
+  redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { participant: participantToken }));
+}
+
+export async function addGroupOrderItemAction(input: unknown) {
+  const parsed = groupOrderItemInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "invalid" };
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    return { ok: false, error: "service-role-required" };
+  }
+
+  const { data: session } = await admin
+    .from("group_order_sessions")
+    .select("id,restaurant_id,status,expires_at")
+    .eq("public_token", parsed.data.sessionToken)
+    .maybeSingle();
+
+  if (!session || session.status !== "open" || new Date(session.expires_at).getTime() <= Date.now()) {
+    return { ok: false, error: "closed" };
+  }
+
+  const { data: participant } = await admin
+    .from("group_order_participants")
+    .select("id")
+    .eq("session_id", session.id)
+    .eq("participant_token", parsed.data.participantToken)
+    .maybeSingle();
+
+  if (!participant) {
+    return { ok: false, error: "participant" };
+  }
+
+  let resolvedItem: ResolvedCartItem;
+  try {
+    [resolvedItem] = await resolvePublicCartItems(admin, session.restaurant_id, [
+      {
+        productId: parsed.data.productId,
+        variantId: parsed.data.variantId,
+        optionIds: parsed.data.optionIds,
+        quantity: 1,
+        notes: parsed.data.notes,
+      },
+    ]);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "product-not-found" };
+  }
+
+  const { error } = await admin.from("group_order_items").insert({
+    session_id: session.id,
+    participant_id: participant.id,
+    product_id: resolvedItem.productId,
+    product_name: resolvedItem.name,
+    variant_id: resolvedItem.variantId ?? null,
+    option_ids: resolvedItem.optionIds,
+    unit_price: resolvedItem.price,
+    quantity: resolvedItem.quantity,
+    subtotal: resolvedItem.subtotal,
+    notes: resolvedItem.notes ?? null,
+  });
+
+  if (error) {
+    return { ok: false, error: "add" };
+  }
+
+  return { ok: true };
+}
+
+export async function removeGroupOrderItemAction(input: unknown) {
+  const parsed = removeGroupOrderItemInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "invalid" };
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    return { ok: false, error: "service-role-required" };
+  }
+
+  const { data: session } = await admin
+    .from("group_order_sessions")
+    .select("id,host_access_token,status")
+    .eq("public_token", parsed.data.sessionToken)
+    .maybeSingle();
+
+  if (!session || !["open", "locked"].includes(session.status)) {
+    return { ok: false, error: "closed" };
+  }
+
+  const isHost = parsed.data.hostAccessToken && parsed.data.hostAccessToken === session.host_access_token;
+  if (session.status === "locked" && !isHost) {
+    return { ok: false, error: "closed" };
+  }
+
+  const { data: item } = await admin
+    .from("group_order_items")
+    .select("id,participant_id")
+    .eq("session_id", session.id)
+    .eq("id", parsed.data.itemId)
+    .maybeSingle();
+
+  if (!item) {
+    return { ok: false, error: "item" };
+  }
+
+  if (!isHost) {
+    const { data: participant } = await admin
+      .from("group_order_participants")
+      .select("id")
+      .eq("session_id", session.id)
+      .eq("participant_token", parsed.data.participantToken ?? "")
+      .maybeSingle();
+
+    if (!participant || participant.id !== item.participant_id) {
+      return { ok: false, error: "forbidden" };
+    }
+  }
+
+  const { error } = await admin.from("group_order_items").delete().eq("id", item.id).eq("session_id", session.id);
+  if (error) {
+    return { ok: false, error: "delete" };
+  }
+
+  return { ok: true };
+}
+
+export async function updateGroupParticipantPaymentAction(input: unknown) {
+  const parsed = updateGroupParticipantPaymentInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "invalid" };
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    return { ok: false, error: "service-role-required" };
+  }
+
+  const { data: session } = await admin
+    .from("group_order_sessions")
+    .select("id,status")
+    .eq("public_token", parsed.data.sessionToken)
+    .maybeSingle();
+
+  if (!session || !["open", "locked"].includes(session.status)) {
+    return { ok: false, error: "closed" };
+  }
+
+  const paymentMethod =
+    parsed.data.paymentStatus === "paid_qr"
+      ? "qr"
+      : parsed.data.paymentStatus === "cash_pending"
+        ? "cash"
+        : parsed.data.paymentStatus === "pending"
+          ? null
+          : "other";
+  const { error } = await admin
+    .from("group_order_participants")
+    .update({
+      payment_status: parsed.data.paymentStatus,
+      payment_method: paymentMethod,
+      payment_note: parsed.data.paymentNote || null,
+    })
+    .eq("session_id", session.id)
+    .eq("participant_token", parsed.data.participantToken);
+
+  if (error) {
+    return { ok: false, error: "payment" };
+  }
+
+  return { ok: true };
+}
+
+export async function updateGroupParticipantPaymentFormAction(formData: FormData) {
+  const parsed = updateGroupParticipantPaymentFormSchema.safeParse({
+    restaurantSlug: formData.get("restaurantSlug"),
+    sessionToken: formData.get("sessionToken"),
+    participantToken: formData.get("participantToken"),
+    paymentStatus: formData.get("paymentStatus"),
+    paymentNote: formData.get("paymentNote") || undefined,
+  });
+
+  const restaurantSlug = String(formData.get("restaurantSlug") || "");
+  const sessionToken = String(formData.get("sessionToken") || "");
+  const participantToken = String(formData.get("participantToken") || "");
+
+  if (!parsed.success) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "payment" }));
+  }
+  const paymentData = parsed.data;
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "service-role-required" }));
+  }
+  const writeClient = admin;
+
+  const { data: sessionRow } = await writeClient
+    .from("group_order_sessions")
+    .select("id,restaurant_id,status")
+    .eq("public_token", paymentData.sessionToken)
+    .maybeSingle();
+
+  if (!sessionRow || !["open", "locked"].includes(sessionRow.status)) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "closed" }));
+  }
+  const session = sessionRow;
+
+  const paymentReceiptFile = formData.get("paymentReceiptFile") as File | null;
+  if (paymentReceiptFile && paymentReceiptFile.size > 5 * 1024 * 1024) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "receipt-size" }));
+  }
+
+  const receiptUrl =
+    paymentData.paymentStatus === "paid_qr" && paymentReceiptFile && paymentReceiptFile.size > 0
+      ? await uploadPublicImage(paymentReceiptFile, `restaurants/${session.restaurant_id}/group-payment-receipts`)
+      : undefined;
+
+  const paymentMethod: "qr" | "cash" | "other" | null =
+    paymentData.paymentStatus === "paid_qr"
+      ? "qr"
+      : paymentData.paymentStatus === "cash_pending"
+        ? "cash"
+        : paymentData.paymentStatus === "pending"
+          ? null
+          : "other";
+
+  const updatePayload = {
+    payment_status: paymentData.paymentStatus,
+    payment_method: paymentMethod,
+    payment_note: paymentData.paymentNote || null,
+    ...(receiptUrl ? { payment_receipt_url: receiptUrl, payment_receipt_uploaded_at: new Date().toISOString() } : {}),
+  };
+
+  const { error } = await writeClient
+    .from("group_order_participants")
+    .update(updatePayload)
+    .eq("session_id", session.id)
+    .eq("participant_token", paymentData.participantToken);
+
+  if (error) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "payment" }));
+  }
+
+  redirect(groupOrderUrl(paymentData.restaurantSlug, paymentData.sessionToken, { participant: paymentData.participantToken, paid: "1" }));
+}
+
+export async function updateGroupOrderSessionSettingsAction(formData: FormData) {
+  const parsed = updateGroupSessionSettingsSchema.safeParse({
+    restaurantSlug: formData.get("restaurantSlug"),
+    sessionToken: formData.get("sessionToken"),
+    hostAccessToken: formData.get("hostAccessToken"),
+    collectMode: formData.get("collectMode"),
+  });
+
+  const restaurantSlug = String(formData.get("restaurantSlug") || "");
+  const sessionToken = String(formData.get("sessionToken") || "");
+  const hostAccessToken = String(formData.get("hostAccessToken") || "");
+
+  if (!parsed.success) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "settings" }));
+  }
+  const settingsData = parsed.data;
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "service-role-required" }));
+  }
+  const writeClient = admin;
+
+  const { data: sessionRow } = await writeClient
+    .from("group_order_sessions")
+    .select("id,restaurant_id,status")
+    .eq("public_token", settingsData.sessionToken)
+    .eq("host_access_token", settingsData.hostAccessToken)
+    .maybeSingle();
+
+  if (!sessionRow || !["open", "locked"].includes(sessionRow.status)) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "closed" }));
+  }
+  const session = sessionRow;
+
+  const hostQrFile = formData.get("hostQrFile") as File | null;
+  if (hostQrFile && hostQrFile.size > 5 * 1024 * 1024) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "qr-size" }));
+  }
+
+  const hostQrUrl =
+    settingsData.collectMode === "host_collects" && hostQrFile && hostQrFile.size > 0
+      ? await uploadPublicImage(hostQrFile, `restaurants/${session.restaurant_id}/group-host-qr`)
+      : undefined;
+
+  const { error } = await writeClient
+    .from("group_order_sessions")
+    .update({
+      collect_mode: settingsData.collectMode,
+      ...(hostQrUrl ? { host_qr_url: hostQrUrl } : {}),
+    })
+    .eq("id", session.id);
+
+  if (error) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "settings" }));
+  }
+
+  redirect(groupOrderUrl(settingsData.restaurantSlug, settingsData.sessionToken, { host: settingsData.hostAccessToken, settings: "1" }));
+}
+
+export async function updateGroupOrderSessionStatusAction(input: unknown) {
+  const parsed = updateGroupSessionStatusInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "invalid" };
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    return { ok: false, error: "service-role-required" };
+  }
+
+  const { data: session } = await admin
+    .from("group_order_sessions")
+    .select("id,status")
+    .eq("public_token", parsed.data.sessionToken)
+    .eq("host_access_token", parsed.data.hostAccessToken)
+    .maybeSingle();
+
+  if (!session || session.status === "submitted") {
+    return { ok: false, error: "closed" };
+  }
+
+  const { error } = await admin.from("group_order_sessions").update({ status: parsed.data.status }).eq("id", session.id);
+  if (error) {
+    return { ok: false, error: "status" };
+  }
+
+  return { ok: true };
+}
+
+export async function updateGroupParticipantByHostAction(input: unknown) {
+  const parsed = updateGroupParticipantByHostInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "invalid" };
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    return { ok: false, error: "service-role-required" };
+  }
+
+  const { data: session } = await admin
+    .from("group_order_sessions")
+    .select("id,status")
+    .eq("public_token", parsed.data.sessionToken)
+    .eq("host_access_token", parsed.data.hostAccessToken)
+    .maybeSingle();
+
+  if (!session || !["open", "locked"].includes(session.status)) {
+    return { ok: false, error: "closed" };
+  }
+
+  const paymentMethod =
+    parsed.data.paymentStatus === "paid_qr"
+      ? "qr"
+      : parsed.data.paymentStatus === "cash_pending"
+        ? "cash"
+        : parsed.data.paymentStatus === "pending"
+          ? null
+          : "other";
+  const { error } = await admin
+    .from("group_order_participants")
+    .update({
+      payment_status: parsed.data.paymentStatus,
+      payment_method: paymentMethod,
+    })
+    .eq("session_id", session.id)
+    .eq("id", parsed.data.participantId);
+
+  if (error) {
+    return { ok: false, error: "participant" };
+  }
+
+  return { ok: true };
+}
+
+export async function submitGroupOrderSessionAction(formData: FormData) {
+  const parsed = submitGroupOrderSessionSchema.safeParse({
+    restaurantSlug: formData.get("restaurantSlug"),
+    sessionToken: formData.get("sessionToken"),
+    hostAccessToken: formData.get("hostAccessToken"),
+    orderType: formData.get("orderType"),
+    customerName: formData.get("customerName"),
+    customerPhone: formData.get("customerPhone") || undefined,
+    customerAddress: formData.get("customerAddress") || undefined,
+    deliveryAddressDetail: formData.get("deliveryAddressDetail") || undefined,
+    paymentMethod: formData.get("paymentMethod") || "cash",
+  });
+
+  const restaurantSlug = String(formData.get("restaurantSlug") || "");
+  const sessionToken = String(formData.get("sessionToken") || "");
+  const hostAccessToken = String(formData.get("hostAccessToken") || "");
+
+  if (!parsed.success) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "invalid-submit" }));
+  }
+  const submitData = parsed.data;
+
+  if (submitData.orderType === "delivery" && !submitData.customerAddress?.trim()) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "delivery-address" }));
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "service-role-required" }));
+  }
+  const writeClient = admin;
+
+  const { data: sessionRow } = await writeClient
+    .from("group_order_sessions")
+    .select("*")
+    .eq("public_token", submitData.sessionToken)
+    .eq("host_access_token", submitData.hostAccessToken)
+    .maybeSingle();
+
+  if (!sessionRow || !["open", "locked"].includes(sessionRow.status) || new Date(sessionRow.expires_at).getTime() <= Date.now()) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "closed" }));
+  }
+  const session = sessionRow;
+  const publicClient = await createClient();
+
+  const [{ data: participants }, { data: items }, settings, businessHours, publicRestaurant] = await Promise.all([
+    writeClient.from("group_order_participants").select("*").eq("session_id", session.id).order("created_at", { ascending: true }),
+    writeClient.from("group_order_items").select("*").eq("session_id", session.id).order("created_at", { ascending: true }),
+    getPublicOrderSettings(publicClient, session.restaurant_id),
+    listPublicBusinessHours(publicClient, session.restaurant_id),
+    validatePublicRestaurant(publicClient, session.restaurant_id, submitData.restaurantSlug),
+  ]);
+
+  if (!settings || !publicRestaurant) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "settings" }));
+  }
+
+  const orderTypeEnabled =
+    (submitData.orderType === "delivery" && settings.delivery_enabled) ||
+    (submitData.orderType === "pickup" && settings.pickup_enabled);
+  if (!orderTypeEnabled) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "disabled" }));
+  }
+
+  if (await announcementService.hasActiveClosure(session.restaurant_id)) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "temporarily-closed" }));
+  }
+
+  const nowInput = formatLocalDateTimeInput(new Date(), DEFAULT_RESTAURANT_TIME_ZONE);
+  if (!isLocalDateTimeWithinBusinessHours(nowInput, businessHours)) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "outside-hours" }));
+  }
+
+  if (!(await hasOpenCashSession(writeClient, session.restaurant_id))) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "no-open-cash" }));
+  }
+
+  const participantRows = participants ?? [];
+  const participantById = new Map(participantRows.map((participant) => [participant.id, participant]));
+  const includedParticipantIds = new Set(participantRows.filter((participant) => participant.payment_status !== "excluded").map((participant) => participant.id));
+  const sourceItems = (items ?? []).filter((item) => includedParticipantIds.has(item.participant_id));
+
+  if (!sourceItems.length) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "empty" }));
+  }
+
+  let resolvedItems: ResolvedCartItem[] = [];
+  try {
+    resolvedItems = await resolvePublicCartItems(
+      writeClient,
+      session.restaurant_id,
+      sourceItems.map((item) => ({
+        productId: item.product_id,
+        variantId: item.variant_id ?? undefined,
+        optionIds: item.option_ids,
+        quantity: item.quantity,
+        notes: item.notes ?? undefined,
+      })),
+    );
+  } catch (error) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: error instanceof Error ? error.message : "product-not-found" }));
+  }
+
+  const subtotal = resolvedItems.reduce((sum, item) => sum + item.subtotal, 0);
+  if (subtotal < Number(settings.min_order_amount)) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "minimum" }));
+  }
+
+  const deliveryFee = submitData.orderType === "delivery" ? Number(settings.delivery_fee) : 0;
+  const total = subtotal + deliveryFee;
+  const paymentReceiptFile = formData.get("paymentReceiptFile") as File | null;
+
+  if (submitData.paymentMethod === "qr" && (!paymentReceiptFile || paymentReceiptFile.size === 0)) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "receipt-required" }));
+  }
+
+  const paymentReceiptUrl =
+    submitData.paymentMethod === "qr"
+      ? await uploadPrivateFile(paymentReceiptFile, `restaurants/${session.restaurant_id}/payment-receipts`)
+      : null;
+
+  const participantTotals = new Map<string, number>();
+  sourceItems.forEach((item, index) => {
+    participantTotals.set(item.participant_id, (participantTotals.get(item.participant_id) ?? 0) + resolvedItems[index].subtotal);
+  });
+  const participantSummary = participantRows
+    .filter((participant) => participantTotals.has(participant.id) || participant.payment_status === "excluded")
+    .map((participant) => {
+      const amount = participantTotals.get(participant.id) ?? 0;
+      return `${participant.display_name}: Bs ${amount.toFixed(2)} - ${participantPaymentLabel(participant.payment_status)}${participant.payment_receipt_url ? ` - comprobante: ${participant.payment_receipt_url}` : ""}`;
+    })
+    .join("\n");
+  const notes = [
+    "Pedido grupal",
+    `Host: ${session.host_name}${session.host_phone ? ` (${session.host_phone})` : ""}`,
+    `Cobro: ${collectModeLabel(session.collect_mode)}`,
+    participantSummary ? `Participantes:\n${participantSummary}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const { data: createdOrders, error } = await writeClient.rpc("create_public_order_transaction", {
+    p_request_id: crypto.randomUUID(),
+    p_order: {
+      restaurant_id: session.restaurant_id,
+      table_id: null,
+      order_number: `PG-${Date.now().toString().slice(-7)}`,
+      customer_name: submitData.customerName,
+      customer_phone: submitData.customerPhone ?? session.host_phone,
+      customer_email: null,
+      customer_address: submitData.orderType === "delivery" ? submitData.customerAddress : null,
+      delivery_address_detail: submitData.orderType === "delivery" ? (submitData.deliveryAddressDetail ?? null) : null,
+      delivery_latitude: null,
+      delivery_longitude: null,
+      delivery_maps_url: null,
+      delivery_distance_km: null,
+      requires_prepayment: false,
+      requested_fulfillment_at: null,
+      invoice_required: false,
+      invoice_document_type: null,
+      invoice_document_number: null,
+      invoice_name: null,
+      order_type: submitData.orderType,
+      order_origin: "web_checkout",
+      payment_method: submitData.paymentMethod,
+      payment_receipt_url: paymentReceiptUrl,
+      payment_receipt_uploaded_at: paymentReceiptUrl ? new Date().toISOString() : null,
+      subtotal,
+      delivery_fee: deliveryFee,
+      discount_total: 0,
+      total,
+      notes,
+    },
+    p_items: resolvedItems.map((item, index) => {
+      const participant = participantById.get(sourceItems[index].participant_id);
+      const participantNote = participant ? `Participante: ${participant.display_name}` : "Participante del grupo";
+      return {
+        product_id: item.productId,
+        product_name: item.name,
+        variant_id: item.variantId ?? null,
+        option_ids: item.optionIds,
+        unit_price: item.price,
+        quantity: item.quantity,
+        subtotal: item.subtotal,
+        notes: [participantNote, item.notes].filter(Boolean).join(" | "),
+      };
+    }),
+  });
+  const order = createdOrders?.[0];
+
+  if (error || !order) {
+    const message = error?.message ?? "";
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: message.includes("no-open-cash") ? "no-open-cash" : message.includes("invalid-public-order-items") ? "product-not-found" : "create-order" }));
+  }
+  const createdOrder = order;
+
+  await writeClient
+    .from("group_order_sessions")
+    .update({
+      status: "submitted",
+      submitted_order_id: createdOrder.id,
+      submitted_at: new Date().toISOString(),
+      subtotal,
+      delivery_fee: deliveryFee,
+      total,
+    })
+    .eq("id", session.id);
+
+  redirect(`${publicRestaurantPath(submitData.restaurantSlug, `pedido/${createdOrder.id}`)}?token=${createdOrder.tracking_token}&group=1`);
 }

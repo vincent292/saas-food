@@ -1,10 +1,10 @@
 "use client";
 
 import QRCode from "qrcode";
-import { ArrowRight, Check, Clipboard, Lock, Minus, Plus, Send, Share2, ShoppingBag, Trash2, UserRound, UsersRound, X } from "lucide-react";
+import { ArrowRight, Bike, Check, Clipboard, CreditCard, Lock, MapPin, Minus, Plus, Send, Share2, ShoppingBag, Store, Trash2, UserRound, UsersRound, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type CSSProperties, useEffect, useMemo, useState, useTransition } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   addGroupOrderItemAction,
   joinGroupOrderSessionAction,
@@ -16,20 +16,25 @@ import {
   updateGroupParticipantPaymentFormAction,
   updateGroupParticipantPaymentAction,
 } from "@/app/r/actions";
+import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { ProductOptionModal, type ProductConfigMap } from "@/components/public-menu/PublicRestaurantOrderClient";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
+import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { productImageFitStyle, type ProductImageFit } from "@/lib/utils/product-image-fit";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { Category, Product, ProductOption, ProductStockAvailability, ProductVariant } from "@/types/product.types";
-import type { Restaurant } from "@/types/restaurant.types";
+import type { Restaurant, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
 type PaymentStatus = "pending" | "paid_qr" | "cash_pending" | "covered_by_host" | "excluded";
+const OPEN_REFRESH_INTERVAL_MS = 5000;
+const LOCKED_REFRESH_INTERVAL_MS = 10000;
+const MIN_REFRESH_GAP_MS = 4500;
 
 export type GroupOrderSessionView = {
   id: string;
@@ -101,6 +106,8 @@ export function GroupOrderSessionClient({
   categories,
   products,
   configuration,
+  settings,
+  deliveryZones,
   stockAvailability,
   session,
   participants,
@@ -114,6 +121,8 @@ export function GroupOrderSessionClient({
   categories: Category[];
   products: Product[];
   configuration: ProductConfigMap;
+  settings: RestaurantSettings | null;
+  deliveryZones: RestaurantDeliveryZone[];
   stockAvailability: ProductStockAvailability[];
   session: GroupOrderSessionView;
   participants: GroupOrderParticipantView[];
@@ -133,6 +142,13 @@ export function GroupOrderSessionClient({
   const [shareState, setShareState] = useState<"idle" | "copied">("idle");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [clientError, setClientError] = useState("");
+  const [showSubmittedDetails, setShowSubmittedDetails] = useState(false);
+  const [hostOrderType, setHostOrderType] = useState<"pickup" | "delivery">(() => (settings?.pickupEnabled === false && settings.deliveryEnabled ? "delivery" : "pickup"));
+  const [hostPaymentMethod, setHostPaymentMethod] = useState<"cash" | "qr" | "bank_transfer" | "card">("cash");
+  const [hostAddress, setHostAddress] = useState("");
+  const [hostAddressDetail, setHostAddressDetail] = useState("");
+  const [hostDeliveryCoordinates, setHostDeliveryCoordinates] = useState<{ latitude: number; longitude: number }>();
+  const lastRefreshAtRef = useRef(0);
   const inviteUrl = typeof window === "undefined" ? "" : `${window.location.origin}${publicRestaurantPath(restaurant.slug, `grupo/${session.publicToken}`)}`;
   const isHost = Boolean(hostAccessToken);
   const currentParticipant = participants.find((participant) => participant.id === currentParticipantId);
@@ -156,8 +172,41 @@ export function GroupOrderSessionClient({
   }, [items]);
   const activeItems = items.filter((item) => participants.find((participant) => participant.id === item.participantId)?.paymentStatus !== "excluded");
   const activeSubtotal = activeItems.reduce((sum, item) => sum + item.subtotal, 0);
+  const currentParticipantTotal = totalsByParticipant.get(currentParticipantId ?? "") ?? 0;
   const pendingPaymentCount = participants.filter((participant) => (totalsByParticipant.get(participant.id) ?? 0) > 0 && participant.paymentStatus === "pending").length;
   const canModifyGroup = session.status === "open" || session.status === "locked";
+  const participantSubmitted = Boolean(isJoined && !isHost && currentParticipant && currentParticipant.paymentStatus !== "pending");
+  const participantCanAddProducts = Boolean(isJoined && session.status === "open" && !participantSubmitted);
+  const showGroupDetails = !participantSubmitted || showSubmittedDetails || isHost;
+  const refreshIntervalMs = session.status === "open" ? OPEN_REFRESH_INTERVAL_MS : session.status === "locked" ? LOCKED_REFRESH_INTERVAL_MS : 0;
+  const pickupEnabled = settings?.pickupEnabled ?? true;
+  const deliveryEnabled = settings?.deliveryEnabled ?? true;
+  const qrPaymentConfigured = Boolean(settings?.qrPaymentUrl?.trim());
+  const hostDeliveryPolicy = useMemo(
+    () =>
+      hostOrderType === "delivery"
+        ? resolveDeliveryPolicy({
+            restaurantLocation:
+              restaurant.latitude != null && restaurant.longitude != null
+                ? { latitude: restaurant.latitude, longitude: restaurant.longitude }
+                : undefined,
+            deliveryLocation: hostDeliveryCoordinates,
+            restaurantCity: restaurant.city,
+            deliveryCity: restaurant.city,
+            zones: deliveryZones,
+            subtotal: activeSubtotal,
+            baseDeliveryFee: settings?.deliveryFee ?? 0,
+            baseMinOrderAmount: settings?.minOrderAmount ?? 0,
+            qrPrepaymentEnabled: settings?.deliveryQrPrepaymentEnabled ?? true,
+            freeDeliveryFrom: settings?.freeDeliveryFrom ?? 0,
+            farDeliveryDistanceKm: settings?.farDeliveryDistanceKm,
+          })
+        : null,
+    [activeSubtotal, deliveryZones, hostDeliveryCoordinates, hostOrderType, restaurant.city, restaurant.latitude, restaurant.longitude, settings],
+  );
+  const hostDeliveryFee = hostDeliveryPolicy?.deliveryFee ?? 0;
+  const hostFinalTotal = activeSubtotal + hostDeliveryFee;
+  const effectiveHostPaymentMethod = hostDeliveryPolicy?.requiresQrPrepayment ? "qr" : hostPaymentMethod;
   const filteredProducts = useMemo(() => {
     const queryNeedle = normalize(productQuery);
     return products.filter((product) => {
@@ -199,11 +248,34 @@ export function GroupOrderSessionClient({
   }, [inviteUrl]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
+    if (!refreshIntervalMs) {
+      return;
+    }
+
+    const refreshIfUseful = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastRefreshAtRef.current < Math.min(MIN_REFRESH_GAP_MS, refreshIntervalMs - 500)) {
+        return;
+      }
+
+      lastRefreshAtRef.current = now;
       router.refresh();
-    }, 5000);
-    return () => window.clearInterval(interval);
-  }, [router]);
+    };
+
+    const interval = window.setInterval(refreshIfUseful, refreshIntervalMs);
+    window.addEventListener("focus", refreshIfUseful);
+    document.addEventListener("visibilitychange", refreshIfUseful);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshIfUseful);
+      document.removeEventListener("visibilitychange", refreshIfUseful);
+    };
+  }, [refreshIntervalMs, router]);
 
   async function copyInvite() {
     if (!inviteUrl) return;
@@ -214,7 +286,7 @@ export function GroupOrderSessionClient({
 
   function addConfiguredProduct(product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) {
     if (!participantToken) {
-      setClientError("Primero unete al pedido grupal.");
+      setClientError("Primero unete al Yopido Grupal.");
       return;
     }
 
@@ -302,6 +374,11 @@ export function GroupOrderSessionClient({
     });
   }
 
+  function handleHostDeliveryCoordinatesChange({ latitude, longitude }: { latitude: number; longitude: number; mapsUrl: string }) {
+    setHostDeliveryCoordinates({ latitude, longitude });
+    setHostAddress((currentAddress) => (currentAddress.trim() ? currentAddress : "Ubicacion marcada en el mapa"));
+  }
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,var(--color-surface)_0%,var(--background)_50%,var(--color-surface)_100%)] px-3 py-4 text-[var(--text)] sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-5">
@@ -311,7 +388,7 @@ export function GroupOrderSessionClient({
               <ArrowRight className="h-4 w-4 rotate-180" />
               Volver al menu
             </Link>
-            <h1 className="mt-2 text-2xl font-black leading-tight sm:text-4xl">Pedido grupal</h1>
+            <h1 className="mt-2 text-2xl font-black leading-tight sm:text-4xl">Yopido Grupal</h1>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
               Host: <strong className="text-[var(--text)]">{session.hostName}</strong> · {collectModeLabel(session.collectMode)}
             </p>
@@ -333,7 +410,7 @@ export function GroupOrderSessionClient({
         {session.status === "submitted" ? (
           <Card className="space-y-3 border-[var(--color-success-soft)] bg-[var(--color-success-soft)] text-[var(--color-success-strong)]">
             <h2 className="text-xl font-black">Pedido enviado</h2>
-            <p className="text-sm font-bold">El host ya cerro esta sesion y el restaurante recibio el pedido grupal.</p>
+            <p className="text-sm font-bold">El host ya cerro esta sesion y el restaurante recibio el Yopido Grupal.</p>
           </Card>
         ) : null}
 
@@ -345,11 +422,11 @@ export function GroupOrderSessionClient({
 
         {session.status === "cancelled" ? (
           <Card className="border-[var(--color-danger-strong)] bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]">
-            <p className="text-sm font-black">Este pedido grupal fue cancelado por el host.</p>
+            <p className="text-sm font-black">Este Yopido Grupal fue cancelado por el host.</p>
           </Card>
         ) : null}
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className={cn("grid gap-5", showGroupDetails ? "lg:grid-cols-[minmax(0,1fr)_360px]" : "lg:grid-cols-1")}>
           <section className="space-y-5">
             {!isJoined && session.status === "open" ? (
               <Card className="space-y-4">
@@ -375,7 +452,41 @@ export function GroupOrderSessionClient({
               </Card>
             ) : null}
 
-            {isJoined && session.status === "open" ? (
+            {participantSubmitted ? (
+              <Card className="space-y-4 border-[var(--color-success-soft)] bg-[var(--color-success-soft)] text-[var(--color-success-strong)]">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[var(--radius-control)] bg-white/75">
+                    <Check className="h-6 w-6" />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="text-xl font-black">Tu parte fue enviada</h2>
+                    <p className="mt-1 text-sm font-bold">
+                      El host ya puede revisar lo que pediste y tu estado de pago. Total enviado: {formatMoney(currentParticipantTotal)}.
+                    </p>
+                  </div>
+                </div>
+                {session.status === "open" ? (
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <button className={buttonClasses("secondary", "bg-white/80")} onClick={() => setShowSubmittedDetails(true)} type="button">
+                      Ver detalles
+                    </button>
+                    <button className={buttonClasses("secondary", "bg-white/80")} onClick={() => {
+                      setShowSubmittedDetails(false);
+                      updatePayment("pending");
+                    }} type="button">
+                      Agregar algo mas
+                    </button>
+                    <Link className={buttonClasses("primary")} href={publicRestaurantPath(restaurant.slug)}>
+                      Volver al menu
+                    </Link>
+                  </div>
+                ) : (
+                  <p className="rounded-[1rem] bg-white/75 p-3 text-sm font-black">El host ya cerro el grupo. Si necesitas cambiar algo, avisa al host.</p>
+                )}
+              </Card>
+            ) : null}
+
+            {participantCanAddProducts ? (
               <Card className="space-y-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -383,7 +494,7 @@ export function GroupOrderSessionClient({
                     <p className="text-sm font-semibold text-[var(--muted)]">Estas agregando como {currentParticipant?.displayName ?? "participante"}.</p>
                   </div>
                   <span className="rounded-full bg-[var(--primary-light)] px-3 py-1 text-sm font-black text-[var(--primary)]">
-                    Tu total: {formatMoney(totalsByParticipant.get(currentParticipantId ?? "") ?? 0)}
+                    Tu total: {formatMoney(currentParticipantTotal)}
                   </span>
                 </div>
                 <div className="grid gap-3">
@@ -432,6 +543,7 @@ export function GroupOrderSessionClient({
               </Card>
             ) : null}
 
+            {showGroupDetails ? (
             <Card className="space-y-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -504,8 +616,10 @@ export function GroupOrderSessionClient({
                 })}
               </div>
             </Card>
+            ) : null}
           </section>
 
+          {showGroupDetails ? (
           <aside className="space-y-5">
             <Card className="space-y-4">
               <div className="flex items-center gap-3">
@@ -519,13 +633,13 @@ export function GroupOrderSessionClient({
               </div>
               {qrDataUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img alt="QR del pedido grupal" className="mx-auto h-44 w-44 rounded-[1rem] bg-white p-2" src={qrDataUrl} />
+                <img alt="QR del Yopido Grupal" className="mx-auto h-44 w-44 rounded-[1rem] bg-white p-2" src={qrDataUrl} />
               ) : null}
               <button className={buttonClasses("secondary", "w-full")} onClick={copyInvite} type="button">
                 {shareState === "copied" ? <Check className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}
                 {shareState === "copied" ? "Copiado" : "Copiar link"}
               </button>
-              <a className={buttonClasses("primary", "w-full")} href={`https://wa.me/?text=${encodeURIComponent(`Unete a mi pedido grupal en ${restaurant.name}: ${inviteUrl}`)}`} rel="noreferrer" target="_blank">
+              <a className={buttonClasses("primary", "w-full")} href={`https://wa.me/?text=${encodeURIComponent(`Unete a mi Yopido Grupal en ${restaurant.name}: ${inviteUrl}`)}`} rel="noreferrer" target="_blank">
                 <Share2 className="h-4 w-4" />
                 WhatsApp
               </a>
@@ -543,14 +657,11 @@ export function GroupOrderSessionClient({
               </Card>
             ) : null}
 
-            {isJoined && canModifyGroup ? (
+            {isJoined && canModifyGroup && !participantSubmitted && currentParticipantTotal > 0 ? (
               <Card className="space-y-3">
-                <h2 className="text-lg font-black">Tu pago</h2>
-                <div className="grid gap-2">
-                  <PaymentButton active={currentParticipant?.paymentStatus === "paid_qr"} label="Ya pague QR" onClick={() => updatePayment("paid_qr")} />
-                  <PaymentButton active={currentParticipant?.paymentStatus === "cash_pending"} label="Pagare efectivo" onClick={() => updatePayment("cash_pending")} />
-                  <PaymentButton active={currentParticipant?.paymentStatus === "covered_by_host"} label="Me cubre el host" onClick={() => updatePayment("covered_by_host")} />
-                  <PaymentButton active={currentParticipant?.paymentStatus === "excluded"} label="No incluirme" onClick={() => updatePayment("excluded")} />
+                <div>
+                  <h2 className="text-lg font-black">Confirmar tu parte</h2>
+                  <p className="mt-1 text-xs font-bold text-[var(--muted)]">Cuando confirmes, tu parte queda enviada. Para agregar algo mas tendras que reabrirla y mandar otro comprobante.</p>
                 </div>
                 <form action={updateGroupParticipantPaymentFormAction} className="grid gap-2 rounded-[1rem] bg-[var(--color-surface)] p-3">
                   <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
@@ -559,13 +670,18 @@ export function GroupOrderSessionClient({
                   <input name="paymentStatus" type="hidden" value="paid_qr" />
                   <label className="grid gap-1 text-xs font-black">
                     Comprobante QR individual
-                    <Input accept="image/*" name="paymentReceiptFile" type="file" />
+                    <Input accept="image/png,image/jpeg,image/webp,image/avif" name="paymentReceiptFile" type="file" />
                   </label>
                   <Input name="paymentNote" placeholder="Nota opcional del pago" />
                   <button className={buttonClasses("primary", "min-h-10 w-full text-xs")} type="submit">
-                    Subir comprobante
+                    Enviar comprobante
                   </button>
                 </form>
+                <div className="grid gap-2">
+                  <PaymentButton active={currentParticipant?.paymentStatus === "cash_pending"} label="Confirmar efectivo" onClick={() => updatePayment("cash_pending")} />
+                  <PaymentButton active={currentParticipant?.paymentStatus === "covered_by_host"} label="Me cubre el host" onClick={() => updatePayment("covered_by_host")} />
+                  <PaymentButton active={currentParticipant?.paymentStatus === "excluded"} label="No incluirme" onClick={() => updatePayment("excluded")} />
+                </div>
               </Card>
             ) : null}
 
@@ -612,7 +728,7 @@ export function GroupOrderSessionClient({
                   </Select>
                   <label className="grid gap-1 text-sm font-black">
                     Cambiar QR del host
-                    <Input accept="image/*" name="hostQrFile" type="file" />
+                    <Input accept="image/png,image/jpeg,image/webp,image/avif" name="hostQrFile" type="file" />
                   </label>
                   <button className={buttonClasses("secondary", "w-full")} disabled={!canModifyGroup} type="submit">
                     Guardar cobro
@@ -626,41 +742,123 @@ export function GroupOrderSessionClient({
                     <Lock className="h-5 w-5" />
                   </span>
                   <div>
-                    <h2 className="text-lg font-black">Finalizar grupo</h2>
-                    <p className="text-xs font-bold text-[var(--muted)]">Se creara un solo pedido para caja.</p>
+                    <h2 className="text-lg font-black">Finalizar Yopido Grupal</h2>
+                    <p className="text-xs font-bold text-[var(--muted)]">El pedido entrara a caja y cocina como un pedido normal.</p>
                   </div>
                 </div>
                 <form action={submitGroupOrderSessionAction} className="grid gap-3">
                   <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
                   <input name="sessionToken" type="hidden" value={session.publicToken} />
                   <input name="hostAccessToken" type="hidden" value={hostAccessToken} />
+                  <input name="orderType" type="hidden" value={hostOrderType} />
+                  <input name="paymentMethod" type="hidden" value={effectiveHostPaymentMethod} />
+                  <input name="deliveryCity" type="hidden" value={restaurant.city} />
                   <Input defaultValue={session.hostName} name="customerName" placeholder="Nombre del host" required />
                   <Input defaultValue={session.hostPhone ?? ""} inputMode="tel" name="customerPhone" placeholder="WhatsApp del host" />
-                  <Select name="orderType" defaultValue="pickup">
-                    <option value="pickup">Recojo</option>
-                    <option value="delivery">Delivery</option>
-                  </Select>
-                  <Input name="customerAddress" placeholder="Direccion si es delivery" />
-                  <Textarea className="min-h-20" name="deliveryAddressDetail" placeholder="Referencia de entrega opcional" />
-                  <Select name="paymentMethod" defaultValue="cash">
-                    <option value="cash">Pago final en efectivo</option>
-                    <option value="qr">Pago final QR al restaurante</option>
-                    <option value="bank_transfer">Transferencia</option>
-                    <option value="card">Tarjeta</option>
-                  </Select>
+                  <div className="grid grid-cols-2 gap-2 rounded-[1rem] bg-[var(--primary-light)] p-1">
+                    <button className={cn("flex min-h-11 items-center justify-center gap-2 rounded-[0.85rem] text-sm font-black transition disabled:opacity-50", hostOrderType === "pickup" ? "bg-[var(--surface)] text-[var(--primary)] shadow-sm" : "text-[var(--muted)]")} disabled={!pickupEnabled} onClick={() => setHostOrderType("pickup")} type="button">
+                      <Store className="h-4 w-4" />
+                      Recojo
+                    </button>
+                    <button className={cn("flex min-h-11 items-center justify-center gap-2 rounded-[0.85rem] text-sm font-black transition disabled:opacity-50", hostOrderType === "delivery" ? "bg-[var(--surface)] text-[var(--primary)] shadow-sm" : "text-[var(--muted)]")} disabled={!deliveryEnabled} onClick={() => setHostOrderType("delivery")} type="button">
+                      <Bike className="h-4 w-4" />
+                      Delivery
+                    </button>
+                  </div>
+
+                  {hostOrderType === "delivery" ? (
+                    <div className="grid gap-3 rounded-[1rem] border border-[var(--border)] bg-[var(--color-surface)] p-3">
+                      <div className="flex items-start gap-2">
+                        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[var(--primary)]" />
+                        <div>
+                          <p className="text-sm font-black">Direccion del host</p>
+                          <p className="text-xs font-semibold text-[var(--muted)]">Elige la ubicacion exacta en Google Maps para calcular delivery.</p>
+                        </div>
+                      </div>
+                      <Input name="customerAddress" onChange={(event) => setHostAddress(event.target.value)} placeholder="Direccion de entrega" value={hostAddress} />
+                      <Textarea className="min-h-20" name="deliveryAddressDetail" onChange={(event) => setHostAddressDetail(event.target.value)} placeholder="Referencia, piso, puerta o indicacion" value={hostAddressDetail} />
+                      <GoogleLocationFields
+                        hideCoordinateInputs
+                        hideMapsUrlInput
+                        label="Ubicacion de entrega"
+                        latitudeName="deliveryLatitude"
+                        longitudeName="deliveryLongitude"
+                        mapHeightClassName="h-[280px]"
+                        mapsUrlName="deliveryMapsUrl"
+                        onCoordinatesChange={handleHostDeliveryCoordinatesChange}
+                        showMapByDefault
+                      />
+                      {hostDeliveryPolicy?.distanceKm != null ? (
+                        <div className={cn("rounded-[1rem] p-3 text-sm font-bold", hostDeliveryPolicy.requiresQrPrepayment ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]")}>
+                          <p>
+                            {hostDeliveryPolicy.distanceKm.toFixed(1)} km desde el local{hostDeliveryPolicy.matchedZone ? ` · ${hostDeliveryPolicy.matchedZone.name}` : ""}.
+                          </p>
+                          <p className="mt-1 text-xs">
+                            Envio: {hostDeliveryFee <= 0 ? "Gratis" : formatMoney(hostDeliveryFee)}
+                            {hostDeliveryPolicy.requiresQrPrepayment ? " · Por distancia requiere pago QR final." : ""}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="rounded-[1rem] bg-[var(--color-warning-soft)] p-3 text-xs font-black text-[var(--color-warning-strong)]">Marca la ubicacion para calcular el envio.</p>
+                      )}
+                      {hostDeliveryPolicy?.requiresQrPrepayment && !qrPaymentConfigured ? (
+                        <p className="rounded-[1rem] bg-[var(--color-danger-soft)] p-3 text-xs font-black text-[var(--color-danger-strong)]">Este delivery requiere QR, pero el restaurante aun no tiene QR configurado.</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <div className="grid gap-2 rounded-[1rem] border border-[var(--border)] bg-[var(--color-surface)] p-3">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-[var(--primary)]" />
+                      <p className="text-sm font-black">Pago final al restaurante</p>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {[
+                        ["cash", "Efectivo"],
+                        ["qr", "QR"],
+                        ["bank_transfer", "Transferencia"],
+                        ["card", "Tarjeta"],
+                      ].map(([value, label]) => (
+                        <button
+                          className={cn("min-h-10 rounded-full border px-3 text-sm font-black transition", effectiveHostPaymentMethod === value ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-[var(--border)] bg-[var(--surface)] text-[var(--text)]")}
+                          disabled={hostDeliveryPolicy?.requiresQrPrepayment && value !== "qr"}
+                          key={value}
+                          onClick={() => setHostPaymentMethod(value as typeof hostPaymentMethod)}
+                          type="button"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <label className="grid gap-1 text-sm font-black">
                     Comprobante final si paga QR
-                    <Input accept="image/*,.pdf" name="paymentReceiptFile" type="file" />
+                    <Input accept="image/png,image/jpeg,image/webp,image/avif,application/pdf" name="paymentReceiptFile" type="file" />
                   </label>
+                  <div className="rounded-[1rem] bg-[var(--primary-light)] p-3 text-sm font-black text-[var(--primary)]">
+                    <div className="flex justify-between gap-3">
+                      <span>Productos</span>
+                      <span>{formatMoney(activeSubtotal)}</span>
+                    </div>
+                    <div className="mt-1 flex justify-between gap-3">
+                      <span>Delivery</span>
+                      <span>{hostOrderType === "delivery" ? (hostDeliveryFee <= 0 ? "Gratis" : formatMoney(hostDeliveryFee)) : "-"}</span>
+                    </div>
+                    <div className="mt-2 flex justify-between gap-3 border-t border-[var(--border)] pt-2 text-base">
+                      <span>Total final</span>
+                      <span>{formatMoney(hostFinalTotal)}</span>
+                    </div>
+                  </div>
                   <button className={buttonClasses("primary", "w-full")} disabled={!activeItems.length || !canModifyGroup} type="submit">
                     <Send className="h-4 w-4" />
-                    Enviar pedido grupal
+                    Enviar Yopido Grupal
                   </button>
                 </form>
               </Card>
               </>
             ) : null}
           </aside>
+          ) : null}
         </div>
       </div>
 
@@ -680,9 +878,14 @@ function orderErrorMessage(error: string) {
   const messages: Record<string, string> = {
     "rate-limit": "Demasiadas solicitudes. Espera un momento.",
     "invalid-join": "Revisa tu nombre para unirte.",
-    closed: "El host ya cerro este pedido grupal.",
+    closed: "El host ya cerro este Yopido Grupal.",
     "service-role-required": "Falta configuracion segura del servidor.",
     "delivery-address": "Para delivery el host debe escribir una direccion.",
+    "delivery-location": "Para delivery marca la ubicacion exacta en el mapa.",
+    "different-city": "La direccion parece estar fuera de la ciudad del restaurante.",
+    "phone-required": "Para delivery el host debe dejar un WhatsApp de contacto.",
+    "qr-required-distance": "Por la distancia, este delivery requiere pago QR final.",
+    "qr-unavailable": "Este restaurante todavia no tiene QR configurado.",
     disabled: "La modalidad elegida no esta habilitada.",
     "temporarily-closed": "El restaurante esta cerrado temporalmente.",
     "outside-hours": "El restaurante esta fuera de horario.",
@@ -691,7 +894,9 @@ function orderErrorMessage(error: string) {
     minimum: "El pedido no alcanza el monto minimo.",
     "receipt-required": "Para pago QR final debes subir comprobante.",
     "receipt-size": "El comprobante debe pesar menos de 5 MB.",
+    "receipt-type": "El comprobante debe ser imagen o PDF.",
     "qr-size": "El QR debe pesar menos de 5 MB.",
+    "qr-type": "El QR debe ser PNG, JPG, WebP o AVIF.",
     payment: "No se pudo actualizar el pago.",
     settings: "No se pudo guardar la configuracion del grupo.",
     "product-not-found": "Uno de los productos ya no esta disponible.",

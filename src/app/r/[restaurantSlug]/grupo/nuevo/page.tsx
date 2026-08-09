@@ -13,7 +13,8 @@ const errorMessages: Record<string, string> = {
   "rate-limit": "Demasiados intentos. Espera un momento.",
   "service-role-required": "Falta configuracion segura del servidor.",
   "qr-size": "El QR debe pesar menos de 5 MB.",
-  create: "No se pudo crear el pedido grupal.",
+  "qr-type": "El QR debe ser PNG, JPG, WebP o AVIF.",
+  create: "No se pudo crear el Yopido Grupal.",
 };
 
 export default async function NewGroupOrderPage({
@@ -43,7 +44,7 @@ export default async function NewGroupOrderPage({
             </span>
             <div>
               <p className="text-sm font-black uppercase text-[var(--primary)]">{restaurant.name}</p>
-              <h1 className="mt-1 text-3xl font-black leading-tight sm:text-4xl">Crear pedido grupal</h1>
+              <h1 className="mt-1 text-3xl font-black leading-tight sm:text-4xl">Crear Yopido Grupal</h1>
               <p className="mt-2 text-sm font-semibold leading-6 text-[var(--muted)]">
                 Crea una sesion, comparte el link y cada persona agrega lo suyo. Al final se envia un solo pedido al restaurante.
               </p>
@@ -66,10 +67,10 @@ export default async function NewGroupOrderPage({
               </Select>
               <label className="grid gap-1 text-sm font-black">
                 QR del host opcional
-                <Input accept="image/*" name="hostQrFile" type="file" />
+                <Input accept="image/png,image/jpeg,image/webp,image/avif" name="hostQrFile" type="file" />
               </label>
               <button className={buttonClasses("primary", "min-h-12 w-full")} type="submit">
-                Crear sesion grupal
+                Crear Yopido Grupal
               </button>
             </form>
           </Card>

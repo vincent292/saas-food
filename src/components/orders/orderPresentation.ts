@@ -39,8 +39,8 @@ export const orderOriginLabels: Record<OrderOrigin, string> = {
 };
 
 export function orderSourceLabel(order: Order) {
-  if (order.notes?.startsWith("Pedido grupal")) {
-    return "Pedido grupal";
+  if (order.notes?.startsWith("Yopido Grupal") || order.notes?.startsWith("Pedido grupal")) {
+    return "Yopido Grupal";
   }
 
   if (order.orderOrigin === "table_qr") {

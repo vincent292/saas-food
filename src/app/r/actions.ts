@@ -17,6 +17,17 @@ import type { Database } from "@/types/database.types";
 import type { BusinessHour, BusinessType, RestaurantDeliveryZone } from "@/types/restaurant.types";
 
 type SupabaseDatabaseClient = SupabaseClient<Database>;
+const GROUP_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+const GROUP_PUBLIC_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
+const GROUP_PRIVATE_RECEIPT_TYPES = new Set([...GROUP_PUBLIC_IMAGE_TYPES, "application/pdf"]);
+
+function isNonEmptyFile(file: File | null): file is File {
+  return Boolean(file && file.size > 0);
+}
+
+function isAllowedFileType(file: File, allowedTypes: Set<string>) {
+  return allowedTypes.has(file.type);
+}
 
 const cartItemSchema = z.object({
   productId: z.string().uuid(),
@@ -138,6 +149,10 @@ const submitGroupOrderSessionSchema = z.object({
   customerPhone: z.string().trim().max(40).optional(),
   customerAddress: z.string().trim().max(260).optional(),
   deliveryAddressDetail: z.string().trim().max(180).optional(),
+  deliveryLatitude: z.coerce.number().min(-90).max(90).optional(),
+  deliveryLongitude: z.coerce.number().min(-180).max(180).optional(),
+  deliveryMapsUrl: z.string().trim().max(500).optional(),
+  deliveryCity: z.string().trim().max(120).optional(),
   paymentMethod: z.enum(["cash", "qr", "bank_transfer", "card"]).default("cash"),
 });
 
@@ -864,12 +879,15 @@ export async function createGroupOrderSessionAction(formData: FormData) {
   }
 
   const hostQrFile = formData.get("hostQrFile") as File | null;
-  if (hostQrFile && hostQrFile.size > 0 && hostQrFile.size > 5 * 1024 * 1024) {
+  if (isNonEmptyFile(hostQrFile) && hostQrFile.size > GROUP_UPLOAD_MAX_BYTES) {
     redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=qr-size`);
+  }
+  if (isNonEmptyFile(hostQrFile) && !isAllowedFileType(hostQrFile, GROUP_PUBLIC_IMAGE_TYPES)) {
+    redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=qr-type`);
   }
 
   const hostQrUrl =
-    parsed.data.collectMode === "host_collects" && hostQrFile && hostQrFile.size > 0
+    parsed.data.collectMode === "host_collects" && isNonEmptyFile(hostQrFile)
       ? await uploadPublicImage(hostQrFile, `restaurants/${restaurant.id}/group-host-qr`)
       : null;
   const sessionToken = createShortToken(12);
@@ -1122,6 +1140,7 @@ export async function updateGroupParticipantPaymentAction(input: unknown) {
       payment_status: parsed.data.paymentStatus,
       payment_method: paymentMethod,
       payment_note: parsed.data.paymentNote || null,
+      ...(parsed.data.paymentStatus === "pending" ? { payment_receipt_url: null, payment_receipt_uploaded_at: null } : {}),
     })
     .eq("session_id", session.id)
     .eq("participant_token", parsed.data.participantToken);
@@ -1169,12 +1188,18 @@ export async function updateGroupParticipantPaymentFormAction(formData: FormData
   const session = sessionRow;
 
   const paymentReceiptFile = formData.get("paymentReceiptFile") as File | null;
-  if (paymentReceiptFile && paymentReceiptFile.size > 5 * 1024 * 1024) {
+  if (paymentData.paymentStatus === "paid_qr" && !isNonEmptyFile(paymentReceiptFile)) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "receipt-required" }));
+  }
+  if (isNonEmptyFile(paymentReceiptFile) && paymentReceiptFile.size > GROUP_UPLOAD_MAX_BYTES) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "receipt-size" }));
+  }
+  if (isNonEmptyFile(paymentReceiptFile) && !isAllowedFileType(paymentReceiptFile, GROUP_PUBLIC_IMAGE_TYPES)) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "receipt-type" }));
   }
 
   const receiptUrl =
-    paymentData.paymentStatus === "paid_qr" && paymentReceiptFile && paymentReceiptFile.size > 0
+    paymentData.paymentStatus === "paid_qr" && isNonEmptyFile(paymentReceiptFile)
       ? await uploadPublicImage(paymentReceiptFile, `restaurants/${session.restaurant_id}/group-payment-receipts`)
       : undefined;
 
@@ -1192,6 +1217,7 @@ export async function updateGroupParticipantPaymentFormAction(formData: FormData
     payment_method: paymentMethod,
     payment_note: paymentData.paymentNote || null,
     ...(receiptUrl ? { payment_receipt_url: receiptUrl, payment_receipt_uploaded_at: new Date().toISOString() } : {}),
+    ...(paymentData.paymentStatus === "pending" ? { payment_receipt_url: null, payment_receipt_uploaded_at: null } : {}),
   };
 
   const { error } = await writeClient
@@ -1243,12 +1269,15 @@ export async function updateGroupOrderSessionSettingsAction(formData: FormData) 
   const session = sessionRow;
 
   const hostQrFile = formData.get("hostQrFile") as File | null;
-  if (hostQrFile && hostQrFile.size > 5 * 1024 * 1024) {
+  if (isNonEmptyFile(hostQrFile) && hostQrFile.size > GROUP_UPLOAD_MAX_BYTES) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "qr-size" }));
+  }
+  if (isNonEmptyFile(hostQrFile) && !isAllowedFileType(hostQrFile, GROUP_PUBLIC_IMAGE_TYPES)) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "qr-type" }));
   }
 
   const hostQrUrl =
-    settingsData.collectMode === "host_collects" && hostQrFile && hostQrFile.size > 0
+    settingsData.collectMode === "host_collects" && isNonEmptyFile(hostQrFile)
       ? await uploadPublicImage(hostQrFile, `restaurants/${session.restaurant_id}/group-host-qr`)
       : undefined;
 
@@ -1353,6 +1382,10 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
     customerPhone: formData.get("customerPhone") || undefined,
     customerAddress: formData.get("customerAddress") || undefined,
     deliveryAddressDetail: formData.get("deliveryAddressDetail") || undefined,
+    deliveryLatitude: formData.get("deliveryLatitude") || undefined,
+    deliveryLongitude: formData.get("deliveryLongitude") || undefined,
+    deliveryMapsUrl: formData.get("deliveryMapsUrl") || undefined,
+    deliveryCity: formData.get("deliveryCity") || undefined,
     paymentMethod: formData.get("paymentMethod") || "cash",
   });
 
@@ -1367,6 +1400,10 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
 
   if (submitData.orderType === "delivery" && !submitData.customerAddress?.trim()) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "delivery-address" }));
+  }
+
+  if (submitData.orderType === "delivery" && (submitData.customerPhone ?? "").replace(/\D/g, "").length < 4) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "phone-required" }));
   }
 
   const admin = createAdminClient();
@@ -1388,12 +1425,13 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
   const session = sessionRow;
   const publicClient = await createClient();
 
-  const [{ data: participants }, { data: items }, settings, businessHours, publicRestaurant] = await Promise.all([
+  const [{ data: participants }, { data: items }, settings, businessHours, publicRestaurant, deliveryZones] = await Promise.all([
     writeClient.from("group_order_participants").select("*").eq("session_id", session.id).order("created_at", { ascending: true }),
     writeClient.from("group_order_items").select("*").eq("session_id", session.id).order("created_at", { ascending: true }),
     getPublicOrderSettings(publicClient, session.restaurant_id),
     listPublicBusinessHours(publicClient, session.restaurant_id),
     validatePublicRestaurant(publicClient, session.restaurant_id, submitData.restaurantSlug),
+    listPublicDeliveryZones(publicClient, session.restaurant_id),
   ]);
 
   if (!settings || !publicRestaurant) {
@@ -1409,6 +1447,16 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
 
   if (await announcementService.hasActiveClosure(session.restaurant_id)) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "temporarily-closed" }));
+  }
+
+  if (
+    submitData.orderType === "delivery" &&
+    (submitData.deliveryLatitude == null ||
+      submitData.deliveryLongitude == null ||
+      publicRestaurant.latitude == null ||
+      publicRestaurant.longitude == null)
+  ) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "delivery-location" }));
   }
 
   const nowInput = formatLocalDateTimeInput(new Date(), DEFAULT_RESTAURANT_TIME_ZONE);
@@ -1447,16 +1495,58 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
   }
 
   const subtotal = resolvedItems.reduce((sum, item) => sum + item.subtotal, 0);
-  if (subtotal < Number(settings.min_order_amount)) {
+
+  const deliveryPolicy =
+    submitData.orderType === "delivery"
+      ? resolveDeliveryPolicy({
+          restaurantLocation: {
+            latitude: Number(publicRestaurant.latitude),
+            longitude: Number(publicRestaurant.longitude),
+          },
+          deliveryLocation: {
+            latitude: Number(submitData.deliveryLatitude),
+            longitude: Number(submitData.deliveryLongitude),
+          },
+          restaurantCity: publicRestaurant.city ?? "",
+          deliveryCity: submitData.deliveryCity,
+          zones: deliveryZones,
+          subtotal,
+          baseDeliveryFee: Number(settings.delivery_fee),
+          baseMinOrderAmount: Number(settings.min_order_amount),
+          qrPrepaymentEnabled: settings.delivery_qr_prepayment_enabled ?? true,
+          freeDeliveryFrom: Number(settings.free_delivery_from ?? 0),
+          farDeliveryDistanceKm: Number(settings.far_delivery_distance_km ?? 5),
+        })
+      : null;
+
+  if (deliveryPolicy && !deliveryPolicy.sameCity) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "different-city" }));
+  }
+
+  const effectiveMinOrderAmount = deliveryPolicy?.minOrderAmount ?? Number(settings.min_order_amount);
+  if (subtotal < effectiveMinOrderAmount) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "minimum" }));
   }
 
-  const deliveryFee = submitData.orderType === "delivery" ? Number(settings.delivery_fee) : 0;
+  if (deliveryPolicy?.requiresQrPrepayment && submitData.paymentMethod !== "qr") {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "qr-required-distance" }));
+  }
+  if (submitData.paymentMethod === "qr" && !normalizeQrPaymentUrl(settings.qr_payment_url)) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "qr-unavailable" }));
+  }
+
+  const deliveryFee = deliveryPolicy?.deliveryFee ?? 0;
   const total = subtotal + deliveryFee;
   const paymentReceiptFile = formData.get("paymentReceiptFile") as File | null;
 
   if (submitData.paymentMethod === "qr" && (!paymentReceiptFile || paymentReceiptFile.size === 0)) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "receipt-required" }));
+  }
+  if (isNonEmptyFile(paymentReceiptFile) && paymentReceiptFile.size > GROUP_UPLOAD_MAX_BYTES) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "receipt-size" }));
+  }
+  if (isNonEmptyFile(paymentReceiptFile) && !isAllowedFileType(paymentReceiptFile, GROUP_PRIVATE_RECEIPT_TYPES)) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "receipt-type" }));
   }
 
   const paymentReceiptUrl =
@@ -1476,7 +1566,7 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
     })
     .join("\n");
   const notes = [
-    "Pedido grupal",
+    "Yopido Grupal",
     `Host: ${session.host_name}${session.host_phone ? ` (${session.host_phone})` : ""}`,
     `Cobro: ${collectModeLabel(session.collect_mode)}`,
     participantSummary ? `Participantes:\n${participantSummary}` : "",
@@ -1495,11 +1585,11 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
       customer_email: null,
       customer_address: submitData.orderType === "delivery" ? submitData.customerAddress : null,
       delivery_address_detail: submitData.orderType === "delivery" ? (submitData.deliveryAddressDetail ?? null) : null,
-      delivery_latitude: null,
-      delivery_longitude: null,
-      delivery_maps_url: null,
-      delivery_distance_km: null,
-      requires_prepayment: false,
+      delivery_latitude: submitData.orderType === "delivery" ? (submitData.deliveryLatitude ?? null) : null,
+      delivery_longitude: submitData.orderType === "delivery" ? (submitData.deliveryLongitude ?? null) : null,
+      delivery_maps_url: submitData.orderType === "delivery" ? (submitData.deliveryMapsUrl ?? null) : null,
+      delivery_distance_km: deliveryPolicy?.distanceKm == null ? null : Number(deliveryPolicy.distanceKm.toFixed(2)),
+      requires_prepayment: deliveryPolicy?.requiresQrPrepayment ?? false,
       requested_fulfillment_at: null,
       invoice_required: false,
       invoice_document_type: null,

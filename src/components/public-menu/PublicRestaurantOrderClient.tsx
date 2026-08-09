@@ -330,10 +330,10 @@ export function PublicRestaurantOrderClient({
               <span className="hidden min-[430px]:inline sm:hidden">Rastrear</span>
               <span className="hidden sm:inline">Rastrear pedido</span>
             </Link>
-            <Link aria-label="Crear pedido grupal" className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-black text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:h-10 sm:px-3 sm:text-sm" href={publicRestaurantPath(restaurant.slug, "grupo/nuevo")}>
+            <Link aria-label="Crear Yopido Grupal" className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-black text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:h-10 sm:px-3 sm:text-sm" href={publicRestaurantPath(restaurant.slug, "grupo/nuevo")}>
               <UsersRound className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               <span className="hidden min-[430px]:inline sm:hidden">Grupo</span>
-              <span className="hidden sm:inline">Pedido grupal</span>
+              <span className="hidden sm:inline">Yopido Grupal</span>
             </Link>
             <button aria-label="Tu pedido" className="relative inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 text-[var(--text)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] sm:h-11 sm:px-3" onClick={openDrawer} type="button">
               <ShoppingCart className="h-5 w-5" />
@@ -973,7 +973,7 @@ export function ProductOptionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4" onClick={requestClose}>
+    <div className="fixed inset-0 z-[95] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4" onClick={requestClose}>
       <div className={cn("relative isolate max-h-[94dvh] w-full overflow-y-auto overscroll-contain rounded-t-[2rem] bg-[var(--surface)] shadow-2xl sm:max-h-[94vh] sm:max-w-3xl sm:rounded-[2rem]", isClosing ? "public-sheet-exit" : "public-sheet-enter")} onClick={(event) => event.stopPropagation()}>
         <div className="relative z-0 h-72 overflow-hidden bg-[var(--primary)] sm:h-80">
           <ProductVisual className="pointer-events-none h-full w-full" fit={product} name={product.name} src={product.imageUrl} />
@@ -1081,7 +1081,7 @@ export function ProductOptionModal({
           })}
         </div>
 
-        <div className="sticky bottom-0 z-30 grid gap-3 border-t border-[var(--border)] bg-[var(--color-card-elevated)] p-4 backdrop-blur sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="sticky bottom-0 z-30 grid gap-3 border-t border-[var(--border)] bg-[var(--color-card-elevated)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur sm:grid-cols-[1fr_auto] sm:items-center">
           <div>
             <p className="text-xs font-black uppercase text-[var(--muted)]">Total producto</p>
             <p className="text-2xl font-black text-[var(--primary)]">{totalLabel}</p>

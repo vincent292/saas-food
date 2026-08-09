@@ -1,14 +1,30 @@
 import { notFound } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { GroupOrderSessionClient, type GroupOrderItemView, type GroupOrderParticipantView, type GroupOrderSessionView } from "@/components/group-orders/GroupOrderSessionClient";
 import { RestaurantThemeProvider } from "@/components/restaurant/RestaurantThemeProvider";
 import { categoryService } from "@/lib/services/category.service";
 import { productService } from "@/lib/services/product.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
+import { settingsService } from "@/lib/services/settings.service";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ProductConfigMap } from "@/components/public-menu/PublicRestaurantOrderClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const getGroupOrderCatalog = unstable_cache(
+  async (restaurantId: string) => {
+    const [categories, products, configuration] = await Promise.all([
+      categoryService.listPublicByRestaurant(restaurantId),
+      productService.listPublicAvailableByRestaurant(restaurantId),
+      productService.listPublicConfigurationsByRestaurant(restaurantId),
+    ]);
+
+    return { categories, products, configuration };
+  },
+  ["group-order-catalog-v1"],
+  { revalidate: 60 },
+);
 
 export default async function GroupOrderPage({
   params,
@@ -40,14 +56,14 @@ export default async function GroupOrderPage({
     notFound();
   }
 
-  const [categories, products, configuration, participantRows, itemRows] = await Promise.all([
-    categoryService.listPublicByRestaurant(restaurant.id),
-    productService.listPublicAvailableByRestaurant(restaurant.id),
-    productService.listPublicConfigurationsByRestaurant(restaurant.id),
+  const [catalog, participantRows, itemRows, settings, deliveryZones] = await Promise.all([
+    getGroupOrderCatalog(restaurant.id),
     admin.from("group_order_participants").select("*").eq("session_id", sessionRow.id).order("created_at", { ascending: true }),
     admin.from("group_order_items").select("*").eq("session_id", sessionRow.id).order("created_at", { ascending: true }),
+    settingsService.getPublicRestaurantSettings(restaurant.id),
+    restaurantService.listPublicDeliveryZones(restaurant.id),
   ]);
-  const stockAvailability = await productService.listPublicStockAvailability(restaurant, products);
+  const stockAvailability = await productService.listPublicStockAvailability(restaurant, catalog.products);
   const participants = (participantRows.data ?? []).map<GroupOrderParticipantView>((participant) => ({
     id: participant.id,
     displayName: participant.display_name,
@@ -85,10 +101,10 @@ export default async function GroupOrderPage({
     total: Number(sessionRow.total),
   };
   const configByProduct: ProductConfigMap = {};
-  for (const product of products) {
+  for (const product of catalog.products) {
     configByProduct[product.id] = {
-      variants: configuration.variants.filter((variant) => variant.productId === product.id && variant.isActive),
-      optionGroups: configuration.optionGroups
+      variants: catalog.configuration.variants.filter((variant) => variant.productId === product.id && variant.isActive),
+      optionGroups: catalog.configuration.optionGroups
         .filter((group) => group.productId === product.id && group.isActive)
         .map((group) => ({ ...group, options: group.options.filter((option) => option.isActive) })),
     };
@@ -97,7 +113,7 @@ export default async function GroupOrderPage({
   return (
     <RestaurantThemeProvider>
       <GroupOrderSessionClient
-        categories={categories}
+        categories={catalog.categories}
         configuration={configByProduct}
         currentParticipantId={currentParticipant?.id}
         initialHostAccessToken={validatedHostAccessToken}
@@ -105,9 +121,11 @@ export default async function GroupOrderPage({
         items={items}
         orderError={query.error}
         participants={participants}
-        products={products}
+        products={catalog.products}
         restaurant={restaurant}
         session={session}
+        settings={settings}
+        deliveryZones={deliveryZones}
         stockAvailability={stockAvailability}
       />
     </RestaurantThemeProvider>

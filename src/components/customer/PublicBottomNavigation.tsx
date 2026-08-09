@@ -8,9 +8,10 @@ import { cn } from "@/lib/utils/cn";
 
 const publicSearchOpenEvent = "yopido:open-public-search";
 const hiddenPrefixes = ["/admin", "/dueno", "/cocina", "/caja", "/delivery", "/api", "/r"];
+const hiddenPublicRoutePatterns = [/^\/[^/]+\/grupo(?:\/|$)/];
 
 function shouldHide(pathname: string) {
-  return hiddenPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return hiddenPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)) || hiddenPublicRoutePatterns.some((pattern) => pattern.test(pathname));
 }
 
 const itemClassName =

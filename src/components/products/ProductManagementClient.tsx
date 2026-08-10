@@ -1,10 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CalendarClock, ChevronLeft, ChevronRight, Clock3, Flame, Grid2X2, LayoutList, LockKeyhole, PackageCheck, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, Clock3, FileUp, Flame, Grid2X2, LayoutList, LockKeyhole, PackageCheck, Plus, Search, Sparkles, Trash2, Utensils, WandSparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { createCategoryAction, createProductAction, updateProductAction } from "@/app/admin/actions";
+import { analyzeMenuImportAction, createCategoryAction, createProductAction, importMenuDraftAction, updateProductAction } from "@/app/admin/actions";
 import { ProductCard } from "@/components/products/ProductCard";
 import { ProductStats } from "@/components/products/ProductStats";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { defaultProductImageFit, productImageFitStyle } from "@/lib/utils/product-image-fit";
+import type { MenuImportDraft } from "@/types/menu-import.types";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
 import type { InventoryItem } from "@/types/inventory.types";
 import type { BusinessType } from "@/types/restaurant.types";
@@ -72,6 +73,20 @@ const saveErrorMessages: Record<string, string> = {
   "option-group-update": "No se pudo actualizar el grupo de opciones.",
 };
 
+const menuImportErrorMessages: Record<string, string> = {
+  invalid: "Restaurante invalido.",
+  "file-required": "Selecciona una imagen o PDF del menu.",
+  "unsupported-file": "Usa PDF, JPG, PNG o WEBP.",
+  "file-too-large": "El archivo debe pesar hasta 10 MB.",
+  "gemini-not-configured": "Falta GEMINI_API_KEY en el entorno del servidor.",
+  "gemini-empty-response": "La IA no devolvio productos legibles.",
+  "invalid-json": "El borrador no se pudo leer.",
+  "invalid-draft": "Revisa categorias, productos y precios antes de guardar.",
+  "no-products": "No se detectaron productos con precio.",
+  "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para guardar el catalogo.",
+  "menu-import-failed": "No se pudo importar el menu.",
+};
+
 const emptyVariant = (index: number): DraftVariant => ({
   name: "",
   description: "",
@@ -100,6 +115,20 @@ const emptyOptionGroup = (index: number): DraftOptionGroup => ({
   sortOrder: index,
   isActive: true,
   options: [emptyOption(0)],
+});
+
+const emptyImportProduct = () => ({
+  name: "",
+  description: "",
+  price: 0,
+  prepMinutes: 15,
+  isFeatured: false,
+});
+
+const emptyImportCategory = () => ({
+  name: "Nueva categoria",
+  description: "",
+  products: [emptyImportProduct()],
 });
 
 export function ProductManagementClient({
@@ -142,6 +171,13 @@ export function ProductManagementClient({
   const [imagePositionX, setImagePositionX] = useState(defaultProductImageFit.imagePositionX);
   const [imagePositionY, setImagePositionY] = useState(defaultProductImageFit.imagePositionY);
   const [imageZoom, setImageZoom] = useState(defaultProductImageFit.imageZoom);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importDraft, setImportDraft] = useState<MenuImportDraft | null>(null);
+  const [importError, setImportError] = useState("");
+  const [importSummary, setImportSummary] = useState("");
+  const [importIsAnalyzing, setImportIsAnalyzing] = useState(false);
+  const [importIsSaving, setImportIsSaving] = useState(false);
 
   const categoryById = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
   const productCountsByCategory = useMemo(() => {
@@ -208,6 +244,16 @@ export function ProductManagementClient({
             <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">Categorias, {itemsLabel}, variantes y opciones del {catalogTitle.toLowerCase()} en una sola superficie.</p>
           </div>
           <div className="grid gap-2 sm:flex sm:flex-wrap">
+            <button
+              className={buttonClasses(canManageProducts ? "primary" : "secondary", "w-full sm:w-auto")}
+              disabled={!canManageProducts}
+              onClick={() => openMenuImportModal()}
+              title={canManageProducts ? "Importar menu desde imagen o PDF" : "Solo el dueno puede importar menus"}
+              type="button"
+            >
+              <FileUp className="h-4 w-4" />
+              Importar menu
+            </button>
             <button
               className={buttonClasses("secondary", "w-full sm:w-auto")}
               disabled={!canManageProducts}
@@ -450,6 +496,27 @@ export function ProductManagementClient({
             />
           </form>
         </ModalShell>
+      ) : null}
+
+      {canManageProducts && importModalOpen ? (
+        <MenuImportModal
+          draft={importDraft}
+          error={importError}
+          file={importFile}
+          isAnalyzing={importIsAnalyzing}
+          isSaving={importIsSaving}
+          onAnalyze={analyzeMenuImport}
+          onClose={() => closeMenuImportModal()}
+          onDraftChange={setImportDraft}
+          onFileChange={(file) => {
+            setImportFile(file);
+            setImportDraft(null);
+            setImportSummary("");
+            setImportError("");
+          }}
+          onSave={saveMenuImport}
+          summary={importSummary}
+        />
       ) : null}
 
       {canManageProducts && productModalOpen ? (
@@ -710,6 +777,81 @@ export function ProductManagementClient({
     );
   }
 
+  function openMenuImportModal() {
+    if (!canManageProducts) {
+      return;
+    }
+
+    setImportModalOpen(true);
+    setImportError("");
+    setImportSummary("");
+  }
+
+  function closeMenuImportModal() {
+    if (importIsAnalyzing || importIsSaving) {
+      return;
+    }
+
+    setImportModalOpen(false);
+    setImportFile(null);
+    setImportDraft(null);
+    setImportError("");
+    setImportSummary("");
+  }
+
+  async function analyzeMenuImport() {
+    if (!importFile) {
+      setImportError("file-required");
+      return;
+    }
+
+    setImportIsAnalyzing(true);
+    setImportError("");
+    setImportSummary("");
+
+    const formData = new FormData();
+    formData.append("restaurantId", restaurantId);
+    formData.append("menuFile", importFile);
+
+    const result = await analyzeMenuImportAction(formData);
+    if (result.ok) {
+      setImportDraft(result.draft);
+      const productCount = result.draft.categories.reduce((total, category) => total + category.products.length, 0);
+      setImportSummary(`${result.draft.categories.length} categorias y ${productCount} productos detectados.`);
+    } else {
+      setImportError(result.error);
+    }
+
+    setImportIsAnalyzing(false);
+  }
+
+  async function saveMenuImport() {
+    if (!importDraft?.categories.length) {
+      setImportError("no-products");
+      return;
+    }
+
+    setImportIsSaving(true);
+    setImportError("");
+    setImportSummary("");
+
+    const formData = new FormData();
+    formData.append("restaurantId", restaurantId);
+    formData.append("draftJson", JSON.stringify(importDraft));
+
+    const result = await importMenuDraftAction(formData);
+    if (!result.ok) {
+      setImportError(result.error);
+      setImportIsSaving(false);
+      return;
+    }
+
+    setImportSummary(
+      `Guardado: ${result.categoriesCreated} categorias nuevas, ${result.categoriesUpdated} actualizadas, ${result.productsCreated} productos nuevos y ${result.productsUpdated} actualizados.`,
+    );
+    window.location.href = `/admin/restaurantes/${restaurantId}/productos?updated=1`;
+  }
+
   function openCreateProductModal(preset: "simple" | "combo" | "promotion" | "lunch" = "simple") {
     if (!canManageProducts || !hasSelectedCategory) {
       return;
@@ -880,6 +1022,264 @@ export function ProductManagementClient({
       },
     ]);
   }
+}
+
+function MenuImportModal({
+  draft,
+  error,
+  file,
+  isAnalyzing,
+  isSaving,
+  onAnalyze,
+  onClose,
+  onDraftChange,
+  onFileChange,
+  onSave,
+  summary,
+}: {
+  draft: MenuImportDraft | null;
+  error: string;
+  file: File | null;
+  isAnalyzing: boolean;
+  isSaving: boolean;
+  onAnalyze: () => void;
+  onClose: () => void;
+  onDraftChange: (draft: MenuImportDraft | null) => void;
+  onFileChange: (file: File | null) => void;
+  onSave: () => void;
+  summary: string;
+}) {
+  const productCount = draft?.categories.reduce((total, category) => total + category.products.length, 0) ?? 0;
+  const busy = isAnalyzing || isSaving;
+
+  function updateCategory(categoryIndex: number, patch: Partial<MenuImportDraft["categories"][number]>) {
+    if (!draft) return;
+    onDraftChange({
+      ...draft,
+      categories: draft.categories.map((category, index) => (index === categoryIndex ? { ...category, ...patch } : category)),
+    });
+  }
+
+  function updateProduct(categoryIndex: number, productIndex: number, patch: Partial<MenuImportDraft["categories"][number]["products"][number]>) {
+    if (!draft) return;
+    onDraftChange({
+      ...draft,
+      categories: draft.categories.map((category, index) =>
+        index === categoryIndex
+          ? {
+              ...category,
+              products: category.products.map((product, nestedIndex) => (nestedIndex === productIndex ? { ...product, ...patch } : product)),
+            }
+          : category,
+      ),
+    });
+  }
+
+  function removeCategory(categoryIndex: number) {
+    if (!draft) return;
+    onDraftChange({ ...draft, categories: draft.categories.filter((_, index) => index !== categoryIndex) });
+  }
+
+  function addCategory() {
+    onDraftChange({ ...(draft ?? { categories: [] }), categories: [...(draft?.categories ?? []), emptyImportCategory()] });
+  }
+
+  function addProduct(categoryIndex: number) {
+    if (!draft) return;
+    onDraftChange({
+      ...draft,
+      categories: draft.categories.map((category, index) =>
+        index === categoryIndex ? { ...category, products: [...category.products, emptyImportProduct()] } : category,
+      ),
+    });
+  }
+
+  function removeProduct(categoryIndex: number, productIndex: number) {
+    if (!draft) return;
+    onDraftChange({
+      ...draft,
+      categories: draft.categories.map((category, index) =>
+        index === categoryIndex ? { ...category, products: category.products.filter((_, nestedIndex) => nestedIndex !== productIndex) } : category,
+      ),
+    });
+  }
+
+  return (
+    <ModalShell eyebrow="IA" title="Importar menu" wide onClose={onClose}>
+      <div className="space-y-5">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <Labeled label="Archivo">
+            <Input accept="application/pdf,image/png,image/jpeg,image/webp" disabled={busy} onChange={(event) => onFileChange(event.target.files?.[0] ?? null)} type="file" />
+          </Labeled>
+          <button className={buttonClasses("primary", "min-h-11")} disabled={!file || busy} onClick={onAnalyze} type="button">
+            <WandSparkles className="h-4 w-4" />
+            {isAnalyzing ? "Leyendo..." : "Leer menu"}
+          </button>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--color-card-muted)] p-4">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Archivo</p>
+            <p className="mt-1 truncate text-sm font-black text-[var(--text)]">{file?.name ?? "Sin archivo"}</p>
+          </div>
+          <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Categorias</p>
+            <p className="mt-1 text-2xl font-black text-[var(--text)]">{draft?.categories.length ?? 0}</p>
+          </div>
+          <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Productos</p>
+            <p className="mt-1 text-2xl font-black text-[var(--text)]">{productCount}</p>
+          </div>
+        </div>
+
+        {error ? (
+          <div className="rounded-[var(--radius-card)] bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">
+            {menuImportErrorMessages[error] ?? `No se pudo importar. Detalle: ${error}.`}
+          </div>
+        ) : null}
+        {busy ? <AiImportProgress mode={isSaving ? "saving" : "analyzing"} /> : null}
+        {summary ? <div className="rounded-[var(--radius-card)] bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">{summary}</div> : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+          <div>
+            <p className="font-black text-[var(--text)]">Borrador editable</p>
+            <p className="text-sm font-semibold text-[var(--muted)]">Revisa nombres, precios y tiempos antes de guardar.</p>
+          </div>
+          <button className={buttonClasses("secondary")} disabled={busy} onClick={addCategory} type="button">
+            <Plus className="h-4 w-4" />
+            Categoria
+          </button>
+        </div>
+
+        {draft?.categories.length ? (
+          <div className="space-y-4">
+            {draft.categories.map((category, categoryIndex) => (
+              <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4" key={`${category.name}-${categoryIndex}`}>
+                <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
+                  <Labeled label="Categoria">
+                    <Input disabled={busy} onChange={(event) => updateCategory(categoryIndex, { name: event.target.value })} value={category.name} />
+                  </Labeled>
+                  <Labeled label="Descripcion">
+                    <Input disabled={busy} onChange={(event) => updateCategory(categoryIndex, { description: event.target.value })} value={category.description} />
+                  </Labeled>
+                  <button className={buttonClasses("danger", "min-h-11")} disabled={busy} onClick={() => removeCategory(categoryIndex)} type="button">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  <div className="hidden gap-2 px-3 text-[11px] font-black uppercase tracking-[0.12em] text-[var(--muted)] xl:grid xl:grid-cols-[minmax(180px,1.2fr)_minmax(180px,1fr)_120px_120px_120px_auto]">
+                    <span>Producto</span>
+                    <span>Descripcion</span>
+                    <span>Precio Bs</span>
+                    <span>Cocina min</span>
+                    <span>Destacado</span>
+                    <span />
+                  </div>
+                  {category.products.map((product, productIndex) => (
+                    <div className="grid gap-2 rounded-[var(--radius-control)] bg-[var(--color-card-muted)] p-3 xl:grid-cols-[minmax(180px,1.2fr)_minmax(180px,1fr)_120px_120px_120px_auto]" key={`${product.name}-${productIndex}`}>
+                      <MiniImportField label="Producto">
+                        <Input disabled={busy} onChange={(event) => updateProduct(categoryIndex, productIndex, { name: event.target.value })} placeholder="Producto" value={product.name} />
+                      </MiniImportField>
+                      <MiniImportField label="Descripcion">
+                        <Input disabled={busy} onChange={(event) => updateProduct(categoryIndex, productIndex, { description: event.target.value })} placeholder="Descripcion" value={product.description} />
+                      </MiniImportField>
+                      <MiniImportField label="Precio Bs">
+                        <div className="relative">
+                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-black text-[var(--muted)]">Bs</span>
+                          <Input className="pr-10" disabled={busy} min={0} onChange={(event) => updateProduct(categoryIndex, productIndex, { price: Number(event.target.value || 0) })} step="0.01" type="number" value={Number.isFinite(product.price) ? product.price : ""} />
+                        </div>
+                      </MiniImportField>
+                      <MiniImportField label="Cocina">
+                        <div className="relative">
+                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-black text-[var(--muted)]">min</span>
+                          <Input className="pr-12" disabled={busy} max={240} min={1} onChange={(event) => updateProduct(categoryIndex, productIndex, { prepMinutes: Number(event.target.value || 15) })} step={1} type="number" value={Number.isFinite(product.prepMinutes) ? product.prepMinutes : ""} />
+                        </div>
+                      </MiniImportField>
+                      <label className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black text-[var(--text)]">
+                        <input checked={product.isFeatured} disabled={busy} onChange={(event) => updateProduct(categoryIndex, productIndex, { isFeatured: event.target.checked })} type="checkbox" />
+                        Destacado
+                      </label>
+                      <button className={buttonClasses("ghost", "min-h-11 self-end px-3")} disabled={busy} onClick={() => removeProduct(categoryIndex, productIndex)} type="button">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <p className="text-sm font-black text-[var(--primary)]">{formatMoney(category.products.reduce((total, product) => total + product.price, 0))} en esta seccion</p>
+                  <button className={buttonClasses("secondary")} disabled={busy} onClick={() => addProduct(categoryIndex)} type="button">
+                    <Plus className="h-4 w-4" />
+                    Producto
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="Sin borrador" description="Sube una imagen o PDF para generar productos editables." />
+        )}
+
+        <div className="grid gap-3 border-t border-[var(--border)] pt-4 sm:grid-cols-2">
+          <button className={buttonClasses("danger", "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)] hover:bg-[var(--color-danger-soft)]")} disabled={busy} onClick={onClose} type="button">
+            <X className="h-4 w-4" />
+            Cancelar
+          </button>
+          <button className={buttonClasses("primary")} disabled={!draft?.categories.length || busy} onClick={onSave} type="button">
+            <PackageCheck className="h-4 w-4" />
+            {isSaving ? "Guardando..." : "Guardar productos"}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function MiniImportField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="space-y-1 text-[11px] font-black uppercase tracking-[0.12em] text-[var(--muted)] xl:text-transparent">
+      {label}
+      {children}
+    </label>
+  );
+}
+
+function AiImportProgress({ mode }: { mode: "analyzing" | "saving" }) {
+  const copy =
+    mode === "saving"
+      ? {
+          eyebrow: "Guardando con IA",
+          title: "Creando productos y categorias",
+          body: "Estamos aplicando el borrador revisado al catalogo.",
+        }
+      : {
+          eyebrow: "Importando con IA",
+          title: "Leyendo imagen o PDF",
+          body: "Gemini esta detectando secciones, precios y tiempos de cocina.",
+        };
+
+  return (
+    <div aria-live="polite" className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--primary-light)] bg-[var(--primary-light)] p-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[var(--surface)] text-[var(--primary)] shadow-sm">
+          <WandSparkles className="h-7 w-7 animate-pulse" />
+          <Sparkles className="absolute -right-1 -top-1 h-4 w-4 animate-bounce text-[var(--primary)]" />
+          <Sparkles className="absolute -bottom-1 left-1 h-3 w-3 animate-pulse text-[var(--primary-dark)]" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">{copy.eyebrow}</p>
+          <p className="mt-1 text-lg font-black text-[var(--text)]">{copy.title}</p>
+          <p className="mt-1 text-sm font-semibold text-[var(--muted)]">{copy.body}</p>
+        </div>
+        <div className="flex h-8 items-center gap-1 self-start sm:self-center" aria-hidden="true">
+          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--primary)]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--primary)] [animation-delay:120ms]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--primary)] [animation-delay:240ms]" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CategoryTile({ label, count, imageUrl, active, onClick }: { label: string; count: number; imageUrl?: string; active: boolean; onClick: () => void }) {

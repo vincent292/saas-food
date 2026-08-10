@@ -1,6 +1,5 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 
@@ -71,33 +70,50 @@ export const restaurantAccessService = {
       redirect("/admin/login?error=session");
     }
 
-    const accessClient = createAdminClient() ?? supabase;
-    const [{ data: profile, error: profileError }, { data: membership, error: membershipError }, { data: restaurant, error: restaurantError }] =
-      await Promise.all([
-        accessClient.from("profiles").select("global_role").eq("id", userData.user.id).maybeSingle(),
-        accessClient
-          .from("restaurant_memberships")
-          .select("id")
-          .eq("restaurant_id", restaurantId)
-          .eq("user_id", userData.user.id)
-          .eq("is_active", true)
-          .limit(1)
-          .maybeSingle(),
-        accessClient
-          .from("restaurants")
-          .select("id,name")
-          .eq("id", restaurantId)
-          .eq("status", "active")
-          .is("deleted_at", null)
-          .maybeSingle(),
-      ]);
+    const { data: profile, error: profileError } = await supabase.from("profiles").select("global_role").eq("id", userData.user.id).maybeSingle();
 
-    if (profileError || membershipError || restaurantError) {
+    if (profileError) {
       redirect("/admin/login?error=access-check");
     }
 
     const isSuperadmin = profile?.global_role === "superadmin";
-    if (!restaurant || (!isSuperadmin && !membership)) {
+    let restaurantQuery = supabase.from("restaurants").select("id,name").eq("id", restaurantId).is("deleted_at", null);
+    if (!isSuperadmin) {
+      restaurantQuery = restaurantQuery.eq("status", "active");
+    }
+
+    const { data: restaurant, error: restaurantError } = await restaurantQuery.maybeSingle();
+    if (restaurantError) {
+      redirect("/admin/login?error=access-check");
+    }
+
+    if (!restaurant) {
+      redirect("/admin/login?error=no-access");
+    }
+
+    if (isSuperadmin) {
+      return {
+        allowed: true,
+        restaurantId,
+        restaurantName: restaurant.name,
+        message: "superadmin-access-authorized",
+      } satisfies RestaurantAccessClaim;
+    }
+
+    const { data: membership, error: membershipError } = await supabase
+      .from("restaurant_memberships")
+      .select("id")
+      .eq("restaurant_id", restaurantId)
+      .eq("user_id", userData.user.id)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (membershipError) {
+      redirect("/admin/login?error=access-check");
+    }
+
+    if (!membership) {
       redirect("/admin/login?error=no-access");
     }
 

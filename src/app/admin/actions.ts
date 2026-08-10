@@ -18,6 +18,7 @@ import { platformBillingService } from "@/lib/services/platform-billing.service"
 import { ownerBillingService } from "@/lib/services/owner-billing.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { membershipService } from "@/lib/services/membership.service";
+import { analyzeMenuFileWithGemini, normalizeMenuImportDraft, validateMenuImportFile } from "@/lib/services/menu-import-ai.service";
 import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
 import { getBranchRequestPaymentSettings, getOwnerBranchLimit } from "@/lib/services/owner-dashboard.service";
 import { moduleCatalog } from "@/lib/modules";
@@ -29,6 +30,7 @@ import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import { toSlug } from "@/lib/utils/slug";
 import type { Json } from "@/types/database.types";
+import type { MenuImportAnalyzeResult, MenuImportCommitResult } from "@/types/menu-import.types";
 import type { ModuleKey, PlanKey } from "@/types/restaurant.types";
 import type { OrderOrigin, OrderStatus } from "@/types/order.types";
 
@@ -399,6 +401,28 @@ const createProductSchema = z.object({
 
 const updateProductSchema = createProductSchema.extend({
   productId: z.string().uuid(),
+});
+
+const menuImportProductSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  description: z.string().trim().max(240).default(""),
+  price: z.coerce.number().nonnegative().max(100000),
+  prepMinutes: z.coerce.number().int().min(1).max(240).default(15),
+  isFeatured: z.coerce.boolean().default(false),
+});
+
+const menuImportDraftSchema = z.object({
+  sourceName: z.string().trim().max(120).optional(),
+  categories: z
+    .array(
+      z.object({
+        name: z.string().trim().min(2).max(80),
+        description: z.string().trim().max(180).default(""),
+        products: z.array(menuImportProductSchema).min(1).max(120),
+      }),
+    )
+    .min(1)
+    .max(40),
 });
 
 const createTableSchema = z.object({
@@ -4987,6 +5011,217 @@ export async function markInvoiceIssuedAction(formData: FormData) {
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
   redirect(`${invoiceReturnPath}&invoiceMarked=1`);
+}
+
+function menuImportKey(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+export async function analyzeMenuImportAction(formData: FormData): Promise<MenuImportAnalyzeResult> {
+  const restaurantId = String(formData.get("restaurantId") || "");
+  const restaurantIdParsed = z.string().uuid().safeParse(restaurantId);
+  if (!restaurantIdParsed.success) {
+    return { ok: false, error: "invalid" };
+  }
+
+  await requireRestaurantOwnerOrSuperadmin(restaurantIdParsed.data, `/admin/restaurantes/${restaurantIdParsed.data}/productos`);
+
+  const file = formData.get("menuFile") as File | null;
+  const fileError = validateMenuImportFile(file);
+  if (fileError || !file) {
+    return { ok: false, error: fileError ?? "file-required" };
+  }
+
+  try {
+    const draft = await analyzeMenuFileWithGemini(file);
+    if (!draft.categories.length) {
+      return { ok: false, error: "no-products" };
+    }
+
+    return { ok: true, draft };
+  } catch (cause) {
+    const error = cause instanceof Error ? cause.message : "menu-import-failed";
+    return { ok: false, error };
+  }
+}
+
+export async function importMenuDraftAction(formData: FormData): Promise<MenuImportCommitResult> {
+  const restaurantId = String(formData.get("restaurantId") || "");
+  const restaurantIdParsed = z.string().uuid().safeParse(restaurantId);
+  if (!restaurantIdParsed.success) {
+    return { ok: false, error: "invalid" };
+  }
+
+  await requireRestaurantOwnerOrSuperadmin(restaurantIdParsed.data, `/admin/restaurantes/${restaurantIdParsed.data}/productos`);
+  const admin = createAdminClient();
+
+  if (!admin) {
+    return { ok: false, error: "service-role-required" };
+  }
+
+  let rawDraft: unknown;
+  try {
+    rawDraft = JSON.parse(String(formData.get("draftJson") || "{}"));
+  } catch {
+    return { ok: false, error: "invalid-json" };
+  }
+
+  const parsed = menuImportDraftSchema.safeParse(rawDraft);
+  if (!parsed.success) {
+    return { ok: false, error: "invalid-draft" };
+  }
+
+  const draft = normalizeMenuImportDraft(parsed.data);
+  if (!draft.categories.length) {
+    return { ok: false, error: "no-products" };
+  }
+
+  const { data: existingCategories, error: categoriesError } = await admin
+    .from("categories")
+    .select("id,name,sort_order")
+    .eq("restaurant_id", restaurantIdParsed.data);
+
+  if (categoriesError) {
+    return { ok: false, error: categoriesError.code };
+  }
+
+  const categoryByName = new Map((existingCategories ?? []).map((category) => [menuImportKey(category.name), category]));
+  let nextCategorySortOrder = Math.max(0, ...(existingCategories ?? []).map((category) => category.sort_order ?? 0)) + 1;
+
+  const { data: existingProducts, error: productsError } = await admin
+    .from("products")
+    .select("id,name,category_id,sort_order")
+    .eq("restaurant_id", restaurantIdParsed.data);
+
+  if (productsError) {
+    return { ok: false, error: productsError.code };
+  }
+
+  const productByCategoryAndName = new Map(
+    (existingProducts ?? []).map((product) => [`${product.category_id ?? "none"}:${menuImportKey(product.name)}`, product]),
+  );
+  const nextProductSortByCategory = new Map<string, number>();
+  for (const product of existingProducts ?? []) {
+    const key = product.category_id ?? "none";
+    nextProductSortByCategory.set(key, Math.max(nextProductSortByCategory.get(key) ?? 0, (product.sort_order ?? 0) + 1));
+  }
+
+  let categoriesCreated = 0;
+  let categoriesUpdated = 0;
+  let productsCreated = 0;
+  let productsUpdated = 0;
+
+  for (const category of draft.categories) {
+    const categoryKey = menuImportKey(category.name);
+    let categoryId = categoryByName.get(categoryKey)?.id;
+
+    if (categoryId) {
+      const { error } = await admin
+        .from("categories")
+        .update({
+          description: category.description || null,
+          is_active: true,
+        })
+        .eq("restaurant_id", restaurantIdParsed.data)
+        .eq("id", categoryId);
+
+      if (error) {
+        return { ok: false, error: error.code };
+      }
+      categoriesUpdated += 1;
+    } else {
+      const { data: insertedCategory, error } = await admin
+        .from("categories")
+        .insert({
+          restaurant_id: restaurantIdParsed.data,
+          name: category.name,
+          description: category.description || null,
+          image_url: null,
+          sort_order: nextCategorySortOrder,
+          is_active: true,
+        })
+        .select("id,name,sort_order")
+        .single();
+
+      if (error || !insertedCategory) {
+        return { ok: false, error: error?.code ?? "category-create" };
+      }
+
+      nextCategorySortOrder += 1;
+      categoryId = insertedCategory.id;
+      categoryByName.set(categoryKey, insertedCategory);
+      categoriesCreated += 1;
+    }
+
+    const nextSortOrder = nextProductSortByCategory.get(categoryId) ?? 0;
+    let currentSortOrder = nextSortOrder;
+
+    for (const product of category.products) {
+      const productKey = `${categoryId}:${menuImportKey(product.name)}`;
+      const existingProduct = productByCategoryAndName.get(productKey);
+
+      if (existingProduct) {
+        const { error } = await admin
+          .from("products")
+          .update({
+            description: product.description || null,
+            price: product.price,
+            prep_minutes: product.prepMinutes,
+            is_available: true,
+            is_featured: product.isFeatured,
+            product_kind: product.isFeatured ? "promotion" : "standard",
+          })
+          .eq("restaurant_id", restaurantIdParsed.data)
+          .eq("id", existingProduct.id);
+
+        if (error) {
+          return { ok: false, error: error.code };
+        }
+        productsUpdated += 1;
+        continue;
+      }
+
+      const { data: insertedProduct, error } = await admin
+        .from("products")
+        .insert({
+          restaurant_id: restaurantIdParsed.data,
+          category_id: categoryId,
+          name: product.name,
+          description: product.description || null,
+          price: product.price,
+          compare_at_price: null,
+          prep_minutes: product.prepMinutes,
+          image_url: null,
+          image_position_x: 50,
+          image_position_y: 50,
+          image_zoom: 1,
+          is_available: true,
+          is_featured: product.isFeatured,
+          track_stock: false,
+          product_kind: product.isFeatured ? "promotion" : "standard",
+          sort_order: currentSortOrder,
+        })
+        .select("id,name,category_id,sort_order")
+        .single();
+
+      if (error || !insertedProduct) {
+        return { ok: false, error: error?.code ?? "product-create" };
+      }
+
+      currentSortOrder += 1;
+      productByCategoryAndName.set(productKey, insertedProduct);
+      productsCreated += 1;
+    }
+
+    nextProductSortByCategory.set(categoryId, currentSortOrder);
+  }
+
+  await revalidateRestaurantCatalogPaths(restaurantIdParsed.data, admin);
+  return { ok: true, categoriesCreated, categoriesUpdated, productsCreated, productsUpdated };
 }
 
 export async function createCategoryAction(formData: FormData) {

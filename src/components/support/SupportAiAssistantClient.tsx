@@ -1,22 +1,27 @@
 "use client";
 
-import { Bot, LifeBuoy, Loader2, Sparkles, TicketCheck } from "lucide-react";
-import { useState } from "react";
-import { askSupportAiAction } from "@/app/admin/actions";
+import { Bot, Loader2, MessageCircle, Send, Sparkles, TicketCheck, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { askSupportAiAction, createSupportAiTicketAction } from "@/app/admin/actions";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
-import type { SupportAiResult } from "@/types/support-ai.types";
+import type { SupportAiResult, SupportAiTranscriptMessage } from "@/types/support-ai.types";
+import type { SupportTicketCategory } from "@/types/superadmin.types";
+
+type ChatMessage = SupportAiTranscriptMessage & {
+  id: string;
+};
 
 const errorMessages: Record<string, string> = {
   invalid: "Describe el problema con un poco mas de detalle.",
-  "daily-limit": "Se alcanzo el limite diario de IA para soporte. Abre un ticket manual.",
-  "usage-check": "No se pudo comprobar el limite diario. Abre un ticket manual.",
+  "daily-limit": "Se alcanzo el limite diario de IA para soporte. Crea un ticket para continuar.",
+  "usage-check": "No se pudo comprobar el limite diario. Crea un ticket manual.",
   "gemini-not-configured": "La IA de soporte no esta configurada.",
   "gemini-empty-response": "La IA no devolvio una respuesta util.",
   "support-ai-failed": "No se pudo consultar la IA.",
-  "ticket-create": "La IA recomendo abrir ticket, pero no se pudo crear. Usa el formulario manual.",
+  "ticket-create": "No se pudo crear el ticket. Usa el formulario manual.",
 };
 
 const categories = [
@@ -31,26 +36,84 @@ const categories = [
 ] as const;
 
 export function SupportAiAssistantClient({ restaurantId }: { restaurantId: string }) {
+  const [open, setOpen] = useState(false);
   const [category, setCategory] = useState<(typeof categories)[number]["value"]>("orders");
   const [orderNumber, setOrderNumber] = useState("");
-  const [question, setQuestion] = useState("");
-  const [result, setResult] = useState<SupportAiResult | null>(null);
+  const [draft, setDraft] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [lastResult, setLastResult] = useState<SupportAiResult | null>(null);
   const [pending, setPending] = useState(false);
+  const [ticketPending, setTicketPending] = useState(false);
+  const [ticketCreated, setTicketCreated] = useState<{ id: string; title: string } | null>(null);
 
-  async function submitQuestion() {
+  const selectedCategory = categories.find((item) => item.value === category);
+  const supportCategory = (selectedCategory && "mapsTo" in selectedCategory ? selectedCategory.mapsTo : category) as SupportTicketCategory;
+  const remainingToday = lastResult?.ok ? lastResult.remainingToday : lastResult?.remainingToday;
+  const suggestedTicket = lastResult?.ok
+    ? {
+        title: lastResult.suggestedTicketTitle ?? "",
+        description: lastResult.suggestedTicketDescription ?? "",
+        priority: lastResult.suggestedTicketPriority ?? "medium",
+        category: lastResult.suggestedTicketCategory ?? supportCategory,
+      }
+    : null;
+  const transcript = useMemo(() => messages.map(({ role, content }) => ({ role, content })), [messages]);
+  const canSend = draft.trim().length >= 8 && !pending && !ticketPending && !ticketCreated;
+  const canCreateTicket = messages.length > 0 && !ticketPending && !ticketCreated;
+
+  async function sendMessage() {
+    if (!canSend) return;
+
+    const question = draft.trim();
+    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: question };
+    const nextMessages = [...messages, userMessage];
+    setMessages(nextMessages);
+    setDraft("");
     setPending(true);
-    setResult(null);
+    setLastResult(null);
 
-    const selectedCategory = categories.find((item) => item.value === category);
     const formData = new FormData();
     formData.append("restaurantId", restaurantId);
-    formData.append("category", selectedCategory && "mapsTo" in selectedCategory ? selectedCategory.mapsTo : category);
+    formData.append("category", supportCategory);
     formData.append("orderNumber", orderNumber);
     formData.append("question", question);
+    formData.append("transcriptJson", JSON.stringify(nextMessages.slice(-8).map(({ role, content }) => ({ role, content }))));
 
     const response = await askSupportAiAction(formData);
-    setResult(response);
+    setLastResult(response);
+    if (response.ok) {
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: response.answer }]);
+    }
     setPending(false);
+  }
+
+  async function createTicket() {
+    if (!canCreateTicket) return;
+    setTicketPending(true);
+
+    const formData = new FormData();
+    formData.append("restaurantId", restaurantId);
+    formData.append("category", suggestedTicket?.category ?? supportCategory);
+    formData.append("orderNumber", orderNumber);
+    formData.append("transcriptJson", JSON.stringify(transcript.slice(-12)));
+    formData.append("suggestedTitle", suggestedTicket?.title ?? "");
+    formData.append("suggestedDescription", suggestedTicket?.description ?? "");
+    formData.append("suggestedPriority", suggestedTicket?.priority ?? "medium");
+
+    const response = await createSupportAiTicketAction(formData);
+    if (response.ok) {
+      setTicketCreated({ id: response.ticketId, title: response.ticketTitle });
+    } else {
+      setLastResult({ ok: false, error: response.error });
+    }
+    setTicketPending(false);
+  }
+
+  function resetConversation() {
+    setMessages([]);
+    setLastResult(null);
+    setTicketCreated(null);
+    setDraft("");
   }
 
   return (
@@ -60,104 +123,159 @@ export function SupportAiAssistantClient({ restaurantId }: { restaurantId: strin
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[var(--surface)] text-[var(--primary)] shadow-sm">
-                <Bot className="h-5 w-5" />
+                <MessageCircle className="h-5 w-5" />
               </span>
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Soporte IA</p>
-                <h2 className="text-xl font-black text-[var(--text)]">Pregunta operativa</h2>
+                <h2 className="text-xl font-black text-[var(--text)]">Messenger operativo</h2>
               </div>
             </div>
-            <p className="mt-3 max-w-2xl text-sm font-semibold text-[var(--muted)]">
-              Responde casos del sistema con limite diario. Si no puede resolverlo, abre ticket para soporte.
-            </p>
+            <p className="mt-3 max-w-2xl text-sm font-semibold text-[var(--muted)]">Chat corto para resolver dudas del sistema. Si no se resuelve, crea ticket con la conversacion.</p>
           </div>
-          <Badge className="w-fit bg-[var(--surface)] text-[var(--primary)]">Texto solamente</Badge>
+          <div className="flex flex-wrap gap-2">
+            {typeof remainingToday === "number" ? <Badge className="w-fit bg-[var(--surface)] text-[var(--primary)]">{remainingToday} usos IA hoy</Badge> : null}
+            <Badge className="w-fit bg-[var(--surface)] text-[var(--primary)]">Texto solamente</Badge>
+          </div>
         </div>
       </div>
 
       <div className="grid gap-4 p-4 sm:p-5">
-        <div className="grid gap-3 lg:grid-cols-[180px_180px_1fr]">
-          <label className="space-y-2 text-sm font-black text-[var(--text)]">
-            Tema
-            <Select disabled={pending} onChange={(event) => setCategory(event.target.value as typeof category)} value={category}>
-              {categories.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="space-y-2 text-sm font-black text-[var(--text)]">
-            Pedido
-            <Input disabled={pending} onChange={(event) => setOrderNumber(event.target.value)} placeholder="P6381" value={orderNumber} />
-          </label>
-          <label className="space-y-2 text-sm font-black text-[var(--text)]">
-            Problema
-            <Textarea
-              disabled={pending}
-              maxLength={700}
-              onChange={(event) => setQuestion(event.target.value)}
-              placeholder="Ej. El pedido aparece listo en cocina pero no desaparece de caja."
-              value={question}
-            />
-          </label>
-        </div>
+        {!open ? (
+          <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div>
+              <p className="font-black text-[var(--text)]">Abre una conversacion con soporte IA</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--muted)]">No crea ticket automaticamente. Primero intenta resolver y luego decides si escalar.</p>
+            </div>
+            <Button onClick={() => setOpen(true)} type="button">
+              <Sparkles className="h-4 w-4" />
+              Abrir messenger
+            </Button>
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            <div className="grid gap-3 lg:grid-cols-[180px_180px_1fr_auto] lg:items-end">
+              <label className="space-y-2 text-sm font-black text-[var(--text)]">
+                Tema
+                <Select disabled={pending || messages.length > 0} onChange={(event) => setCategory(event.target.value as typeof category)} value={category}>
+                  {categories.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label className="space-y-2 text-sm font-black text-[var(--text)]">
+                Pedido
+                <Input disabled={pending || messages.length > 0} onChange={(event) => setOrderNumber(event.target.value)} placeholder="P6381" value={orderNumber} />
+              </label>
+              <p className="rounded-[var(--radius-control)] bg-[var(--color-card-muted)] px-4 py-3 text-sm font-semibold text-[var(--muted)]">La conversacion usa el tema y pedido iniciales para ahorrar contexto.</p>
+              <button className={buttonClasses("ghost", "min-h-11")} disabled={pending || ticketPending} onClick={() => setOpen(false)} type="button">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-semibold text-[var(--muted)]">{question.length}/700 caracteres</p>
-          <Button disabled={pending || question.trim().length < 8} onClick={submitQuestion} type="button">
-            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {pending ? "Consultando..." : "Preguntar a IA"}
-          </Button>
-        </div>
+            <div className="flex h-[460px] flex-col overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--color-card-muted)] sm:h-[520px]">
+              <div className="admin-scrollbar flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
+                {messages.length ? (
+                  messages.map((message) => <ChatBubble key={message.id} message={message} />)
+                ) : (
+                  <div className="grid h-full place-items-center text-center">
+                    <div className="max-w-sm">
+                      <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[var(--surface)] text-[var(--primary)]">
+                        <Bot className="h-6 w-6" />
+                      </span>
+                      <p className="mt-3 font-black text-[var(--text)]">Cuéntame qué pasó</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Ej. “El pedido P6381 está listo pero sigue en cocina”.</p>
+                    </div>
+                  </div>
+                )}
+                {pending ? <TypingBubble /> : null}
+              </div>
 
-        {pending ? <AiThinkingPanel /> : null}
-        {result ? <SupportAiResultPanel result={result} /> : null}
+              <div className="border-t border-[var(--border)] bg-[var(--surface)] p-3">
+                {lastResult && !lastResult.ok ? <ErrorPanel error={lastResult.error} /> : null}
+                {ticketCreated ? (
+                  <div className="mb-3 rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">
+                    Ticket creado: {ticketCreated.title}
+                  </div>
+                ) : null}
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <label className="space-y-1 text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">
+                    Responder
+                    <Textarea
+                      className="min-h-20"
+                      disabled={pending || ticketPending || Boolean(ticketCreated)}
+                      maxLength={700}
+                      onChange={(event) => setDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                          void sendMessage();
+                        }
+                      }}
+                      placeholder="Escribe el siguiente detalle..."
+                      value={draft}
+                    />
+                  </label>
+                  <Button className="min-h-12" disabled={!canSend} onClick={sendMessage} type="button">
+                    {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Enviar
+                  </Button>
+                </div>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs font-semibold text-[var(--muted)]">{draft.length}/700 caracteres</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button className={buttonClasses("secondary", "min-h-10")} disabled={!canCreateTicket} onClick={createTicket} type="button">
+                      {ticketPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <TicketCheck className="h-4 w-4" />}
+                      No se resolvio
+                    </button>
+                    <button className={buttonClasses("ghost", "min-h-10")} disabled={pending || ticketPending} onClick={resetConversation} type="button">
+                      Nueva conversacion
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Card>
   );
 }
 
-function AiThinkingPanel() {
+function ChatBubble({ message }: { message: ChatMessage }) {
+  const isUser = message.role === "user";
   return (
-    <div aria-live="polite" className="rounded-[var(--radius-card)] border border-[var(--primary-light)] bg-[var(--primary-light)] p-4">
-      <div className="flex items-center gap-3">
-        <span className="relative grid h-11 w-11 place-items-center rounded-2xl bg-[var(--surface)] text-[var(--primary)]">
-          <Sparkles className="h-5 w-5 animate-pulse" />
-        </span>
-        <div>
-          <p className="font-black text-[var(--text)]">Revisando con IA</p>
-          <p className="text-sm font-semibold text-[var(--muted)]">Usando solo contexto operativo y limites de soporte.</p>
-        </div>
+    <div className={isUser ? "flex justify-end" : "flex justify-start"}>
+      <div
+        className={
+          isUser
+            ? "max-w-[86%] rounded-3xl rounded-br-md bg-[var(--primary)] px-4 py-3 text-sm font-semibold leading-6 text-[var(--color-on-primary)] shadow-sm"
+            : "max-w-[86%] rounded-3xl rounded-bl-md border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm font-semibold leading-6 text-[var(--color-body)] shadow-sm"
+        }
+      >
+        <p className="whitespace-pre-line">{message.content}</p>
       </div>
     </div>
   );
 }
 
-function SupportAiResultPanel({ result }: { result: SupportAiResult }) {
-  if (!result.ok) {
-    return (
-      <div className="rounded-[var(--radius-card)] bg-[var(--color-danger-soft)] p-4 text-sm font-bold text-[var(--color-danger-strong)]">
-        {errorMessages[result.error] ?? `No se pudo consultar soporte IA: ${result.error}.`}
-      </div>
-    );
-  }
-
+function TypingBubble() {
   return (
-    <div className="space-y-3 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          {result.resolved ? <LifeBuoy className="h-5 w-5 text-[var(--primary)]" /> : <TicketCheck className="h-5 w-5 text-[var(--primary)]" />}
-          <p className="font-black text-[var(--text)]">{result.resolved ? "Respuesta sugerida" : "Ticket creado"}</p>
-        </div>
-        <Badge className="bg-[var(--color-neutral-100)] text-[var(--color-body)]">{result.remainingToday} usos IA restantes hoy</Badge>
+    <div className="flex justify-start">
+      <div className="inline-flex items-center gap-2 rounded-3xl rounded-bl-md border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[var(--primary)] shadow-sm">
+        <Sparkles className="h-4 w-4 animate-pulse" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--primary)]" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--primary)] [animation-delay:120ms]" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--primary)] [animation-delay:240ms]" />
       </div>
-      <p className="whitespace-pre-line text-sm font-semibold leading-6 text-[var(--color-body)]">{result.answer}</p>
-      {result.ticketId ? (
-        <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">
-          Se abrio ticket para soporte: {result.ticketTitle ?? result.ticketId}
-        </div>
-      ) : null}
+    </div>
+  );
+}
+
+function ErrorPanel({ error }: { error: string }) {
+  return (
+    <div className="mb-3 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">
+      {errorMessages[error] ?? `No se pudo consultar soporte IA: ${error}.`}
     </div>
   );
 }

@@ -11,17 +11,35 @@ export type SupportAiAnswer = {
   ticketCategory: SupportTicketCategory;
 };
 
+export type SupportAiTranscriptMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 export type SupportAiResult =
   | {
       ok: true;
       answer: string;
       resolved: boolean;
       remainingToday: number;
-      ticketId?: string;
-      ticketTitle?: string;
+      suggestedTicketTitle?: string;
+      suggestedTicketDescription?: string;
+      suggestedTicketPriority?: SupportTicketPriority;
+      suggestedTicketCategory?: SupportTicketCategory;
     }
   | {
       ok: false;
       error: string;
       remainingToday?: number;
+    };
+
+export type SupportAiTicketResult =
+  | {
+      ok: true;
+      ticketId: string;
+      ticketTitle: string;
+    }
+  | {
+      ok: false;
+      error: string;
     };

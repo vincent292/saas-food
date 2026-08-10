@@ -32,7 +32,7 @@ import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import { toSlug } from "@/lib/utils/slug";
 import type { Json } from "@/types/database.types";
 import type { MenuImportAnalyzeResult, MenuImportCommitResult } from "@/types/menu-import.types";
-import type { SupportAiResult } from "@/types/support-ai.types";
+import type { SupportAiResult, SupportAiTicketResult, SupportAiTranscriptMessage } from "@/types/support-ai.types";
 import type { ModuleKey, PlanKey } from "@/types/restaurant.types";
 import type { OrderOrigin, OrderStatus } from "@/types/order.types";
 
@@ -719,6 +719,33 @@ const supportAiQuestionSchema = z.object({
   category: z.enum(["access", "billing", "orders", "cash", "inventory", "incident", "other"]).default("other"),
   question: z.string().trim().min(8).max(700),
   orderNumber: z.string().trim().max(30).optional(),
+  transcript: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string().trim().min(1).max(900),
+      }),
+    )
+    .max(10)
+    .default([]),
+});
+
+const supportAiTicketSchema = z.object({
+  restaurantId: z.string().uuid(),
+  category: z.enum(["access", "billing", "orders", "cash", "inventory", "incident", "other"]).default("other"),
+  orderNumber: z.string().trim().max(30).optional(),
+  transcript: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string().trim().min(1).max(900),
+      }),
+    )
+    .min(1)
+    .max(12),
+  suggestedTitle: z.string().trim().max(90).optional(),
+  suggestedDescription: z.string().trim().max(1400).optional(),
+  suggestedPriority: z.enum(["low", "medium", "high", "urgent"]).default("medium"),
 });
 
 const updateSupportTicketSchema = z.object({
@@ -750,6 +777,7 @@ const MAX_SUPPORT_ATTACHMENTS = 5;
 const MAX_SUPPORT_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const SUPPORT_AI_MAX_USER_DAILY = 4;
 const SUPPORT_AI_MAX_RESTAURANT_DAILY = 12;
+const MENU_IMPORT_AI_MAX_FAILED_DAILY = 3;
 const MAX_BRANCH_REQUEST_PAYMENT_PROOF_BYTES = 5 * 1024 * 1024;
 const MAX_OWNER_BILLING_PAYMENT_PROOF_BYTES = 5 * 1024 * 1024;
 
@@ -5032,6 +5060,48 @@ function menuImportKey(value: string) {
     .toLowerCase();
 }
 
+async function countFailedMenuImportAttempts(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  restaurantId: string,
+  userId: string,
+) {
+  const { count, error } = await supabase
+    .from("menu_import_ai_attempts")
+    .select("id", { count: "exact", head: true })
+    .eq("restaurant_id", restaurantId)
+    .eq("user_id", userId)
+    .eq("status", "failed")
+    .gte("created_at", startOfUtcDayIso());
+
+  return error ? null : (count ?? 0);
+}
+
+async function logMenuImportAttempt({
+  supabase,
+  restaurantId,
+  userId,
+  file,
+  status,
+  errorCode,
+}: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  restaurantId: string;
+  userId: string;
+  file: File | null;
+  status: "success" | "failed";
+  errorCode?: string;
+}) {
+  await supabase.from("menu_import_ai_attempts").insert({
+    restaurant_id: restaurantId,
+    user_id: userId,
+    file_name: file?.name ?? null,
+    file_type: file?.type ?? null,
+    file_size: file?.size ?? 0,
+    status,
+    error_code: errorCode ?? null,
+  });
+}
+
 export async function analyzeMenuImportAction(formData: FormData): Promise<MenuImportAnalyzeResult> {
   const restaurantId = String(formData.get("restaurantId") || "");
   const restaurantIdParsed = z.string().uuid().safeParse(restaurantId);
@@ -5039,23 +5109,59 @@ export async function analyzeMenuImportAction(formData: FormData): Promise<MenuI
     return { ok: false, error: "invalid" };
   }
 
-  await requireRestaurantOwnerOrSuperadmin(restaurantIdParsed.data, `/admin/restaurantes/${restaurantIdParsed.data}/productos`);
+  const { supabase, user } = await requireRestaurantOwnerOrSuperadmin(restaurantIdParsed.data, `/admin/restaurantes/${restaurantIdParsed.data}/productos`);
 
   const file = formData.get("menuFile") as File | null;
+  const failedAttempts = await countFailedMenuImportAttempts(supabase, restaurantIdParsed.data, user.id);
+  if (failedAttempts !== null && failedAttempts >= MENU_IMPORT_AI_MAX_FAILED_DAILY) {
+    return { ok: false, error: "menu-import-daily-limit" };
+  }
+
   const fileError = validateMenuImportFile(file);
   if (fileError || !file) {
+    await logMenuImportAttempt({
+      supabase,
+      restaurantId: restaurantIdParsed.data,
+      userId: user.id,
+      file,
+      status: "failed",
+      errorCode: fileError ?? "file-required",
+    });
     return { ok: false, error: fileError ?? "file-required" };
   }
 
   try {
     const draft = await analyzeMenuFileWithGemini(file);
-    if (!draft.categories.length) {
+    if (!draft.isMenu || !draft.categories.length) {
+      await logMenuImportAttempt({
+        supabase,
+        restaurantId: restaurantIdParsed.data,
+        userId: user.id,
+        file,
+        status: "failed",
+        errorCode: "menu-not-detected",
+      });
       return { ok: false, error: "no-products" };
     }
 
+    await logMenuImportAttempt({
+      supabase,
+      restaurantId: restaurantIdParsed.data,
+      userId: user.id,
+      file,
+      status: "success",
+    });
     return { ok: true, draft };
   } catch (cause) {
     const error = cause instanceof Error ? cause.message : "menu-import-failed";
+    await logMenuImportAttempt({
+      supabase,
+      restaurantId: restaurantIdParsed.data,
+      userId: user.id,
+      file,
+      status: "failed",
+      errorCode: error,
+    });
     return { ok: false, error };
   }
 }
@@ -5248,6 +5354,40 @@ function normalizeSupportOrderNumber(value?: string) {
     .toUpperCase();
 }
 
+function parseSupportAiTranscript(value: FormDataEntryValue | null): SupportAiTranscriptMessage[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(String(value));
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((message): message is SupportAiTranscriptMessage => {
+        return (
+          message &&
+          (message.role === "user" || message.role === "assistant") &&
+          typeof message.content === "string" &&
+          Boolean(message.content.trim())
+        );
+      })
+      .slice(-12)
+      .map((message) => ({
+        role: message.role,
+        content: message.content.replace(/\s+/g, " ").trim().slice(0, 900),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function formatSupportAiTranscript(transcript: SupportAiTranscriptMessage[]) {
+  return transcript.map((message) => `${message.role === "user" ? "Usuario" : "IA"}: ${message.content}`).join("\n\n");
+}
+
 async function supportAiOrderContext(
   supabase: Awaited<ReturnType<typeof createClient>>,
   restaurantId: string,
@@ -5293,11 +5433,13 @@ async function supportAiOrderContext(
 }
 
 export async function askSupportAiAction(formData: FormData): Promise<SupportAiResult> {
+  const transcript = parseSupportAiTranscript(formData.get("transcriptJson"));
   const parsed = supportAiQuestionSchema.safeParse({
     restaurantId: formData.get("restaurantId"),
     category: formData.get("category") || "other",
     question: formData.get("question"),
     orderNumber: formData.get("orderNumber") || undefined,
+    transcript,
   });
 
   if (!parsed.success) {
@@ -5341,56 +5483,11 @@ export async function askSupportAiAction(formData: FormData): Promise<SupportAiR
       category: parsed.data.category,
       question: parsed.data.question,
       orderContext,
+      conversation: parsed.data.transcript,
     });
   } catch (cause) {
     const error = cause instanceof Error ? cause.message : "support-ai-failed";
     return { ok: false, error, remainingToday: remainingToday - 1 };
-  }
-
-  let ticketId: string | undefined;
-  if (!aiAnswer.resolved) {
-    const ticketDescription = [
-      "Ticket creado por asistente IA.",
-      "",
-      `Pregunta original: ${parsed.data.question}`,
-      parsed.data.orderNumber ? `Pedido indicado: ${normalizeSupportOrderNumber(parsed.data.orderNumber)}` : "",
-      orderContext ? `Contexto operativo:\n${orderContext}` : "",
-      "",
-      `Respuesta IA:\n${aiAnswer.answer}`,
-      "",
-      `Resumen para soporte:\n${aiAnswer.ticketDescription}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const { data: ticket, error: ticketError } = await supabase
-      .from("support_tickets")
-      .insert({
-        restaurant_id: parsed.data.restaurantId,
-        restaurant_name_snapshot: restaurant?.name ?? null,
-        title: aiAnswer.ticketTitle,
-        description: ticketDescription,
-        category: aiAnswer.ticketCategory,
-        priority: aiAnswer.ticketPriority,
-        status: "open",
-        created_by: user.id,
-      })
-      .select("id")
-      .single();
-
-    if (ticketError || !ticket) {
-      return { ok: false, error: ticketError?.code ?? "ticket-create", remainingToday: remainingToday - 1 };
-    }
-
-    ticketId = ticket.id;
-    await supabase.rpc("write_admin_audit", {
-      p_action: "support_ticket_created_by_ai",
-      p_entity_type: "support_ticket",
-      p_entity_id: ticket.id,
-      p_restaurant_id: parsed.data.restaurantId,
-      p_severity: aiAnswer.ticketPriority === "urgent" ? "critical" : "info",
-      p_metadata: { title: aiAnswer.ticketTitle, category: aiAnswer.ticketCategory },
-    });
   }
 
   const { error: logError } = await supabase.from("support_ai_requests").insert({
@@ -5400,7 +5497,7 @@ export async function askSupportAiAction(formData: FormData): Promise<SupportAiR
     question: parsed.data.question,
     answer: aiAnswer.answer,
     resolved_by_ai: aiAnswer.resolved,
-    ticket_id: ticketId ?? null,
+    ticket_id: null,
   });
 
   if (logError) {
@@ -5414,9 +5511,75 @@ export async function askSupportAiAction(formData: FormData): Promise<SupportAiR
     answer: aiAnswer.answer,
     resolved: aiAnswer.resolved,
     remainingToday: remainingToday - 1,
-    ticketId,
-    ticketTitle: ticketId ? aiAnswer.ticketTitle : undefined,
+    suggestedTicketTitle: aiAnswer.ticketTitle,
+    suggestedTicketDescription: aiAnswer.ticketDescription,
+    suggestedTicketPriority: aiAnswer.ticketPriority,
+    suggestedTicketCategory: aiAnswer.ticketCategory,
   };
+}
+
+export async function createSupportAiTicketAction(formData: FormData): Promise<SupportAiTicketResult> {
+  const transcript = parseSupportAiTranscript(formData.get("transcriptJson"));
+  const parsed = supportAiTicketSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    category: formData.get("category") || "other",
+    orderNumber: formData.get("orderNumber") || undefined,
+    transcript,
+    suggestedTitle: formData.get("suggestedTitle") || undefined,
+    suggestedDescription: formData.get("suggestedDescription") || undefined,
+    suggestedPriority: formData.get("suggestedPriority") || "medium",
+  });
+
+  if (!parsed.success) {
+    return { ok: false, error: "invalid" };
+  }
+
+  const { supabase, user } = await requireRestaurantMemberOrSuperadmin(parsed.data.restaurantId);
+  const { data: restaurant } = await supabase.from("restaurants").select("name").eq("id", parsed.data.restaurantId).maybeSingle();
+  const firstUserMessage = parsed.data.transcript.find((message) => message.role === "user")?.content ?? "Caso no resuelto";
+  const title = parsed.data.suggestedTitle || `Caso no resuelto con IA: ${firstUserMessage.slice(0, 54)}`;
+  const description = [
+    "Ticket creado desde conversacion con soporte IA.",
+    parsed.data.orderNumber ? `Pedido indicado: ${normalizeSupportOrderNumber(parsed.data.orderNumber)}` : "",
+    "",
+    parsed.data.suggestedDescription ? `Resumen IA:\n${parsed.data.suggestedDescription}` : "",
+    "",
+    `Conversacion:\n${formatSupportAiTranscript(parsed.data.transcript)}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const { data: ticket, error } = await supabase
+    .from("support_tickets")
+    .insert({
+      restaurant_id: parsed.data.restaurantId,
+      restaurant_name_snapshot: restaurant?.name ?? null,
+      title,
+      description,
+      category: parsed.data.category,
+      priority: parsed.data.suggestedPriority,
+      status: "open",
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (error || !ticket) {
+    return { ok: false, error: error?.code ?? "ticket-create" };
+  }
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: "support_ticket_created_from_ai_conversation",
+    p_entity_type: "support_ticket",
+    p_entity_id: ticket.id,
+    p_restaurant_id: parsed.data.restaurantId,
+    p_severity: parsed.data.suggestedPriority === "urgent" ? "critical" : "info",
+    p_metadata: { title, category: parsed.data.category },
+  });
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/soporte`);
+  revalidatePath("/admin/soporte");
+  return { ok: true, ticketId: ticket.id, ticketTitle: title };
 }
 
 export async function createCategoryAction(formData: FormData) {

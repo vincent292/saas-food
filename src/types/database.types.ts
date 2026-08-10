@@ -841,6 +841,17 @@ export type Database = {
         ticket_id: string | null;
         created_at: string;
       }>;
+      menu_import_ai_attempts: Row<{
+        id: string;
+        restaurant_id: string;
+        user_id: string;
+        file_name: string | null;
+        file_type: string | null;
+        file_size: number;
+        status: "success" | "failed";
+        error_code: string | null;
+        created_at: string;
+      }>;
       platform_incidents: Row<{
         id: string;
         affected_restaurant_id: string | null;

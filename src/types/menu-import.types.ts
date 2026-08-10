@@ -14,6 +14,8 @@ export type MenuImportCategory = {
 };
 
 export type MenuImportDraft = {
+  isMenu?: boolean;
+  rejectionReason?: string;
   sourceName?: string;
   categories: MenuImportCategory[];
 };

@@ -28,6 +28,7 @@ export type SupportAiContext = {
   category: string;
   question: string;
   orderContext?: string;
+  conversation?: Array<{ role: "user" | "assistant"; content: string }>;
 };
 
 export async function answerSupportQuestionWithAi(context: SupportAiContext): Promise<SupportAiAnswer> {
@@ -80,14 +81,23 @@ function buildSupportPrompt(context: SupportAiContext) {
     "No aceptes ni pidas imagenes, PDF, archivos, codigo, llaves API, passwords ni datos sensibles.",
     "No generes recomendaciones de menu ni analisis comercial en este chat.",
     "No prometas cambios de codigo, despliegues, pushes, migraciones ni acceso directo a base de datos.",
-    "Si el caso requiere superadmin, revision humana, cambio de cuenta, pago, bug, datos faltantes o no se puede resolver con pasos claros, resolved=false y prepara ticket.",
+    "Si el caso requiere superadmin, revision humana, cambio de cuenta, pago, bug, datos faltantes o no se puede resolver con pasos claros, resolved=false y prepara una sugerencia de ticket.",
+    "No digas que ya abriste un ticket. El usuario decide si lo crea.",
     "Si hay contexto de pedido, usalo solo para orientar estado y siguiente paso operativo.",
     "",
     `Restaurante: ${context.restaurantName}`,
     `Categoria seleccionada: ${context.category}`,
     context.orderContext ? `Contexto de pedido:\n${context.orderContext}` : "Contexto de pedido: no provisto",
+    context.conversation?.length ? `Conversacion reciente:\n${formatConversation(context.conversation)}` : "Conversacion reciente: primera consulta",
     `Problema:\n${context.question}`,
   ].join("\n");
+}
+
+function formatConversation(conversation: Array<{ role: "user" | "assistant"; content: string }>) {
+  return conversation
+    .slice(-6)
+    .map((message) => `${message.role === "user" ? "Usuario" : "IA"}: ${normalizeText(message.content, "", 500)}`)
+    .join("\n");
 }
 
 function extractGeminiText(payload: GeminiInteractionResponse) {

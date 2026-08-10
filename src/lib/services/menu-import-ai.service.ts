@@ -8,6 +8,14 @@ const supportedMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png"
 const menuImportSchema = {
   type: "object",
   properties: {
+    isMenu: {
+      type: "boolean",
+      description: "True only when the file clearly contains a restaurant menu with product names and prices.",
+    },
+    rejectionReason: {
+      type: "string",
+      description: "Short Spanish reason when isMenu is false.",
+    },
     sourceName: {
       type: "string",
       description: "Restaurant or menu name if visible.",
@@ -63,7 +71,7 @@ const menuImportSchema = {
       },
     },
   },
-  required: ["categories"],
+  required: ["isMenu", "rejectionReason", "categories"],
 };
 
 type GeminiTextPart = {
@@ -120,6 +128,8 @@ export async function analyzeMenuFileWithGemini(file: File): Promise<MenuImportD
           type: "text",
           text:
             "Extrae el menu de este archivo para cargarlo en un sistema de restaurante. " +
+            "Primero decide si el archivo realmente es un menu de restaurante legible. " +
+            "Si no es menu, es una foto borrosa, no hay productos, o no hay precios claros, devuelve isMenu=false, rejectionReason breve y categories vacio. " +
             "Devuelve solo productos reales con precio. Usa BOB/Bs como moneda implicita. " +
             "Agrupa por categorias visibles y conserva subcategorias visibles en subcategories. " +
             "Si una seccion tiene tamanos o cantidades con precios distintos, crea productos separados con la cantidad en el nombre. " +
@@ -171,14 +181,17 @@ function extractGeminiText(payload: GeminiInteractionResponse) {
 }
 
 export function normalizeMenuImportDraft(input: Partial<MenuImportDraft>): MenuImportDraft {
+  const isMenu = input.isMenu === true;
   const categories = Array.isArray(input.categories) ? input.categories : [];
   const normalizedCategories = categories
     .flatMap(normalizeCategoryWithSubcategories)
     .filter((category): category is MenuImportCategory => Boolean(category && category.products.length));
 
   return {
+    isMenu,
+    rejectionReason: typeof input.rejectionReason === "string" ? input.rejectionReason.trim().slice(0, 180) : undefined,
     sourceName: typeof input.sourceName === "string" ? input.sourceName.trim().slice(0, 120) : undefined,
-    categories: normalizedCategories.slice(0, 40),
+    categories: isMenu ? normalizedCategories.slice(0, 40) : [],
   };
 }
 

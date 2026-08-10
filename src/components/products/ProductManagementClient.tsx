@@ -82,7 +82,8 @@ const menuImportErrorMessages: Record<string, string> = {
   "gemini-empty-response": "La IA no devolvio productos legibles.",
   "invalid-json": "El borrador no se pudo leer.",
   "invalid-draft": "Revisa categorias, productos y precios antes de guardar.",
-  "no-products": "No se detectaron productos con precio.",
+  "no-products": "No pude detectar un menu con productos y precios. Mejora la foto o sube el menu en PDF.",
+  "menu-import-daily-limit": "Se agotaron los intentos de importacion IA de hoy. Carga el menu manualmente o intenta manana.",
   "service-role-required": "Falta SUPABASE_SERVICE_ROLE_KEY para guardar el catalogo.",
   "menu-import-failed": "No se pudo importar el menu.",
 };

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createSupportTicketAction } from "@/app/admin/actions";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
+import { SupportAiAssistantClient } from "@/components/support/SupportAiAssistantClient";
 import { SupportManualsPanel } from "@/components/support/SupportManualsPanel";
 import { SupportTicketList } from "@/components/support/SupportTicketList";
 import { Button, buttonClasses } from "@/components/ui/Button";
@@ -86,6 +87,8 @@ export default async function RestaurantSupportPage({
               <MetricCard label="Resueltos" value={String(resolvedTickets.length)} />
               <MetricCard label="Total" value={String(tickets.length)} />
             </div>
+
+            <SupportAiAssistantClient restaurantId={restaurant.id} />
 
             <Card>
               <SectionTitle title="Nuevo ticket" description="Describe el problema con el mayor contexto posible para que soporte lo atienda mas rapido." />

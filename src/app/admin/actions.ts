@@ -19,6 +19,7 @@ import { ownerBillingService } from "@/lib/services/owner-billing.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { membershipService } from "@/lib/services/membership.service";
 import { analyzeMenuFileWithGemini, normalizeMenuImportDraft, validateMenuImportFile } from "@/lib/services/menu-import-ai.service";
+import { answerSupportQuestionWithAi } from "@/lib/services/support-ai.service";
 import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
 import { getBranchRequestPaymentSettings, getOwnerBranchLimit } from "@/lib/services/owner-dashboard.service";
 import { moduleCatalog } from "@/lib/modules";
@@ -31,6 +32,7 @@ import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import { toSlug } from "@/lib/utils/slug";
 import type { Json } from "@/types/database.types";
 import type { MenuImportAnalyzeResult, MenuImportCommitResult } from "@/types/menu-import.types";
+import type { SupportAiResult } from "@/types/support-ai.types";
 import type { ModuleKey, PlanKey } from "@/types/restaurant.types";
 import type { OrderOrigin, OrderStatus } from "@/types/order.types";
 
@@ -712,6 +714,13 @@ const supportTicketSchema = z.object({
   priority: z.enum(["low", "medium", "high", "urgent"]).default("medium"),
 });
 
+const supportAiQuestionSchema = z.object({
+  restaurantId: z.string().uuid(),
+  category: z.enum(["access", "billing", "orders", "cash", "inventory", "incident", "other"]).default("other"),
+  question: z.string().trim().min(8).max(700),
+  orderNumber: z.string().trim().max(30).optional(),
+});
+
 const updateSupportTicketSchema = z.object({
   ticketId: z.string().uuid(),
   status: z.enum(["open", "in_progress", "waiting_customer", "resolved", "closed"]),
@@ -739,6 +748,8 @@ const releaseAccessSessionSchema = z.object({
 
 const MAX_SUPPORT_ATTACHMENTS = 5;
 const MAX_SUPPORT_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const SUPPORT_AI_MAX_USER_DAILY = 4;
+const SUPPORT_AI_MAX_RESTAURANT_DAILY = 12;
 const MAX_BRANCH_REQUEST_PAYMENT_PROOF_BYTES = 5 * 1024 * 1024;
 const MAX_OWNER_BILLING_PAYMENT_PROOF_BYTES = 5 * 1024 * 1024;
 
@@ -5222,6 +5233,190 @@ export async function importMenuDraftAction(formData: FormData): Promise<MenuImp
 
   await revalidateRestaurantCatalogPaths(restaurantIdParsed.data, admin);
   return { ok: true, categoriesCreated, categoriesUpdated, productsCreated, productsUpdated };
+}
+
+function startOfUtcDayIso() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+}
+
+function normalizeSupportOrderNumber(value?: string) {
+  return value
+    ?.replace(/^#/, "")
+    .replace(/^pedido\s*/i, "")
+    .trim()
+    .toUpperCase();
+}
+
+async function supportAiOrderContext(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  restaurantId: string,
+  orderNumber?: string,
+) {
+  const normalizedOrderNumber = normalizeSupportOrderNumber(orderNumber);
+  if (!normalizedOrderNumber) {
+    return undefined;
+  }
+
+  const { data: order, error } = await supabase
+    .from("orders")
+    .select("order_number,order_type,order_origin,status,payment_status,total,created_at,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason")
+    .eq("restaurant_id", restaurantId)
+    .eq("order_number", normalizedOrderNumber)
+    .maybeSingle();
+
+  if (error) {
+    return `Pedido ${normalizedOrderNumber}: no se pudo revisar el estado (${error.code}).`;
+  }
+
+  if (!order) {
+    return `Pedido ${normalizedOrderNumber}: no encontrado en este restaurante.`;
+  }
+
+  return [
+    `Pedido: ${order.order_number}`,
+    `Tipo: ${order.order_type}`,
+    `Origen: ${order.order_origin}`,
+    `Estado: ${order.status}`,
+    `Pago: ${order.payment_status}`,
+    `Total: ${order.total}`,
+    `Creado: ${order.created_at}`,
+    order.accepted_at ? `Aceptado: ${order.accepted_at}` : "",
+    order.preparing_at ? `Preparando: ${order.preparing_at}` : "",
+    order.ready_at ? `Listo: ${order.ready_at}` : "",
+    order.delivered_at ? `Entregado: ${order.delivered_at}` : "",
+    order.cancelled_at ? `Cancelado: ${order.cancelled_at}` : "",
+    order.cancellation_reason ? `Motivo cancelacion: ${order.cancellation_reason}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export async function askSupportAiAction(formData: FormData): Promise<SupportAiResult> {
+  const parsed = supportAiQuestionSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    category: formData.get("category") || "other",
+    question: formData.get("question"),
+    orderNumber: formData.get("orderNumber") || undefined,
+  });
+
+  if (!parsed.success) {
+    return { ok: false, error: "invalid" };
+  }
+
+  const { supabase, user } = await requireRestaurantMemberOrSuperadmin(parsed.data.restaurantId);
+  const since = startOfUtcDayIso();
+  const [{ count: userCount, error: userCountError }, { count: restaurantCount, error: restaurantCountError }] = await Promise.all([
+    supabase
+      .from("support_ai_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .eq("user_id", user.id)
+      .gte("created_at", since),
+    supabase
+      .from("support_ai_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .gte("created_at", since),
+  ]);
+
+  if (userCountError || restaurantCountError) {
+    return { ok: false, error: "usage-check" };
+  }
+
+  const remainingByUser = Math.max(0, SUPPORT_AI_MAX_USER_DAILY - (userCount ?? 0));
+  const remainingByRestaurant = Math.max(0, SUPPORT_AI_MAX_RESTAURANT_DAILY - (restaurantCount ?? 0));
+  const remainingToday = Math.min(remainingByUser, remainingByRestaurant);
+  if (remainingToday <= 0) {
+    return { ok: false, error: "daily-limit", remainingToday: 0 };
+  }
+
+  const { data: restaurant } = await supabase.from("restaurants").select("name").eq("id", parsed.data.restaurantId).maybeSingle();
+  const orderContext = await supportAiOrderContext(supabase, parsed.data.restaurantId, parsed.data.orderNumber);
+
+  let aiAnswer;
+  try {
+    aiAnswer = await answerSupportQuestionWithAi({
+      restaurantName: restaurant?.name ?? "Restaurante",
+      category: parsed.data.category,
+      question: parsed.data.question,
+      orderContext,
+    });
+  } catch (cause) {
+    const error = cause instanceof Error ? cause.message : "support-ai-failed";
+    return { ok: false, error, remainingToday: remainingToday - 1 };
+  }
+
+  let ticketId: string | undefined;
+  if (!aiAnswer.resolved) {
+    const ticketDescription = [
+      "Ticket creado por asistente IA.",
+      "",
+      `Pregunta original: ${parsed.data.question}`,
+      parsed.data.orderNumber ? `Pedido indicado: ${normalizeSupportOrderNumber(parsed.data.orderNumber)}` : "",
+      orderContext ? `Contexto operativo:\n${orderContext}` : "",
+      "",
+      `Respuesta IA:\n${aiAnswer.answer}`,
+      "",
+      `Resumen para soporte:\n${aiAnswer.ticketDescription}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const { data: ticket, error: ticketError } = await supabase
+      .from("support_tickets")
+      .insert({
+        restaurant_id: parsed.data.restaurantId,
+        restaurant_name_snapshot: restaurant?.name ?? null,
+        title: aiAnswer.ticketTitle,
+        description: ticketDescription,
+        category: aiAnswer.ticketCategory,
+        priority: aiAnswer.ticketPriority,
+        status: "open",
+        created_by: user.id,
+      })
+      .select("id")
+      .single();
+
+    if (ticketError || !ticket) {
+      return { ok: false, error: ticketError?.code ?? "ticket-create", remainingToday: remainingToday - 1 };
+    }
+
+    ticketId = ticket.id;
+    await supabase.rpc("write_admin_audit", {
+      p_action: "support_ticket_created_by_ai",
+      p_entity_type: "support_ticket",
+      p_entity_id: ticket.id,
+      p_restaurant_id: parsed.data.restaurantId,
+      p_severity: aiAnswer.ticketPriority === "urgent" ? "critical" : "info",
+      p_metadata: { title: aiAnswer.ticketTitle, category: aiAnswer.ticketCategory },
+    });
+  }
+
+  const { error: logError } = await supabase.from("support_ai_requests").insert({
+    restaurant_id: parsed.data.restaurantId,
+    user_id: user.id,
+    category: parsed.data.category,
+    question: parsed.data.question,
+    answer: aiAnswer.answer,
+    resolved_by_ai: aiAnswer.resolved,
+    ticket_id: ticketId ?? null,
+  });
+
+  if (logError) {
+    return { ok: false, error: logError.code, remainingToday: remainingToday - 1 };
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/soporte`);
+  revalidatePath("/admin/soporte");
+  return {
+    ok: true,
+    answer: aiAnswer.answer,
+    resolved: aiAnswer.resolved,
+    remainingToday: remainingToday - 1,
+    ticketId,
+    ticketTitle: ticketId ? aiAnswer.ticketTitle : undefined,
+  };
 }
 
 export async function createCategoryAction(formData: FormData) {

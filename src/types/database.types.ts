@@ -830,6 +830,17 @@ export type Database = {
         uploaded_by: string | null;
         created_at: string;
       }>;
+      support_ai_requests: Row<{
+        id: string;
+        restaurant_id: string;
+        user_id: string;
+        category: "access" | "billing" | "orders" | "cash" | "inventory" | "incident" | "other";
+        question: string;
+        answer: string | null;
+        resolved_by_ai: boolean;
+        ticket_id: string | null;
+        created_at: string;
+      }>;
       platform_incidents: Row<{
         id: string;
         affected_restaurant_id: string | null;

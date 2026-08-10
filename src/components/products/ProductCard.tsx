@@ -1,4 +1,4 @@
-import { Pencil, Package, SlidersHorizontal, Sparkles } from "lucide-react";
+import { Clock3, Pencil, Package, SlidersHorizontal, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -63,6 +63,10 @@ export function ProductCard({
         <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3 text-xs font-bold text-[var(--muted)]">
           <span className="rounded-full bg-[var(--color-surface)] px-3 py-1">Orden {product.sortOrder}</span>
           <span className="rounded-full bg-[var(--color-surface)] px-3 py-1">{product.trackStock ? "Controla stock" : "Sin control stock"}</span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface)] px-3 py-1">
+            <Clock3 className="h-3 w-3" />
+            {product.prepMinutes} min cocina
+          </span>
           <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface)] px-3 py-1">
             <SlidersHorizontal className="h-3 w-3" />
             {variantCount} variantes

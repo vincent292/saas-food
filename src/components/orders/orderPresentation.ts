@@ -2,6 +2,9 @@ import type { Order, OrderOrigin, OrderStatus, OrderType, PaymentMethodType } fr
 import { businessOrderStatusLabel } from "@/lib/restaurant-directory-options";
 import type { BusinessType } from "@/types/restaurant.types";
 
+export const DEFAULT_PRODUCT_PREP_MINUTES = 15;
+export const READY_PICKUP_WARNING_MINUTES = 10;
+
 export const orderStatusLabels: Record<OrderStatus, string> = {
   pending: "Pendiente",
   accepted: "Aprobado",
@@ -80,8 +83,42 @@ export function kitchenStartDate(order: Order) {
   return order.acceptedAt ?? order.createdAt;
 }
 
+export function prepMinutesForItem(item: Order["items"][number]) {
+  const minutes = item.prepMinutes ?? DEFAULT_PRODUCT_PREP_MINUTES;
+  if (!Number.isFinite(minutes)) {
+    return DEFAULT_PRODUCT_PREP_MINUTES;
+  }
+
+  return Math.min(Math.max(Math.round(minutes), 1), 240);
+}
+
+export function orderPrepMinutes(order: Order) {
+  if (!order.items.length) {
+    return DEFAULT_PRODUCT_PREP_MINUTES;
+  }
+
+  const longestLine = Math.max(
+    ...order.items.map((item) => {
+      const base = prepMinutesForItem(item);
+      const extraUnits = Math.max(item.quantity - 1, 0);
+      return base + extraUnits * Math.max(1, Math.round(base * 0.35));
+    }),
+  );
+  const multiItemBuffer = Math.max(order.items.length - 1, 0) * 2;
+
+  return Math.min(longestLine + multiItemBuffer, 240);
+}
+
+export function kitchenDueDate(order: Order) {
+  return new Date(new Date(kitchenStartDate(order)).getTime() + orderPrepMinutes(order) * 60000);
+}
+
 export function minutesSince(date: string, now: Date) {
   return Math.max(0, Math.floor((now.getTime() - new Date(date).getTime()) / 60000));
+}
+
+export function minutesUntil(date: Date, now: Date) {
+  return Math.ceil((date.getTime() - now.getTime()) / 60000);
 }
 
 export function timerTone(minutes: number) {

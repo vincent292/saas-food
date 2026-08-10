@@ -1,21 +1,32 @@
 "use client";
 
-import { ChefHat, CheckCircle2, Clock, Flame, History, Maximize2, Minimize2, Printer, RefreshCw, Truck, Utensils } from "lucide-react";
+import { AlertTriangle, Clock, History, Maximize2, Minimize2, Printer, RefreshCw, Truck } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateOrderStatusAction } from "@/app/admin/actions";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
-import { elapsedLabel, groupReceiptLinksFromNotes, kitchenStartDate, minutesSince, orderSourceLabel, paymentMethodLabels, timerTone } from "@/components/orders/orderPresentation";
+import {
+  READY_PICKUP_WARNING_MINUTES,
+  elapsedLabel,
+  groupReceiptLinksFromNotes,
+  kitchenDueDate,
+  kitchenStartDate,
+  minutesSince,
+  minutesUntil,
+  orderPrepMinutes,
+  orderSourceLabel,
+  paymentMethodLabels,
+  prepMinutesForItem,
+} from "@/components/orders/orderPresentation";
 import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
-import { Button, buttonClasses } from "@/components/ui/Button";
+import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils/cn";
 import { formatShortTime } from "@/lib/utils/dates";
 import { createClient } from "@/lib/supabase/client";
-import type { Order, OrderStatus } from "@/types/order.types";
+import type { Order } from "@/types/order.types";
 import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
 
 type KitchenView = "operacion" | "historial";
@@ -111,16 +122,18 @@ export function KitchenBoardClient({
   }, [router]);
 
   const groups = useMemo(() => {
-    const sortByTime = (left: Order, right: Order) => new Date(kitchenStartDate(left)).getTime() - new Date(kitchenStartDate(right)).getTime();
+    const activeOrders = orders.filter((order) => order.status === "accepted" || order.status === "preparing");
+    const sortByDueTime = (left: Order, right: Order) => kitchenDueDate(left).getTime() - kitchenDueDate(right).getTime();
+    const sortByReadyTime = (left: Order, right: Order) => new Date(left.readyAt ?? kitchenStartDate(left)).getTime() - new Date(right.readyAt ?? kitchenStartDate(right)).getTime();
     return {
-      cola: orders.filter((order) => order.status === "accepted").sort(sortByTime),
-      preparando: orders.filter((order) => order.status === "preparing").sort(sortByTime),
-      despacho: orders.filter((order) => order.status === "ready").sort(sortByTime),
+      cocina: activeOrders.filter((order) => minutesUntil(kitchenDueDate(order), now) > 0).sort(sortByDueTime),
+      vencidos: activeOrders.filter((order) => minutesUntil(kitchenDueDate(order), now) <= 0).sort(sortByDueTime),
+      despacho: orders.filter((order) => order.status === "ready").sort(sortByReadyTime),
       historial: orders.filter((order) => order.status === "delivered").slice(0, 40),
     };
-  }, [orders]);
+  }, [now, orders]);
 
-  const activeOrdersCount = groups.cola.length + groups.preparando.length + groups.despacho.length;
+  const activeOrdersCount = groups.cocina.length + groups.vencidos.length + groups.despacho.length;
 
   return (
     <main className={cn("min-h-screen bg-[var(--background)] px-4 sm:px-6 lg:px-8", focusMode ? "py-3" : "py-6")}>
@@ -129,7 +142,7 @@ export function KitchenBoardClient({
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Cocina</p>
             <h1 className="text-3xl font-black text-[var(--text)]">{restaurant.name}</h1>
-            <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Solo aparecen pedidos del dia aprobados por caja. Cocina prepara y marca listo; el despacho se maneja en Caja.</p>
+            <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Pantalla pasiva para cocina: prepara mirando tiempos y avisa el numero de pedido; caja o despacho actualizan listo y entregado.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -164,9 +177,9 @@ export function KitchenBoardClient({
         ) : null}
 
         <section className={cn("grid grid-cols-2 gap-3 lg:grid-cols-4", focusMode && "hidden")}>
-          <KitchenSummary icon={<Clock className="h-5 w-5" />} label="En cola" value={groups.cola.length} />
-          <KitchenSummary icon={<Flame className="h-5 w-5" />} label="Preparando" value={groups.preparando.length} />
-          <KitchenSummary icon={<Truck className="h-5 w-5" />} label="Listos para despacho" value={groups.despacho.length} />
+          <KitchenSummary icon={<Clock className="h-5 w-5" />} label="En cocina" value={groups.cocina.length} />
+          <KitchenSummary icon={<AlertTriangle className="h-5 w-5" />} label="Tiempo cumplido" value={groups.vencidos.length} />
+          <KitchenSummary icon={<Truck className="h-5 w-5" />} label="Preparados" value={groups.despacho.length} />
           <KitchenSummary icon={<History className="h-5 w-5" />} label="Historial" value={groups.historial.length} />
         </section>
 
@@ -180,34 +193,34 @@ export function KitchenBoardClient({
             <section className="flex w-max snap-x snap-mandatory gap-4 touch-pan-x xl:grid xl:w-auto xl:grid-cols-3 xl:snap-none">
               <KitchenColumn
                 defaultPrintFormat={settings?.printFormat ?? "thermal_80"}
-                description="Pedidos aprobados, listos para iniciar."
-                emptyDescription="Cuando caja apruebe pedidos apareceran aqui."
-                emptyTitle="Sin pedidos en cola"
+                description="Pedidos aprobados, contando contra su tiempo estimado."
+                emptyDescription="Cuando caja apruebe pedidos apareceran aqui automaticamente."
+                emptyTitle="Sin pedidos activos"
                 icon={<Clock className="h-5 w-5" />}
                 focusMode={focusMode}
                 now={now}
-                orders={groups.cola}
+                orders={groups.cocina}
                 restaurant={restaurant}
                 tone="info"
-                title="En cola"
+                title="En cocina"
               />
               <KitchenColumn
                 defaultPrintFormat={settings?.printFormat ?? "thermal_80"}
-                description="Pedidos que ya se estan preparando."
-                emptyDescription="Al iniciar un pedido se movera a esta columna."
-                emptyTitle="Nada en preparacion"
-                icon={<Flame className="h-5 w-5" />}
+                description="Ya paso la meta; mantener visible hasta que caja lo marque listo."
+                emptyDescription="Los pedidos dentro de tiempo no necesitan atencion extra."
+                emptyTitle="Nada vencido"
+                icon={<AlertTriangle className="h-5 w-5" />}
                 focusMode={focusMode}
                 now={now}
-                orders={groups.preparando}
+                orders={groups.vencidos}
                 restaurant={restaurant}
-                tone="warning"
-                title="Preparando"
+                tone="danger"
+                title="Tiempo cumplido"
               />
               <KitchenColumn
                 defaultPrintFormat={settings?.printFormat ?? "thermal_80"}
-                description="Producto terminado; caja o despacho continuan."
-                emptyDescription="Cuando cocina marque preparado aparecera aqui."
+                description="Marcados listos desde caja/despacho; vigilar si nadie recoge."
+                emptyDescription="Cuando caja marque un pedido listo aparecera aqui."
                 emptyTitle="Nada listo"
                 icon={<Truck className="h-5 w-5" />}
                 focusMode={focusMode}
@@ -272,7 +285,7 @@ function KitchenColumn({
   emptyDescription: string;
   icon: ReactNode;
   focusMode: boolean;
-  tone: "info" | "warning" | "success";
+  tone: "info" | "warning" | "success" | "danger";
   orders: Order[];
   restaurant: Restaurant;
   now: Date;
@@ -296,6 +309,7 @@ function KitchenColumn({
               "grid h-11 w-11 shrink-0 place-items-center rounded-2xl",
               tone === "success" && "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]",
               tone === "warning" && "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]",
+              tone === "danger" && "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]",
               tone === "info" && "bg-[var(--color-info-soft)] text-[var(--color-info-strong)]",
             )}
           >
@@ -334,19 +348,29 @@ function KitchenCard({
   now: Date;
   defaultPrintFormat: PrintFormat;
 }) {
-  const elapsedMinutes = minutesSince(kitchenStartDate(order), now);
+  const dueAt = kitchenDueDate(order);
+  const remainingMinutes = minutesUntil(dueAt, now);
+  const prepMinutes = orderPrepMinutes(order);
   const isReady = order.status === "ready";
   const isDelivered = order.status === "delivered";
-  const tone = isReady || isDelivered ? { label: isDelivered ? "Completado" : "Preparado", className: "border-[var(--color-success-soft)] bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" } : timerTone(elapsedMinutes);
-  const nextStatus = order.status === "accepted" ? "preparing" : order.status === "preparing" ? "ready" : null;
-  const actionLabel = order.status === "accepted" ? "Iniciar preparacion" : "Producto terminado";
+  const readyWaitMinutes = isReady ? minutesSince(order.readyAt ?? kitchenStartDate(order), now) : 0;
+  const readyWaitingTooLong = isReady && readyWaitMinutes >= READY_PICKUP_WARNING_MINUTES;
+  const isOverdue = !isReady && !isDelivered && remainingMinutes <= 0;
+  const tone = kitchenCardTone({
+    isDelivered,
+    isOverdue,
+    isReady,
+    readyWaitingTooLong,
+    readyWaitMinutes,
+    remainingMinutes,
+  });
 
   return (
-    <Card className={cn("overflow-hidden rounded-[1.15rem] p-0", elapsedMinutes >= 30 && order.status !== "ready" && order.status !== "delivered" && "border-[var(--color-danger-strong)]")}>
+    <Card className={cn("overflow-hidden rounded-[1.15rem] p-0", (isOverdue || readyWaitingTooLong) && "border-[var(--color-danger-strong)]")}>
       <div className={cn("flex items-center justify-between gap-3 border-b px-4 py-3", tone.className)}>
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.12em]">{isReady ? "Terminado" : isDelivered ? "Historial" : "Tiempo"}</p>
-          <p className="text-2xl font-black">{isReady ? (order.readyAt ? formatShortTime(order.readyAt) : "Listo") : isDelivered ? (order.deliveredAt ? formatShortTime(order.deliveredAt) : "Completado") : elapsedLabel(elapsedMinutes)}</p>
+          <p className="text-xs font-black uppercase tracking-[0.12em]">{tone.eyebrow}</p>
+          <p className="text-2xl font-black">{tone.value}</p>
         </div>
         <span className="rounded-full bg-[var(--color-card-soft)] px-3 py-1 text-xs font-black text-[var(--color-heading)]">{tone.label}</span>
       </div>
@@ -363,12 +387,20 @@ function KitchenCard({
           <OrderStatusBadge status={order.status} />
         </div>
 
+        <div className="grid grid-cols-2 gap-2">
+          <KitchenTimingPill label="Meta cocina" value={`${prepMinutes} min`} />
+          <KitchenTimingPill label={isReady ? "Listo desde" : isDelivered ? "Completado" : "Objetivo"} value={isReady ? (order.readyAt ? formatShortTime(order.readyAt) : "Listo") : isDelivered ? (order.deliveredAt ? formatShortTime(order.deliveredAt) : "Cerrado") : formatShortTime(dueAt)} />
+        </div>
+
         <div className="space-y-2">
           {order.items.map((item) => (
             <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={item.id}>
-              <p className="font-black text-[var(--text)]">
-                {item.quantity}x {item.productName}
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-black text-[var(--text)]">
+                  {item.quantity}x {item.productName}
+                </p>
+                <span className="shrink-0 rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-black text-[var(--muted)]">{prepMinutesForItem(item)} min</span>
+              </div>
               {item.notes ? <p className="mt-1 text-sm font-semibold text-[var(--muted)]">{item.notes}</p> : null}
             </div>
           ))}
@@ -387,20 +419,13 @@ function KitchenCard({
           </button>
         </div>
 
-        {nextStatus ? (
-          <form action={updateOrderStatusAction} data-navigation-feedback="off">
-            <input name="restaurantId" type="hidden" value={order.restaurantId} />
-            <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
-            <input name="orderId" type="hidden" value={order.id} />
-            <input name="source" type="hidden" value="kitchen" />
-            <Button className="min-h-12 w-full text-base font-black" name="status" type="submit" value={nextStatus as OrderStatus}>
-              {order.status === "accepted" ? <ChefHat className="h-4 w-4" /> : order.status === "preparing" ? <Utensils className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-              {actionLabel}
-            </Button>
-          </form>
+        {!isReady && !isDelivered ? (
+          <div className={cn("rounded-2xl p-3 text-center text-sm font-black", isOverdue ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]" : "bg-[var(--primary-light)] text-[var(--primary-dark)]")}>
+            Cocina avisa el numero cuando salga; caja/despacho marca listo.
+          </div>
         ) : order.status === "ready" ? (
-          <div className="rounded-2xl bg-[var(--primary-light)] p-3 text-center text-sm font-black text-[var(--primary-dark)]">
-            Listo para caja/despacho
+          <div className={cn("rounded-2xl p-3 text-center text-sm font-black", readyWaitingTooLong ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]" : "bg-[var(--primary-light)] text-[var(--primary-dark)]")}>
+            Esperando recojo o despacho desde caja
           </div>
         ) : (
           <div className="rounded-2xl bg-[var(--color-neutral-100)] p-3 text-center text-sm font-black text-[var(--color-body)]">
@@ -410,4 +435,81 @@ function KitchenCard({
       </div>
     </Card>
   );
+}
+
+function KitchenTimingPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-[var(--color-surface)] px-3 py-2">
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">{label}</p>
+      <p className="mt-1 text-sm font-black text-[var(--text)]">{value}</p>
+    </div>
+  );
+}
+
+function kitchenCardTone({
+  isDelivered,
+  isOverdue,
+  isReady,
+  readyWaitingTooLong,
+  readyWaitMinutes,
+  remainingMinutes,
+}: {
+  isDelivered: boolean;
+  isOverdue: boolean;
+  isReady: boolean;
+  readyWaitingTooLong: boolean;
+  readyWaitMinutes: number;
+  remainingMinutes: number;
+}) {
+  if (isDelivered) {
+    return {
+      eyebrow: "Historial",
+      label: "Completado",
+      value: "Cerrado",
+      className: "border-[var(--color-neutral-100)] bg-[var(--color-neutral-100)] text-[var(--color-body)]",
+    };
+  }
+
+  if (readyWaitingTooLong) {
+    return {
+      eyebrow: "Sin recoger",
+      label: "Atencion",
+      value: `+${elapsedLabel(readyWaitMinutes)}`,
+      className: "border-[var(--color-danger-strong)] bg-[var(--color-danger-strong)] text-[var(--color-on-primary)]",
+    };
+  }
+
+  if (isReady) {
+    return {
+      eyebrow: "Preparado",
+      label: "Esperando",
+      value: "Listo",
+      className: "border-[var(--color-success-soft)] bg-[var(--color-success-soft)] text-[var(--color-success-strong)]",
+    };
+  }
+
+  if (isOverdue) {
+    return {
+      eyebrow: "Tiempo cumplido",
+      label: "Rojo",
+      value: `+${elapsedLabel(Math.abs(remainingMinutes))}`,
+      className: "border-[var(--color-danger-strong)] bg-[var(--color-danger-strong)] text-[var(--color-on-primary)]",
+    };
+  }
+
+  if (remainingMinutes <= 3) {
+    return {
+      eyebrow: "Por salir",
+      label: "Atento",
+      value: `${Math.max(remainingMinutes, 1)} min`,
+      className: "border-[var(--color-warning-soft)] bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]",
+    };
+  }
+
+  return {
+    eyebrow: "En cocina",
+    label: "En tiempo",
+    value: `${remainingMinutes} min`,
+    className: "border-[var(--color-info-soft)] bg-[var(--color-info-soft)] text-[var(--color-info-strong)]",
+  };
 }

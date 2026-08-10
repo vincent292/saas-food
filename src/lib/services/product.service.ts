@@ -13,6 +13,7 @@ function mapProduct(row: {
   description: string | null;
   price: number;
   compare_at_price?: number | null;
+  prep_minutes?: number | null;
   image_url: string | null;
   image_position_x?: number | null;
   image_position_y?: number | null;
@@ -40,6 +41,7 @@ function mapProduct(row: {
     description: row.description ?? "",
     price: Number(row.price),
     compareAtPrice: row.compare_at_price != null ? Number(row.compare_at_price) : undefined,
+    prepMinutes: Number(row.prep_minutes ?? 15),
     imageUrl: row.image_url ?? "",
     imagePositionX: Number(row.image_position_x ?? 50),
     imagePositionY: Number(row.image_position_y ?? 50),
@@ -246,7 +248,7 @@ export const productService = {
 
     const { data, error } = await supabase
       .from("products")
-      .select("id,restaurant_id,category_id,name,description,price,compare_at_price,image_url,image_position_x,image_position_y,image_zoom,is_available,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time,order_count,last_ordered_at,track_stock,sort_order")
+      .select("id,restaurant_id,category_id,name,description,price,compare_at_price,prep_minutes,image_url,image_position_x,image_position_y,image_zoom,is_available,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time,order_count,last_ordered_at,track_stock,sort_order")
       .eq("restaurant_id", restaurantId)
       .eq("is_available", true)
       .order("sort_order");

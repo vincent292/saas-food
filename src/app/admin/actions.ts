@@ -378,6 +378,7 @@ const createProductSchema = z.object({
   description: z.string().optional(),
   price: z.coerce.number().nonnegative(),
   compareAtPrice: z.coerce.number().nonnegative().optional(),
+  prepMinutes: z.coerce.number().int().min(1).max(240).default(15),
   imageUrl: z.string().url().optional().or(z.literal("")),
   imagePositionX: z.coerce.number().min(0).max(100).default(50),
   imagePositionY: z.coerce.number().min(0).max(100).default(50),
@@ -1519,7 +1520,7 @@ async function cloneBranchCatalog(
 
   const productsResult = await admin
     .from("products")
-    .select("id,category_id,name,description,price,image_url,image_position_x,image_position_y,image_zoom,is_available,is_featured,track_stock,sort_order")
+    .select("id,category_id,name,description,price,prep_minutes,image_url,image_position_x,image_position_y,image_zoom,is_available,is_featured,track_stock,sort_order")
     .eq("restaurant_id", sourceRestaurantId)
     .order("sort_order");
   throwIfSupabaseError(productsResult, "products-read");
@@ -1536,6 +1537,7 @@ async function cloneBranchCatalog(
       name: product.name,
       description: product.description,
       price: product.price,
+      prep_minutes: product.prep_minutes ?? 15,
       image_url: product.image_url,
       image_position_x: product.image_position_x,
       image_position_y: product.image_position_y,
@@ -1827,7 +1829,7 @@ async function createOrderCancellationReview({
       .maybeSingle(),
     supabase
       .from("order_items")
-      .select("id,order_id,product_id,product_name,unit_price,quantity,subtotal,notes")
+      .select("id,order_id,product_id,product_name,unit_price,quantity,subtotal,prep_minutes,notes")
       .eq("order_id", orderId)
       .order("created_at", { ascending: true }),
     supabase
@@ -5046,6 +5048,7 @@ export async function createProductAction(formData: FormData) {
     description: formData.get("description") || undefined,
     price: formData.get("price"),
     compareAtPrice: formData.get("compareAtPrice") || undefined,
+    prepMinutes: formData.get("prepMinutes") || 15,
     imageUrl: "",
     imagePositionX: formData.get("imagePositionX") || 50,
     imagePositionY: formData.get("imagePositionY") || 50,
@@ -5096,6 +5099,7 @@ export async function createProductAction(formData: FormData) {
       description: parsed.data.description,
       price: parsed.data.price,
       compare_at_price: parsed.data.compareAtPrice ?? null,
+      prep_minutes: parsed.data.prepMinutes,
       image_url: imageUrl,
       image_position_x: clampProductImagePosition(parsed.data.imagePositionX),
       image_position_y: clampProductImagePosition(parsed.data.imagePositionY),
@@ -5196,6 +5200,7 @@ export async function updateProductAction(formData: FormData) {
     description: formData.get("description") || undefined,
     price: formData.get("price"),
     compareAtPrice: formData.get("compareAtPrice") || undefined,
+    prepMinutes: formData.get("prepMinutes") || 15,
     imageUrl: "",
     imagePositionX: formData.get("imagePositionX") || 50,
     imagePositionY: formData.get("imagePositionY") || 50,
@@ -5243,6 +5248,7 @@ export async function updateProductAction(formData: FormData) {
     description: string | null;
     price: number;
     compare_at_price: number | null;
+    prep_minutes: number;
     is_available: boolean;
     is_featured: boolean;
     track_stock: boolean;
@@ -5263,6 +5269,7 @@ export async function updateProductAction(formData: FormData) {
     description: parsed.data.description ?? null,
     price: parsed.data.price,
     compare_at_price: parsed.data.compareAtPrice ?? null,
+    prep_minutes: parsed.data.prepMinutes,
     is_available: parsed.data.isAvailable,
     is_featured: parsed.data.isFeatured,
     track_stock: parsed.data.trackStock,

@@ -260,6 +260,7 @@ export type Database = {
         description: string | null;
         price: number;
         compare_at_price: number | null;
+        prep_minutes: number;
         image_url: string | null;
         image_position_x: number;
         image_position_y: number;
@@ -393,6 +394,7 @@ export type Database = {
         unit_price: number;
         quantity: number;
         subtotal: number;
+        prep_minutes: number;
         notes: string | null;
         created_at: string;
       }>;

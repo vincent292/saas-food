@@ -59,6 +59,7 @@ type ItemRow = {
   unit_price: number;
   quantity: number;
   subtotal: number;
+  prep_minutes?: number | null;
   notes: string | null;
 };
 
@@ -141,6 +142,7 @@ function mapItem(row: ItemRow): OrderItem {
     unitPrice: Number(row.unit_price),
     quantity: row.quantity,
     subtotal: Number(row.subtotal),
+    prepMinutes: row.prep_minutes == null ? undefined : Number(row.prep_minutes),
     notes: row.notes ?? undefined,
   };
 }
@@ -413,7 +415,7 @@ export const orderService = {
 
     const orderIds = orders.map((order) => order.id);
     const [{ data: items }, { data: deliveryLinks }] = await Promise.all([
-      supabase.from("order_items").select("id,order_id,product_id,product_name,unit_price,quantity,subtotal,notes").in("order_id", orderIds),
+      supabase.from("order_items").select("id,order_id,product_id,product_name,unit_price,quantity,subtotal,prep_minutes,notes").in("order_id", orderIds),
       supabase.from("order_delivery_links").select("order_id,delivery_phone,delivery_name,status,created_at,opened_at,arrived_at,delivered_at").in("order_id", orderIds),
     ]);
     const groupedItems = groupItemsByOrder((items ?? []) as ItemRow[]);

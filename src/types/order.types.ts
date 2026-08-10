@@ -23,6 +23,7 @@ export type OrderItem = {
   unitPrice: number;
   quantity: number;
   subtotal: number;
+  prepMinutes?: number;
   notes?: string;
 };
 

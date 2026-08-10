@@ -16,6 +16,7 @@ export type Product = {
   description: string;
   price: number;
   compareAtPrice?: number;
+  prepMinutes: number;
   imageUrl: string;
   imagePositionX: number;
   imagePositionY: number;

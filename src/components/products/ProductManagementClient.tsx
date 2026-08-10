@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CalendarClock, ChevronLeft, ChevronRight, Flame, Grid2X2, LayoutList, LockKeyhole, PackageCheck, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, Clock3, Flame, Grid2X2, LayoutList, LockKeyhole, PackageCheck, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { createCategoryAction, createProductAction, updateProductAction } from "@/app/admin/actions";
@@ -380,6 +380,10 @@ export function ProductManagementClient({
                       <h3 className="font-black text-[var(--text)]">{product.name}</h3>
                       <Badge className={product.isAvailable ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]"}>{product.isAvailable ? "Activo" : "Inactivo"}</Badge>
                       {product.isFeatured ? <Badge className="bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]">Destacado</Badge> : null}
+                      <Badge className="bg-[var(--color-info-soft)] text-[var(--color-info-strong)]">
+                        <Clock3 className="mr-1 h-3 w-3" />
+                        {product.prepMinutes} min
+                      </Badge>
                     </div>
                     <p className="mt-1 text-sm text-[var(--muted)]">{categoryById.get(product.categoryId)?.name ?? "Sin categoria"}</p>
                     <p className="mt-2 text-xs font-bold text-[var(--muted)]">
@@ -488,6 +492,12 @@ export function ProductManagementClient({
                 </Labeled>
                 <Labeled label="Precio base">
                   <Input defaultValue={editingProduct?.price ?? 0} min={0} name="price" required step="0.01" type="number" />
+                </Labeled>
+                <Labeled label="Tiempo cocina">
+                  <div className="relative">
+                    <Clock3 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--primary)]" />
+                    <Input className="pl-11" defaultValue={editingProduct?.prepMinutes ?? 15} min={1} max={240} name="prepMinutes" required step={1} type="number" />
+                  </div>
                 </Labeled>
                 <Labeled label="Tipo">
                   <Select name="productKind" onChange={(event) => setProductKind(event.target.value as ProductKind)} value={productKind}>

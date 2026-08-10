@@ -107,7 +107,7 @@ export function validateMenuImportFile(file: File | null) {
   return null;
 }
 
-export async function analyzeMenuFileWithGemini(file: File): Promise<MenuImportDraft> {
+export async function analyzeMenuFileWithGemini(file: File, notes = ""): Promise<MenuImportDraft> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     throw new Error("gemini-not-configured");
@@ -131,6 +131,7 @@ export async function analyzeMenuFileWithGemini(file: File): Promise<MenuImportD
             "Primero decide si el archivo realmente es un menu de restaurante legible. " +
             "Si no es menu, es una foto borrosa, no hay productos, o no hay precios claros, devuelve isMenu=false, rejectionReason breve y categories vacio. " +
             "Devuelve solo productos reales con precio. Usa BOB/Bs como moneda implicita. " +
+            (notes ? `Aclaraciones del usuario para interpretar el menu: ${notes}. ` : "") +
             "Agrupa por categorias visibles y conserva subcategorias visibles en subcategories. " +
             "Si una seccion tiene tamanos o cantidades con precios distintos, crea productos separados con la cantidad en el nombre. " +
             "Ignora numeros ordinales de lista como 1., 2., 3. cuando no sean parte del nombre ni del precio. " +

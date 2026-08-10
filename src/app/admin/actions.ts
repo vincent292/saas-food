@@ -5060,6 +5060,13 @@ function menuImportKey(value: string) {
     .toLowerCase();
 }
 
+function normalizeMenuImportNotes(value: FormDataEntryValue | null) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+}
+
 async function countFailedMenuImportAttempts(
   supabase: Awaited<ReturnType<typeof createClient>>,
   restaurantId: string,
@@ -5131,7 +5138,7 @@ export async function analyzeMenuImportAction(formData: FormData): Promise<MenuI
   }
 
   try {
-    const draft = await analyzeMenuFileWithGemini(file);
+    const draft = await analyzeMenuFileWithGemini(file, normalizeMenuImportNotes(formData.get("menuNotes")));
     if (!draft.isMenu || !draft.categories.length) {
       await logMenuImportAttempt({
         supabase,

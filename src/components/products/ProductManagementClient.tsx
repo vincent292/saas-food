@@ -174,6 +174,7 @@ export function ProductManagementClient({
   const [imageZoom, setImageZoom] = useState(defaultProductImageFit.imageZoom);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [importNotes, setImportNotes] = useState("");
   const [importDraft, setImportDraft] = useState<MenuImportDraft | null>(null);
   const [importError, setImportError] = useState("");
   const [importSummary, setImportSummary] = useState("");
@@ -506,6 +507,7 @@ export function ProductManagementClient({
           file={importFile}
           isAnalyzing={importIsAnalyzing}
           isSaving={importIsSaving}
+          notes={importNotes}
           onAnalyze={analyzeMenuImport}
           onClose={() => closeMenuImportModal()}
           onDraftChange={setImportDraft}
@@ -515,6 +517,7 @@ export function ProductManagementClient({
             setImportSummary("");
             setImportError("");
           }}
+          onNotesChange={setImportNotes}
           onSave={saveMenuImport}
           summary={importSummary}
         />
@@ -795,6 +798,7 @@ export function ProductManagementClient({
 
     setImportModalOpen(false);
     setImportFile(null);
+    setImportNotes("");
     setImportDraft(null);
     setImportError("");
     setImportSummary("");
@@ -813,6 +817,7 @@ export function ProductManagementClient({
     const formData = new FormData();
     formData.append("restaurantId", restaurantId);
     formData.append("menuFile", importFile);
+    formData.append("menuNotes", importNotes);
 
     const result = await analyzeMenuImportAction(formData);
     if (result.ok) {
@@ -1031,10 +1036,12 @@ function MenuImportModal({
   file,
   isAnalyzing,
   isSaving,
+  notes,
   onAnalyze,
   onClose,
   onDraftChange,
   onFileChange,
+  onNotesChange,
   onSave,
   summary,
 }: {
@@ -1043,10 +1050,12 @@ function MenuImportModal({
   file: File | null;
   isAnalyzing: boolean;
   isSaving: boolean;
+  notes: string;
   onAnalyze: () => void;
   onClose: () => void;
   onDraftChange: (draft: MenuImportDraft | null) => void;
   onFileChange: (file: File | null) => void;
+  onNotesChange: (notes: string) => void;
   onSave: () => void;
   summary: string;
 }) {
@@ -1117,6 +1126,17 @@ function MenuImportModal({
             {isAnalyzing ? "Leyendo..." : "Leer menu"}
           </button>
         </div>
+
+        <Labeled label="Aclaraciones para IA">
+          <Textarea
+            disabled={busy}
+            maxLength={500}
+            onChange={(event) => onNotesChange(event.target.value)}
+            placeholder="Ej. Promo 2 incluye refresco y papas; precio final Bs 40."
+            value={notes}
+          />
+          <span className="block text-xs font-semibold text-[var(--muted)]">{notes.length}/500 caracteres</span>
+        </Labeled>
 
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--color-card-muted)] p-4">

@@ -108,7 +108,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
           .eq("public_token", sessionToken)
           .eq("host_access_token", payload.hostAccessToken)
           .maybeSingle();
-        if (!session || !["open", "locked"].includes(session.status) || isGroupSessionExpired(session)) return mobileGroupError("closed", 409);
+        if (!session || session.status !== "locked" || isGroupSessionExpired(session)) return mobileGroupError(session?.status === "open" ? "lock-required" : "closed", 409);
         const paymentReceiptUrl = await uploadPrivateFile(paymentReceiptFile, `restaurants/${session.restaurant_id}/payment-receipts`);
         payload = { ...payload, paymentReceiptUrl: paymentReceiptUrl ?? undefined };
       }
@@ -121,9 +121,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
 
   const hostAccessToken = parsed.data.hostAccessToken;
   const { data: session } = await supabase.from("group_order_sessions").select("id,restaurant_id,status,host_qr_url,expires_at").eq("public_token", sessionToken).eq("host_access_token", hostAccessToken).maybeSingle();
-  if (!session || session.status === "submitted" || isGroupSessionExpired(session)) return mobileGroupError("closed", 409);
+  if (!session || !["open", "locked"].includes(session.status) || isGroupSessionExpired(session)) return mobileGroupError("closed", 409);
 
   if (parsed.data.action === "status") {
+    if (!["open", "locked"].includes(session.status)) return mobileGroupError("closed", 409);
     const { error } = await supabase.from("group_order_sessions").update({ status: parsed.data.status }).eq("id", session.id);
     if (error) return mobileGroupError("status");
   }
@@ -143,14 +144,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
 
   if (parsed.data.action === "settings") {
     if (!["open", "locked"].includes(session.status)) return mobileGroupError("closed", 409);
+    const collectMode = parsed.data.collectMode === "restaurant_collects" ? "host_collects" : parsed.data.collectMode;
     const hostQrUrl =
-      parsed.data.collectMode === "host_collects" && hostQrFile
+      collectMode === "host_collects" && hostQrFile
         ? await uploadTemporaryPublicImage(hostQrFile, `temporary/group-orders/${session.restaurant_id}/host-qr`, groupTemporaryUploadMaxAgeSeconds)
         : parsed.data.hostQrUrl || null;
     const updatePayload = {
-      collect_mode: parsed.data.collectMode,
-      host_qr_url: parsed.data.collectMode === "host_collects" ? hostQrUrl : null,
-      multisite_enabled: parsed.data.multisiteEnabled,
+      collect_mode: collectMode,
+      host_qr_url: collectMode === "host_collects" ? hostQrUrl : null,
+      multisite_enabled: false,
     };
     const updateResult = await supabase
       .from("group_order_sessions")
@@ -160,8 +162,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
       ? await supabase
           .from("group_order_sessions")
           .update({
-            collect_mode: parsed.data.collectMode,
-            host_qr_url: parsed.data.collectMode === "host_collects" ? hostQrUrl : null,
+            collect_mode: collectMode,
+            host_qr_url: collectMode === "host_collects" ? hostQrUrl : null,
           })
           .eq("id", session.id)
       : updateResult;

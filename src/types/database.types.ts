@@ -368,6 +368,7 @@ export type Database = {
         payment_receipt_uploaded_at: string | null;
         payment_receipt_reference: string | null;
         payment_verified_at: string | null;
+        group_order_session_id: string | null;
         subtotal: number;
         delivery_fee: number;
         discount_total: number;
@@ -426,8 +427,9 @@ export type Database = {
         multisite_enabled: boolean;
         multisite_radius_km: number;
         multisite_max_pickups: number;
-        status: "open" | "locked" | "submitted" | "cancelled" | "expired";
+        status: "open" | "locked" | "submitting" | "submitted" | "cancelled" | "expired";
         submitted_order_id: string | null;
+        submitted_snapshot: Json;
         submitted_at: string | null;
         subtotal: number;
         delivery_fee: number;
@@ -443,7 +445,7 @@ export type Database = {
         display_name: string;
         phone: string | null;
         role: "host" | "guest";
-        payment_status: "pending" | "paid_qr" | "cash_pending" | "covered_by_host" | "excluded";
+        payment_status: "pending" | "qr_uploaded" | "paid_qr" | "cash_pending" | "covered_by_host" | "excluded";
         payment_method: Database["public"]["Enums"]["payment_method_type"] | null;
         payment_note: string | null;
         payment_receipt_url: string | null;

@@ -14,9 +14,12 @@ export const groupUploadMaxBytes = 5 * 1024 * 1024;
 export const groupPublicImageTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
 export const groupPrivateReceiptTypes = new Set([...groupPublicImageTypes, "application/pdf"]);
 export const groupTemporaryUploadMaxAgeSeconds = 60 * 60 * 24 * 2;
+export const groupMaxParticipants = 25;
+export const groupMaxItems = 100;
+export const groupMaxItemsPerParticipant = 30;
 
 export const groupCollectModeSchema = z.enum(["host_collects", "restaurant_collects", "internal_cash"]);
-export const groupPaymentStatusSchema = z.enum(["pending", "paid_qr", "cash_pending", "covered_by_host", "excluded"]);
+export const groupPaymentStatusSchema = z.enum(["pending", "qr_uploaded", "paid_qr", "cash_pending", "covered_by_host", "excluded"]);
 
 export const groupItemSchema = z.object({
   participantToken: z.string().min(12),
@@ -144,13 +147,15 @@ export function validateGroupUpload(file: File, allowedTypes: Set<string>, kind:
 
 export function paymentMethodForStatus(status: z.infer<typeof groupPaymentStatusSchema>) {
   if (status === "paid_qr") return "qr";
+  if (status === "qr_uploaded") return "qr";
   if (status === "cash_pending") return "cash";
   if (status === "pending") return null;
   return "other";
 }
 
 export function participantPaymentLabel(status: string) {
-  if (status === "paid_qr") return "Pago QR confirmado";
+  if (status === "qr_uploaded") return "Comprobante QR por verificar";
+  if (status === "paid_qr") return "Pago QR verificado";
   if (status === "cash_pending") return "Pagara en efectivo";
   if (status === "covered_by_host") return "Cubierto por host";
   if (status === "excluded") return "Excluido";
@@ -194,6 +199,9 @@ function isProductCurrentlyOrderable(product: ProductPriceRow, date = new Date()
   if (product.available_days?.length && !product.available_days.includes(dayOfWeek)) return false;
   const start = timeToMinutes(product.available_start_time);
   const end = timeToMinutes(product.available_end_time);
+  if (start != null && end != null && start > end) {
+    return minutes >= start || minutes <= end;
+  }
   if (start != null && minutes < start) return false;
   if (end != null && minutes > end) return false;
   return true;
@@ -238,6 +246,15 @@ export async function buildGroupOrderPayload({
     : null;
   const isHost = Boolean(hostAccessToken && session.host_access_token === hostAccessToken);
   const expired = isGroupSessionExpired(session);
+  let submittedOrderTrackingToken = "";
+  if (session.submitted_order_id && (isHost || currentParticipant)) {
+    const { data: submittedOrder } = await supabase
+      .from("orders")
+      .select("tracking_token")
+      .eq("id", session.submitted_order_id)
+      .maybeSingle();
+    submittedOrderTrackingToken = submittedOrder?.tracking_token ?? "";
+  }
 
   return {
     currentParticipantId: currentParticipant?.id ?? null,
@@ -252,16 +269,19 @@ export async function buildGroupOrderPayload({
       subtotal: Number(item.subtotal),
       notes: item.notes ?? "",
     })),
-    participants: (participants ?? []).map((participant) => ({
-      id: participant.id,
-      displayName: participant.display_name,
-      phone: participant.phone ?? "",
-      role: participant.role,
-      paymentStatus: participant.payment_status,
-      paymentMethod: participant.payment_method ?? "",
-      paymentNote: participant.payment_note ?? "",
-      paymentReceiptUrl: participant.payment_receipt_url ?? "",
-    })),
+    participants: (participants ?? []).map((participant) => {
+      const canSeePrivateFields = Boolean(isHost || participant.id === currentParticipant?.id);
+      return {
+        id: participant.id,
+        displayName: participant.display_name,
+        phone: canSeePrivateFields ? (participant.phone ?? "") : "",
+        role: participant.role,
+        paymentStatus: participant.payment_status,
+        paymentMethod: participant.payment_method ?? "",
+        paymentNote: canSeePrivateFields ? (participant.payment_note ?? "") : "",
+        paymentReceiptUrl: canSeePrivateFields ? (participant.payment_receipt_url ?? "") : "",
+      };
+    }),
     restaurant,
     session: {
       id: session.id,
@@ -275,6 +295,7 @@ export async function buildGroupOrderPayload({
       multisiteMaxPickups: Number(session.multisite_max_pickups ?? 3),
       status: expired && session.status !== "submitted" && session.status !== "cancelled" ? "expired" : session.status,
       submittedOrderId: session.submitted_order_id ?? "",
+      submittedOrderTrackingToken,
       subtotal: Number(session.subtotal),
       deliveryFee: Number(session.delivery_fee),
       total: Number(session.total),
@@ -398,100 +419,169 @@ async function hasOpenCashSession(supabase: SupabaseDatabaseClient, restaurantId
 export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, sessionToken: string, payload: z.infer<typeof submitGroupSchema>) {
   const { data: session } = await supabase.from("group_order_sessions").select("*").eq("public_token", sessionToken).eq("host_access_token", payload.hostAccessToken).maybeSingle();
   if (!session || !["open", "locked"].includes(session.status) || new Date(session.expires_at).getTime() <= Date.now()) throw new Error("closed");
+  if (session.status !== "locked") throw new Error("lock-required");
+
+  const { data: submittingSession, error: lockError } = await supabase
+    .from("group_order_sessions")
+    .update({ status: "submitting" })
+    .eq("id", session.id)
+    .eq("status", "locked")
+    .is("submitted_order_id", null)
+    .select("*")
+    .maybeSingle();
+  if (lockError || !submittingSession) throw new Error("already-submitting");
+  const lockedSession = submittingSession;
+
+  async function fail(errorCode: string): Promise<never> {
+    await supabase.from("group_order_sessions").update({ status: "locked" }).eq("id", lockedSession.id).eq("status", "submitting");
+    throw new Error(errorCode);
+  }
 
   const [{ data: participants }, { data: items }, { data: settings }, { data: restaurant }, businessHours, deliveryZones] = await Promise.all([
-    supabase.from("group_order_participants").select("*").eq("session_id", session.id).order("created_at", { ascending: true }),
-    supabase.from("group_order_items").select("*").eq("session_id", session.id).order("created_at", { ascending: true }),
+    supabase.from("group_order_participants").select("*").eq("session_id", lockedSession.id).order("created_at", { ascending: true }),
+    supabase.from("group_order_items").select("*").eq("session_id", lockedSession.id).order("created_at", { ascending: true }),
     supabase
       .from("restaurant_settings")
       .select("delivery_enabled,pickup_enabled,delivery_fee,delivery_qr_prepayment_enabled,far_delivery_distance_km,free_delivery_from,min_order_amount,qr_payment_url")
-      .eq("restaurant_id", session.restaurant_id)
+      .eq("restaurant_id", lockedSession.restaurant_id)
       .maybeSingle(),
-    supabase.from("restaurants").select("id,slug,city,latitude,longitude").eq("id", session.restaurant_id).eq("slug", payload.restaurantSlug).eq("status", "active").is("deleted_at", null).maybeSingle(),
-    listBusinessHours(supabase, session.restaurant_id),
-    listDeliveryZones(supabase, session.restaurant_id),
+    supabase.from("restaurants").select("id,slug,city,latitude,longitude").eq("id", lockedSession.restaurant_id).eq("slug", payload.restaurantSlug).eq("status", "active").is("deleted_at", null).maybeSingle(),
+    listBusinessHours(supabase, lockedSession.restaurant_id),
+    listDeliveryZones(supabase, lockedSession.restaurant_id),
   ]);
 
-  if (!settings || !restaurant) throw new Error("settings");
-  const orderTypeEnabled = (payload.orderType === "delivery" && settings.delivery_enabled) || (payload.orderType === "pickup" && settings.pickup_enabled);
-  if (!orderTypeEnabled) throw new Error("disabled");
-  if (await announcementService.hasActiveClosure(session.restaurant_id)) throw new Error("temporarily-closed");
-  if (!isLocalDateTimeWithinBusinessHours(formatLocalDateTimeInput(new Date(), DEFAULT_RESTAURANT_TIME_ZONE), businessHours)) throw new Error("outside-hours");
-  if (!(await hasOpenCashSession(supabase, session.restaurant_id))) throw new Error("no-open-cash");
-  if (payload.orderType === "delivery" && !payload.customerAddress?.trim()) throw new Error("delivery-address");
+  if (!settings || !restaurant) await fail("settings");
+  const orderSettings = settings!;
+  const orderRestaurant = restaurant!;
+  const orderTypeEnabled = (payload.orderType === "delivery" && orderSettings.delivery_enabled) || (payload.orderType === "pickup" && orderSettings.pickup_enabled);
+  if (!orderTypeEnabled) await fail("disabled");
+  if (await announcementService.hasActiveClosure(lockedSession.restaurant_id)) await fail("temporarily-closed");
+  if (!isLocalDateTimeWithinBusinessHours(formatLocalDateTimeInput(new Date(), DEFAULT_RESTAURANT_TIME_ZONE), businessHours)) await fail("outside-hours");
+  if (!(await hasOpenCashSession(supabase, lockedSession.restaurant_id))) await fail("no-open-cash");
+  if (payload.orderType === "delivery" && !payload.customerAddress?.trim()) await fail("delivery-address");
   if (
     payload.orderType === "delivery" &&
     (payload.deliveryLatitude == null ||
       payload.deliveryLongitude == null ||
-      restaurant.latitude == null ||
-      restaurant.longitude == null)
+      orderRestaurant.latitude == null ||
+      orderRestaurant.longitude == null)
   ) {
-    throw new Error("delivery-location");
+    await fail("delivery-location");
   }
 
   const participantRows = participants ?? [];
   const participantById = new Map(participantRows.map((participant) => [participant.id, participant]));
   const includedParticipantIds = new Set(participantRows.filter((participant) => participant.payment_status !== "excluded").map((participant) => participant.id));
   const sourceItems = (items ?? []).filter((item) => includedParticipantIds.has(item.participant_id));
-  if (!sourceItems.length) throw new Error("empty");
+  if (!sourceItems.length) await fail("empty");
+  const pendingParticipants = participantRows.filter((participant) => {
+    const participantTotal = sourceItems.reduce((sum, item) => (item.participant_id === participant.id ? sum + Number(item.subtotal) : sum), 0);
+    return participantTotal > 0 && (participant.payment_status === "pending" || participant.payment_status === "qr_uploaded");
+  });
+  if (pendingParticipants.length) await fail("pending-payments");
 
-  const resolvedItems = await resolveGroupCartItems(
-    supabase,
-    session.restaurant_id,
-    sourceItems.map((item) => ({
-      productId: item.product_id,
-      variantId: item.variant_id ?? undefined,
-      optionIds: item.option_ids,
-      quantity: item.quantity,
-      notes: item.notes ?? undefined,
-    })),
-  );
-  const subtotal = Number(resolvedItems.reduce((sum, item) => sum + item.subtotal, 0).toFixed(2));
+  try {
+    await resolveGroupCartItems(
+      supabase,
+      lockedSession.restaurant_id,
+      sourceItems.map((item) => ({
+        productId: item.product_id,
+        variantId: item.variant_id ?? undefined,
+        optionIds: item.option_ids,
+        quantity: item.quantity,
+        notes: item.notes ?? undefined,
+      })),
+    );
+  } catch (error) {
+    await fail(error instanceof Error ? error.message : "product-not-found");
+  }
+  const subtotal = Number(sourceItems.reduce((sum, item) => sum + Number(item.subtotal), 0).toFixed(2));
   const deliveryPolicy =
     payload.orderType === "delivery"
       ? resolveDeliveryPolicy({
-          restaurantLocation: { latitude: Number(restaurant.latitude), longitude: Number(restaurant.longitude) },
+          restaurantLocation: { latitude: Number(orderRestaurant.latitude), longitude: Number(orderRestaurant.longitude) },
           deliveryLocation: { latitude: Number(payload.deliveryLatitude), longitude: Number(payload.deliveryLongitude) },
-          restaurantCity: restaurant.city ?? "",
+          restaurantCity: orderRestaurant.city ?? "",
           deliveryCity: payload.deliveryCity,
           zones: deliveryZones,
           subtotal,
-          baseDeliveryFee: Number((settings as PublicOrderSettings).delivery_fee),
-          baseMinOrderAmount: Number((settings as PublicOrderSettings).min_order_amount),
-          qrPrepaymentEnabled: (settings as PublicOrderSettings).delivery_qr_prepayment_enabled ?? true,
-          freeDeliveryFrom: Number((settings as PublicOrderSettings).free_delivery_from ?? 0),
-          farDeliveryDistanceKm: Number((settings as PublicOrderSettings).far_delivery_distance_km ?? 5),
+          baseDeliveryFee: Number((orderSettings as PublicOrderSettings).delivery_fee),
+          baseMinOrderAmount: Number((orderSettings as PublicOrderSettings).min_order_amount),
+          qrPrepaymentEnabled: (orderSettings as PublicOrderSettings).delivery_qr_prepayment_enabled ?? true,
+          freeDeliveryFrom: Number((orderSettings as PublicOrderSettings).free_delivery_from ?? 0),
+          farDeliveryDistanceKm: Number((orderSettings as PublicOrderSettings).far_delivery_distance_km ?? 5),
         })
       : null;
 
-  if (deliveryPolicy && !deliveryPolicy.sameCity) throw new Error("different-city");
-  if (subtotal < (deliveryPolicy?.minOrderAmount ?? Number((settings as PublicOrderSettings).min_order_amount))) throw new Error("minimum");
-  if (deliveryPolicy?.requiresQrPrepayment && payload.paymentMethod !== "qr") throw new Error("qr-required-distance");
-  if (payload.paymentMethod === "qr" && !normalizeQrPaymentUrl((settings as PublicOrderSettings).qr_payment_url)) throw new Error("qr-unavailable");
-  if (payload.paymentMethod === "qr" && !payload.paymentReceiptUrl?.trim()) throw new Error("receipt-required");
+  if (deliveryPolicy && !deliveryPolicy.sameCity) await fail("different-city");
+  if (subtotal < (deliveryPolicy?.minOrderAmount ?? Number((orderSettings as PublicOrderSettings).min_order_amount))) await fail("minimum");
+  if (deliveryPolicy?.requiresQrPrepayment && payload.paymentMethod !== "qr") await fail("qr-required-distance");
+  if (payload.paymentMethod === "qr" && !normalizeQrPaymentUrl((orderSettings as PublicOrderSettings).qr_payment_url)) await fail("qr-unavailable");
+  if (payload.paymentMethod === "qr" && !payload.paymentReceiptUrl?.trim()) await fail("receipt-required");
 
   const deliveryFee = deliveryPolicy?.deliveryFee ?? 0;
   const participantTotals = new Map<string, number>();
-  sourceItems.forEach((item, index) => {
-    participantTotals.set(item.participant_id, (participantTotals.get(item.participant_id) ?? 0) + resolvedItems[index].subtotal);
+  sourceItems.forEach((item) => {
+    participantTotals.set(item.participant_id, (participantTotals.get(item.participant_id) ?? 0) + Number(item.subtotal));
   });
+  const billableParticipantIds = participantRows
+    .filter((participant) => (participantTotals.get(participant.id) ?? 0) > 0 && participant.payment_status !== "excluded")
+    .map((participant) => participant.id);
+  const deliveryShareByParticipant = new Map<string, number>();
+  if (deliveryFee > 0 && billableParticipantIds.length) {
+    const baseShare = Number((deliveryFee / billableParticipantIds.length).toFixed(2));
+    let assigned = 0;
+    billableParticipantIds.forEach((participantId, index) => {
+      const share = index === billableParticipantIds.length - 1 ? Number((deliveryFee - assigned).toFixed(2)) : baseShare;
+      assigned += share;
+      deliveryShareByParticipant.set(participantId, share);
+    });
+  }
   const participantSummary = participantRows
     .filter((participant) => participantTotals.has(participant.id) || participant.payment_status === "excluded")
     .map((participant) => {
       const amount = participantTotals.get(participant.id) ?? 0;
-      return `${participant.display_name}: Bs ${amount.toFixed(2)} - ${participantPaymentLabel(participant.payment_status)}${participant.payment_receipt_url ? ` - comprobante: ${participant.payment_receipt_url}` : ""}`;
+      const deliveryShare = deliveryShareByParticipant.get(participant.id) ?? 0;
+      return `${participant.display_name}: Bs ${amount.toFixed(2)}${deliveryShare ? ` + delivery Bs ${deliveryShare.toFixed(2)}` : ""} - ${participantPaymentLabel(participant.payment_status)}${participant.payment_receipt_url ? ` - comprobante: ${participant.payment_receipt_url}` : ""}`;
     })
     .join("\n");
-  const notes = ["Yopido Grupal", `Host: ${session.host_name}${session.host_phone ? ` (${session.host_phone})` : ""}`, `Cobro: ${collectModeLabel(session.collect_mode)}`, participantSummary ? `Participantes:\n${participantSummary}` : ""].filter(Boolean).join("\n\n");
+  const total = Number((subtotal + deliveryFee).toFixed(2));
+  const submittedSnapshot = {
+    collectMode: lockedSession.collect_mode,
+    deliveryFee,
+    orderType: payload.orderType,
+    participants: participantRows.map((participant) => ({
+      id: participant.id,
+      displayName: participant.display_name,
+      role: participant.role,
+      paymentStatus: participant.payment_status,
+      subtotal: Number((participantTotals.get(participant.id) ?? 0).toFixed(2)),
+      deliveryShare: deliveryShareByParticipant.get(participant.id) ?? 0,
+      total: Number(((participantTotals.get(participant.id) ?? 0) + (deliveryShareByParticipant.get(participant.id) ?? 0)).toFixed(2)),
+    })),
+    items: sourceItems.map((item) => ({
+      id: item.id,
+      participantId: item.participant_id,
+      productId: item.product_id,
+      productName: item.product_name,
+      unitPrice: Number(item.unit_price),
+      quantity: item.quantity,
+      subtotal: Number(item.subtotal),
+      notes: item.notes ?? null,
+    })),
+    subtotal,
+    total,
+  };
+  const notes = ["Yopido Grupal", `Host: ${lockedSession.host_name}${lockedSession.host_phone ? ` (${lockedSession.host_phone})` : ""}`, `Cobro: ${collectModeLabel(lockedSession.collect_mode)}`, participantSummary ? `Participantes:\n${participantSummary}` : ""].filter(Boolean).join("\n\n");
 
   const { data: createdOrders, error } = await supabase.rpc("create_public_order_transaction", {
     p_request_id: crypto.randomUUID(),
     p_order: {
-      restaurant_id: session.restaurant_id,
+      restaurant_id: lockedSession.restaurant_id,
       table_id: null,
       order_number: `PG-${Date.now().toString().slice(-7)}`,
       customer_name: payload.customerName,
-      customer_phone: payload.customerPhone ?? session.host_phone,
+      customer_phone: payload.customerPhone ?? lockedSession.host_phone,
       customer_email: null,
       customer_address: payload.orderType === "delivery" ? payload.customerAddress : null,
       delivery_address_detail: payload.orderType === "delivery" ? (payload.deliveryAddressDetail ?? null) : null,
@@ -513,26 +603,28 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
       subtotal,
       delivery_fee: deliveryFee,
       discount_total: 0,
-      total: Number((subtotal + deliveryFee).toFixed(2)),
+      total,
       notes,
     },
-    p_items: resolvedItems.map((item, index) => {
-      const participant = participantById.get(sourceItems[index].participant_id);
+    p_items: sourceItems.map((item) => {
+      const participant = participantById.get(item.participant_id);
       return {
-        product_id: item.productId,
-        product_name: item.name,
-        variant_id: item.variantId ?? null,
-        option_ids: item.optionIds,
-        unit_price: item.price,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        variant_id: item.variant_id ?? null,
+        option_ids: item.option_ids,
+        unit_price: Number(item.unit_price),
         quantity: item.quantity,
-        subtotal: item.subtotal,
+        subtotal: Number(item.subtotal),
         notes: [participant ? `Participante: ${participant.display_name}` : "Participante del grupo", item.notes].filter(Boolean).join(" | "),
       };
     }),
   });
 
   const order = createdOrders?.[0];
-  if (error || !order) throw new Error(error?.message?.includes("no-open-cash") ? "no-open-cash" : "create-order");
+  if (error || !order) await fail(error?.message?.includes("no-open-cash") ? "no-open-cash" : "create-order");
+  const finalOrder = order!;
+  await supabase.from("orders").update({ group_order_session_id: lockedSession.id }).eq("id", finalOrder.id);
 
   await supabase
     .from("group_order_sessions")
@@ -540,21 +632,23 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
       delivery_fee: deliveryFee,
       status: "submitted",
       submitted_at: new Date().toISOString(),
-      submitted_order_id: order.id,
+      submitted_order_id: finalOrder.id,
+      submitted_snapshot: submittedSnapshot,
       subtotal,
-      total: Number((subtotal + deliveryFee).toFixed(2)),
+      total,
     })
-    .eq("id", session.id);
+    .eq("id", lockedSession.id)
+    .eq("status", "submitting");
 
   const { data: savedOrder } = await supabase
     .from("orders")
     .select("order_number")
-    .eq("id", order.id)
+    .eq("id", finalOrder.id)
     .maybeSingle();
 
   return {
-    orderId: order.id,
+    orderId: finalOrder.id,
     orderNumber: savedOrder?.order_number ?? "",
-    trackingToken: order.tracking_token,
+    trackingToken: finalOrder.tracking_token,
   };
 }

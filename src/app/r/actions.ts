@@ -20,6 +20,9 @@ type SupabaseDatabaseClient = SupabaseClient<Database>;
 const GROUP_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 const GROUP_PUBLIC_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
 const GROUP_PRIVATE_RECEIPT_TYPES = new Set([...GROUP_PUBLIC_IMAGE_TYPES, "application/pdf"]);
+const GROUP_MAX_PARTICIPANTS = 25;
+const GROUP_MAX_ITEMS = 100;
+const GROUP_MAX_ITEMS_PER_PARTICIPANT = 30;
 
 function isNonEmptyFile(file: File | null): file is File {
   return Boolean(file && file.size > 0);
@@ -108,7 +111,7 @@ const removeGroupOrderItemInputSchema = z.object({
 const updateGroupParticipantPaymentInputSchema = z.object({
   sessionToken: z.string().min(8),
   participantToken: z.string().min(12),
-  paymentStatus: z.enum(["pending", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
+  paymentStatus: z.enum(["pending", "qr_uploaded", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
   paymentNote: z.string().trim().max(240).optional(),
 });
 
@@ -116,7 +119,7 @@ const updateGroupParticipantPaymentFormSchema = z.object({
   restaurantSlug: z.string().min(1),
   sessionToken: z.string().min(8),
   participantToken: z.string().min(12),
-  paymentStatus: z.enum(["pending", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
+  paymentStatus: z.enum(["pending", "qr_uploaded", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
   paymentNote: z.string().trim().max(240).optional(),
 });
 
@@ -139,7 +142,7 @@ const updateGroupParticipantByHostInputSchema = z.object({
   sessionToken: z.string().min(8),
   hostAccessToken: z.string().min(12),
   participantId: z.string().uuid(),
-  paymentStatus: z.enum(["pending", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
+  paymentStatus: z.enum(["pending", "qr_uploaded", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
 });
 
 const submitGroupOrderSessionSchema = z.object({
@@ -854,7 +857,8 @@ function collectModeLabel(mode: z.infer<typeof groupCollectModeSchema>) {
 }
 
 function participantPaymentLabel(status: string) {
-  if (status === "paid_qr") return "Pago QR marcado";
+  if (status === "qr_uploaded") return "Comprobante QR por verificar";
+  if (status === "paid_qr") return "Pago QR verificado";
   if (status === "cash_pending") return "Efectivo pendiente";
   if (status === "covered_by_host") return "Cubierto por host";
   if (status === "excluded") return "Excluido";
@@ -919,8 +923,9 @@ export async function createGroupOrderSessionAction(formData: FormData) {
     redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=qr-type`);
   }
 
+  const collectMode = parsed.data.collectMode === "restaurant_collects" ? "host_collects" : parsed.data.collectMode;
   const hostQrUrl =
-    parsed.data.collectMode === "host_collects" && isNonEmptyFile(hostQrFile)
+    collectMode === "host_collects" && isNonEmptyFile(hostQrFile)
       ? await uploadPublicImage(hostQrFile, `restaurants/${restaurant.id}/group-host-qr`)
       : null;
   const sessionToken = createShortToken(12);
@@ -932,20 +937,16 @@ export async function createGroupOrderSessionAction(formData: FormData) {
     host_access_token: hostAccessToken,
     host_name: parsed.data.hostName,
     host_phone: parsed.data.hostPhone || null,
-    collect_mode: parsed.data.collectMode,
+    collect_mode: collectMode,
     host_qr_url: hostQrUrl,
   };
   const sessionResult = await admin
     .from("group_order_sessions")
-    .insert((parsed.data.multisiteEnabled ? { ...sessionPayload, multisite_enabled: true } : sessionPayload) as typeof sessionPayload)
+    .insert(sessionPayload)
     .select("id")
     .single();
-  const fallbackSessionResult =
-    parsed.data.multisiteEnabled && isMissingMultisiteColumnError(sessionResult.error)
-      ? await admin.from("group_order_sessions").insert(sessionPayload).select("id").single()
-      : sessionResult;
-  const session = fallbackSessionResult.data;
-  const sessionError = fallbackSessionResult.error;
+  const session = sessionResult.data;
+  const sessionError = sessionResult.error;
 
   if (sessionError || !session) {
     redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=create`);
@@ -1003,6 +1004,18 @@ export async function joinGroupOrderSessionAction(formData: FormData) {
     redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { error: "closed" }));
   }
 
+  const { data: existingParticipants } = await admin
+    .from("group_order_participants")
+    .select("display_name")
+    .eq("session_id", session.id);
+
+  if ((existingParticipants?.length ?? 0) >= GROUP_MAX_PARTICIPANTS) {
+    redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { error: "group-full" }));
+  }
+  if ((existingParticipants ?? []).some((participant) => participant.display_name.trim().toLowerCase() === parsed.data.displayName.trim().toLowerCase())) {
+    redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { error: "duplicate-name" }));
+  }
+
   const participantToken = createSecretToken();
   const { error } = await admin.from("group_order_participants").insert({
     session_id: session.id,
@@ -1049,6 +1062,18 @@ export async function addGroupOrderItemAction(input: unknown) {
 
   if (!participant) {
     return { ok: false, error: "participant" };
+  }
+
+  const [{ count: groupItemCount }, { count: participantItemCount }] = await Promise.all([
+    admin.from("group_order_items").select("id", { count: "exact", head: true }).eq("session_id", session.id),
+    admin.from("group_order_items").select("id", { count: "exact", head: true }).eq("session_id", session.id).eq("participant_id", participant.id),
+  ]);
+
+  if ((groupItemCount ?? 0) >= GROUP_MAX_ITEMS) {
+    return { ok: false, error: "group-item-limit" };
+  }
+  if ((participantItemCount ?? 0) >= GROUP_MAX_ITEMS_PER_PARTICIPANT) {
+    return { ok: false, error: "participant-item-limit" };
   }
 
   let resolvedItem: ResolvedCartItem;
@@ -1099,11 +1124,11 @@ export async function removeGroupOrderItemAction(input: unknown) {
 
   const { data: session } = await admin
     .from("group_order_sessions")
-    .select("id,host_access_token,status")
+    .select("id,host_access_token,status,expires_at")
     .eq("public_token", parsed.data.sessionToken)
     .maybeSingle();
 
-  if (!session || !["open", "locked"].includes(session.status)) {
+  if (!session || !["open", "locked"].includes(session.status) || new Date(session.expires_at).getTime() <= Date.now()) {
     return { ok: false, error: "closed" };
   }
 
@@ -1157,16 +1182,19 @@ export async function updateGroupParticipantPaymentAction(input: unknown) {
 
   const { data: session } = await admin
     .from("group_order_sessions")
-    .select("id,status")
+    .select("id,status,expires_at")
     .eq("public_token", parsed.data.sessionToken)
     .maybeSingle();
 
-  if (!session || !["open", "locked"].includes(session.status)) {
+  if (!session || !["open", "locked"].includes(session.status) || new Date(session.expires_at).getTime() <= Date.now()) {
     return { ok: false, error: "closed" };
+  }
+  if (parsed.data.paymentStatus === "paid_qr" || parsed.data.paymentStatus === "covered_by_host" || parsed.data.paymentStatus === "excluded") {
+    return { ok: false, error: "host-only-payment-status" };
   }
 
   const paymentMethod =
-    parsed.data.paymentStatus === "paid_qr"
+    parsed.data.paymentStatus === "qr_uploaded"
       ? "qr"
       : parsed.data.paymentStatus === "cash_pending"
         ? "cash"
@@ -1217,33 +1245,36 @@ export async function updateGroupParticipantPaymentFormAction(formData: FormData
 
   const { data: sessionRow } = await writeClient
     .from("group_order_sessions")
-    .select("id,restaurant_id,status")
+    .select("id,restaurant_id,status,expires_at")
     .eq("public_token", paymentData.sessionToken)
     .maybeSingle();
 
-  if (!sessionRow || !["open", "locked"].includes(sessionRow.status)) {
+  if (!sessionRow || !["open", "locked"].includes(sessionRow.status) || new Date(sessionRow.expires_at).getTime() <= Date.now()) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "closed" }));
   }
   const session = sessionRow;
+  if (paymentData.paymentStatus === "paid_qr" || paymentData.paymentStatus === "covered_by_host" || paymentData.paymentStatus === "excluded") {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "host-only-payment-status" }));
+  }
 
   const paymentReceiptFile = formData.get("paymentReceiptFile") as File | null;
-  if (paymentData.paymentStatus === "paid_qr" && !isNonEmptyFile(paymentReceiptFile)) {
+  if (paymentData.paymentStatus === "qr_uploaded" && !isNonEmptyFile(paymentReceiptFile)) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "receipt-required" }));
   }
   if (isNonEmptyFile(paymentReceiptFile) && paymentReceiptFile.size > GROUP_UPLOAD_MAX_BYTES) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "receipt-size" }));
   }
-  if (isNonEmptyFile(paymentReceiptFile) && !isAllowedFileType(paymentReceiptFile, GROUP_PUBLIC_IMAGE_TYPES)) {
+  if (isNonEmptyFile(paymentReceiptFile) && !isAllowedFileType(paymentReceiptFile, GROUP_PRIVATE_RECEIPT_TYPES)) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "receipt-type" }));
   }
 
   const receiptUrl =
-    paymentData.paymentStatus === "paid_qr" && isNonEmptyFile(paymentReceiptFile)
-      ? await uploadPublicImage(paymentReceiptFile, `restaurants/${session.restaurant_id}/group-payment-receipts`)
+    paymentData.paymentStatus === "qr_uploaded" && isNonEmptyFile(paymentReceiptFile)
+      ? await uploadPrivateFile(paymentReceiptFile, `restaurants/${session.restaurant_id}/group-payment-receipts`)
       : undefined;
 
   const paymentMethod: "qr" | "cash" | "other" | null =
-    paymentData.paymentStatus === "paid_qr"
+    paymentData.paymentStatus === "qr_uploaded"
       ? "qr"
       : paymentData.paymentStatus === "cash_pending"
         ? "cash"
@@ -1289,6 +1320,7 @@ export async function updateGroupOrderSessionSettingsAction(formData: FormData) 
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "settings" }));
   }
   const settingsData = parsed.data;
+  const collectMode = settingsData.collectMode === "restaurant_collects" ? "host_collects" : settingsData.collectMode;
 
   const admin = createAdminClient();
   if (!admin) {
@@ -1298,12 +1330,12 @@ export async function updateGroupOrderSessionSettingsAction(formData: FormData) 
 
   const { data: sessionRow } = await writeClient
     .from("group_order_sessions")
-    .select("id,restaurant_id,status")
+    .select("id,restaurant_id,status,expires_at")
     .eq("public_token", settingsData.sessionToken)
     .eq("host_access_token", settingsData.hostAccessToken)
     .maybeSingle();
 
-  if (!sessionRow || !["open", "locked"].includes(sessionRow.status)) {
+  if (!sessionRow || !["open", "locked"].includes(sessionRow.status) || new Date(sessionRow.expires_at).getTime() <= Date.now()) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "closed" }));
   }
   const session = sessionRow;
@@ -1317,13 +1349,13 @@ export async function updateGroupOrderSessionSettingsAction(formData: FormData) 
   }
 
   const hostQrUrl =
-    settingsData.collectMode === "host_collects" && isNonEmptyFile(hostQrFile)
+    collectMode === "host_collects" && isNonEmptyFile(hostQrFile)
       ? await uploadPublicImage(hostQrFile, `restaurants/${session.restaurant_id}/group-host-qr`)
       : undefined;
 
   const updatePayload = {
-    collect_mode: settingsData.collectMode,
-    multisite_enabled: settingsData.multisiteEnabled,
+    collect_mode: collectMode,
+    multisite_enabled: false,
     ...(hostQrUrl ? { host_qr_url: hostQrUrl } : {}),
   };
   const updateResult = await writeClient
@@ -1334,7 +1366,7 @@ export async function updateGroupOrderSessionSettingsAction(formData: FormData) 
     ? await writeClient
         .from("group_order_sessions")
         .update({
-          collect_mode: settingsData.collectMode,
+          collect_mode: collectMode,
           ...(hostQrUrl ? { host_qr_url: hostQrUrl } : {}),
         })
         .eq("id", session.id)
@@ -1361,12 +1393,12 @@ export async function updateGroupOrderSessionStatusAction(input: unknown) {
 
   const { data: session } = await admin
     .from("group_order_sessions")
-    .select("id,status")
+    .select("id,status,expires_at")
     .eq("public_token", parsed.data.sessionToken)
     .eq("host_access_token", parsed.data.hostAccessToken)
     .maybeSingle();
 
-  if (!session || session.status === "submitted") {
+  if (!session || !["open", "locked"].includes(session.status) || new Date(session.expires_at).getTime() <= Date.now()) {
     return { ok: false, error: "closed" };
   }
 
@@ -1391,18 +1423,20 @@ export async function updateGroupParticipantByHostAction(input: unknown) {
 
   const { data: session } = await admin
     .from("group_order_sessions")
-    .select("id,status")
+    .select("id,status,expires_at")
     .eq("public_token", parsed.data.sessionToken)
     .eq("host_access_token", parsed.data.hostAccessToken)
     .maybeSingle();
 
-  if (!session || !["open", "locked"].includes(session.status)) {
+  if (!session || !["open", "locked"].includes(session.status) || new Date(session.expires_at).getTime() <= Date.now()) {
     return { ok: false, error: "closed" };
   }
 
   const paymentMethod =
     parsed.data.paymentStatus === "paid_qr"
       ? "qr"
+      : parsed.data.paymentStatus === "qr_uploaded"
+        ? "qr"
       : parsed.data.paymentStatus === "cash_pending"
         ? "cash"
         : parsed.data.paymentStatus === "pending"
@@ -1474,7 +1508,28 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
   if (!sessionRow || !["open", "locked"].includes(sessionRow.status) || new Date(sessionRow.expires_at).getTime() <= Date.now()) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "closed" }));
   }
-  const session = sessionRow;
+  if (sessionRow.status !== "locked") {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "lock-required" }));
+  }
+
+  const { data: submittingSession, error: lockError } = await writeClient
+    .from("group_order_sessions")
+    .update({ status: "submitting" })
+    .eq("id", sessionRow.id)
+    .eq("status", "locked")
+    .is("submitted_order_id", null)
+    .select("*")
+    .maybeSingle();
+
+  if (lockError || !submittingSession) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "already-submitting" }));
+  }
+
+  const session = submittingSession;
+  async function redirectSubmitError(errorCode: string): Promise<never> {
+    await writeClient.from("group_order_sessions").update({ status: "locked" }).eq("id", session.id).eq("status", "submitting");
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: errorCode }));
+  }
   const publicClient = await createClient();
 
   const [{ data: participants }, { data: items }, settings, businessHours, publicRestaurant, deliveryZones] = await Promise.all([
@@ -1487,37 +1542,39 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
   ]);
 
   if (!settings || !publicRestaurant) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "settings" }));
+    await redirectSubmitError("settings");
   }
+  const orderSettings = settings!;
+  const orderRestaurant = publicRestaurant!;
 
   const orderTypeEnabled =
-    (submitData.orderType === "delivery" && settings.delivery_enabled) ||
-    (submitData.orderType === "pickup" && settings.pickup_enabled);
+    (submitData.orderType === "delivery" && orderSettings.delivery_enabled) ||
+    (submitData.orderType === "pickup" && orderSettings.pickup_enabled);
   if (!orderTypeEnabled) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "disabled" }));
+    await redirectSubmitError("disabled");
   }
 
   if (await announcementService.hasActiveClosure(session.restaurant_id)) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "temporarily-closed" }));
+    await redirectSubmitError("temporarily-closed");
   }
 
   if (
     submitData.orderType === "delivery" &&
     (submitData.deliveryLatitude == null ||
       submitData.deliveryLongitude == null ||
-      publicRestaurant.latitude == null ||
-      publicRestaurant.longitude == null)
+      orderRestaurant.latitude == null ||
+      orderRestaurant.longitude == null)
   ) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "delivery-location" }));
+    await redirectSubmitError("delivery-location");
   }
 
   const nowInput = formatLocalDateTimeInput(new Date(), DEFAULT_RESTAURANT_TIME_ZONE);
   if (!isLocalDateTimeWithinBusinessHours(nowInput, businessHours)) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "outside-hours" }));
+    await redirectSubmitError("outside-hours");
   }
 
   if (!(await hasOpenCashSession(writeClient, session.restaurant_id))) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "no-open-cash" }));
+    await redirectSubmitError("no-open-cash");
   }
 
   const participantRows = participants ?? [];
@@ -1526,12 +1583,19 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
   const sourceItems = (items ?? []).filter((item) => includedParticipantIds.has(item.participant_id));
 
   if (!sourceItems.length) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "empty" }));
+    await redirectSubmitError("empty");
   }
 
-  let resolvedItems: ResolvedCartItem[] = [];
+  const pendingParticipants = participantRows.filter((participant) => {
+    const participantTotal = sourceItems.reduce((sum, item) => (item.participant_id === participant.id ? sum + Number(item.subtotal) : sum), 0);
+    return participantTotal > 0 && (participant.payment_status === "pending" || participant.payment_status === "qr_uploaded");
+  });
+  if (pendingParticipants.length) {
+    await redirectSubmitError("pending-payments");
+  }
+
   try {
-    resolvedItems = await resolvePublicCartItems(
+    await resolvePublicCartItems(
       writeClient,
       session.restaurant_id,
       sourceItems.map((item) => ({
@@ -1543,48 +1607,48 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
       })),
     );
   } catch (error) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: error instanceof Error ? error.message : "product-not-found" }));
+    await redirectSubmitError(error instanceof Error ? error.message : "product-not-found");
   }
 
-  const subtotal = resolvedItems.reduce((sum, item) => sum + item.subtotal, 0);
+  const subtotal = sourceItems.reduce((sum, item) => sum + Number(item.subtotal), 0);
 
   const deliveryPolicy =
     submitData.orderType === "delivery"
       ? resolveDeliveryPolicy({
           restaurantLocation: {
-            latitude: Number(publicRestaurant.latitude),
-            longitude: Number(publicRestaurant.longitude),
+            latitude: Number(orderRestaurant.latitude),
+            longitude: Number(orderRestaurant.longitude),
           },
           deliveryLocation: {
             latitude: Number(submitData.deliveryLatitude),
             longitude: Number(submitData.deliveryLongitude),
           },
-          restaurantCity: publicRestaurant.city ?? "",
+          restaurantCity: orderRestaurant.city ?? "",
           deliveryCity: submitData.deliveryCity,
           zones: deliveryZones,
           subtotal,
-          baseDeliveryFee: Number(settings.delivery_fee),
-          baseMinOrderAmount: Number(settings.min_order_amount),
-          qrPrepaymentEnabled: settings.delivery_qr_prepayment_enabled ?? true,
-          freeDeliveryFrom: Number(settings.free_delivery_from ?? 0),
-          farDeliveryDistanceKm: Number(settings.far_delivery_distance_km ?? 5),
+          baseDeliveryFee: Number(orderSettings.delivery_fee),
+          baseMinOrderAmount: Number(orderSettings.min_order_amount),
+          qrPrepaymentEnabled: orderSettings.delivery_qr_prepayment_enabled ?? true,
+          freeDeliveryFrom: Number(orderSettings.free_delivery_from ?? 0),
+          farDeliveryDistanceKm: Number(orderSettings.far_delivery_distance_km ?? 5),
         })
       : null;
 
   if (deliveryPolicy && !deliveryPolicy.sameCity) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "different-city" }));
+    await redirectSubmitError("different-city");
   }
 
-  const effectiveMinOrderAmount = deliveryPolicy?.minOrderAmount ?? Number(settings.min_order_amount);
+  const effectiveMinOrderAmount = deliveryPolicy?.minOrderAmount ?? Number(orderSettings.min_order_amount);
   if (subtotal < effectiveMinOrderAmount) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "minimum" }));
+    await redirectSubmitError("minimum");
   }
 
   if (deliveryPolicy?.requiresQrPrepayment && submitData.paymentMethod !== "qr") {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "qr-required-distance" }));
+    await redirectSubmitError("qr-required-distance");
   }
-  if (submitData.paymentMethod === "qr" && !normalizeQrPaymentUrl(settings.qr_payment_url)) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "qr-unavailable" }));
+  if (submitData.paymentMethod === "qr" && !normalizeQrPaymentUrl(orderSettings.qr_payment_url)) {
+    await redirectSubmitError("qr-unavailable");
   }
 
   const deliveryFee = deliveryPolicy?.deliveryFee ?? 0;
@@ -1592,13 +1656,13 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
   const paymentReceiptFile = formData.get("paymentReceiptFile") as File | null;
 
   if (submitData.paymentMethod === "qr" && (!paymentReceiptFile || paymentReceiptFile.size === 0)) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "receipt-required" }));
+    await redirectSubmitError("receipt-required");
   }
   if (isNonEmptyFile(paymentReceiptFile) && paymentReceiptFile.size > GROUP_UPLOAD_MAX_BYTES) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "receipt-size" }));
+    await redirectSubmitError("receipt-size");
   }
   if (isNonEmptyFile(paymentReceiptFile) && !isAllowedFileType(paymentReceiptFile, GROUP_PRIVATE_RECEIPT_TYPES)) {
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "receipt-type" }));
+    await redirectSubmitError("receipt-type");
   }
 
   const paymentReceiptUrl =
@@ -1607,16 +1671,56 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
       : null;
 
   const participantTotals = new Map<string, number>();
-  sourceItems.forEach((item, index) => {
-    participantTotals.set(item.participant_id, (participantTotals.get(item.participant_id) ?? 0) + resolvedItems[index].subtotal);
+  sourceItems.forEach((item) => {
+    participantTotals.set(item.participant_id, (participantTotals.get(item.participant_id) ?? 0) + Number(item.subtotal));
   });
+  const billableParticipantIds = participantRows
+    .filter((participant) => (participantTotals.get(participant.id) ?? 0) > 0 && participant.payment_status !== "excluded")
+    .map((participant) => participant.id);
+  const deliveryShareByParticipant = new Map<string, number>();
+  if (deliveryFee > 0 && billableParticipantIds.length) {
+    const baseShare = Number((deliveryFee / billableParticipantIds.length).toFixed(2));
+    let assigned = 0;
+    billableParticipantIds.forEach((participantId, index) => {
+      const share = index === billableParticipantIds.length - 1 ? Number((deliveryFee - assigned).toFixed(2)) : baseShare;
+      assigned += share;
+      deliveryShareByParticipant.set(participantId, share);
+    });
+  }
   const participantSummary = participantRows
     .filter((participant) => participantTotals.has(participant.id) || participant.payment_status === "excluded")
     .map((participant) => {
       const amount = participantTotals.get(participant.id) ?? 0;
-      return `${participant.display_name}: Bs ${amount.toFixed(2)} - ${participantPaymentLabel(participant.payment_status)}${participant.payment_receipt_url ? ` - comprobante: ${participant.payment_receipt_url}` : ""}`;
+      const deliveryShare = deliveryShareByParticipant.get(participant.id) ?? 0;
+      return `${participant.display_name}: Bs ${amount.toFixed(2)}${deliveryShare ? ` + delivery Bs ${deliveryShare.toFixed(2)}` : ""} - ${participantPaymentLabel(participant.payment_status)}${participant.payment_receipt_url ? ` - comprobante: ${participant.payment_receipt_url}` : ""}`;
     })
     .join("\n");
+  const submittedSnapshot = {
+    collectMode: session.collect_mode,
+    deliveryFee,
+    orderType: submitData.orderType,
+    participants: participantRows.map((participant) => ({
+      id: participant.id,
+      displayName: participant.display_name,
+      role: participant.role,
+      paymentStatus: participant.payment_status,
+      subtotal: Number((participantTotals.get(participant.id) ?? 0).toFixed(2)),
+      deliveryShare: deliveryShareByParticipant.get(participant.id) ?? 0,
+      total: Number(((participantTotals.get(participant.id) ?? 0) + (deliveryShareByParticipant.get(participant.id) ?? 0)).toFixed(2)),
+    })),
+    items: sourceItems.map((item) => ({
+      id: item.id,
+      participantId: item.participant_id,
+      productId: item.product_id,
+      productName: item.product_name,
+      unitPrice: Number(item.unit_price),
+      quantity: item.quantity,
+      subtotal: Number(item.subtotal),
+      notes: item.notes ?? null,
+    })),
+    subtotal,
+    total,
+  };
   const notes = [
     "Yopido Grupal",
     `Host: ${session.host_name}${session.host_phone ? ` (${session.host_phone})` : ""}`,
@@ -1658,17 +1762,17 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
       total,
       notes,
     },
-    p_items: resolvedItems.map((item, index) => {
-      const participant = participantById.get(sourceItems[index].participant_id);
+    p_items: sourceItems.map((item) => {
+      const participant = participantById.get(item.participant_id);
       const participantNote = participant ? `Participante: ${participant.display_name}` : "Participante del grupo";
       return {
-        product_id: item.productId,
-        product_name: item.name,
-        variant_id: item.variantId ?? null,
-        option_ids: item.optionIds,
-        unit_price: item.price,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        variant_id: item.variant_id ?? null,
+        option_ids: item.option_ids,
+        unit_price: Number(item.unit_price),
         quantity: item.quantity,
-        subtotal: item.subtotal,
+        subtotal: Number(item.subtotal),
         notes: [participantNote, item.notes].filter(Boolean).join(" | "),
       };
     }),
@@ -1677,9 +1781,10 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
 
   if (error || !order) {
     const message = error?.message ?? "";
-    redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: message.includes("no-open-cash") ? "no-open-cash" : message.includes("invalid-public-order-items") ? "product-not-found" : "create-order" }));
+    await redirectSubmitError(message.includes("no-open-cash") ? "no-open-cash" : message.includes("invalid-public-order-items") ? "product-not-found" : "create-order");
   }
-  const createdOrder = order;
+  const createdOrder = order!;
+  await writeClient.from("orders").update({ group_order_session_id: session.id }).eq("id", createdOrder.id);
 
   await writeClient
     .from("group_order_sessions")
@@ -1689,9 +1794,11 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
       submitted_at: new Date().toISOString(),
       subtotal,
       delivery_fee: deliveryFee,
+      submitted_snapshot: submittedSnapshot,
       total,
     })
-    .eq("id", session.id);
+    .eq("id", session.id)
+    .eq("status", "submitting");
 
   redirect(`${publicRestaurantPath(submitData.restaurantSlug, `pedido/${createdOrder.id}`)}?token=${createdOrder.tracking_token}&group=1`);
 }

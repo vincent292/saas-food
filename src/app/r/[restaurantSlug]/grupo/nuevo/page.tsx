@@ -4,7 +4,7 @@ import { createGroupOrderSessionAction } from "@/app/r/actions";
 import { RestaurantThemeProvider } from "@/components/restaurant/RestaurantThemeProvider";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Input, Select } from "@/components/ui/Input";
+import { Input } from "@/components/ui/Input";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 
@@ -14,6 +14,7 @@ const errorMessages: Record<string, string> = {
   "service-role-required": "Falta configuracion segura del servidor.",
   "qr-size": "El QR debe pesar menos de 5 MB.",
   "qr-type": "El QR debe ser PNG, JPG, WebP o AVIF.",
+  "group-full": "Este Yopido Grupal ya alcanzo el limite de participantes.",
   create: "No se pudo crear el Yopido Grupal.",
 };
 
@@ -46,7 +47,7 @@ export default async function NewGroupOrderPage({
               <p className="text-sm font-black uppercase text-[var(--primary)]">{restaurant.name}</p>
               <h1 className="mt-1 text-3xl font-black leading-tight sm:text-4xl">Crear Yopido Grupal</h1>
               <p className="mt-2 text-sm font-semibold leading-6 text-[var(--muted)]">
-                Crea una sesion, comparte el link y cada persona agrega lo suyo. Al final se envia un solo pedido al restaurante.
+                Crea una sesion, comparte el link y cada persona agrega lo suyo. El host revisa los pagos y envia un solo pedido al restaurante.
               </p>
             </div>
 
@@ -60,20 +61,7 @@ export default async function NewGroupOrderPage({
               <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
               <Input name="hostName" placeholder="Nombre del host" required />
               <Input inputMode="tel" name="hostPhone" placeholder="WhatsApp del host opcional" />
-              <Select name="collectMode" defaultValue="host_collects">
-                <option value="host_collects">Todos me pagan a mi y yo pago al restaurante</option>
-                <option value="restaurant_collects">Cada persona paga al restaurante</option>
-                <option value="internal_cash">Arreglo interno / efectivo</option>
-              </Select>
-              <label className="flex items-start gap-3 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--color-surface)] p-3 text-sm font-bold">
-                <input className="mt-1 h-4 w-4 accent-[var(--primary)]" name="multisiteEnabled" type="checkbox" />
-                <span>
-                  <span className="block font-black">Permitir multisede</span>
-                  <span className="block text-xs font-semibold leading-5 text-[var(--muted)]">
-                    El grupo podra combinar hasta 3 locales cercanos en una ruta de delivery optimizada.
-                  </span>
-                </span>
-              </label>
+              <input name="collectMode" type="hidden" value="host_collects" />
               <label className="grid gap-1 text-sm font-black">
                 QR del host opcional
                 <Input accept="image/png,image/jpeg,image/webp,image/avif" name="hostQrFile" type="file" />

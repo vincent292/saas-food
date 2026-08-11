@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { buildGroupOrderPayload, getMobileGroupAdmin, groupItemSchema, isGroupSessionExpired, mobileGroupError, resolveGroupCartItems } from "../../_shared";
+import { buildGroupOrderPayload, getMobileGroupAdmin, groupItemSchema, groupMaxItems, groupMaxItemsPerParticipant, isGroupSessionExpired, mobileGroupError, resolveGroupCartItems } from "../../_shared";
 
 const removeSchema = z.object({
   itemId: z.string().uuid(),
@@ -26,6 +26,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
 
   const { data: participant } = await supabase.from("group_order_participants").select("id").eq("session_id", session.id).eq("participant_token", parsed.data.participantToken).maybeSingle();
   if (!participant) return mobileGroupError("participant", 404);
+
+  const [{ count: groupItemCount }, { count: participantItemCount }] = await Promise.all([
+    supabase.from("group_order_items").select("id", { count: "exact", head: true }).eq("session_id", session.id),
+    supabase.from("group_order_items").select("id", { count: "exact", head: true }).eq("session_id", session.id).eq("participant_id", participant.id),
+  ]);
+  if ((groupItemCount ?? 0) >= groupMaxItems) return mobileGroupError("group-item-limit", 409);
+  if ((participantItemCount ?? 0) >= groupMaxItemsPerParticipant) return mobileGroupError("participant-item-limit", 409);
 
   let resolved;
   try {

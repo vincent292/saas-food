@@ -64,15 +64,32 @@ export default async function GroupOrderPage({
     restaurantService.listPublicDeliveryZones(restaurant.id),
   ]);
   const stockAvailability = await productService.listPublicStockAvailability(restaurant, catalog.products);
-  const participants = (participantRows.data ?? []).map<GroupOrderParticipantView>((participant) => ({
+  const rawParticipants = participantRows.data ?? [];
+  const currentParticipant = query.participant
+    ? rawParticipants.find((participant) => participant.participant_token === query.participant)
+    : undefined;
+  const validatedHostAccessToken = query.host === sessionRow.host_access_token ? query.host : undefined;
+  let submittedOrderTrackingToken: string | undefined;
+  if (sessionRow.submitted_order_id && (validatedHostAccessToken || currentParticipant)) {
+    const { data: submittedOrder } = await admin
+      .from("orders")
+      .select("tracking_token")
+      .eq("id", sessionRow.submitted_order_id)
+      .maybeSingle();
+    submittedOrderTrackingToken = submittedOrder?.tracking_token ?? undefined;
+  }
+  const participants = rawParticipants.map<GroupOrderParticipantView>((participant) => {
+    const canSeePrivateFields = Boolean(validatedHostAccessToken || participant.id === currentParticipant?.id);
+    return {
     id: participant.id,
     displayName: participant.display_name,
-    phone: participant.phone ?? undefined,
+    phone: canSeePrivateFields ? (participant.phone ?? undefined) : undefined,
     role: participant.role,
     paymentStatus: participant.payment_status,
-    paymentReceiptUrl: participant.payment_receipt_url ?? undefined,
-    paymentReceiptUploadedAt: participant.payment_receipt_uploaded_at ?? undefined,
-  }));
+    paymentReceiptUrl: canSeePrivateFields ? (participant.payment_receipt_url ?? undefined) : undefined,
+    paymentReceiptUploadedAt: canSeePrivateFields ? (participant.payment_receipt_uploaded_at ?? undefined) : undefined,
+    };
+  });
   const items = (itemRows.data ?? []).map<GroupOrderItemView>((item) => ({
     id: item.id,
     participantId: item.participant_id,
@@ -82,10 +99,12 @@ export default async function GroupOrderPage({
     subtotal: Number(item.subtotal),
     notes: item.notes ?? undefined,
   }));
-  const currentParticipant = query.participant
-    ? (participantRows.data ?? []).find((participant) => participant.participant_token === query.participant)
-    : undefined;
-  const validatedHostAccessToken = query.host === sessionRow.host_access_token ? query.host : undefined;
+  // eslint-disable-next-line react-hooks/purity
+  const expired = new Date(sessionRow.expires_at).getTime() <= Date.now();
+  const sessionStatus =
+    expired && sessionRow.status !== "submitted" && sessionRow.status !== "cancelled"
+      ? "expired"
+      : sessionRow.status;
   const session: GroupOrderSessionView = {
     id: sessionRow.id,
     publicToken: sessionRow.public_token,
@@ -96,9 +115,10 @@ export default async function GroupOrderPage({
     multisiteEnabled: Boolean(sessionRow.multisite_enabled),
     multisiteRadiusKm: Number(sessionRow.multisite_radius_km ?? 3),
     multisiteMaxPickups: Number(sessionRow.multisite_max_pickups ?? 3),
-    status: sessionRow.status,
+    status: sessionStatus,
     expiresAt: sessionRow.expires_at,
     submittedOrderId: sessionRow.submitted_order_id ?? undefined,
+    submittedOrderTrackingToken,
     subtotal: Number(sessionRow.subtotal),
     deliveryFee: Number(sessionRow.delivery_fee),
     total: Number(sessionRow.total),

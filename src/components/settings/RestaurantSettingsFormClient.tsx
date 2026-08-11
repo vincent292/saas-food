@@ -48,6 +48,13 @@ import type { Order } from "@/types/order.types";
 
 const days = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
 
+const timeOptions = Array.from({ length: 24 * 12 }, (_, index) => {
+  const totalMinutes = index * 5;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+});
+
 const tabs = [
   { key: "general", label: "General", icon: Store },
   { key: "estilo", label: "Imagenes", icon: ImageIcon },
@@ -129,6 +136,32 @@ function hourRangeHint(opensAt?: string | null, closesAt?: string | null) {
   return "";
 }
 
+function timeSelectOptions(value: string) {
+  return timeOptions.includes(value) ? timeOptions : [value, ...timeOptions].filter(Boolean).sort();
+}
+
+function BusinessHourTimeSelect({
+  disabled,
+  name,
+  onChange,
+  value,
+}: {
+  disabled: boolean;
+  name: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <Select disabled={disabled} name={name} onChange={(event) => onChange(event.target.value)} value={value}>
+      {timeSelectOptions(value).map((time) => (
+        <option key={time} value={time}>
+          {time}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
 function BusinessHourEditorRow({ day, dayOfWeek, hour }: { day: string; dayOfWeek: number; hour?: BusinessHour }) {
   const [opensAt, setOpensAt] = useState(hour?.opensAt || "09:00");
   const [closesAt, setClosesAt] = useState(hour?.closesAt || "22:00");
@@ -140,11 +173,11 @@ function BusinessHourEditorRow({ day, dayOfWeek, hour }: { day: string; dayOfWee
       <p className="font-bold text-[var(--color-heading)]">{day}</p>
       <label className="space-y-1">
         <span className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Abre (HH:mm)</span>
-        <Input disabled={isClosed} name={`day_${dayOfWeek}_opensAt`} onChange={(event) => setOpensAt(event.target.value)} type="time" value={opensAt} />
+        <BusinessHourTimeSelect disabled={isClosed} name={`day_${dayOfWeek}_opensAt`} onChange={setOpensAt} value={opensAt} />
       </label>
       <label className="space-y-1">
         <span className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Cierra (HH:mm)</span>
-        <Input disabled={isClosed} name={`day_${dayOfWeek}_closesAt`} onChange={(event) => setClosesAt(event.target.value)} type="time" value={closesAt} />
+        <BusinessHourTimeSelect disabled={isClosed} name={`day_${dayOfWeek}_closesAt`} onChange={setClosesAt} value={closesAt} />
       </label>
       <label className="flex items-center gap-2 text-sm font-semibold text-[var(--color-body)]">
         <input checked={isClosed} name={`day_${dayOfWeek}_isClosed`} onChange={(event) => setIsClosed(event.target.checked)} type="checkbox" />

@@ -3,14 +3,18 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { SuperadminUsersManagementClient } from "@/components/admin/SuperadminUsersManagementClient";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { authService } from "@/lib/services/auth.service";
-import { superadminUsersService } from "@/lib/services/superadmin-users.service";
+import { superadminUsersService, type SuperadminUserGroup } from "@/lib/services/superadmin-users.service";
+
+function normalizeUserGroup(value?: string): SuperadminUserGroup {
+  return value === "clientes" ? "clientes" : "operativos";
+}
 
 export default async function SuperadminUsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; tipo?: string }>;
 }) {
-  const { q = "" } = await searchParams;
+  const { q = "", tipo } = await searchParams;
   const profile = await authService.getCurrentProfile();
 
   if (!profile) {
@@ -26,7 +30,8 @@ export default async function SuperadminUsersPage({
   }
 
   const search = q.trim();
-  const users = await superadminUsersService.listUsers(search);
+  const activeGroup = normalizeUserGroup(tipo);
+  const users = await superadminUsersService.listUsers(search, activeGroup);
 
   return (
     <AdminLayout active="/admin/usuarios" title="Usuarios">
@@ -35,7 +40,7 @@ export default async function SuperadminUsersPage({
         title="Usuarios"
       />
       <div className="mt-6">
-        <SuperadminUsersManagementClient search={search} users={users} />
+        <SuperadminUsersManagementClient activeGroup={activeGroup} search={search} users={users} />
       </div>
     </AdminLayout>
   );

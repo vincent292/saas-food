@@ -1,6 +1,7 @@
 "use client";
 
 import { Copy, KeyRound, MessageCircle, Search, ShieldCheck, UserRound } from "lucide-react";
+import Link from "next/link";
 import { useActionState } from "react";
 import { resetSuperadminUserPasswordAction, type SuperadminUserPasswordFormState } from "@/app/admin/actions";
 import { Badge } from "@/components/ui/Badge";
@@ -8,7 +9,7 @@ import { buttonClasses } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/DataTable";
 import { Input } from "@/components/ui/Input";
 import { formatShortDate } from "@/lib/utils/dates";
-import type { SuperadminUserRecord } from "@/lib/services/superadmin-users.service";
+import type { SuperadminUserGroup, SuperadminUserRecord } from "@/lib/services/superadmin-users.service";
 
 const initialState: SuperadminUserPasswordFormState = {};
 
@@ -34,12 +35,52 @@ function whatsappHref(phone: string, fullName: string, password: string) {
   return `https://wa.me/${phoneDigits}?text=${encodeURIComponent(text)}`;
 }
 
-export function SuperadminUsersManagementClient({ search, users }: { search: string; users: SuperadminUserRecord[] }) {
+function groupHref(group: SuperadminUserGroup, search: string) {
+  const params = new URLSearchParams({ tipo: group });
+  if (search) params.set("q", search);
+  return `/admin/usuarios?${params.toString()}`;
+}
+
+export function SuperadminUsersManagementClient({
+  activeGroup,
+  search,
+  users,
+}: {
+  activeGroup: SuperadminUserGroup;
+  search: string;
+  users: SuperadminUserRecord[];
+}) {
+  const emptyMessage = search
+    ? `No encontramos ${activeGroup === "clientes" ? "clientes" : "usuarios operativos"} con esa busqueda.`
+    : activeGroup === "clientes"
+      ? "Todavia no hay clientes registrados."
+      : "Todavia no hay usuarios operativos registrados.";
+
   return (
     <div className="space-y-5">
+      <div className="flex gap-2 overflow-x-auto rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
+        <Link
+          className={activeGroup === "operativos" ? buttonClasses("primary") : buttonClasses("ghost")}
+          href={groupHref("operativos", search)}
+          prefetch={false}
+        >
+          Operativos
+        </Link>
+        <Link
+          className={activeGroup === "clientes" ? buttonClasses("primary") : buttonClasses("ghost")}
+          href={groupHref("clientes", search)}
+          prefetch={false}
+        >
+          Clientes
+        </Link>
+      </div>
+
       <form action="/admin/usuarios" className="grid gap-3 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--shadow-card)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <input name="tipo" type="hidden" value={activeGroup} />
         <label className="grid gap-1.5">
-          <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Buscar usuario</span>
+          <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">
+            Buscar {activeGroup === "clientes" ? "cliente" : "usuario operativo"}
+          </span>
           <Input defaultValue={search} name="q" placeholder="Nombre, correo, telefono o carnet" />
         </label>
         <button className={buttonClasses("primary", "sm:self-end")} type="submit">
@@ -49,7 +90,7 @@ export function SuperadminUsersManagementClient({ search, users }: { search: str
       </form>
 
       <DataTable
-        emptyMessage={search ? "No encontramos usuarios con esa busqueda." : "Todavia no hay usuarios registrados."}
+        emptyMessage={emptyMessage}
         headers={["Usuario", "Contacto", "Carnet", "Tipo", "Estado", "Registro", "Clave"]}
         rows={users.map((user) => [
           <div className="flex items-center gap-3" key={`${user.id}-name`}>

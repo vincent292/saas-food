@@ -28,6 +28,7 @@ type CustomerProfileRow = {
 };
 
 export type SuperadminUserAccountType = "business" | "customer" | "auth";
+export type SuperadminUserGroup = "operativos" | "clientes";
 
 export type SuperadminUserRecord = {
   id: string;
@@ -90,6 +91,11 @@ function matchesQuery(user: SuperadminUserRecord, query: string) {
     user.statusLabel,
   ].join(" "));
   return haystack.includes(query);
+}
+
+function matchesGroup(user: SuperadminUserRecord, group: SuperadminUserGroup) {
+  if (group === "clientes") return user.accountType === "customer";
+  return user.accountType !== "customer";
 }
 
 function mapBusinessProfile(row: BusinessProfileRow, authUser: User | undefined): SuperadminUserRecord {
@@ -170,7 +176,7 @@ async function listAuthUsers(admin: NonNullable<ReturnType<typeof createAdminCli
 }
 
 export const superadminUsersService = {
-  async listUsers(search = ""): Promise<SuperadminUserRecord[]> {
+  async listUsers(search = "", group: SuperadminUserGroup = "operativos"): Promise<SuperadminUserRecord[]> {
     const admin = createAdminClient();
     if (!admin) return [];
 
@@ -210,7 +216,7 @@ export const superadminUsersService = {
     }
 
     return users
-      .filter((user) => matchesQuery(user, query))
+      .filter((user) => matchesGroup(user, group) && matchesQuery(user, query))
       .sort((first, second) => second.createdAt.localeCompare(first.createdAt))
       .slice(0, 250);
   },

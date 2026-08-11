@@ -109,6 +109,100 @@ export function orderPrepMinutes(order: Order) {
   return Math.min(longestLine + multiItemBuffer, 240);
 }
 
+export type KitchenGroupedOrderItemDetail = {
+  label: string;
+  quantity: number;
+  subtotal: number;
+};
+
+export type KitchenGroupedOrderItem = {
+  productName: string;
+  quantity: number;
+  subtotal: number;
+  prepMinutes: number;
+  details: KitchenGroupedOrderItemDetail[];
+};
+
+function noteParts(notes?: string) {
+  return (notes ?? "")
+    .split("|")
+    .map(normalizeDetailPart)
+    .filter(Boolean)
+    .filter((part) => !/^participante:/i.test(part));
+}
+
+function splitProductVariant(productName: string, notes?: string) {
+  const [baseName, ...variantParts] = productName.split(" - ");
+  const variantName = variantParts.join(" - ").trim();
+  const hasVariantSignal = Boolean(variantName && noteParts(notes).some((part) => part.toLocaleLowerCase("es") === variantName.toLocaleLowerCase("es")));
+
+  if (!hasVariantSignal) {
+    return {
+      productName,
+      variantName: "",
+    };
+  }
+
+  return {
+    productName: baseName.trim() || productName,
+    variantName,
+  };
+}
+
+function normalizeDetailPart(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function kitchenDetailLabel(item: Order["items"][number], variantName: string) {
+  const notes = noteParts(item.notes)
+    .filter((part) => part.toLocaleLowerCase("es") !== variantName.toLocaleLowerCase("es"));
+  const details = [variantName, ...notes].map(normalizeDetailPart).filter(Boolean);
+  return details.length ? details.join(" | ") : "Normal";
+}
+
+export function groupKitchenOrderItems(items: Order["items"]): KitchenGroupedOrderItem[] {
+  const groups = new Map<string, KitchenGroupedOrderItem & { detailMap: Map<string, KitchenGroupedOrderItemDetail> }>();
+
+  for (const item of items) {
+    const { productName, variantName } = splitProductVariant(item.productName, item.notes);
+    const groupKey = productName.toLocaleLowerCase("es");
+    const detailLabel = kitchenDetailLabel(item, variantName);
+    const current =
+      groups.get(groupKey) ??
+      ({
+        productName,
+        quantity: 0,
+        subtotal: 0,
+        prepMinutes: prepMinutesForItem(item),
+        details: [],
+        detailMap: new Map<string, KitchenGroupedOrderItemDetail>(),
+      } satisfies KitchenGroupedOrderItem & { detailMap: Map<string, KitchenGroupedOrderItemDetail> });
+
+    current.quantity += item.quantity;
+    current.subtotal += item.subtotal;
+    current.prepMinutes = Math.max(current.prepMinutes, prepMinutesForItem(item));
+
+    const detailKey = detailLabel.toLocaleLowerCase("es");
+    const detail = current.detailMap.get(detailKey) ?? { label: detailLabel, quantity: 0, subtotal: 0 };
+    detail.quantity += item.quantity;
+    detail.subtotal += item.subtotal;
+    current.detailMap.set(detailKey, detail);
+    groups.set(groupKey, current);
+  }
+
+  return Array.from(groups.values()).map(({ detailMap, ...group }) => ({
+    ...group,
+    subtotal: Number(group.subtotal.toFixed(2)),
+    details:
+      detailMap.size === 1 && detailMap.values().next().value?.label === "Normal"
+        ? []
+        : Array.from(detailMap.values()).map((detail) => ({
+            ...detail,
+            subtotal: Number(detail.subtotal.toFixed(2)),
+          })),
+  }));
+}
+
 export function kitchenDueDate(order: Order) {
   return new Date(new Date(kitchenStartDate(order)).getTime() + orderPrepMinutes(order) * 60000);
 }

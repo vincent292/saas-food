@@ -1,33 +1,26 @@
 "use client";
 
-import { AlertTriangle, Clock, History, Maximize2, Minimize2, Printer, RefreshCw, Truck } from "lucide-react";
+import { AlertTriangle, Clock, History, Maximize2, Minimize2, RefreshCw, Truck } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import {
   READY_PICKUP_WARNING_MINUTES,
   elapsedLabel,
+  groupKitchenOrderItems,
   groupReceiptLinksFromNotes,
   kitchenDueDate,
   kitchenStartDate,
   minutesSince,
   minutesUntil,
-  orderPrepMinutes,
-  orderSourceLabel,
-  paymentMethodLabels,
-  prepMinutesForItem,
 } from "@/components/orders/orderPresentation";
 import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
-import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
-import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils/cn";
-import { formatShortTime } from "@/lib/utils/dates";
 import { createClient } from "@/lib/supabase/client";
 import type { Order } from "@/types/order.types";
-import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
+import type { Restaurant } from "@/types/restaurant.types";
 
 type KitchenView = "operacion" | "historial";
 
@@ -50,11 +43,9 @@ function KitchenReceiptControls({ order }: { order: Order }) {
 
 export function KitchenBoardClient({
   restaurant,
-  settings,
   orders,
 }: {
   restaurant: Restaurant;
-  settings: RestaurantSettings | null;
   orders: Order[];
 }) {
   const router = useRouter();
@@ -192,7 +183,6 @@ export function KitchenBoardClient({
           <div className="-mx-4 overflow-x-auto overscroll-x-contain px-4 pb-3 scroll-px-4 [scrollbar-width:thin] sm:-mx-6 sm:px-6 sm:scroll-px-6 lg:-mx-8 lg:px-8 lg:scroll-px-8 xl:mx-0 xl:overflow-visible xl:px-0">
             <section className="flex w-max snap-x snap-mandatory gap-4 touch-pan-x xl:grid xl:w-auto xl:grid-cols-3 xl:snap-none">
               <KitchenColumn
-                defaultPrintFormat={settings?.printFormat ?? "thermal_80"}
                 description="Pedidos aprobados, contando contra su tiempo estimado."
                 emptyDescription="Cuando caja apruebe pedidos apareceran aqui automaticamente."
                 emptyTitle="Sin pedidos activos"
@@ -200,12 +190,10 @@ export function KitchenBoardClient({
                 focusMode={focusMode}
                 now={now}
                 orders={groups.cocina}
-                restaurant={restaurant}
                 tone="info"
                 title="En cocina"
               />
               <KitchenColumn
-                defaultPrintFormat={settings?.printFormat ?? "thermal_80"}
                 description="Ya paso la meta; mantener visible hasta que caja lo marque listo."
                 emptyDescription="Los pedidos dentro de tiempo no necesitan atencion extra."
                 emptyTitle="Nada vencido"
@@ -213,12 +201,10 @@ export function KitchenBoardClient({
                 focusMode={focusMode}
                 now={now}
                 orders={groups.vencidos}
-                restaurant={restaurant}
                 tone="danger"
                 title="Tiempo cumplido"
               />
               <KitchenColumn
-                defaultPrintFormat={settings?.printFormat ?? "thermal_80"}
                 description="Marcados listos desde caja/despacho; vigilar si nadie recoge."
                 emptyDescription="Cuando caja marque un pedido listo aparecera aqui."
                 emptyTitle="Nada listo"
@@ -226,7 +212,6 @@ export function KitchenBoardClient({
                 focusMode={focusMode}
                 now={now}
                 orders={groups.despacho}
-                restaurant={restaurant}
                 tone="success"
                 title="Listo para despacho"
               />
@@ -235,7 +220,7 @@ export function KitchenBoardClient({
         ) : groups.historial.length ? (
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {groups.historial.map((order) => (
-              <KitchenCard defaultPrintFormat={settings?.printFormat ?? "thermal_80"} key={order.id} now={now} order={order} restaurant={restaurant} />
+              <KitchenCard key={order.id} now={now} order={order} />
             ))}
           </section>
         ) : (
@@ -275,9 +260,7 @@ function KitchenColumn({
   focusMode,
   tone,
   orders,
-  restaurant,
   now,
-  defaultPrintFormat,
 }: {
   title: string;
   description: string;
@@ -287,9 +270,7 @@ function KitchenColumn({
   focusMode: boolean;
   tone: "info" | "warning" | "success" | "danger";
   orders: Order[];
-  restaurant: Restaurant;
   now: Date;
-  defaultPrintFormat: PrintFormat;
 }) {
   return (
     <section
@@ -324,7 +305,7 @@ function KitchenColumn({
       {orders.length ? (
         <div className="grid gap-3">
           {orders.map((order) => (
-            <KitchenCard defaultPrintFormat={defaultPrintFormat} key={order.id} now={now} order={order} restaurant={restaurant} />
+            <KitchenCard key={order.id} now={now} order={order} />
           ))}
         </div>
       ) : (
@@ -339,23 +320,19 @@ function KitchenColumn({
 
 function KitchenCard({
   order,
-  restaurant,
   now,
-  defaultPrintFormat,
 }: {
   order: Order;
-  restaurant: Restaurant;
   now: Date;
-  defaultPrintFormat: PrintFormat;
 }) {
   const dueAt = kitchenDueDate(order);
   const remainingMinutes = minutesUntil(dueAt, now);
-  const prepMinutes = orderPrepMinutes(order);
   const isReady = order.status === "ready";
   const isDelivered = order.status === "delivered";
   const readyWaitMinutes = isReady ? minutesSince(order.readyAt ?? kitchenStartDate(order), now) : 0;
   const readyWaitingTooLong = isReady && readyWaitMinutes >= READY_PICKUP_WARNING_MINUTES;
   const isOverdue = !isReady && !isDelivered && remainingMinutes <= 0;
+  const groupedItems = useMemo(() => groupKitchenOrderItems(order.items), [order.items]);
   const tone = kitchenCardTone({
     isDelivered,
     isOverdue,
@@ -366,83 +343,53 @@ function KitchenCard({
   });
 
   return (
-    <Card className={cn("overflow-hidden rounded-[1.15rem] p-0", (isOverdue || readyWaitingTooLong) && "border-[var(--color-danger-strong)]")}>
-      <div className={cn("flex items-center justify-between gap-3 border-b px-4 py-3", tone.className)}>
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.12em]">{tone.eyebrow}</p>
-          <p className="text-2xl font-black">{tone.value}</p>
+    <Card className={cn("overflow-hidden rounded-[1rem] p-0", (isOverdue || readyWaitingTooLong) && "border-[var(--color-danger-strong)]")}>
+      <div className="border-b border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Pedido</p>
+            <h2 className="truncate text-3xl font-black leading-none text-[var(--text)]">{order.orderNumber}</h2>
+          </div>
+          <span className={cn("shrink-0 rounded-full border px-2.5 py-1 text-xs font-black", tone.className)}>
+            {tone.value}
+          </span>
         </div>
-        <span className="rounded-full bg-[var(--color-card-soft)] px-3 py-1 text-xs font-black text-[var(--color-heading)]">{tone.label}</span>
       </div>
 
-      <div className="space-y-4 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-[var(--muted)]">Pedido {order.orderNumber}</p>
-            <h2 className="text-xl font-black text-[var(--text)]">{orderSourceLabel(order)}</h2>
-            <p className="mt-1 text-xs font-bold text-[var(--muted)]">{paymentMethodLabels[order.paymentMethod]}</p>
-            {order.paymentReceiptReference ? <p className="mt-1 text-xs font-black text-[var(--color-body)]">Referencia: {order.paymentReceiptReference}</p> : null}
-            <KitchenReceiptControls order={order} />
-          </div>
-          <OrderStatusBadge status={order.status} />
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <KitchenTimingPill label="Meta cocina" value={`${prepMinutes} min`} />
-          <KitchenTimingPill label={isReady ? "Listo desde" : isDelivered ? "Completado" : "Objetivo"} value={isReady ? (order.readyAt ? formatShortTime(order.readyAt) : "Listo") : isDelivered ? (order.deliveredAt ? formatShortTime(order.deliveredAt) : "Cerrado") : formatShortTime(dueAt)} />
-        </div>
-
-        <div className="space-y-2">
-          {order.items.map((item) => (
-            <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={item.id}>
-              <div className="flex items-start justify-between gap-3">
-                <p className="font-black text-[var(--text)]">
-                  {item.quantity}x {item.productName}
-                </p>
-                <span className="shrink-0 rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-black text-[var(--muted)]">{prepMinutesForItem(item)} min</span>
+      <div className="space-y-2 p-3">
+        <div className="space-y-1.5">
+          {groupedItems.map((item) => (
+            <div className="rounded-xl bg-[var(--color-surface)] px-2.5 py-2" key={item.productName}>
+              <div className="flex items-start gap-2">
+                <span className="grid h-7 min-w-7 shrink-0 place-items-center rounded-lg bg-[var(--primary)] px-1 text-sm font-black text-[var(--color-on-primary)]">{item.quantity}x</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="break-words text-sm font-black leading-5 text-[var(--text)]">{item.productName}</p>
+                    <span className="shrink-0 rounded-full bg-[var(--surface)] px-2 py-0.5 text-[10px] font-black text-[var(--muted)]">{item.prepMinutes} min</span>
+                  </div>
+                  {item.details.length ? (
+                    <div className="mt-1 grid gap-0.5">
+                      {item.details.map((detail) => (
+                        <p className="text-xs font-bold leading-4 text-[var(--muted)]" key={detail.label}>
+                          {detail.quantity}x {detail.label}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
-              {item.notes ? <p className="mt-1 text-sm font-semibold text-[var(--muted)]">{item.notes}</p> : null}
             </div>
           ))}
         </div>
 
-        {order.notes ? <p className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-semibold text-[var(--color-warning-strong)]">{order.notes}</p> : null}
-
-        <div className="grid grid-cols-2 gap-2">
-          <button className={buttonClasses("secondary", "min-h-10 px-3 text-xs")} onClick={() => printOrderTicket({ order, restaurantName: restaurant.name, format: defaultPrintFormat })} type="button">
-            <Printer className="h-4 w-4" />
-            Ticket
-          </button>
-          <button className={buttonClasses("secondary", "min-h-10 px-3 text-xs")} onClick={() => printOrderTicket({ order, restaurantName: restaurant.name, format: "large" })} type="button">
-            <Printer className="h-4 w-4" />
-            Grande
-          </button>
-        </div>
-
-        {!isReady && !isDelivered ? (
-          <div className={cn("rounded-2xl p-3 text-center text-sm font-black", isOverdue ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]" : "bg-[var(--primary-light)] text-[var(--primary-dark)]")}>
-            Cocina avisa el numero cuando salga; caja/despacho marca listo.
-          </div>
-        ) : order.status === "ready" ? (
-          <div className={cn("rounded-2xl p-3 text-center text-sm font-black", readyWaitingTooLong ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]" : "bg-[var(--primary-light)] text-[var(--primary-dark)]")}>
-            Esperando recojo o despacho desde caja
-          </div>
-        ) : (
-          <div className="rounded-2xl bg-[var(--color-neutral-100)] p-3 text-center text-sm font-black text-[var(--color-body)]">
-            En historial
-          </div>
-        )}
+        {order.paymentReceiptUrl || groupReceiptLinksFromNotes(order.notes).length ? (
+          <details className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2">
+            <summary className="cursor-pointer text-xs font-black text-[var(--muted)]">Comprobantes</summary>
+            <KitchenReceiptControls order={order} />
+          </details>
+        ) : null}
       </div>
     </Card>
-  );
-}
-
-function KitchenTimingPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl bg-[var(--color-surface)] px-3 py-2">
-      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">{label}</p>
-      <p className="mt-1 text-sm font-black text-[var(--text)]">{value}</p>
-    </div>
   );
 }
 

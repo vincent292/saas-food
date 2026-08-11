@@ -1,8 +1,8 @@
 "use client";
 
-import { AlertTriangle, Banknote, Bike, Calculator, CheckCircle2, Clock3, Copy, CreditCard, ExternalLink, FileText, History, Maximize2, MessageCircle, PackageSearch, QrCode, ReceiptText, Search, ShoppingBag, Store, X, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Banknote, Bike, Calculator, CheckCircle2, Clock3, Copy, CreditCard, ExternalLink, FileText, History, Maximize2, MessageCircle, PackageSearch, Printer, QrCode, ReceiptText, Search, ShoppingBag, Store, X, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import QRCode from "qrcode";
@@ -13,6 +13,7 @@ import { POSProductGrid } from "@/components/cash/POSProductGrid";
 import { DeliveryDispatchPanel } from "@/components/delivery/DeliveryDispatchPanel";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { READY_PICKUP_WARNING_MINUTES, elapsedLabel, kitchenDueDate, minutesSince, minutesUntil, orderPrepMinutes } from "@/components/orders/orderPresentation";
+import { printOrderTicket } from "@/components/orders/printOrder";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -31,17 +32,11 @@ import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
 
 type CashTab = "venta" | "pedidos" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
 
-const CASH_REFRESH_FAST_INTERVAL_MS = 5000;
-const CASH_REFRESH_QUIET_INTERVAL_MS = 10000;
+const CASH_REFRESH_FAST_INTERVAL_MS = 15000;
+const CASH_REFRESH_QUIET_INTERVAL_MS = 30000;
 const CASH_REALTIME_REFRESH_DEBOUNCE_MS = 250;
 const CASH_REFRESH_MIN_GAP_MS = 3000;
-
-function normalizeTab(value: string | undefined): CashTab {
-  if (value === "pedidos" || value === "delivery" || value === "recojo" || value === "movimientos" || value === "egresos" || value === "cierre" || value === "reportes") {
-    return value;
-  }
-  return "venta";
-}
+const operationalTabs = new Set<CashTab>(["pedidos", "delivery", "recojo"]);
 
 function statusMessage(status: CashPageStatus, businessType: Restaurant["businessType"], kitchenEnabled = true) {
   const hasKitchenFlow = businessTypeSupportsKitchen(businessType) && kitchenEnabled;
@@ -144,11 +139,11 @@ export function CashWorkspaceClient({
   cashAudit: CashAuditSnapshot | null;
 }) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<CashTab>(() => normalizeTab(status.tab));
-  const [isTabPending, startTabTransition] = useTransition();
+  const [activeTab, setActiveTab] = useState<CashTab>(loadedTab);
   const [showPosCreatedModal, setShowPosCreatedModal] = useState(Boolean(status.pos && status.posOrderId && status.posTrackingToken));
   const [showLargeTrackingQr, setShowLargeTrackingQr] = useState(false);
   const [posWhatsAppPhone, setPosWhatsAppPhone] = useState(status.posCustomerPhone ?? "");
+  const [blockedAutoPrintOrderId, setBlockedAutoPrintOrderId] = useState("");
   const [orderSearch, setOrderSearch] = useState("");
   const [now, setNow] = useState(() => new Date());
   const [copied, setCopied] = useState(false);
@@ -158,9 +153,15 @@ export function CashWorkspaceClient({
   const lastRefreshAtRef = useRef(0);
 
   useEffect(() => {
+    lastRefreshAtRef.current = Date.now();
     const timer = window.setTimeout(() => setClientOrigin(window.location.origin), 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setActiveTab(loadedTab), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadedTab]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
@@ -168,6 +169,10 @@ export function CashWorkspaceClient({
   }, []);
 
   useEffect(() => {
+    if (!operationalTabs.has(activeTab)) {
+      return;
+    }
+
     const refresh = () => {
       if (document.visibilityState === "hidden") {
         return;
@@ -196,7 +201,7 @@ export function CashWorkspaceClient({
       }
       supabase.removeChannel(channel);
     };
-  }, [restaurant.id, router]);
+  }, [activeTab, restaurant.id, router]);
 
   const todaysOrders = useMemo(() => orders.filter((order) => isSameBusinessDay(order.createdAt)), [orders]);
   const pendingOrders = useMemo(() => todaysOrders.filter((order) => order.status === "pending" && order.orderType !== "delivery" && order.orderType !== "pickup"), [todaysOrders]);
@@ -225,20 +230,23 @@ export function CashWorkspaceClient({
   const visibleActiveTableOrders = useMemo(() => activeTableOrders.filter(matchesOrderSearch), [activeTableOrders, matchesOrderSearch]);
   const visibleDeliveryOrders = useMemo(() => deliveryOrders.filter(matchesOrderSearch), [deliveryOrders, matchesOrderSearch]);
   const visiblePickupOrders = useMemo(() => pickupOrders.filter(matchesOrderSearch), [pickupOrders, matchesOrderSearch]);
+  const activeDeliveryOrderCount = useMemo(() => deliveryOrders.filter((order) => order.status !== "delivered").length, [deliveryOrders]);
+  const activePickupOrderCount = useMemo(() => pickupOrders.filter((order) => order.status !== "delivered").length, [pickupOrders]);
   const activeOperationalOrderCount = useMemo(
     () =>
       pendingOrders.length +
       activeTableOrders.length +
-      deliveryOrders.filter((order) => order.status !== "delivered").length +
-      pickupOrders.filter((order) => order.status !== "delivered").length,
-    [activeTableOrders.length, deliveryOrders, pendingOrders.length, pickupOrders],
+      activeDeliveryOrderCount +
+      activePickupOrderCount,
+    [activeDeliveryOrderCount, activePickupOrderCount, activeTableOrders.length, pendingOrders.length],
   );
-  const fallbackRefreshIntervalMs = activeOperationalOrderCount > 0 ? CASH_REFRESH_FAST_INTERVAL_MS : CASH_REFRESH_QUIET_INTERVAL_MS;
+  const fallbackRefreshIntervalMs = operationalTabs.has(activeTab) && activeOperationalOrderCount > 0 ? CASH_REFRESH_FAST_INTERVAL_MS : CASH_REFRESH_QUIET_INTERVAL_MS;
   const ordersById = useMemo(() => new Map(todaysOrders.map((order) => [order.id, order])), [todaysOrders]);
   const latestReport = reports[0];
   const banner = statusMessage(status, restaurant.businessType, settings?.kitchenEnabled ?? true);
-  const hasOperationalCounts = true;
-  const activeTabIsLoaded = activeTab === loadedTab;
+  const hasOperationalCounts = loadedTab === "pedidos" || loadedTab === "delivery" || loadedTab === "recojo" || loadedTab === "movimientos";
+  const activeTabIsLoaded = activeTab === loadedTab || (operationalTabs.has(activeTab) && operationalTabs.has(loadedTab));
+  const hasFullCashSummary = loadedTab === "venta" || loadedTab === "movimientos" || loadedTab === "egresos" || loadedTab === "cierre" || loadedTab === "reportes";
   const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
   const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
   const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType) && (settings?.kitchenEnabled ?? true);
@@ -250,6 +258,39 @@ export function CashWorkspaceClient({
     posWhatsAppPhone.replace(/\D/g, "") && trackingUrl
       ? `https://wa.me/${posWhatsAppPhone.replace(/\D/g, "")}?text=${encodeURIComponent(`Tu pedido ${status.posOrderNumber ?? ""} ya fue registrado. Puedes seguirlo aqui: ${trackingUrl}`)}`
       : "";
+
+  useEffect(() => {
+    if (!settings?.autoPrintKitchen || !status.charged) {
+      return;
+    }
+
+    const order = ordersById.get(status.charged);
+    if (!order) {
+      return;
+    }
+
+    const storageKey = `yopido:auto-print:${restaurant.id}:${status.charged}`;
+    if (window.sessionStorage.getItem(storageKey)) {
+      return;
+    }
+
+    const opened = printOrderTicket({
+      order,
+      restaurantName: restaurant.name,
+      restaurantLogoUrl: restaurant.logoUrl,
+      format: settings.printFormat ?? "thermal_80",
+      printLogo: settings.printLogo ?? true,
+    });
+
+    if (opened) {
+      window.sessionStorage.setItem(storageKey, "1");
+      window.setTimeout(() => setBlockedAutoPrintOrderId(""), 0);
+    } else {
+      window.setTimeout(() => setBlockedAutoPrintOrderId(order.id), 0);
+    }
+  }, [ordersById, restaurant.id, restaurant.logoUrl, restaurant.name, settings?.autoPrintKitchen, settings?.printFormat, settings?.printLogo, status.charged]);
+
+  const blockedAutoPrintOrder = blockedAutoPrintOrderId ? ordersById.get(blockedAutoPrintOrderId) : undefined;
 
   useEffect(() => {
     let active = true;
@@ -312,12 +353,21 @@ export function CashWorkspaceClient({
   }, [fallbackRefreshIntervalMs, router]);
 
   function switchTab(nextTab: CashTab) {
-    setActiveTab(nextTab);
+    if (nextTab === activeTab) {
+      return;
+    }
+
+    if (operationalTabs.has(nextTab) && operationalTabs.has(loadedTab)) {
+      setActiveTab(nextTab);
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", nextTab);
+      window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}`);
+      return;
+    }
+
     const url = new URL(window.location.href);
     url.searchParams.set("tab", nextTab);
-    startTabTransition(() => {
-      router.replace(`${url.pathname}?${url.searchParams.toString()}`, { scroll: false });
-    });
+    router.replace(`${url.pathname}?${url.searchParams.toString()}`, { scroll: false });
   }
 
   const sessionText = summary.session
@@ -344,9 +394,19 @@ export function CashWorkspaceClient({
           </div>
 
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:flex lg:items-center">
-            <CompactCashMetric amount={summary.expectedCash} label="Efectivo" tone={summary.session ? "success" : "neutral"} />
-            <CompactCashMetric amount={summary.salesTotal} label="Ventas" />
-            <CompactCashMetric amount={summary.digitalTotal} label="Digital" />
+            {hasFullCashSummary ? (
+              <>
+                <CompactCashMetric amount={summary.expectedCash} label="Efectivo" tone={summary.session ? "success" : "neutral"} />
+                <CompactCashMetric amount={summary.salesTotal} label="Ventas" />
+                <CompactCashMetric amount={summary.digitalTotal} label="Digital" />
+              </>
+            ) : (
+              <>
+                <CompactCountMetric count={pendingOrders.length + activeTableOrders.length} label="Pedidos" tone={summary.session ? "success" : "neutral"} />
+                <CompactCountMetric count={activeDeliveryOrderCount} label="Delivery" />
+                <CompactCountMetric count={activePickupOrderCount} label="Recojo" />
+              </>
+            )}
             <Button className="col-span-3 min-h-10 whitespace-nowrap px-4 text-sm sm:col-span-1 sm:min-h-12" onClick={() => switchTab("cierre")} type="button" variant={summary.session ? "secondary" : "primary"}>
               {summary.session ? "Cerrar turno" : "Abrir caja"}
             </Button>
@@ -421,7 +481,32 @@ export function CashWorkspaceClient({
         <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>{banner.text}</div>
       ) : null}
 
-      {isTabPending ? <div className="rounded-2xl bg-[var(--color-info-soft)] p-3 text-sm font-bold text-[var(--color-info-strong)]">Actualizando datos de caja...</div> : null}
+      {blockedAutoPrintOrder ? (
+        <div className="flex flex-col gap-3 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-semibold text-[var(--color-warning-strong)] sm:flex-row sm:items-center sm:justify-between">
+          <span>El navegador bloqueo la ventana de impresion automatica del pedido {blockedAutoPrintOrder.orderNumber}.</span>
+          <Button
+            className="min-h-10 shrink-0 px-3 text-xs"
+            onClick={() => {
+              const opened = printOrderTicket({
+                order: blockedAutoPrintOrder,
+                restaurantName: restaurant.name,
+                restaurantLogoUrl: restaurant.logoUrl,
+                format: settings?.printFormat ?? "thermal_80",
+                printLogo: settings?.printLogo ?? true,
+              });
+              if (opened) {
+                window.sessionStorage.setItem(`yopido:auto-print:${restaurant.id}:${blockedAutoPrintOrder.id}`, "1");
+                setBlockedAutoPrintOrderId("");
+              }
+            }}
+            type="button"
+            variant="secondary"
+          >
+            <Printer className="h-4 w-4" />
+            Imprimir ticket
+          </Button>
+        </div>
+      ) : null}
 
       {showPosCreatedModal && status.posOrderNumber ? (
         <div className="fixed inset-0 z-[85] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">
@@ -731,6 +816,15 @@ function CompactCashMetric({ label, amount, tone = "neutral" }: { label: string;
     <div className={cn("min-w-0 rounded-2xl px-3 py-2", tone === "success" ? "bg-[var(--color-success-soft)]" : "bg-[var(--color-neutral-100)]")}>
       <p className={cn("truncate text-[10px] font-black uppercase tracking-[0.12em]", tone === "success" ? "text-[var(--color-success-strong)]" : "text-[var(--color-secondary-text)]")}>{label}</p>
       <p className={cn("truncate text-sm font-black sm:text-base", tone === "success" ? "text-[var(--color-success-strong)]" : "text-[var(--color-heading)]")}>{formatMoney(amount)}</p>
+    </div>
+  );
+}
+
+function CompactCountMetric({ label, count, tone = "neutral" }: { label: string; count: number; tone?: "neutral" | "success" }) {
+  return (
+    <div className={cn("min-w-0 rounded-2xl px-3 py-2", tone === "success" ? "bg-[var(--color-success-soft)]" : "bg-[var(--color-neutral-100)]")}>
+      <p className={cn("truncate text-[10px] font-black uppercase tracking-[0.12em]", tone === "success" ? "text-[var(--color-success-strong)]" : "text-[var(--color-secondary-text)]")}>{label}</p>
+      <p className={cn("truncate text-sm font-black sm:text-base", tone === "success" ? "text-[var(--color-success-strong)]" : "text-[var(--color-heading)]")}>{count}</p>
     </div>
   );
 }

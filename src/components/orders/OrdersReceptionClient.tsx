@@ -1,10 +1,11 @@
 "use client";
 
-import { ChefHat, CheckCircle2, Clock, ExternalLink, Printer, RefreshCw, Truck, Utensils } from "lucide-react";
+import { ChefHat, CheckCircle2, Clock, ExternalLink, Printer, RefreshCw, ShoppingCart, Truck, Utensils, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { refundOrderAction, updateOrderStatusAction } from "@/app/admin/actions";
+import { POSProductGrid } from "@/components/cash/POSProductGrid";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { elapsedLabel, groupReceiptLinksFromNotes, minutesSince, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
@@ -27,6 +28,7 @@ import {
   businessTypeSupportsKitchen,
 } from "@/lib/restaurant-directory-options";
 import type { Order } from "@/types/order.types";
+import type { Category, Product, ProductConfiguration } from "@/types/product.types";
 import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
 
 type ReceptionTab = "todos" | "nuevos" | "cocina" | "historial";
@@ -34,6 +36,8 @@ type ReceptionTab = "todos" | "nuevos" | "cocina" | "historial";
 type ReceptionStatus = {
   updated?: string;
   charged?: string;
+  pos?: string;
+  posOrderNumber?: string;
   rejected?: string;
   refunded?: string;
   error?: string;
@@ -49,6 +53,9 @@ function statusMessage(status: ReceptionStatus, restaurant: Restaurant, settings
 
   if (status.charged) {
     return { tone: "success", text: hasKitchenFlow ? "Pedido aprobado, cobrado y enviado a cocina." : "Pedido aprobado, cobrado y marcado listo." };
+  }
+  if (status.pos) {
+    return { tone: "success", text: status.posOrderNumber ? `Venta POS ${status.posOrderNumber} registrada correctamente.` : "Venta POS registrada correctamente." };
   }
   if (status.rejected) {
     return { tone: "success", text: "Pedido rechazado correctamente." };
@@ -119,16 +126,26 @@ export function OrdersReceptionClient({
   orders,
   hasOpenSession,
   status,
+  showFloatingPos = false,
+  products = [],
+  categories = [],
+  configuration = { variants: [], optionGroups: [] },
 }: {
   restaurant: Restaurant;
   settings: RestaurantSettings | null;
   orders: Order[];
   hasOpenSession: boolean;
   status: ReceptionStatus;
+  showFloatingPos?: boolean;
+  products?: Product[];
+  categories?: Category[];
+  configuration?: ProductConfiguration;
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ReceptionTab>(() => normalizeReceptionTab(status.tab));
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [blockedAutoPrintOrderId, setBlockedAutoPrintOrderId] = useState("");
+  const [posOpen, setPosOpen] = useState(false);
   const refreshTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -199,6 +216,39 @@ export function OrdersReceptionClient({
   const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType) && (settings?.kitchenEnabled ?? true);
   const queueLabel = businessQueueLabel(restaurant.businessType);
 
+  useEffect(() => {
+    if (!settings?.autoPrintKitchen || !status.charged) {
+      return;
+    }
+
+    const order = orders.find((item) => item.id === status.charged);
+    if (!order) {
+      return;
+    }
+
+    const storageKey = `yopido:auto-print:${restaurant.id}:${status.charged}`;
+    if (window.sessionStorage.getItem(storageKey)) {
+      return;
+    }
+
+    const opened = printOrderTicket({
+      order,
+      restaurantName: restaurant.name,
+      restaurantLogoUrl: restaurant.logoUrl,
+      format: settings.printFormat ?? "thermal_80",
+      printLogo: settings.printLogo ?? true,
+    });
+
+    if (opened) {
+      window.sessionStorage.setItem(storageKey, "1");
+      window.setTimeout(() => setBlockedAutoPrintOrderId(""), 0);
+    } else {
+      window.setTimeout(() => setBlockedAutoPrintOrderId(order.id), 0);
+    }
+  }, [orders, restaurant.id, restaurant.logoUrl, restaurant.name, settings?.autoPrintKitchen, settings?.printFormat, settings?.printLogo, status.charged]);
+
+  const blockedAutoPrintOrder = blockedAutoPrintOrderId ? orders.find((order) => order.id === blockedAutoPrintOrderId) : undefined;
+
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -247,6 +297,32 @@ export function OrdersReceptionClient({
         <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>{banner.text}</div>
       ) : null}
 
+      {blockedAutoPrintOrder ? (
+        <div className="flex flex-col gap-3 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-semibold text-[var(--color-warning-strong)] sm:flex-row sm:items-center sm:justify-between">
+          <span>El navegador bloqueo la ventana de impresion automatica del pedido {blockedAutoPrintOrder.orderNumber}.</span>
+          <button
+            className={buttonClasses("secondary", "min-h-10 shrink-0 px-3 text-xs")}
+            onClick={() => {
+              const opened = printOrderTicket({
+                order: blockedAutoPrintOrder,
+                restaurantName: restaurant.name,
+                restaurantLogoUrl: restaurant.logoUrl,
+                format: settings?.printFormat ?? "thermal_80",
+                printLogo: settings?.printLogo ?? true,
+              });
+              if (opened) {
+                window.sessionStorage.setItem(`yopido:auto-print:${restaurant.id}:${blockedAutoPrintOrder.id}`, "1");
+                setBlockedAutoPrintOrderId("");
+              }
+            }}
+            type="button"
+          >
+            <Printer className="h-4 w-4" />
+            Imprimir ticket
+          </button>
+        </div>
+      ) : null}
+
       <section className="grid gap-3 md:grid-cols-3">
         <SummaryCard count={groups.nuevos.length} icon={<Clock className="h-5 w-5" />} label="Nuevos por aprobar" />
         <SummaryCard count={groups.cocina.length} icon={<CheckCircle2 className="h-5 w-5" />} label={queueLabel} />
@@ -268,7 +344,7 @@ export function OrdersReceptionClient({
                 order.status === "pending" ? (
                   <PendingOrderReviewCard businessType={restaurant.businessType} context="pedidos" disabled={!hasOpenSession} key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
-                  <ReceptionOrderCard defaultPrintFormat={settings?.printFormat ?? "thermal_80"} hasKitchenFlow={hasKitchenFlow} key={order.id} order={order} restaurant={restaurant} />
+                  <ReceptionOrderCard defaultPrintFormat={settings?.printFormat ?? "thermal_80"} hasKitchenFlow={hasKitchenFlow} key={order.id} order={order} printLogo={settings?.printLogo ?? true} restaurant={restaurant} />
                 ),
               )}
         </section>
@@ -278,6 +354,48 @@ export function OrdersReceptionClient({
           description="Cuando Supabase reciba o actualice pedidos aparecerán aquí automáticamente."
         />
       )}
+
+      {showFloatingPos ? (
+        <>
+          <button
+            className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-40 inline-flex min-h-14 items-center gap-2 rounded-full bg-[var(--primary)] px-5 text-sm font-black text-[var(--color-on-primary)] shadow-2xl transition hover:bg-[var(--primary-dark)]"
+            onClick={() => setPosOpen(true)}
+            type="button"
+          >
+            <ShoppingCart className="h-5 w-5" />
+            POS
+          </button>
+
+          {posOpen ? (
+            <div className="fixed inset-0 z-[80] bg-[var(--color-overlay)] p-2 text-[var(--text)] backdrop-blur-sm sm:p-4">
+              <div className="ml-auto flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-[1.35rem] bg-[var(--background)] shadow-2xl">
+                <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta rapida</p>
+                    <h2 className="truncate text-xl font-black text-[var(--text)]">POS desde Pedidos</h2>
+                  </div>
+                  <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={() => setPosOpen(false)} type="button">
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-3 sm:p-4">
+                  <POSProductGrid
+                    businessType={restaurant.businessType}
+                    categories={categories}
+                    configuration={configuration}
+                    disabled={!hasOpenSession}
+                    products={products}
+                    restaurantId={restaurant.id}
+                    restaurantSlug={restaurant.slug}
+                    settings={settings}
+                    source="pedidos"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -306,11 +424,13 @@ function ReceptionOrderCard({
   order,
   restaurant,
   defaultPrintFormat,
+  printLogo,
   hasKitchenFlow,
 }: {
   order: Order;
   restaurant: Restaurant;
   defaultPrintFormat: PrintFormat;
+  printLogo: boolean;
   hasKitchenFlow: boolean;
 }) {
   const minutes = minutesSince(order.createdAt, new Date());
@@ -358,11 +478,11 @@ function ReceptionOrderCard({
           </div>
 
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-            <button className={buttonClasses("secondary", "min-h-10 px-3 text-xs")} onClick={() => printOrderTicket({ order, restaurantName: restaurant.name, format: defaultPrintFormat })} type="button">
+            <button className={buttonClasses("secondary", "min-h-10 px-3 text-xs")} onClick={() => printOrderTicket({ order, restaurantName: restaurant.name, restaurantLogoUrl: restaurant.logoUrl, format: defaultPrintFormat, printLogo })} type="button">
               <Printer className="h-4 w-4" />
               Ticket
             </button>
-            <button className={buttonClasses("secondary", "min-h-10 px-3 text-xs")} onClick={() => printOrderTicket({ order, restaurantName: restaurant.name, format: "large" })} type="button">
+            <button className={buttonClasses("secondary", "min-h-10 px-3 text-xs")} onClick={() => printOrderTicket({ order, restaurantName: restaurant.name, restaurantLogoUrl: restaurant.logoUrl, format: "large", printLogo })} type="button">
               <Printer className="h-4 w-4" />
               Grande
             </button>

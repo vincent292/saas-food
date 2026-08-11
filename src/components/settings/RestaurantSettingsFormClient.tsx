@@ -638,25 +638,37 @@ export function RestaurantSettingsFormClient({
       </div>
 
       <div className={cn(activeTab === "impresion" ? "block" : "hidden")}>
-        <Card className="grid gap-4 md:grid-cols-2">
-          <SectionTitle title="Impresion" description="Tamano y formato por defecto para pedidos de caja y cocina." />
-          <div className="md:col-span-2" />
-          <Select defaultValue={settings?.printFormat ?? "thermal_80"} name="printFormat">
-            <option value="thermal_58">Ticket termico 58 mm</option>
-            <option value="thermal_80">Ticket termico 80 mm</option>
-            <option value="large">Hoja normal / formato grande</option>
-          </Select>
-          <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-            Usa 58/80 mm para impresora termica y hoja normal para impresion A4 o carta.
+        <Card className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="grid gap-4">
+            <SectionTitle title="Impresion de cocina" description="Formato que usan los botones de ticket y la impresion al aprobar pedidos." />
+            <FieldSelect label="Formato por defecto">
+              <Select defaultValue={settings?.printFormat ?? "thermal_80"} name="printFormat">
+                <option value="thermal_58">Ticket termico 58 mm</option>
+                <option value="thermal_80">Ticket termico 80 mm</option>
+                <option value="large">Hoja normal / formato grande</option>
+              </Select>
+            </FieldSelect>
+            <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)]">
+              <span>
+                <span className="block font-black text-[var(--color-heading)]">Abrir ticket al aprobar</span>
+                <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">Cuando caja aprueba y cobra, se abre el ticket de cocina con el dialogo de impresion del navegador.</span>
+              </span>
+              <input defaultChecked={settings?.autoPrintKitchen ?? false} name="autoPrintKitchen" type="checkbox" />
+            </label>
+            <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)]">
+              <span>
+                <span className="block font-black text-[var(--color-heading)]">Mostrar logo en ticket</span>
+                <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">Usa el logo guardado en la sucursal cuando sea una imagen valida.</span>
+              </span>
+              <input defaultChecked={settings?.printLogo ?? true} name="printLogo" type="checkbox" />
+            </label>
           </div>
-          <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)]">
-            Imprimir automaticamente en cocina
-            <input defaultChecked={settings?.autoPrintKitchen ?? false} name="autoPrintKitchen" type="checkbox" />
-          </label>
-          <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)]">
-            Mostrar logo en ticket
-            <input defaultChecked={settings?.printLogo ?? true} name="printLogo" type="checkbox" />
-          </label>
+
+          <div className="space-y-3 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+            <p className="font-black text-[var(--color-heading)]">Operacion sin pantalla</p>
+            <p>58/80 mm esta pensado para impresoras termicas de rollo. Formato grande sirve para impresora normal.</p>
+            <p>La impresion web abre una ventana de ticket y ejecuta imprimir. Para impresion silenciosa directa se necesita un puente local o impresora de red configurada fuera del navegador.</p>
+          </div>
         </Card>
       </div>
 

@@ -48,6 +48,7 @@ export function POSProductGrid({
   businessType,
   settings,
   disabled,
+  source = "caja",
 }: {
   categories: Category[];
   products: Product[];
@@ -57,6 +58,7 @@ export function POSProductGrid({
   businessType: BusinessType;
   settings: RestaurantSettings | null;
   disabled?: boolean;
+  source?: "caja" | "pedidos";
 }) {
   const [categoryId, setCategoryId] = useState("all");
   const [query, setQuery] = useState("");
@@ -231,6 +233,7 @@ export function POSProductGrid({
               qrAvailable={qrAvailable}
               qrPaymentUrl={qrPaymentUrl}
               qrSettings={settings}
+              source={source}
               submitLabel={submitLabel}
               preparationAreaLabel={preparationAreaLabel}
               removeItem={removeItem}
@@ -283,6 +286,7 @@ export function POSProductGrid({
               qrAvailable={qrAvailable}
               qrPaymentUrl={qrPaymentUrl}
               qrSettings={settings}
+              source={source}
               submitLabel={submitLabel}
               preparationAreaLabel={preparationAreaLabel}
               removeItem={removeItem}
@@ -322,6 +326,7 @@ function PosCartPanel({
   qrAvailable,
   qrPaymentUrl,
   qrSettings,
+  source,
   submitLabel,
   preparationAreaLabel,
   removeItem,
@@ -344,6 +349,7 @@ function PosCartPanel({
   qrAvailable: boolean;
   qrPaymentUrl: string;
   qrSettings: RestaurantSettings | null;
+  source: "caja" | "pedidos";
   submitLabel: string;
   preparationAreaLabel: string;
   removeItem: (cartId: string) => void;
@@ -412,6 +418,7 @@ function PosCartPanel({
         <input name="restaurantId" type="hidden" value={restaurantId} />
         <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
         <input name="cartJson" type="hidden" value={cartJson} />
+        <input name="source" type="hidden" value={source} />
         <div className="grid gap-3 rounded-2xl border border-[var(--border)] p-3">
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Origen del pedido</p>

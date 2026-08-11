@@ -27,11 +27,11 @@ export default async function KitchenPage({ params }: { params: Promise<{ restau
 
   await restaurantAccessService.claimOrRedirect(restaurant.id, `/cocina/${restaurant.slug}`);
 
-  const [orders, settings] = await Promise.all([kitchenService.listKitchenOrders(restaurant.id), restaurantService.getSettings(restaurant.id)]);
+  const orders = await kitchenService.listKitchenOrders(restaurant.id);
 
   return (
     <RestaurantThemeProvider>
-      <KitchenBoardClient orders={orders} restaurant={restaurant} settings={settings} />
+      <KitchenBoardClient orders={orders} restaurant={restaurant} />
     </RestaurantThemeProvider>
   );
 }

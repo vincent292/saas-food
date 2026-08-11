@@ -196,6 +196,28 @@ export const cashService = {
     return mapSession(data, profiles);
   },
 
+  async getSessionStatusSummary(restaurantId: string): Promise<CashSummary> {
+    if (!hasSupabaseEnv()) {
+      return emptySummary();
+    }
+
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("cash_sessions")
+      .select("id,restaurant_id,opened_by,closed_by,status,opening_amount,expected_amount,counted_amount,difference_amount,opened_at,closed_at,notes")
+      .eq("restaurant_id", restaurantId)
+      .eq("status", "open")
+      .order("opened_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) {
+      return emptySummary();
+    }
+
+    return emptySummary(mapSession(data as CashSessionRow));
+  },
+
   async listMovements(restaurantId: string, cashSessionId?: string) {
     if (!hasSupabaseEnv()) {
       return [];

@@ -39,12 +39,14 @@ export default async function CashPage({
 
   const activeTab = normalizeTab(status.tab);
   const needsPosCatalog = activeTab === "venta";
-  const needsOperationalOrders = true;
+  const needsOperationalOrders = activeTab === "pedidos" || activeTab === "delivery" || activeTab === "recojo" || activeTab === "movimientos";
   const needsMovements = activeTab === "movimientos";
   const needsReports = activeTab === "cierre" || activeTab === "reportes";
+  const needsCancellationReviewCount = activeTab === "cierre";
+  const needsFullCashSummary = activeTab === "venta" || activeTab === "movimientos" || activeTab === "egresos" || needsReports;
 
   const [summary, settings, products, categories, configuration, movements, orders, reports, pendingCancellationReviews, cashAudit] = await Promise.all([
-    cashService.getSummary(restaurant.id),
+    needsFullCashSummary ? cashService.getSummary(restaurant.id) : cashService.getSessionStatusSummary(restaurant.id),
     restaurantService.getSettings(restaurant.id),
     needsPosCatalog ? productService.listAvailableByRestaurant(restaurant.id) : Promise.resolve([]),
     needsPosCatalog ? categoryService.listByRestaurant(restaurant.id) : Promise.resolve([]),
@@ -52,7 +54,7 @@ export default async function CashPage({
     needsMovements ? cashService.listMovements(restaurant.id) : Promise.resolve([]),
     needsOperationalOrders ? orderService.listCashWorkspaceOrders(restaurant.id) : Promise.resolve([]),
     needsReports ? cashService.listSessionReports(restaurant.id) : Promise.resolve([]),
-    cashService.countPendingCashCancellationReviews(restaurant.id),
+    needsCancellationReviewCount ? cashService.countPendingCashCancellationReviews(restaurant.id) : Promise.resolve(0),
     needsReports ? cashService.getAuditSnapshot(restaurant.id) : Promise.resolve(null),
   ]);
 

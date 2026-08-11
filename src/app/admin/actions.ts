@@ -546,6 +546,7 @@ const createPosSaleSchema = z.object({
   customerName: z.string().optional(),
   customerPhone: z.string().optional(),
   orderOrigin: orderOriginSchema.default("pos_counter"),
+  source: z.enum(["caja", "pedidos"]).default("caja"),
   cart: z.array(posCartItemSchema).min(1),
 });
 
@@ -1846,6 +1847,10 @@ function cashErrorKey(error: { message?: string; code?: string } | null | undefi
 
 function orderDecisionRedirectPath(restaurantId: string, source: "pedidos" | "caja") {
   return source === "pedidos" ? `/admin/restaurantes/${restaurantId}/pedidos` : `/admin/restaurantes/${restaurantId}/caja?tab=pedidos`;
+}
+
+function posSaleRedirectPath(restaurantId: string, source: "pedidos" | "caja" = "caja") {
+  return source === "pedidos" ? `/admin/restaurantes/${restaurantId}/pedidos` : `/admin/restaurantes/${restaurantId}/caja?tab=venta`;
 }
 
 async function revalidateOrderDecisionPaths(restaurantId: string, restaurantSlug?: string) {
@@ -6597,7 +6602,7 @@ export async function chargeOrderAction(formData: FormData) {
   }
 
   await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
-  redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}charged=1`);
+  redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}charged=${parsed.data.orderId}`);
 }
 
 export async function rejectCashOrderAction(formData: FormData) {
@@ -6744,11 +6749,14 @@ export async function observeOrderCancellationReviewAction(formData: FormData) {
 
 export async function createPosSaleAction(formData: FormData) {
   const rawCart = String(formData.get("cartJson") ?? "[]");
+  const rawRestaurantId = String(formData.get("restaurantId") ?? "");
+  const rawSource = formData.get("source") === "pedidos" ? "pedidos" : "caja";
+  const fallbackPath = posSaleRedirectPath(rawRestaurantId, rawSource);
   let cart: unknown;
   try {
     cart = JSON.parse(rawCart);
   } catch {
-    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?tab=venta&error=invalid-pos-sale`);
+    redirect(`${fallbackPath}${fallbackPath.includes("?") ? "&" : "?"}error=invalid-pos-sale`);
   }
 
   const parsed = createPosSaleSchema.safeParse({
@@ -6759,14 +6767,16 @@ export async function createPosSaleAction(formData: FormData) {
     customerName: formData.get("customerName") || undefined,
     customerPhone: formData.get("customerPhone") || undefined,
     orderOrigin: formData.get("orderOrigin") || "pos_counter",
+    source: formData.get("source") || "caja",
     cart,
   });
 
   if (!parsed.success) {
-    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/caja?tab=venta&error=invalid-pos-sale`);
+    redirect(`${fallbackPath}${fallbackPath.includes("?") ? "&" : "?"}error=invalid-pos-sale`);
   }
 
-  await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta`);
+  const redirectPath = posSaleRedirectPath(parsed.data.restaurantId, parsed.data.source);
+  await requireRestaurantAccess(parsed.data.restaurantId, redirectPath);
 
   const { supabase, user } = await requireUser();
   void user;
@@ -6779,7 +6789,7 @@ export async function createPosSaleAction(formData: FormData) {
       .maybeSingle();
 
     if (!normalizeQrPaymentUrl(settings?.qr_payment_url)) {
-      redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta&error=qr-unavailable`);
+      redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=qr-unavailable`);
     }
   }
 
@@ -6790,7 +6800,7 @@ export async function createPosSaleAction(formData: FormData) {
       : null;
 
   if (parsed.data.paymentMethod === "qr" && !paymentReceiptUrl && !parsed.data.paymentReceiptReference) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta&error=receipt-required`);
+    redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=receipt-required`);
   }
 
   const orderNumber = `POS-${Date.now()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
@@ -6808,7 +6818,7 @@ export async function createPosSaleAction(formData: FormData) {
   });
 
   if (error) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=venta&error=${cashErrorKey(error, "pos-order")}`);
+    redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=${cashErrorKey(error, "pos-order")}`);
   }
 
   if (orderId && !(await restaurantUsesKitchenFlow(supabase, parsed.data.restaurantId))) {
@@ -6838,8 +6848,7 @@ export async function createPosSaleAction(formData: FormData) {
     .eq("id", orderId ?? "")
     .maybeSingle();
 
-  const redirectUrl = new URL(`/admin/restaurantes/${parsed.data.restaurantId}/caja`, await currentPublicOrigin());
-  redirectUrl.searchParams.set("tab", "venta");
+  const redirectUrl = new URL(redirectPath, await currentPublicOrigin());
   redirectUrl.searchParams.set("pos", "1");
 
   if (createdOrder?.id && createdOrder.order_number && createdOrder.tracking_token) {

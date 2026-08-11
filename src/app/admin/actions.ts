@@ -2046,11 +2046,6 @@ function optionalTimeInput(value?: string) {
   return normalized && /^([01]\d|2[0-3]):[0-5]\d$/.test(normalized) ? normalized : null;
 }
 
-function timeInputToMinutes(value: string) {
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
-}
-
 function validateProductScheduleInput({
   availableFrom,
   availableUntil,
@@ -2083,10 +2078,6 @@ function validateProductScheduleInput({
   const end = optionalTimeInput(availableEndTime);
   if ((availableStartTime && !start) || (availableEndTime && !end)) {
     return "invalid";
-  }
-
-  if (start && end && timeInputToMinutes(end) <= timeInputToMinutes(start)) {
-    return "time-order";
   }
 
   return null;

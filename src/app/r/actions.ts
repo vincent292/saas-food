@@ -250,6 +250,42 @@ function timeToMinutes(value?: string | null) {
   return hours * 60 + minutes;
 }
 
+function isWithinProductSchedule({
+  availableDays,
+  end,
+  minutes,
+  dayOfWeek,
+  start,
+}: {
+  availableDays?: number[] | null;
+  dayOfWeek: number;
+  end: number | null;
+  minutes: number;
+  start: number | null;
+}) {
+  const hasDayRestriction = Boolean(availableDays?.length);
+  const currentDayAllowed = !hasDayRestriction || Boolean(availableDays?.includes(dayOfWeek));
+  const previousDayAllowed = !hasDayRestriction || Boolean(availableDays?.includes((dayOfWeek + 6) % 7));
+
+  if (start == null && end == null) {
+    return currentDayAllowed;
+  }
+
+  if (start != null && end != null && start > end) {
+    return (currentDayAllowed && minutes >= start) || (previousDayAllowed && minutes <= end);
+  }
+
+  if (start != null && end != null) {
+    return currentDayAllowed && minutes >= start && minutes <= end;
+  }
+
+  if (start != null) {
+    return currentDayAllowed && minutes >= start;
+  }
+
+  return currentDayAllowed && end != null && minutes <= end;
+}
+
 function isProductCurrentlyOrderable(product: ProductPriceRow, date = new Date()) {
   if (!product.is_available) {
     return false;
@@ -264,22 +300,10 @@ function isProductCurrentlyOrderable(product: ProductPriceRow, date = new Date()
     return false;
   }
 
-  const { dayOfWeek, minutes } = boliviaScheduleParts(date);
-  if (product.available_days?.length && !product.available_days.includes(dayOfWeek)) {
-    return false;
-  }
-
   const start = timeToMinutes(product.available_start_time);
   const end = timeToMinutes(product.available_end_time);
-  if (start != null && minutes < start) {
-    return false;
-  }
-
-  if (end != null && minutes > end) {
-    return false;
-  }
-
-  return true;
+  const { dayOfWeek, minutes } = boliviaScheduleParts(date);
+  return isWithinProductSchedule({ availableDays: product.available_days, dayOfWeek, end, minutes, start });
 }
 
 async function getPublicOrderSettings(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {

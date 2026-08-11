@@ -86,6 +86,42 @@ function timeToMinutes(value?: string) {
   return hours * 60 + minutes;
 }
 
+function isWithinProductSchedule({
+  availableDays,
+  end,
+  minutes,
+  dayOfWeek,
+  start,
+}: {
+  availableDays?: number[] | null;
+  dayOfWeek: number;
+  end: number | null;
+  minutes: number;
+  start: number | null;
+}) {
+  const hasDayRestriction = Boolean(availableDays?.length);
+  const currentDayAllowed = !hasDayRestriction || Boolean(availableDays?.includes(dayOfWeek));
+  const previousDayAllowed = !hasDayRestriction || Boolean(availableDays?.includes((dayOfWeek + 6) % 7));
+
+  if (start == null && end == null) {
+    return currentDayAllowed;
+  }
+
+  if (start != null && end != null && start > end) {
+    return (currentDayAllowed && minutes >= start) || (previousDayAllowed && minutes <= end);
+  }
+
+  if (start != null && end != null) {
+    return currentDayAllowed && minutes >= start && minutes <= end;
+  }
+
+  if (start != null) {
+    return currentDayAllowed && minutes >= start;
+  }
+
+  return currentDayAllowed && end != null && minutes <= end;
+}
+
 function isProductCurrentlyOrderable(product: Product, date = new Date()) {
   if (!product.isAvailable) {
     return false;
@@ -100,22 +136,10 @@ function isProductCurrentlyOrderable(product: Product, date = new Date()) {
     return false;
   }
 
-  const { dayOfWeek, minutes } = boliviaScheduleParts(date);
-  if (product.availableDays?.length && !product.availableDays.includes(dayOfWeek)) {
-    return false;
-  }
-
   const start = timeToMinutes(product.availableStartTime);
   const end = timeToMinutes(product.availableEndTime);
-  if (start != null && minutes < start) {
-    return false;
-  }
-
-  if (end != null && minutes > end) {
-    return false;
-  }
-
-  return true;
+  const { dayOfWeek, minutes } = boliviaScheduleParts(date);
+  return isWithinProductSchedule({ availableDays: product.availableDays, dayOfWeek, end, minutes, start });
 }
 
 function normalizeProductName(value: string) {

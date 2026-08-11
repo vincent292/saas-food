@@ -97,6 +97,68 @@ function endOfToday() {
   return date;
 }
 
+function normalizeTime(value?: string | null) {
+  return value?.slice(0, 5) ?? "";
+}
+
+function timeToMinutes(value?: string | null) {
+  const normalized = normalizeTime(value);
+  const [hours, minutes] = normalized.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+  return hours * 60 + minutes;
+}
+
+function hourRangeHint(opensAt?: string | null, closesAt?: string | null) {
+  const opens = timeToMinutes(opensAt);
+  const closes = timeToMinutes(closesAt);
+
+  if (opens === null || closes === null) {
+    return "";
+  }
+
+  if (opens === closes) {
+    return "Abierto 24 horas.";
+  }
+
+  if (opens > closes) {
+    return "Cruza medianoche: cierra al dia siguiente.";
+  }
+
+  return "";
+}
+
+function BusinessHourEditorRow({ day, dayOfWeek, hour }: { day: string; dayOfWeek: number; hour?: BusinessHour }) {
+  const [opensAt, setOpensAt] = useState(hour?.opensAt || "09:00");
+  const [closesAt, setClosesAt] = useState(hour?.closesAt || "22:00");
+  const [isClosed, setIsClosed] = useState(hour?.isClosed ?? false);
+  const hint = isClosed ? "" : hourRangeHint(opensAt, closesAt);
+
+  return (
+    <div className="grid gap-3 rounded-2xl border border-[var(--border)] p-3 md:grid-cols-[140px_1fr_1fr_120px]">
+      <p className="font-bold text-[var(--color-heading)]">{day}</p>
+      <label className="space-y-1">
+        <span className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Abre (HH:mm)</span>
+        <Input disabled={isClosed} name={`day_${dayOfWeek}_opensAt`} onChange={(event) => setOpensAt(event.target.value)} type="time" value={opensAt} />
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Cierra (HH:mm)</span>
+        <Input disabled={isClosed} name={`day_${dayOfWeek}_closesAt`} onChange={(event) => setClosesAt(event.target.value)} type="time" value={closesAt} />
+      </label>
+      <label className="flex items-center gap-2 text-sm font-semibold text-[var(--color-body)]">
+        <input checked={isClosed} name={`day_${dayOfWeek}_isClosed`} onChange={(event) => setIsClosed(event.target.checked)} type="checkbox" />
+        Cerrado
+      </label>
+      {hint ? (
+        <div className="rounded-2xl border border-[var(--color-warning-border)] bg-[var(--color-warning-soft)] p-3 text-xs font-bold text-[var(--color-warning-strong)] md:col-start-2 md:col-end-5">
+          {hint}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("es-BO", {
     dateStyle: "short",
@@ -748,17 +810,7 @@ export function RestaurantSettingsFormClient({
             {days.map((day, dayOfWeek) => {
               const hour = hoursByDay.get(dayOfWeek);
 
-              return (
-                <div className="grid gap-3 rounded-2xl border border-[var(--border)] p-3 md:grid-cols-[140px_1fr_1fr_120px]" key={day}>
-                  <p className="font-bold text-[var(--color-heading)]">{day}</p>
-                  <Input defaultValue={hour?.opensAt || "09:00"} name={`day_${dayOfWeek}_opensAt`} type="time" />
-                  <Input defaultValue={hour?.closesAt || "22:00"} name={`day_${dayOfWeek}_closesAt`} type="time" />
-                  <label className="flex items-center gap-2 text-sm font-semibold text-[var(--color-body)]">
-                    <input defaultChecked={hour?.isClosed ?? false} name={`day_${dayOfWeek}_isClosed`} type="checkbox" />
-                    Cerrado
-                  </label>
-                </div>
-              );
+              return <BusinessHourEditorRow day={day} dayOfWeek={dayOfWeek} hour={hour} key={day} />;
             })}
           </div>
         </Card>

@@ -67,7 +67,7 @@ const saveErrorMessages: Record<string, string> = {
   "23503": "La categoria seleccionada no pertenece a este restaurante.",
   "schedule-past": "La fecha de programacion no puede ser anterior a hoy.",
   "schedule-order": "La fecha y hora de fin debe ser posterior al inicio.",
-  "time-order": "La hora fin debe ser posterior a la hora inicio.",
+  "time-order": "Revisa las horas de disponibilidad del producto.",
   "product-create": "No se pudo crear el producto.",
   "option-group": "No se pudo guardar el grupo de opciones.",
   "option-group-update": "No se pudo actualizar el grupo de opciones.",
@@ -1485,6 +1485,10 @@ function isTimeAfter(time: string, maxTime: string) {
   return Boolean(maxTime && time <= maxTime);
 }
 
+function isOvernightTimeRange(startTime: string, endTime: string) {
+  return Boolean(startTime && endTime && endTime < startTime);
+}
+
 function firstSelectableTime(minTime = "") {
   return timeOptions.find((time) => !isTimeBefore(time, minTime)) ?? "";
 }
@@ -1603,9 +1607,6 @@ function ProductSchedulePanel({
 
   function handleDailyStartTimeChange(value: string) {
     setDailyStartTime(value);
-    if (value && dailyEndTime && isTimeAfter(dailyEndTime, value)) {
-      setDailyEndTime("");
-    }
   }
 
   return (
@@ -1644,8 +1645,13 @@ function ProductSchedulePanel({
           timeValue={untilTime}
         />
         <ScheduleTimeSelect label="Hora inicio diaria (24h)" onChange={handleDailyStartTimeChange} value={dailyStartTime} />
-        <ScheduleTimeSelect label="Hora fin diaria (24h)" onChange={setDailyEndTime} requireTimeAfter={dailyStartTime} value={dailyEndTime} />
+        <ScheduleTimeSelect label="Hora fin diaria (24h)" onChange={setDailyEndTime} value={dailyEndTime} />
       </div>
+      {isOvernightTimeRange(dailyStartTime, dailyEndTime) ? (
+        <div className="mt-4 rounded-2xl border border-[var(--color-warning-border)] bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">
+          Esta disponibilidad cruza medianoche: termina al dia siguiente.
+        </div>
+      ) : null}
       <div className="mt-4">
         <p className="text-sm font-black text-[var(--text)]">Dias activos</p>
         <div className="mt-2 flex flex-wrap gap-2">

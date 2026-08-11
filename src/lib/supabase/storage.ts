@@ -128,7 +128,7 @@ export async function uploadTemporaryPublicImage(file: File | null, folder: stri
 
     const extension = extensionFromFile(file);
     const path = `${folder}/${crypto.randomUUID()}.${extension}`;
-    await putR2Object(r2.client, r2.config.publicBucket, path, file, `public, max-age=${maxAgeSeconds}`);
+    await putR2Object(r2.client, r2.config.publicBucket, path, file, `public, max-age=${maxAgeSeconds}`, new Date(Date.now() + maxAgeSeconds * 1000));
     return `${r2.config.publicUrl}/${path}`;
   }
 
@@ -170,7 +170,7 @@ export async function getPrivateFileSignedUrl(path: string) {
   );
 }
 
-async function putR2Object(client: S3Client, bucket: string, path: string, file: File, cacheControl: string) {
+async function putR2Object(client: S3Client, bucket: string, path: string, file: File, cacheControl: string, expiresAt?: Date) {
   await client.send(
     new PutObjectCommand({
       Bucket: bucket,
@@ -178,6 +178,7 @@ async function putR2Object(client: S3Client, bucket: string, path: string, file:
       Body: Buffer.from(await file.arrayBuffer()),
       ContentType: file.type || "application/octet-stream",
       CacheControl: cacheControl,
+      Expires: expiresAt,
     }),
   );
 }

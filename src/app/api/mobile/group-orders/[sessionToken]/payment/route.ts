@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { uploadPublicImage } from "@/lib/supabase/storage";
+import { deletePublicFileUrl, uploadTemporaryPublicImage } from "@/lib/supabase/storage";
 import {
   buildGroupOrderPayload,
   getMobileGroupAdmin,
   groupPaymentStatusSchema,
   groupPublicImageTypes,
+  groupTemporaryUploadMaxAgeSeconds,
   isNonEmptyFile,
   isGroupSessionExpired,
   mobileGroupError,
@@ -52,10 +53,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
   if (!supabase) return mobileGroupError("service-role-required", 500);
   const { data: session } = await supabase.from("group_order_sessions").select("id,restaurant_id,status,expires_at").eq("public_token", sessionToken).maybeSingle();
   if (!session || !["open", "locked"].includes(session.status) || isGroupSessionExpired(session)) return mobileGroupError("closed", 409);
+  const { data: participant } = await supabase
+    .from("group_order_participants")
+    .select("payment_receipt_url")
+    .eq("session_id", session.id)
+    .eq("participant_token", parsed.data.participantToken)
+    .maybeSingle();
 
   const paymentReceiptUrl =
     parsed.data.paymentStatus === "paid_qr" && paymentReceiptFile
-      ? await uploadPublicImage(paymentReceiptFile, `restaurants/${session.restaurant_id}/group-payment-receipts`)
+      ? await uploadTemporaryPublicImage(paymentReceiptFile, `temporary/group-orders/${session.restaurant_id}/payment-receipts`, groupTemporaryUploadMaxAgeSeconds)
       : parsed.data.paymentReceiptUrl || null;
 
   const { error } = await supabase
@@ -70,6 +77,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
     .eq("session_id", session.id)
     .eq("participant_token", parsed.data.participantToken);
   if (error) return mobileGroupError("payment");
+  if ((paymentReceiptFile || parsed.data.paymentStatus === "pending") && participant?.payment_receipt_url) {
+    await deletePublicFileUrl(participant.payment_receipt_url).catch(() => undefined);
+  }
 
   const payload = await buildGroupOrderPayload({ participantToken: parsed.data.participantToken, sessionToken, supabase });
   return NextResponse.json(payload);

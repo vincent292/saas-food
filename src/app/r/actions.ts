@@ -861,6 +861,12 @@ function participantPaymentLabel(status: string) {
   return "Pendiente";
 }
 
+function isMissingMultisiteColumnError(error: unknown) {
+  const candidate = error as { code?: string; details?: string; message?: string } | null;
+  const text = `${candidate?.message ?? ""} ${candidate?.details ?? ""}`.toLowerCase();
+  return candidate?.code === "PGRST204" || candidate?.code === "42703" || (text.includes("multisite_enabled") && (text.includes("schema cache") || text.includes("column")));
+}
+
 export async function createGroupOrderSessionAction(formData: FormData) {
   const parsed = createGroupOrderSessionSchema.safeParse({
     restaurantSlug: formData.get("restaurantSlug"),
@@ -920,21 +926,26 @@ export async function createGroupOrderSessionAction(formData: FormData) {
   const sessionToken = createShortToken(12);
   const hostAccessToken = createSecretToken();
   const hostParticipantToken = createSecretToken();
-
-  const { data: session, error: sessionError } = await admin
+  const sessionPayload = {
+    restaurant_id: restaurant.id,
+    public_token: sessionToken,
+    host_access_token: hostAccessToken,
+    host_name: parsed.data.hostName,
+    host_phone: parsed.data.hostPhone || null,
+    collect_mode: parsed.data.collectMode,
+    host_qr_url: hostQrUrl,
+  };
+  const sessionResult = await admin
     .from("group_order_sessions")
-    .insert({
-      restaurant_id: restaurant.id,
-      public_token: sessionToken,
-      host_access_token: hostAccessToken,
-      host_name: parsed.data.hostName,
-      host_phone: parsed.data.hostPhone || null,
-      collect_mode: parsed.data.collectMode,
-      host_qr_url: hostQrUrl,
-      multisite_enabled: parsed.data.multisiteEnabled,
-    })
+    .insert((parsed.data.multisiteEnabled ? { ...sessionPayload, multisite_enabled: true } : sessionPayload) as typeof sessionPayload)
     .select("id")
     .single();
+  const fallbackSessionResult =
+    parsed.data.multisiteEnabled && isMissingMultisiteColumnError(sessionResult.error)
+      ? await admin.from("group_order_sessions").insert(sessionPayload).select("id").single()
+      : sessionResult;
+  const session = fallbackSessionResult.data;
+  const sessionError = fallbackSessionResult.error;
 
   if (sessionError || !session) {
     redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=create`);
@@ -1310,14 +1321,25 @@ export async function updateGroupOrderSessionSettingsAction(formData: FormData) 
       ? await uploadPublicImage(hostQrFile, `restaurants/${session.restaurant_id}/group-host-qr`)
       : undefined;
 
-  const { error } = await writeClient
+  const updatePayload = {
+    collect_mode: settingsData.collectMode,
+    multisite_enabled: settingsData.multisiteEnabled,
+    ...(hostQrUrl ? { host_qr_url: hostQrUrl } : {}),
+  };
+  const updateResult = await writeClient
     .from("group_order_sessions")
-    .update({
-      collect_mode: settingsData.collectMode,
-      multisite_enabled: settingsData.multisiteEnabled,
-      ...(hostQrUrl ? { host_qr_url: hostQrUrl } : {}),
-    })
+    .update(updatePayload)
     .eq("id", session.id);
+  const fallbackUpdateResult = isMissingMultisiteColumnError(updateResult.error)
+    ? await writeClient
+        .from("group_order_sessions")
+        .update({
+          collect_mode: settingsData.collectMode,
+          ...(hostQrUrl ? { host_qr_url: hostQrUrl } : {}),
+        })
+        .eq("id", session.id)
+    : updateResult;
+  const error = fallbackUpdateResult.error;
 
   if (error) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "settings" }));

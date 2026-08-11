@@ -23,6 +23,12 @@ const createSchema = z.object({
   multisiteEnabled: z.boolean().optional().default(false),
 });
 
+function isMissingMultisiteColumnError(error: unknown) {
+  const candidate = error as { code?: string; details?: string; message?: string } | null;
+  const text = `${candidate?.message ?? ""} ${candidate?.details ?? ""}`.toLowerCase();
+  return candidate?.code === "PGRST204" || candidate?.code === "42703" || (text.includes("multisite_enabled") && (text.includes("schema cache") || text.includes("column")));
+}
+
 export async function POST(request: Request) {
   let body: unknown;
   let hostQrFile: File | null = null;
@@ -73,20 +79,26 @@ export async function POST(request: Request) {
   const sessionToken = createShortToken(12);
   const hostAccessToken = createSecretToken();
   const hostParticipantToken = createSecretToken();
-  const { data: session, error: sessionError } = await supabase
+  const sessionPayload = {
+    collect_mode: parsed.data.collectMode,
+    host_access_token: hostAccessToken,
+    host_name: parsed.data.hostName,
+    host_phone: parsed.data.hostPhone || null,
+    host_qr_url: parsed.data.collectMode === "host_collects" ? hostQrUrl : null,
+    public_token: sessionToken,
+    restaurant_id: restaurant.id,
+  };
+  const sessionResult = await supabase
     .from("group_order_sessions")
-    .insert({
-      collect_mode: parsed.data.collectMode,
-      host_access_token: hostAccessToken,
-      host_name: parsed.data.hostName,
-      host_phone: parsed.data.hostPhone || null,
-      host_qr_url: parsed.data.collectMode === "host_collects" ? hostQrUrl : null,
-      multisite_enabled: parsed.data.multisiteEnabled,
-      public_token: sessionToken,
-      restaurant_id: restaurant.id,
-    })
+    .insert((parsed.data.multisiteEnabled ? { ...sessionPayload, multisite_enabled: true } : sessionPayload) as typeof sessionPayload)
     .select("id")
     .single();
+  const fallbackSessionResult =
+    parsed.data.multisiteEnabled && isMissingMultisiteColumnError(sessionResult.error)
+      ? await supabase.from("group_order_sessions").insert(sessionPayload).select("id").single()
+      : sessionResult;
+  const session = fallbackSessionResult.data;
+  const sessionError = fallbackSessionResult.error;
 
   if (sessionError || !session) return mobileGroupError("create");
 

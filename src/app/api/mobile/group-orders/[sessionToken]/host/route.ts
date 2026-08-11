@@ -43,6 +43,12 @@ const hostSchema = z.discriminatedUnion("action", [
   }),
 ]);
 
+function isMissingMultisiteColumnError(error: unknown) {
+  const candidate = error as { code?: string; details?: string; message?: string } | null;
+  const text = `${candidate?.message ?? ""} ${candidate?.details ?? ""}`.toLowerCase();
+  return candidate?.code === "PGRST204" || candidate?.code === "42703" || (text.includes("multisite_enabled") && (text.includes("schema cache") || text.includes("column")));
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ sessionToken: string }> }) {
   const { sessionToken } = await params;
   let body: unknown;
@@ -141,14 +147,25 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
       parsed.data.collectMode === "host_collects" && hostQrFile
         ? await uploadTemporaryPublicImage(hostQrFile, `temporary/group-orders/${session.restaurant_id}/host-qr`, groupTemporaryUploadMaxAgeSeconds)
         : parsed.data.hostQrUrl || null;
-    const { error } = await supabase
+    const updatePayload = {
+      collect_mode: parsed.data.collectMode,
+      host_qr_url: parsed.data.collectMode === "host_collects" ? hostQrUrl : null,
+      multisite_enabled: parsed.data.multisiteEnabled,
+    };
+    const updateResult = await supabase
       .from("group_order_sessions")
-      .update({
-        collect_mode: parsed.data.collectMode,
-        host_qr_url: parsed.data.collectMode === "host_collects" ? hostQrUrl : null,
-        multisite_enabled: parsed.data.multisiteEnabled,
-      })
+      .update(updatePayload)
       .eq("id", session.id);
+    const fallbackUpdateResult = isMissingMultisiteColumnError(updateResult.error)
+      ? await supabase
+          .from("group_order_sessions")
+          .update({
+            collect_mode: parsed.data.collectMode,
+            host_qr_url: parsed.data.collectMode === "host_collects" ? hostQrUrl : null,
+          })
+          .eq("id", session.id)
+      : updateResult;
+    const error = fallbackUpdateResult.error;
     if (error) return mobileGroupError("settings");
     if (hostQrFile && session.host_qr_url) {
       await deletePublicFileUrl(session.host_qr_url).catch(() => undefined);

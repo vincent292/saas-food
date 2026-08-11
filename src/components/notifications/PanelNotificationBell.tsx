@@ -154,11 +154,11 @@ export function PanelNotificationBell({
             </button>
           </div>
 
-          <div className="admin-scrollbar max-h-[26rem] overflow-y-auto">
+          <div className="admin-scrollbar max-h-[min(60dvh,25rem)] overflow-y-auto">
             {allNotifications.length ? (
               allNotifications.map((notification) => (
                 <Link
-                  className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 border-b border-[var(--border)] p-4 transition last:border-b-0 hover:bg-[var(--color-surface)]"
+                  className="grid min-h-20 grid-cols-[auto_minmax(0,1fr)] gap-3 border-b border-[var(--border)] p-3 transition last:border-b-0 hover:bg-[var(--color-surface)]"
                   href={notification.href}
                   key={notification.id}
                   onClick={() => setOpen(false)}

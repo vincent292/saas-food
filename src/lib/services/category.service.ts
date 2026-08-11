@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createPublicServerClient } from "@/lib/supabase/public-server";
+import { perfLog, perfNow } from "@/lib/utils/perf";
 import type { Category } from "@/types/product.types";
 
 function mapCategory(row: {
@@ -29,19 +30,25 @@ export const categoryService = {
       return [];
     }
 
+    const totalStartedAt = perfNow();
     const supabase = await createClient();
+    const queryStartedAt = perfNow();
     const { data, error } = await supabase
       .from("categories")
-      .select("*")
+      .select("id,restaurant_id,name,description,image_url,sort_order,is_active")
       .eq("restaurant_id", restaurantId)
       .eq("is_active", true)
       .order("sort_order");
+    perfLog("[categoryService.listByRestaurant] query", queryStartedAt, { restaurantId, rows: data?.length ?? 0, error: Boolean(error) });
 
     if (error || !data?.length) {
+      perfLog("[categoryService.listByRestaurant] total", totalStartedAt, { restaurantId, rows: 0 });
       return [];
     }
 
-    return data.map(mapCategory);
+    const categories = data.map(mapCategory);
+    perfLog("[categoryService.listByRestaurant] total", totalStartedAt, { restaurantId, rows: categories.length });
+    return categories;
   },
 
   async listPublicByRestaurant(restaurantId: string) {

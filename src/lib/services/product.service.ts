@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createPublicServerClient } from "@/lib/supabase/public-server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { perfLog, perfNow } from "@/lib/utils/perf";
 import type { Product, ProductOption, ProductOptionGroup, ProductStockAvailability, ProductVariant } from "@/types/product.types";
 import type { Restaurant } from "@/types/restaurant.types";
 
@@ -238,10 +239,18 @@ export const productService = {
       return [];
     }
 
+    const totalStartedAt = perfNow();
     const supabase = await createClient();
-    const { data, error } = await supabase.from("products").select("*").eq("restaurant_id", restaurantId).order("sort_order");
+    const queryStartedAt = perfNow();
+    const { data, error } = await supabase
+      .from("products")
+      .select("id,restaurant_id,category_id,name,description,price,compare_at_price,prep_minutes,image_url,image_position_x,image_position_y,image_zoom,is_available,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time,order_count,last_ordered_at,track_stock,sort_order")
+      .eq("restaurant_id", restaurantId)
+      .order("sort_order");
+    perfLog("[productService.listByRestaurant] query", queryStartedAt, { restaurantId, rows: data?.length ?? 0, error: Boolean(error) });
 
     if (error || !data?.length) {
+      perfLog("[productService.listByRestaurant] total", totalStartedAt, { restaurantId, rows: 0 });
       return [];
     }
 
@@ -253,11 +262,16 @@ export const productService = {
         .map((product) => product.id),
     );
 
-    return data.map((product) => mapProduct(product, mostOrderedIds.has(product.id)));
+    const products = data.map((product) => mapProduct(product, mostOrderedIds.has(product.id)));
+    perfLog("[productService.listByRestaurant] total", totalStartedAt, { restaurantId, rows: products.length });
+    return products;
   },
 
   async listAvailableByRestaurant(restaurantId: string) {
-    return (await this.listByRestaurant(restaurantId)).filter((product) => isProductCurrentlyOrderable(product));
+    const totalStartedAt = perfNow();
+    const products = (await this.listByRestaurant(restaurantId)).filter((product) => isProductCurrentlyOrderable(product));
+    perfLog("[productService.listAvailableByRestaurant] total", totalStartedAt, { restaurantId, rows: products.length });
+    return products;
   },
 
   async listPublicAvailableByRestaurant(restaurantId: string) {
@@ -431,19 +445,49 @@ export const productService = {
       return { variants: [], optionGroups: [] };
     }
 
+    const totalStartedAt = perfNow();
     const supabase = await createClient();
+    const variantsStartedAt = perfNow();
+    const groupsStartedAt = perfNow();
+    const optionsStartedAt = perfNow();
     const [{ data: variants, error: variantsError }, { data: groups, error: groupsError }, { data: options, error: optionsError }] = await Promise.all([
-      supabase.from("product_variants").select("*").eq("restaurant_id", restaurantId).order("sort_order"),
-      supabase.from("product_option_groups").select("*").eq("restaurant_id", restaurantId).order("sort_order"),
-      supabase.from("product_options").select("*").eq("restaurant_id", restaurantId).order("sort_order"),
+      supabase
+        .from("product_variants")
+        .select("id,restaurant_id,product_id,name,description,price_delta,sort_order,is_active")
+        .eq("restaurant_id", restaurantId)
+        .order("sort_order")
+        .then((result) => {
+          perfLog("[productService.listConfigurationsByRestaurant] variants-query", variantsStartedAt, { restaurantId, rows: result.data?.length ?? 0, error: Boolean(result.error) });
+          return result;
+        }),
+      supabase
+        .from("product_option_groups")
+        .select("id,restaurant_id,product_id,name,description,min_choices,max_choices,is_required,sort_order,is_active")
+        .eq("restaurant_id", restaurantId)
+        .order("sort_order")
+        .then((result) => {
+          perfLog("[productService.listConfigurationsByRestaurant] groups-query", groupsStartedAt, { restaurantId, rows: result.data?.length ?? 0, error: Boolean(result.error) });
+          return result;
+        }),
+      supabase
+        .from("product_options")
+        .select("id,restaurant_id,product_id,option_group_id,name,description,price_delta,inventory_item_id,inventory_quantity,inventory_waste_factor,sort_order,is_active")
+        .eq("restaurant_id", restaurantId)
+        .order("sort_order")
+        .then((result) => {
+          perfLog("[productService.listConfigurationsByRestaurant] options-query", optionsStartedAt, { restaurantId, rows: result.data?.length ?? 0, error: Boolean(result.error) });
+          return result;
+        }),
     ]);
 
     if (variantsError || groupsError || optionsError) {
+      perfLog("[productService.listConfigurationsByRestaurant] total", totalStartedAt, { restaurantId, error: true });
       return { variants: [], optionGroups: [] };
     }
 
+    const mapStartedAt = perfNow();
     const mappedOptions = (options ?? []).map(mapOption);
-    return {
+    const configuration = {
       variants: (variants ?? []).map(mapVariant),
       optionGroups: (groups ?? []).map((group) =>
         mapOptionGroup(
@@ -452,6 +496,9 @@ export const productService = {
         ),
       ),
     };
+    perfLog("[productService.listConfigurationsByRestaurant] map", mapStartedAt, { restaurantId, variants: configuration.variants.length, optionGroups: configuration.optionGroups.length, options: mappedOptions.length });
+    perfLog("[productService.listConfigurationsByRestaurant] total", totalStartedAt, { restaurantId, variants: configuration.variants.length, optionGroups: configuration.optionGroups.length, options: mappedOptions.length });
+    return configuration;
   },
 
   async listPublicConfigurationsByRestaurant(restaurantId: string) {

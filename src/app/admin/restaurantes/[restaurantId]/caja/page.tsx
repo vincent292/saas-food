@@ -8,6 +8,7 @@ import { orderService } from "@/lib/services/order.service";
 import { productService } from "@/lib/services/product.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
+import { measurePerf, perfLog, perfNow } from "@/lib/utils/perf";
 import type { ProductConfiguration } from "@/types/product.types";
 
 type CashTab = "venta" | "pedidos" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
@@ -28,14 +29,22 @@ export default async function CashPage({
   params: Promise<{ restaurantId: string }>;
   searchParams: Promise<CashPageStatus>;
 }) {
+  const pageStartedAt = perfNow();
   const [{ restaurantId }, status] = await Promise.all([params, searchParams]);
-  const restaurant = await restaurantService.getById(restaurantId);
+  const restaurantPromise = measurePerf("[caja-page] restaurantService.getWorkspaceById", () => restaurantService.getWorkspaceById(restaurantId), { restaurantId });
+  const accessPromise = measurePerf(
+    "[caja-page] restaurantAccessService.claimOrRedirect",
+    () =>
+      restaurantAccessService.claimOrRedirect(restaurantId, `/admin/restaurantes/${restaurantId}/caja`, {
+        skipRestaurantLookup: true,
+      }),
+    { restaurantId },
+  );
+  const [restaurant] = await Promise.all([restaurantPromise, accessPromise]);
 
   if (!restaurant || !hasRestaurantModule(restaurant, "cash")) {
     notFound();
   }
-
-  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/caja`);
 
   const activeTab = normalizeTab(status.tab);
   const needsPosCatalog = activeTab === "venta";
@@ -46,17 +55,19 @@ export default async function CashPage({
   const needsFullCashSummary = activeTab === "venta" || activeTab === "movimientos" || activeTab === "egresos" || needsReports;
 
   const [summary, settings, products, categories, configuration, movements, orders, reports, pendingCancellationReviews, cashAudit] = await Promise.all([
-    needsFullCashSummary ? cashService.getSummary(restaurant.id) : cashService.getSessionStatusSummary(restaurant.id),
-    restaurantService.getSettings(restaurant.id),
-    needsPosCatalog ? productService.listAvailableByRestaurant(restaurant.id) : Promise.resolve([]),
-    needsPosCatalog ? categoryService.listByRestaurant(restaurant.id) : Promise.resolve([]),
-    needsPosCatalog ? productService.listConfigurationsByRestaurant(restaurant.id) : Promise.resolve(emptyConfiguration),
-    needsMovements ? cashService.listMovements(restaurant.id) : Promise.resolve([]),
-    needsOperationalOrders ? orderService.listCashWorkspaceOrders(restaurant.id) : Promise.resolve([]),
-    needsReports ? cashService.listSessionReports(restaurant.id) : Promise.resolve([]),
-    needsCancellationReviewCount ? cashService.countPendingCashCancellationReviews(restaurant.id) : Promise.resolve(0),
-    needsReports ? cashService.getAuditSnapshot(restaurant.id) : Promise.resolve(null),
+    measurePerf(needsFullCashSummary ? "[caja-page] cashService.getSummary" : "[caja-page] cashService.getSessionStatusSummary", () => (needsFullCashSummary ? cashService.getSummary(restaurant.id) : cashService.getSessionStatusSummary(restaurant.id)), { tab: activeTab }),
+    measurePerf("[caja-page] restaurantService.getSettings", () => restaurantService.getSettings(restaurant.id), { tab: activeTab }),
+    needsPosCatalog ? measurePerf("[caja-page] productService.listAvailableByRestaurant", () => productService.listAvailableByRestaurant(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
+    needsPosCatalog ? measurePerf("[caja-page] categoryService.listByRestaurant", () => categoryService.listByRestaurant(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
+    needsPosCatalog ? measurePerf("[caja-page] productService.listConfigurationsByRestaurant", () => productService.listConfigurationsByRestaurant(restaurant.id), { tab: activeTab }) : Promise.resolve(emptyConfiguration),
+    needsMovements ? measurePerf("[caja-page] cashService.listMovements", () => cashService.listMovements(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
+    needsOperationalOrders ? measurePerf("[caja-page] orderService.listCashWorkspaceOrders", () => orderService.listCashWorkspaceOrders(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
+    needsReports ? measurePerf("[caja-page] cashService.listSessionReports", () => cashService.listSessionReports(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
+    needsCancellationReviewCount ? measurePerf("[caja-page] cashService.countPendingCashCancellationReviews", () => cashService.countPendingCashCancellationReviews(restaurant.id), { tab: activeTab }) : Promise.resolve(0),
+    needsReports ? measurePerf("[caja-page] cashService.getAuditSnapshot", () => cashService.getAuditSnapshot(restaurant.id), { tab: activeTab }) : Promise.resolve(null),
   ]);
+
+  perfLog("[caja-page] total-before-render", pageStartedAt, { tab: activeTab, restaurantId: restaurant.id, orders: orders.length });
 
   return (
     <AdminLayout

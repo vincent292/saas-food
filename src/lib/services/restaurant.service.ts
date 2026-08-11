@@ -5,6 +5,7 @@ import { createPublicServerClient } from "@/lib/supabase/public-server";
 import { fullPlanModules } from "@/lib/billing/full-plan";
 import { inferRestaurantCategory, normalizeRestaurantBusinessType, normalizeRestaurantCategory } from "@/lib/restaurant-directory-options";
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
+import { perfLog, perfNow } from "@/lib/utils/perf";
 import type { PlanKey, Restaurant, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
 const legacyGreenBrandColors = new Set(["#1d8844", "#146333", "#15803d", "#22c55e"]);
@@ -416,6 +417,38 @@ export const restaurantService = {
     }
 
     const [restaurant] = await enrichRestaurants([mapRestaurant(data)]);
+    return restaurant;
+  },
+
+  async getWorkspaceById(restaurantId: string) {
+    if (!hasSupabaseEnv()) {
+      return null;
+    }
+
+    const totalStartedAt = perfNow();
+    const supabase = await createClient();
+    const queryStartedAt = perfNow();
+    const { data, error } = await supabase
+      .from("restaurants")
+      .select(
+        "id,name,slug,description,status,owner_user_id,owner_name,owner_email,deactivated_at,deleted_at,logo_url,banner_url,primary_color,secondary_color,background_color,surface_color,text_color,muted_color,border_color,nav_background_color,nav_text_color,menu_background_image_url,public_banner_size,whatsapp,address,address_reference,city,business_type,public_category,latitude,longitude,maps_url",
+      )
+      .eq("id", restaurantId)
+      .eq("status", "active")
+      .is("deleted_at", null)
+      .maybeSingle();
+    perfLog("[restaurantService.getWorkspaceById] restaurant-query", queryStartedAt, { restaurantId, found: Boolean(data), error: Boolean(error) });
+
+    if (error || !data) {
+      perfLog("[restaurantService.getWorkspaceById] total", totalStartedAt, { restaurantId, found: false });
+      return null;
+    }
+
+    const restaurant = {
+      ...mapRestaurant(data),
+      activeModules: fullPlanModules,
+    };
+    perfLog("[restaurantService.getWorkspaceById] total", totalStartedAt, { restaurantId, found: true });
     return restaurant;
   },
 

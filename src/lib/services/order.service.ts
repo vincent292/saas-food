@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { perfLog, perfNow } from "@/lib/utils/perf";
 import type { Order, OrderDeliveryDispatch, OrderItem, OrderQueueState, OrderStatus, OrderTrackingStatus } from "@/types/order.types";
 
 type OrderRow = {
@@ -397,7 +398,9 @@ export const orderService = {
       return [];
     }
 
+    const totalStartedAt = perfNow();
     const supabase = await createClient();
+    const ordersStartedAt = perfNow();
     const { data: orders, error } = await supabase
       .from("orders")
       .select(
@@ -408,26 +411,49 @@ export const orderService = {
       .in("status", ["pending", "accepted", "preparing", "ready", "delivered", "cancelled"])
       .order("created_at", { ascending: false })
       .limit(160);
+    perfLog("[orderService.listCashWorkspaceOrders] orders-query", ordersStartedAt, { restaurantId, rows: orders?.length ?? 0, error: Boolean(error) });
 
     if (error || !orders?.length) {
+      perfLog("[orderService.listCashWorkspaceOrders] total", totalStartedAt, { restaurantId, rows: 0, empty: true });
       return [];
     }
 
     const orderIds = orders.map((order) => order.id);
+    const itemsStartedAt = perfNow();
+    const deliveryLinksStartedAt = perfNow();
     const [{ data: items }, { data: deliveryLinks }] = await Promise.all([
-      supabase.from("order_items").select("id,order_id,product_id,product_name,unit_price,quantity,subtotal,prep_minutes,notes").in("order_id", orderIds),
-      supabase.from("order_delivery_links").select("order_id,delivery_phone,delivery_name,status,created_at,opened_at,arrived_at,delivered_at").in("order_id", orderIds),
+      supabase
+        .from("order_items")
+        .select("id,order_id,product_id,product_name,unit_price,quantity,subtotal,prep_minutes,notes")
+        .in("order_id", orderIds)
+        .then((result) => {
+          perfLog("[orderService.listCashWorkspaceOrders] items-query", itemsStartedAt, { restaurantId, rows: result.data?.length ?? 0, error: Boolean(result.error) });
+          return result;
+        }),
+      supabase
+        .from("order_delivery_links")
+        .select("order_id,delivery_phone,delivery_name,status,created_at,opened_at,arrived_at,delivered_at")
+        .in("order_id", orderIds)
+        .then((result) => {
+          perfLog("[orderService.listCashWorkspaceOrders] delivery-links-query", deliveryLinksStartedAt, { restaurantId, rows: result.data?.length ?? 0, error: Boolean(result.error) });
+          return result;
+        }),
     ]);
+    const mapStartedAt = perfNow();
     const groupedItems = groupItemsByOrder((items ?? []) as ItemRow[]);
     const linksByOrder = deliveryLinksByOrder((deliveryLinks ?? []) as DeliveryLinkRow[]);
 
-    return orders.map((order) =>
+    const mappedOrders = orders.map((order) =>
       mapOrder(
         order as OrderRow,
         groupedItems.get(order.id) ?? [],
         mapDeliveryLink(linksByOrder.get(order.id)),
       ),
     );
+    perfLog("[orderService.listCashWorkspaceOrders] map", mapStartedAt, { restaurantId, rows: mappedOrders.length });
+    perfLog("[orderService.listCashWorkspaceOrders] total", totalStartedAt, { restaurantId, rows: mappedOrders.length, items: items?.length ?? 0, deliveryLinks: deliveryLinks?.length ?? 0 });
+
+    return mappedOrders;
   },
 
   async listPendingAlerts(restaurantId: string) {

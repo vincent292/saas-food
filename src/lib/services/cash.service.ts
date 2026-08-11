@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { perfLog, perfNow } from "@/lib/utils/perf";
 import type { CashAuditSnapshot, CashMovement, CashSession, CashSessionReport, CashSummary } from "@/types/cash.types";
 import type { PaymentMethodType } from "@/types/order.types";
 
@@ -173,12 +174,15 @@ async function getProfiles(ids: string[]) {
 }
 
 export const cashService = {
-  async getOpenSession(restaurantId: string) {
+  async getOpenSession(restaurantId: string, options: { includeProfiles?: boolean } = {}) {
     if (!hasSupabaseEnv()) {
       return null;
     }
 
+    const includeProfiles = options.includeProfiles ?? true;
+    const totalStartedAt = perfNow();
     const supabase = await createClient();
+    const queryStartedAt = perfNow();
     const { data, error } = await supabase
       .from("cash_sessions")
       .select("*")
@@ -187,13 +191,21 @@ export const cashService = {
       .order("opened_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+    perfLog("[cashService.getOpenSession] session-query", queryStartedAt, { restaurantId, found: Boolean(data), error: Boolean(error) });
 
     if (error || !data) {
+      perfLog("[cashService.getOpenSession] total", totalStartedAt, { restaurantId, found: false });
       return null;
     }
 
-    const profiles = await getProfiles([data.opened_by, data.closed_by].filter(Boolean) as string[]);
-    return mapSession(data, profiles);
+    const profilesStartedAt = perfNow();
+    const profiles = includeProfiles ? await getProfiles([data.opened_by, data.closed_by].filter(Boolean) as string[]) : undefined;
+    if (includeProfiles) {
+      perfLog("[cashService.getOpenSession] profiles-query", profilesStartedAt, { restaurantId, profiles: profiles?.size ?? 0 });
+    }
+    const session = mapSession(data, profiles);
+    perfLog("[cashService.getOpenSession] total", totalStartedAt, { restaurantId, found: true, includeProfiles });
+    return session;
   },
 
   async getSessionStatusSummary(restaurantId: string): Promise<CashSummary> {
@@ -201,7 +213,9 @@ export const cashService = {
       return emptySummary();
     }
 
+    const totalStartedAt = perfNow();
     const supabase = await createClient();
+    const queryStartedAt = perfNow();
     const { data, error } = await supabase
       .from("cash_sessions")
       .select("id,restaurant_id,opened_by,closed_by,status,opening_amount,expected_amount,counted_amount,difference_amount,opened_at,closed_at,notes")
@@ -210,12 +224,16 @@ export const cashService = {
       .order("opened_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+    perfLog("[cashService.getSessionStatusSummary] session-query", queryStartedAt, { restaurantId, found: Boolean(data), error: Boolean(error) });
 
     if (error || !data) {
+      perfLog("[cashService.getSessionStatusSummary] total", totalStartedAt, { restaurantId, found: false });
       return emptySummary();
     }
 
-    return emptySummary(mapSession(data as CashSessionRow));
+    const summary = emptySummary(mapSession(data as CashSessionRow));
+    perfLog("[cashService.getSessionStatusSummary] total", totalStartedAt, { restaurantId, found: true });
+    return summary;
   },
 
   async listMovements(restaurantId: string, cashSessionId?: string) {
@@ -223,8 +241,9 @@ export const cashService = {
       return [];
     }
 
+    const totalStartedAt = perfNow();
     const supabase = await createClient();
-    const session = cashSessionId ? null : await this.getOpenSession(restaurantId);
+    const session = cashSessionId ? null : await this.getOpenSession(restaurantId, { includeProfiles: false });
     let query = supabase
       .from("cash_movements")
       .select("*")
@@ -238,13 +257,18 @@ export const cashService = {
       query = query.gte("created_at", startOfTodayIso());
     }
 
+    const queryStartedAt = perfNow();
     const { data, error } = await query;
+    perfLog("[cashService.listMovements] movements-query", queryStartedAt, { restaurantId, rows: data?.length ?? 0, error: Boolean(error), hasSession: Boolean(cashSessionId || session?.id) });
 
     if (error || !data?.length) {
+      perfLog("[cashService.listMovements] total", totalStartedAt, { restaurantId, rows: 0 });
       return [];
     }
 
-    return data.map(mapMovement);
+    const movements = data.map(mapMovement);
+    perfLog("[cashService.listMovements] total", totalStartedAt, { restaurantId, rows: movements.length });
+    return movements;
   },
 
   async getSummary(restaurantId: string): Promise<CashSummary> {
@@ -252,16 +276,22 @@ export const cashService = {
       return emptySummary();
     }
 
+    const totalStartedAt = perfNow();
     const supabase = await createClient();
-    const session = await this.getOpenSession(restaurantId);
+    const session = await this.getOpenSession(restaurantId, { includeProfiles: false });
     if (!session) {
+      perfLog("[cashService.getSummary] total", totalStartedAt, { restaurantId, foundSession: false });
       return emptySummary();
     }
 
+    const movementsStartedAt = perfNow();
     const { data: movements } = await supabase.from("cash_movements").select("*").eq("restaurant_id", restaurantId).eq("cash_session_id", session.id);
+    perfLog("[cashService.getSummary] movements-query", movementsStartedAt, { restaurantId, rows: movements?.length ?? 0 });
+    const mapStartedAt = perfNow();
     const report = buildReport(session, ((movements ?? []) as CashMovementRow[]).map(mapMovement));
+    perfLog("[cashService.getSummary] build-report", mapStartedAt, { restaurantId, rows: movements?.length ?? 0 });
 
-    return {
+    const summary = {
       session,
       salesTotal: report.salesTotal,
       cashTotal: report.cashTotal,
@@ -280,6 +310,8 @@ export const cashService = {
       expectedCash: report.expectedCash,
       netTotal: report.netTotal,
     };
+    perfLog("[cashService.getSummary] total", totalStartedAt, { restaurantId, foundSession: true, movements: movements?.length ?? 0 });
+    return summary;
   },
 
   async countPendingCashCancellationReviews(restaurantId: string) {

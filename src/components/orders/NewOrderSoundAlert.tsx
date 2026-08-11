@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils/cn";
 import type { Order, OrderType } from "@/types/order.types";
 
 const ORDER_ALERT_AUDIO_SRC = "/notificaciones/notificaiones.mp3";
-const ORDER_ALERT_REPEAT_MS = 4500;
 
 function sameOrderIds(left: Order[], right: Order[]) {
   return left.length === right.length && left.every((order, index) => order.id === right[index]?.id);
@@ -35,6 +34,7 @@ export function NewOrderSoundAlert({
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundBlocked, setSoundBlocked] = useState(false);
   const [unseenOrders, setUnseenOrders] = useState<Order[]>([]);
+  const [soundRequestId, setSoundRequestId] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const knownOrderIdsRef = useRef<Set<string> | null>(null);
   const unseenOrdersRef = useRef<Order[]>([]);
@@ -72,6 +72,9 @@ export function NewOrderSoundAlert({
     const knownOrderIds = knownOrderIdsRef.current;
     const incomingOrders = alertCandidates.filter((order) => !knownOrderIds.has(order.id));
     alertCandidates.forEach((order) => knownOrderIds.add(order.id));
+    if (incomingOrders.length) {
+      setSoundRequestId((current) => current + 1);
+    }
 
     const stillPending = unseenOrdersRef.current.filter((order) => candidateIds.has(order.id));
     const nextUnseen = [...stillPending, ...incomingOrders].filter((order, index, list) => list.findIndex((item) => item.id === order.id) === index);
@@ -130,36 +133,32 @@ export function NewOrderSoundAlert({
   }, [enableSound]);
 
   useEffect(() => {
-    if (!unseenOrders.length || !soundEnabled) {
+    if (!soundRequestId || !soundEnabled) {
       return;
     }
 
     let cancelled = false;
-
-    const playAlert = () => {
-      if (cancelled) {
-        return;
-      }
-
-      const audio = ensureAudio();
-      audio.currentTime = 0;
-      void audio.play().then(
-        () => {
-          soundUnlockedRef.current = true;
-          setSoundBlocked(false);
-        },
-        () => setSoundBlocked(true),
-      );
-    };
-
-    playAlert();
-    const interval = window.setInterval(playAlert, ORDER_ALERT_REPEAT_MS);
+    const audio = ensureAudio();
+    audio.currentTime = 0;
+    void audio.play().then(
+      () => {
+        if (cancelled) {
+          return;
+        }
+        soundUnlockedRef.current = true;
+        setSoundBlocked(false);
+      },
+      () => {
+        if (!cancelled) {
+          setSoundBlocked(true);
+        }
+      },
+    );
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
     };
-  }, [ensureAudio, soundEnabled, unseenOrders.length]);
+  }, [ensureAudio, soundEnabled, soundRequestId]);
 
   function acknowledge() {
     unseenOrdersRef.current = [];

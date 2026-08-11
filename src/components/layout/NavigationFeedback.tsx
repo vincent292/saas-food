@@ -47,14 +47,14 @@ function shouldHandleAnchor(anchor: HTMLAnchorElement) {
 }
 
 function shouldHandleForm(form: HTMLFormElement) {
-  if (form.dataset.navigationFeedback === "off") {
+  if (form.dataset.navigationFeedback !== "on") {
     return false;
   }
   if (form.target && form.target !== "_self") {
     return false;
   }
 
-  return form.dataset.navigationFeedback === "on" || Boolean(form.getAttribute("action"));
+  return true;
 }
 
 export function NavigationFeedback() {

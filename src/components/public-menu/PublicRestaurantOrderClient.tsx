@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/Input";
 import { businessCatalogItemsLabel, businessCatalogLabel } from "@/lib/restaurant-directory-options";
 import { customerAccountChangedEvent, fetchPublicCustomerAccount, type PublicCustomerAccount } from "@/lib/client/customer-account";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
+import { createCustomerClient } from "@/lib/supabase/customer-client";
 import { readCart, writeCart } from "@/lib/utils/cart";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatBusinessHour, getBusinessStatus, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
 import { cn } from "@/lib/utils/cn";
@@ -1187,6 +1188,7 @@ function PublicOrderPanel({
   const [formError, setFormError] = useState("");
   const [customerAccount, setCustomerAccount] = useState<PublicCustomerAccount>({ profile: null, addresses: [] });
   const [customerAccountLoaded, setCustomerAccountLoaded] = useState(false);
+  const [customerSessionEmail, setCustomerSessionEmail] = useState("");
   const [selectedCustomerAddressId, setSelectedCustomerAddressId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -1225,6 +1227,21 @@ function PublicOrderPanel({
 
     async function loadAccount() {
       try {
+        const supabase = createCustomerClient();
+        const { data } = await supabase.auth.getSession();
+        if (!active) return;
+        const sessionEmail = data.session?.user.email ?? "";
+        setCustomerSessionEmail(sessionEmail);
+        if (sessionEmail) {
+          setCustomerEmail(sessionEmail);
+        }
+        if (!data.session) {
+          setCustomerAccount({ profile: null, addresses: [] });
+          setCustomerAccountLoaded(true);
+          setSelectedCustomerAddressId("");
+          return;
+        }
+
         const account = await fetchPublicCustomerAccount();
         if (!active) return;
         setCustomerAccount(account);
@@ -1242,6 +1259,7 @@ function PublicOrderPanel({
         }
       } catch {
         if (!active) return;
+        setCustomerSessionEmail("");
         setCustomerAccount({ profile: null, addresses: [] });
         setCustomerAccountLoaded(true);
         setSelectedCustomerAddressId("");
@@ -1249,9 +1267,14 @@ function PublicOrderPanel({
     }
 
     void loadAccount();
+    const supabase = createCustomerClient();
+    const { data } = supabase.auth.onAuthStateChange(() => {
+      void loadAccount();
+    });
     window.addEventListener(customerAccountChangedEvent, loadAccount);
     return () => {
       active = false;
+      data.subscription.unsubscribe();
       window.removeEventListener(customerAccountChangedEvent, loadAccount);
     };
   }, [applySavedCustomerAddress]);
@@ -1560,10 +1583,12 @@ function PublicOrderPanel({
           <>
             {customerAccountLoaded ? (
               <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-card)] p-4">
-                <p className="font-black">Pide mas rapido con Mi Yopido</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Inicia sesion y usaremos tus datos y direcciones guardadas automaticamente.</p>
+                <p className="font-black">{customerSessionEmail ? "Completa tu perfil de Mi Yopido" : "Pide mas rapido con Mi Yopido"}</p>
+                <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
+                  {customerSessionEmail ? "Ya iniciaste sesion. Guarda tus datos una vez y el pedido se llenara automaticamente." : "Inicia sesion y usaremos tus datos y direcciones guardadas automaticamente."}
+                </p>
                 <div className="mt-3">
-                  <PublicCustomerAccountButton tone="plain" />
+                  <PublicCustomerAccountButton initialPanel="profile" tone="plain" />
                 </div>
               </div>
             ) : null}

@@ -143,7 +143,6 @@ export function OrdersReceptionClient({
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ReceptionTab>(() => normalizeReceptionTab(status.tab));
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [blockedAutoPrintOrderId, setBlockedAutoPrintOrderId] = useState("");
   const [posOpen, setPosOpen] = useState(false);
   const refreshTimeoutRef = useRef<number | null>(null);
@@ -159,9 +158,7 @@ export function OrdersReceptionClient({
       }
 
       refreshTimeoutRef.current = window.setTimeout(() => {
-        setIsRefreshing(true);
         router.refresh();
-        window.setTimeout(() => setIsRefreshing(false), 800);
         refreshTimeoutRef.current = null;
       }, 250);
     };
@@ -184,9 +181,7 @@ export function OrdersReceptionClient({
       if (document.visibilityState !== "visible") {
         return;
       }
-      setIsRefreshing(true);
       router.refresh();
-      window.setTimeout(() => setIsRefreshing(false), 800);
     };
 
     const interval = window.setInterval(refreshIfVisible, 5000);
@@ -269,8 +264,8 @@ export function OrdersReceptionClient({
             </a>
           ) : null}
           <div className="flex items-center gap-2 rounded-full bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--muted)] shadow-sm">
-            <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin text-[var(--primary)]")} />
-            {isRefreshing ? "Actualizando" : "En vivo"}
+            <RefreshCw className="h-4 w-4 text-[var(--primary)]" />
+            En vivo
           </div>
         </div>
       </section>

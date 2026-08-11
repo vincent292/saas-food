@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, LogOut, Mail, MapPin, Phone, Plus, ReceiptText, UserRound, X } from "lucide-react";
+import { CheckCircle2, KeyRound, LogOut, Mail, MapPin, Phone, Plus, ReceiptText, UserRound, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
@@ -51,6 +51,7 @@ export function PublicCustomerAccountButton({
   const [account, setAccount] = useState<PublicCustomerAccount>({ profile: null, addresses: [], orders: [] });
   const [sessionEmail, setSessionEmail] = useState("");
   const [sessionName, setSessionName] = useState("");
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [loading, setLoading] = useState(!initialOpen);
 
   async function refreshAccount() {
@@ -58,9 +59,10 @@ export function PublicCustomerAccountButton({
     try {
       const supabase = createCustomerClient();
       const { data } = await supabase.auth.getSession();
-      const metadata = data.session?.user.user_metadata as { full_name?: string; name?: string } | undefined;
+      const metadata = data.session?.user.user_metadata as { full_name?: string; name?: string; must_change_password?: boolean } | undefined;
       setSessionEmail(data.session?.user.email ?? "");
       setSessionName(metadata?.full_name?.trim() || metadata?.name?.trim() || "");
+      setMustChangePassword(metadata?.must_change_password === true);
       setAccount(data.session ? await fetchPublicCustomerAccount() : { profile: null, addresses: [], orders: [] });
     } finally {
       setLoading(false);
@@ -113,6 +115,7 @@ export function PublicCustomerAccountButton({
           onRefresh={refreshAccount}
           sessionEmail={sessionEmail}
           sessionName={sessionName}
+          mustChangePassword={mustChangePassword}
         />
       ) : null}
     </>
@@ -144,6 +147,7 @@ function CustomerAccountModal({
   onRefresh,
   sessionEmail,
   sessionName,
+  mustChangePassword,
 }: {
   account: PublicCustomerAccount;
   loading: boolean;
@@ -153,6 +157,7 @@ function CustomerAccountModal({
   onRefresh: () => Promise<void>;
   sessionEmail: string;
   sessionName: string;
+  mustChangePassword: boolean;
 }) {
   const [mode, setMode] = useState<CustomerAuthMode>(initialMode);
   const [panel, setPanel] = useState<CustomerPanel>(initialPanel);
@@ -167,6 +172,8 @@ function CustomerAccountModal({
   const [addressCoordinates, setAddressCoordinates] = useState<{ latitude: number; longitude: number; mapsUrl: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [googleSaving, setGoogleSaving] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -260,6 +267,49 @@ function CustomerAccountModal({
     }
   }
 
+  async function changeRequiredPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setMessage("");
+
+    if (newPassword.length < 12 || !/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      setSaving(false);
+      setError("La nueva contrasena debe tener minimo 12 caracteres, mayuscula, minuscula y numero.");
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      setSaving(false);
+      setError("Las contrasenas no coinciden.");
+      return;
+    }
+
+    try {
+      const supabase = createCustomerClient();
+      const { data } = await supabase.auth.getUser();
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+        data: {
+          ...(data.user?.user_metadata ?? {}),
+          must_change_password: false,
+          password_changed_at: new Date().toISOString(),
+        },
+      });
+
+      if (updateError) throw updateError;
+
+      setNewPassword("");
+      setConfirmNewPassword("");
+      await onRefresh();
+      setMessage("Contrasena actualizada.");
+    } catch {
+      setError("No se pudo actualizar la contrasena.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function logout() {
     await signOutPublicCustomer();
     await onRefresh();
@@ -348,6 +398,31 @@ function CustomerAccountModal({
 
           {!loading && loggedIn ? (
             <div className="grid gap-4">
+              {mustChangePassword ? (
+                <>
+                  <section className="rounded-[1.4rem] border border-[var(--border)] bg-[var(--color-card)] p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--primary)] text-white"><KeyRound className="h-5 w-5" /></span>
+                      <div>
+                        <h3 className="text-lg font-black">Cambia tu contrasena</h3>
+                        <p className="text-sm font-semibold text-[var(--muted)]">Tu clave actual es temporal.</p>
+                      </div>
+                    </div>
+                    <form className="mt-4 grid gap-3" onSubmit={changeRequiredPassword}>
+                      <Input autoComplete="new-password" onChange={(event) => setNewPassword(event.target.value)} placeholder="Nueva contrasena" required type="password" value={newPassword} />
+                      <Input autoComplete="new-password" onChange={(event) => setConfirmNewPassword(event.target.value)} placeholder="Confirmar contrasena" required type="password" value={confirmNewPassword} />
+                      <Button disabled={saving} type="submit">{saving ? "Actualizando..." : "Guardar nueva contrasena"}</Button>
+                    </form>
+                  </section>
+                  {error ? <Feedback tone="error">{error}</Feedback> : null}
+                  {message ? <Feedback tone="success">{message}</Feedback> : null}
+                  <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--color-danger-soft)] px-4 text-sm font-black text-[var(--color-danger-strong)]" onClick={logout} type="button">
+                    <LogOut className="h-4 w-4" />
+                    Cerrar sesion
+                  </button>
+                </>
+              ) : (
+                <>
               <div className="grid gap-3 sm:grid-cols-3">
                 <SummaryCard icon={<CheckCircle2 className="h-5 w-5" />} label="Perfil" value={profileComplete ? "Listo" : "Falta"} />
                 <SummaryCard icon={<MapPin className="h-5 w-5" />} label="Direcciones" value={String(account.addresses.length)} />
@@ -483,6 +558,8 @@ function CustomerAccountModal({
                 <LogOut className="h-4 w-4" />
                 Cerrar sesion
               </button>
+                </>
+              )}
             </div>
           ) : null}
         </div>

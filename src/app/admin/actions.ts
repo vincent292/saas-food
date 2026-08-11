@@ -210,6 +210,13 @@ export type ResponsibleAccessFormState = {
   temporaryPassword?: string;
 };
 
+export type SuperadminUserPasswordFormState = {
+  error?: string;
+  success?: "password-reset";
+  temporaryPassword?: string;
+  targetUserId?: string;
+};
+
 type SupabaseAdminClient = NonNullable<ReturnType<typeof createAdminClient>>;
 
 const createBranchSchema = z.object({
@@ -335,6 +342,11 @@ const manageResponsibleAccessSchema = z.object({
   restaurantId: z.string().uuid(),
   targetUserId: z.string().uuid(),
   intent: z.enum(["reset-password", "update-profile", "deactivate", "reactivate"]),
+});
+
+const resetSuperadminUserPasswordSchema = z.object({
+  targetUserId: z.string().uuid(),
+  password: z.string().trim().min(8).max(120).optional().or(z.literal("")),
 });
 
 const createCategorySchema = z.object({
@@ -1477,6 +1489,14 @@ async function updateRestaurantOwnerAccess({
       { onConflict: "id" },
     );
   } else {
+    if (!ownerPassword && currentOwnerEmail?.trim().toLowerCase() === normalizedEmail) {
+      return {
+        id: currentOwnerUserId ?? null,
+        email: currentOwnerEmail ?? normalizedEmail,
+        name: currentOwnerName ?? normalizedName,
+      };
+    }
+
     const owner = await ensureRestaurantOwner({
       supabase,
       fallbackUserId,
@@ -2217,6 +2237,66 @@ export async function changeInitialPasswordAction(
   revalidatePath("/dueno", "layout");
   await redirectAfterAuthenticatedUser(user.id);
   return { error: "update" };
+}
+
+export async function resetSuperadminUserPasswordAction(
+  _state: SuperadminUserPasswordFormState,
+  formData: FormData,
+): Promise<SuperadminUserPasswordFormState> {
+  const parsed = resetSuperadminUserPasswordSchema.safeParse({
+    targetUserId: formData.get("targetUserId"),
+    password: formData.get("password") ? String(formData.get("password")) : "",
+  });
+
+  if (!parsed.success) {
+    return { error: "invalid" };
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  if (parsed.data.targetUserId === user.id) {
+    return { error: "self-protected", targetUserId: parsed.data.targetUserId };
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    return { error: "service-role-required", targetUserId: parsed.data.targetUserId };
+  }
+
+  const { data: targetUser, error: targetError } = await admin.auth.admin.getUserById(parsed.data.targetUserId);
+  if (targetError || !targetUser.user) {
+    return { error: "user-not-found", targetUserId: parsed.data.targetUserId };
+  }
+
+  const temporaryPassword = parsed.data.password?.trim() || generateSecurePassword();
+  const { error } = await admin.auth.admin.updateUserById(parsed.data.targetUserId, {
+    password: temporaryPassword,
+    user_metadata: {
+      ...(targetUser.user.user_metadata ?? {}),
+      must_change_password: true,
+      password_reset_by_superadmin_at: new Date().toISOString(),
+      password_reset_by_superadmin_id: user.id,
+    },
+  });
+
+  if (error) {
+    return { error: "password-reset", targetUserId: parsed.data.targetUserId };
+  }
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: "superadmin_user_password_reset",
+    p_entity_type: "auth_user",
+    p_entity_id: parsed.data.targetUserId,
+    p_restaurant_id: null,
+    p_severity: "warning",
+  });
+
+  revalidatePath("/admin/usuarios");
+
+  return {
+    success: "password-reset",
+    targetUserId: parsed.data.targetUserId,
+    temporaryPassword,
+  };
 }
 
 export async function setRestaurantStatusAction(formData: FormData) {

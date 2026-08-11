@@ -30,9 +30,11 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { signOutAction } from "@/app/admin/actions";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { PanelNotificationBell } from "@/components/notifications/PanelNotificationBell";
 import { GlobalOrderSoundAlert } from "@/components/orders/GlobalOrderSoundAlert";
 import { cn } from "@/lib/utils/cn";
 import type { Order } from "@/types/order.types";
+import type { PanelNotification } from "@/types/notification.types";
 import type { ModuleKey, RestaurantStatus } from "@/types/restaurant.types";
 
 type NavItem = {
@@ -77,6 +79,7 @@ export function AdminShellClient({
   canAccessOwnerPanel = false,
   canAccessSuperadmin = false,
   canSwitchBranches = false,
+  panelNotifications = [],
   pendingOrderAlerts = [],
   title,
   active = "dashboard",
@@ -89,6 +92,7 @@ export function AdminShellClient({
   canAccessSuperadmin?: boolean;
   canSwitchBranches?: boolean;
   enabledModules?: ModuleKey[];
+  panelNotifications?: PanelNotification[];
   pendingOrderAlerts?: Order[];
   title: string;
   active?: string;
@@ -183,14 +187,17 @@ export function AdminShellClient({
               <p className="text-xs font-black uppercase text-[var(--primary)]">Panel administrativo</p>
               <h1 className="truncate text-xl font-black text-[var(--color-heading)] sm:text-2xl">{title}</h1>
             </div>
-            <Link
-              className="hidden min-h-10 shrink-0 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)] sm:inline-flex"
-              href={canAccessSuperadmin ? "/admin/restaurantes" : canAccessOwnerPanel ? "/dueno" : canSwitchBranches ? "/admin" : restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}
-              prefetch={false}
-            >
-              <BarChart3 className="h-4 w-4" />
-              {canAccessSuperadmin ? "Restaurantes" : canAccessOwnerPanel ? "Panel dueno" : canSwitchBranches ? "Sucursales" : "Mi sucursal"}
-            </Link>
+            <div className="flex shrink-0 items-center gap-2">
+              {restaurantId ? <PanelNotificationBell notifications={panelNotifications} restaurantId={restaurantId} scope={`restaurant:${restaurantId}`} /> : null}
+              <Link
+                className="hidden min-h-10 shrink-0 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)] sm:inline-flex"
+                href={canAccessSuperadmin ? "/admin/restaurantes" : canAccessOwnerPanel ? "/dueno" : canSwitchBranches ? "/admin" : restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"}
+                prefetch={false}
+              >
+                <BarChart3 className="h-4 w-4" />
+                {canAccessSuperadmin ? "Restaurantes" : canAccessOwnerPanel ? "Panel dueno" : canSwitchBranches ? "Sucursales" : "Mi sucursal"}
+              </Link>
+            </div>
           </div>
         </header>
         <main className="mx-auto max-w-7xl px-3 py-4 pb-8 sm:px-6 sm:py-6 lg:px-8">{children}</main>

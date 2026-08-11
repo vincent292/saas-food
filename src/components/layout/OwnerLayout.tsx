@@ -5,6 +5,7 @@ import { authService } from "@/lib/services/auth.service";
 import { membershipService, type UserRestaurantMembership } from "@/lib/services/membership.service";
 import { ownerBillingService } from "@/lib/services/owner-billing.service";
 import { ownerMembershipsForUser } from "@/lib/services/owner-dashboard.service";
+import { panelNotificationsService } from "@/lib/services/panel-notifications.service";
 
 const ownerProfileCompletionAllowedRoutes = new Set(["/dueno/cuenta", "/dueno/plan", "/dueno/soporte"]);
 const ownerBillingAllowedRoutes = new Set(["/dueno/cuenta", "/dueno/plan", "/dueno/soporte"]);
@@ -80,6 +81,8 @@ export async function OwnerLayout({
     redirect("/admin/login?error=customer-account");
   }
 
+  const panelNotifications = await panelNotificationsService.listForOwner(memberships);
+
   return (
     <OwnerShellClient
       active={active}
@@ -87,6 +90,7 @@ export async function OwnerLayout({
       firstRestaurantId={memberships[0]?.restaurant.id}
       ownerEmail={profile.email}
       ownerName={profile.fullName}
+      panelNotifications={panelNotifications}
       ownerProfileComplete={profile.ownerProfileComplete}
       title={title}
     >

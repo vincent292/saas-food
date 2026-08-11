@@ -22,8 +22,10 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { signOutAction } from "@/app/admin/actions";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { PanelNotificationBell } from "@/components/notifications/PanelNotificationBell";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils/cn";
+import type { PanelNotification } from "@/types/notification.types";
 
 type OwnerNavItem = {
   label: string;
@@ -51,6 +53,7 @@ export function OwnerShellClient({
   children,
   ownerEmail,
   ownerName,
+  panelNotifications = [],
   ownerProfileComplete,
   firstRestaurantId,
   title,
@@ -60,6 +63,7 @@ export function OwnerShellClient({
   children: ReactNode;
   ownerEmail: string;
   ownerName: string;
+  panelNotifications?: PanelNotification[];
   ownerProfileComplete: boolean;
   firstRestaurantId?: string;
   title: string;
@@ -150,17 +154,18 @@ export function OwnerShellClient({
               <p className="text-xs font-black uppercase text-[var(--primary)]">Panel de dueno</p>
               <h1 className="truncate text-xl font-black text-[var(--color-heading)] sm:text-2xl">{title}</h1>
             </div>
-            <div className="hidden items-center gap-2 sm:flex">
+            <div className="flex shrink-0 items-center gap-2">
+              <PanelNotificationBell notifications={panelNotifications} scope="owner" />
               {!ownerProfileComplete ? (
                 <Badge className="bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]">
                   Cuenta pendiente
                 </Badge>
               ) : null}
-              <Badge className="bg-[var(--primary-light)] text-[var(--primary)]">
+              <Badge className="hidden bg-[var(--primary-light)] text-[var(--primary)] sm:inline-flex">
                 {branchCount} sucursal{branchCount === 1 ? "" : "es"}
               </Badge>
               {firstRestaurantId && ownerProfileComplete ? (
-                <Link className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)]" href={`/admin/restaurantes/${firstRestaurantId}/dashboard`} prefetch={false}>
+                <Link className="hidden min-h-10 items-center gap-2 rounded-full bg-[var(--color-neutral-900)] px-4 text-sm font-bold text-[var(--color-on-primary)] sm:inline-flex" href={`/admin/restaurantes/${firstRestaurantId}/dashboard`} prefetch={false}>
                   <ClipboardList className="h-4 w-4" />
                   Operar
                 </Link>

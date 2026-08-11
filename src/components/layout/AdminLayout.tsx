@@ -5,6 +5,7 @@ import { authService } from "@/lib/services/auth.service";
 import { membershipService } from "@/lib/services/membership.service";
 import { orderService } from "@/lib/services/order.service";
 import { ownerBillingService } from "@/lib/services/owner-billing.service";
+import { panelNotificationsService } from "@/lib/services/panel-notifications.service";
 import type { ModuleKey, RestaurantStatus } from "@/types/restaurant.types";
 
 export async function AdminLayout({
@@ -67,7 +68,12 @@ export async function AdminLayout({
     }
   }
 
-  const pendingOrderAlerts = restaurantId ? await orderService.listPendingAlerts(restaurantId) : [];
+  const [pendingOrderAlerts, panelNotifications] = restaurantId
+    ? await Promise.all([
+        orderService.listPendingAlerts(restaurantId),
+        panelNotificationsService.listForRestaurant(restaurantId),
+      ])
+    : [[], []];
   const canSwitchBranches = memberships.length > 1;
   const canAccessOwnerPanel = memberships.some((membership) => membership.role === "restaurant_admin" && membership.restaurant.ownerUserId === profile.id);
 
@@ -82,6 +88,7 @@ export async function AdminLayout({
       restaurantName={restaurantName}
       restaurantStatus={restaurantStatus}
       pendingOrderAlerts={pendingOrderAlerts}
+      panelNotifications={panelNotifications}
       title={title}
     >
       {children}

@@ -25,7 +25,27 @@ const createItemCommitSchema = z.object({
   reason: z.string().trim().min(2).max(120),
 });
 
-const commitSchema = z.discriminatedUnion("action", [movementCommitSchema, createItemCommitSchema]);
+const openCountCommitSchema = z.object({
+  action: z.literal("open_count"),
+  restaurantId: z.string().uuid(),
+  reason: z.string().trim().min(2).max(120),
+});
+
+const countLineCommitSchema = z.object({
+  action: z.literal("count_line"),
+  restaurantId: z.string().uuid(),
+  inventoryItemId: z.string().uuid(),
+  countedStock: z.coerce.number().nonnegative().max(999999),
+  reason: z.string().trim().min(2).max(120),
+});
+
+const closeCountCommitSchema = z.object({
+  action: z.literal("close_count"),
+  restaurantId: z.string().uuid(),
+  reason: z.string().trim().min(2).max(120),
+});
+
+const commitSchema = z.discriminatedUnion("action", [movementCommitSchema, createItemCommitSchema, openCountCommitSchema, countLineCommitSchema, closeCountCommitSchema]);
 
 export async function POST(request: Request) {
   if (!hasSupabaseEnv()) {
@@ -50,6 +70,50 @@ export async function POST(request: Request) {
   }
 
   const { supabase } = access;
+
+  if (parsed.data.action === "open_count") {
+    const { data: countId, error } = await supabase.rpc("open_inventory_count_atomic", {
+      p_restaurant_id: parsed.data.restaurantId,
+      p_notes: `Agregado con IA: ${parsed.data.reason}`.slice(0, 180),
+    });
+
+    if (error) {
+      return NextResponse.json({ error: normalizeInventoryError(error.message || error.code || "open-count-failed") }, { status: 400 });
+    }
+
+    revalidateInventory(parsed.data.restaurantId);
+    return NextResponse.json({ ok: true, countId });
+  }
+
+  if (parsed.data.action === "count_line") {
+    const { data: lineId, error } = await supabase.rpc("record_inventory_count_line_atomic", {
+      p_restaurant_id: parsed.data.restaurantId,
+      p_inventory_item_id: parsed.data.inventoryItemId,
+      p_counted_stock: parsed.data.countedStock,
+      p_notes: `Agregado con IA: ${parsed.data.reason}`.slice(0, 180),
+    });
+
+    if (error) {
+      return NextResponse.json({ error: normalizeInventoryError(error.message || error.code || "count-line-failed") }, { status: 400 });
+    }
+
+    revalidateInventory(parsed.data.restaurantId);
+    return NextResponse.json({ ok: true, lineId });
+  }
+
+  if (parsed.data.action === "close_count") {
+    const { data: countId, error } = await supabase.rpc("close_inventory_count_atomic", {
+      p_restaurant_id: parsed.data.restaurantId,
+      p_notes: `Agregado con IA: ${parsed.data.reason}`.slice(0, 180),
+    });
+
+    if (error) {
+      return NextResponse.json({ error: normalizeInventoryError(error.message || error.code || "close-count-failed") }, { status: 400 });
+    }
+
+    revalidateInventory(parsed.data.restaurantId);
+    return NextResponse.json({ ok: true, countId });
+  }
 
   if (parsed.data.action === "create_item") {
     if (access.role !== "superadmin" && access.role !== "restaurant_admin") {
@@ -94,7 +158,7 @@ export async function POST(request: Request) {
       quantity: parsed.data.currentStock,
       previous_stock: 0,
       new_stock: parsed.data.currentStock,
-      reason: `IA: ${parsed.data.reason}`.slice(0, 140),
+      reason: `Agregado con IA: ${parsed.data.reason}`.slice(0, 140),
       created_by: access.userId,
     });
 
@@ -119,7 +183,7 @@ export async function POST(request: Request) {
     p_inventory_item_id: parsed.data.inventoryItemId,
     p_type: parsed.data.type,
     p_quantity: parsed.data.quantity,
-    p_reason: `IA: ${parsed.data.reason}`.slice(0, 140),
+    p_reason: `Agregado con IA: ${parsed.data.reason}`.slice(0, 140),
     p_from_zone_id: null,
     p_to_zone_id: null,
     p_supplier_id: null,
@@ -180,6 +244,8 @@ function normalizeInventoryError(message: string) {
   if (message.includes("negative-stock")) return "negative-stock";
   if (message.includes("negative-zone-stock")) return "negative-zone-stock";
   if (message.includes("item-not-found")) return "inventory-item-not-found";
+  if (message.includes("no-open-count")) return "quick-add-open-count-required";
+  if (message.includes("count-open")) return "quick-add-count-already-open";
   if (message.includes("access denied")) return "inventory-access-denied";
   return "inventory-movement-failed";
 }

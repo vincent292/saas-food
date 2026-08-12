@@ -73,7 +73,36 @@ type NeedsDetailsPreview = {
   warnings: string[];
 };
 
-type QuickAddPreview = MovementPreview | CreateItemPreview | NeedsDetailsPreview;
+type CountActionPreview = {
+  action: "open_count" | "close_count";
+  restaurantId: string;
+  originalText: string;
+  reason: string;
+  warnings: string[];
+};
+
+type CountLinePreview = {
+  action: "count_line";
+  restaurantId: string;
+  originalText: string;
+  inventoryItemId: string;
+  inventoryItemName: string;
+  inventoryItemUnit: string;
+  expectedStock: number;
+  countedStock: number;
+  differenceStock: number;
+  reason: string;
+  confidence: number;
+  warnings: string[];
+  alternatives: Array<{
+    id: string;
+    name: string;
+    stock: number;
+    unit: string;
+  }>;
+};
+
+type QuickAddPreview = MovementPreview | CreateItemPreview | NeedsDetailsPreview | CountActionPreview | CountLinePreview;
 type RequestState = "idle" | "previewing" | "committing" | "success" | "error";
 
 const movementLabel: Record<MovementPreview["type"], string> = {
@@ -93,6 +122,8 @@ const errorMessages: Record<string, string> = {
   "negative-zone-stock": "La zona no tiene stock suficiente.",
   "inventory-create-admin-required": "Solo un administrador puede crear items.",
   "inventory-item-already-exists": "Ya existe un item con ese nombre.",
+  "quick-add-open-count-required": "Primero abre un conteo de inventario.",
+  "quick-add-count-already-open": "Ya hay un conteo abierto.",
   unauthorized: "Sesion vencida.",
   "inventory-access-denied": "No tienes acceso para mover inventario.",
 };
@@ -175,7 +206,8 @@ export function InventoryQuickAddOrb({
               quantity: preview.quantity,
               reason: preview.reason,
             }
-          : {
+          : preview.action === "create_item"
+            ? {
               restaurantId: preview.restaurantId,
               name: preview.name,
               itemKind: preview.itemKind,
@@ -184,7 +216,18 @@ export function InventoryQuickAddOrb({
               minStock: preview.minStock,
               unitCost: preview.unitCost,
               reason: preview.reason,
-            }),
+            }
+            : preview.action === "count_line"
+              ? {
+                  restaurantId: preview.restaurantId,
+                  inventoryItemId: preview.inventoryItemId,
+                  countedStock: preview.countedStock,
+                  reason: preview.reason,
+                }
+              : {
+                  restaurantId: preview.restaurantId,
+                  reason: preview.reason,
+                }),
       }),
     });
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -322,6 +365,43 @@ export function InventoryQuickAddOrb({
               </div>
             ) : null}
 
+            {preview?.action === "count_line" ? (
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-black text-[var(--color-heading)]">{preview.inventoryItemName}</p>
+                    <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">
+                      Conteo fisico - {preview.countedStock} {preview.inventoryItemUnit}
+                    </p>
+                  </div>
+                  <span className={cn("rounded-full px-2 py-1 text-xs font-black", preview.confidence >= 0.72 ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]")}>
+                    {Math.round(preview.confidence * 100)}%
+                  </span>
+                </div>
+                <p className="mt-3 text-lg font-black text-[var(--color-heading)]">
+                  Sistema {preview.expectedStock} {"->"} contado {preview.countedStock}
+                </p>
+                <p className={cn("mt-1 text-xs font-black", preview.differenceStock === 0 ? "text-[var(--color-success-strong)]" : preview.differenceStock > 0 ? "text-[var(--color-info-strong)]" : "text-[var(--danger)]")}>Diferencia {preview.differenceStock}</p>
+                {preview.warnings.map((warning) => (
+                  <p className="mt-2 text-xs font-bold text-[var(--color-warning-strong)]" key={warning}>
+                    {warning}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+
+            {preview?.action === "open_count" || preview?.action === "close_count" ? (
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-3">
+                <p className="text-sm font-black text-[var(--color-heading)]">{preview.action === "open_count" ? "Abrir conteo de inventario" : "Cerrar conteo de inventario"}</p>
+                <p className="mt-2 text-xs font-semibold text-[var(--color-secondary-text)]">{preview.reason}</p>
+                {preview.warnings.map((warning) => (
+                  <p className="mt-2 text-xs font-bold text-[var(--color-warning-strong)]" key={warning}>
+                    {warning}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+
             {preview?.action === "create_item" ? (
               <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-3">
                 <div className="flex items-start justify-between gap-3">
@@ -374,7 +454,7 @@ export function InventoryQuickAddOrb({
                   </Button>
                   <Button disabled={state === "committing" || hasNegativeStock} onClick={commitPreview} type="button">
                     {state === "committing" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    {preview.action === "create_item" ? "Crear" : "Confirmar"}
+                    {preview.action === "create_item" ? "Crear" : preview.action === "open_count" ? "Abrir" : preview.action === "close_count" ? "Cerrar" : "Confirmar"}
                   </Button>
                 </>
               ) : (

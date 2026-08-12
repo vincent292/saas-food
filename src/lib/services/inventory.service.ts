@@ -218,7 +218,8 @@ function mapLot(row: InventoryLotRow, items: Map<string, InventoryItem>, supplie
   };
 }
 
-function mapMovement(row: InventoryMovementRow): InventoryMovement {
+function mapMovement(row: InventoryMovementRow, profiles?: Map<string, ProfileRow>): InventoryMovement {
+  const profile = row.created_by ? profiles?.get(row.created_by) : undefined;
   return {
     id: row.id,
     restaurantId: row.restaurant_id,
@@ -229,6 +230,7 @@ function mapMovement(row: InventoryMovementRow): InventoryMovement {
     newStock: Number(row.new_stock),
     reason: row.reason ?? "",
     createdBy: row.created_by ?? "",
+    createdByName: profile?.full_name ?? profile?.email ?? undefined,
     createdAt: row.created_at,
     fromZoneId: row.from_zone_id ?? undefined,
     toZoneId: row.to_zone_id ?? undefined,
@@ -364,7 +366,9 @@ export const inventoryService = {
       return [];
     }
 
-    return data.map((row) => mapMovement(row as InventoryMovementRow));
+    const profileIds = (data as InventoryMovementRow[]).map((row) => row.created_by).filter(Boolean) as string[];
+    const profiles = await getProfiles(profileIds);
+    return data.map((row) => mapMovement(row as InventoryMovementRow, profiles));
   },
 
   async listCategories(restaurantId: string) {

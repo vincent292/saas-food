@@ -33,7 +33,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
-  const items = await inventoryService.listItems(parsed.data.restaurantId);
+  const [items, openCount] = await Promise.all([
+    inventoryService.listItems(parsed.data.restaurantId),
+    inventoryService.getOpenCount(parsed.data.restaurantId),
+  ]);
   const text = [parsed.data.contextText, parsed.data.text].filter(Boolean).join(" ");
 
   try {
@@ -41,6 +44,7 @@ export async function POST(request: Request) {
       restaurantId: parsed.data.restaurantId,
       text,
       items,
+      openCount,
     });
 
     return NextResponse.json({ preview });

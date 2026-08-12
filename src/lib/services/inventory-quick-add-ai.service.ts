@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { InventoryItem, InventoryItemKind, InventoryMovementType } from "@/types/inventory.types";
+import type { InventoryCountReport, InventoryItem, InventoryItemKind, InventoryMovementType } from "@/types/inventory.types";
 
 const defaultModel = "gemini-3.6-flash";
 const units = ["unidad", "kg", "g", "lb", "oz", "litro", "ml", "caja", "paquete"] as const;
@@ -42,6 +42,18 @@ const inventoryIntentWords = [
   "perdida",
   "ajusta",
   "ajustar",
+  "abre conteo",
+  "abrir conteo",
+  "apertura conteo",
+  "inicia conteo",
+  "iniciar conteo",
+  "conteo",
+  "conte",
+  "contado",
+  "contar",
+  "cierra conteo",
+  "cerrar conteo",
+  "cierre conteo",
 ];
 const blockedNonInventoryWords = [
   "pedido",
@@ -106,7 +118,7 @@ const blockedNonInventoryWords = [
 const quickAddSchema = {
   type: "object",
   properties: {
-    action: { type: "string", enum: ["movement", "create_item"] },
+    action: { type: "string", enum: ["movement", "create_item", "open_count", "count_line", "close_count"] },
     type: { type: "string", enum: ["in", "out", "adjustment", "waste"] },
     quantity: { type: "number" },
     itemId: { type: "string" },
@@ -198,16 +210,42 @@ type InventoryAlternative = {
   unit: InventoryItem["unit"];
 };
 
-export type InventoryQuickAddPreview = InventoryMovementPreview | InventoryCreateItemPreview | InventoryNeedsDetailsPreview;
+type InventoryCountActionPreview = {
+  action: "open_count" | "close_count";
+  restaurantId: string;
+  originalText: string;
+  reason: string;
+  warnings: string[];
+};
+
+type InventoryCountLinePreview = {
+  action: "count_line";
+  restaurantId: string;
+  originalText: string;
+  inventoryItemId: string;
+  inventoryItemName: string;
+  inventoryItemUnit: InventoryItem["unit"];
+  expectedStock: number;
+  countedStock: number;
+  differenceStock: number;
+  reason: string;
+  confidence: number;
+  warnings: string[];
+  alternatives: Array<InventoryAlternative>;
+};
+
+export type InventoryQuickAddPreview = InventoryMovementPreview | InventoryCreateItemPreview | InventoryNeedsDetailsPreview | InventoryCountActionPreview | InventoryCountLinePreview;
 
 export async function prepareInventoryQuickAdd({
   restaurantId,
   text,
   items,
+  openCount,
 }: {
   restaurantId: string;
   text: string;
   items: InventoryItem[];
+  openCount?: InventoryCountReport | null;
 }): Promise<InventoryQuickAddPreview> {
   const originalText = normalizeText(text, 220);
   if (!originalText) {
@@ -221,11 +259,53 @@ export async function prepareInventoryQuickAdd({
   const action = normalizeAction(aiDraft?.action) ?? localDraft.action;
   const type = normalizeMovementType(aiDraft?.type) ?? localDraft.type;
   const quantity = clampPositiveNumber(aiDraft?.quantity) ?? localDraft.quantity;
+  const countedQuantity = clampNonNegativeNumber(aiDraft?.quantity) ?? localDraft.countedQuantity ?? localDraft.quantity;
   const itemName = normalizeItemName(typeof aiDraft?.itemName === "string" ? aiDraft.itemName : localDraft.itemName);
   const itemKind = normalizeItemKind(aiDraft?.itemKind) ?? localDraft.itemKind;
   const unit = normalizeUnit(aiDraft?.unit) ?? localDraft.unit;
   const minStock = clampNonNegativeNumber(aiDraft?.minStock) ?? localDraft.minStock;
   const unitCost = clampNonNegativeNumber(aiDraft?.unitCost) ?? localDraft.unitCost;
+
+  if (action === "open_count") {
+    return {
+      action,
+      restaurantId,
+      originalText,
+      reason: normalizeReason(aiDraft?.reason, originalText),
+      warnings: openCount ? ["Ya hay un conteo abierto. Si confirmas, la base puede rechazar otro conteo abierto."] : ["Agregado con IA: se abrira un conteo de inventario."],
+    };
+  }
+
+  if (action === "close_count") {
+    return {
+      action,
+      restaurantId,
+      originalText,
+      reason: normalizeReason(aiDraft?.reason, originalText),
+      warnings: openCount ? ["Agregado con IA: se cerrara el conteo abierto y se ajustara stock segun lineas contadas."] : ["No hay conteo abierto para cerrar."],
+    };
+  }
+
+  if (action === "count_line") {
+    if (!openCount) {
+      throw new Error("quick-add-open-count-required");
+    }
+
+    if (countedQuantity === undefined || countedQuantity === null) {
+      throw new Error("quick-add-quantity-required");
+    }
+
+    return prepareCountLinePreview({
+      restaurantId,
+      originalText,
+      items,
+      countedStock: countedQuantity,
+      itemId: typeof aiDraft?.itemId === "string" ? aiDraft.itemId : "",
+      itemName,
+      reason: normalizeReason(aiDraft?.reason, originalText),
+      aiConfidence: clampConfidence(aiDraft?.confidence),
+    });
+  }
 
   if (action === "create_item") {
     return prepareCreateItemPreview({
@@ -440,6 +520,9 @@ async function askGeminiForQuickAdd(text: string, items: InventoryItem[]): Promi
             "Nunca crees productos de menu, categorias, proveedores, pedidos, usuarios ni cambios de precio publico.",
             "Nunca escribas codigo, SQL, scripts, instrucciones tecnicas, secretos, tokens ni llaves API.",
             "Si el usuario pide crear un nuevo insumo/item de inventario, usa action=create_item.",
+            "Si pide abrir o iniciar conteo fisico, usa action=open_count.",
+            "Si pide cerrar conteo fisico, usa action=close_count.",
+            "Si informa una cantidad contada de un item dentro de conteo, usa action=count_line.",
             "Si el usuario pide entrada, salida, merma o ajuste de un item existente, usa action=movement.",
             "Para action=movement, itemId debe venir del catalogo. No inventes ids.",
             "Para action=create_item, itemId puede ser string vacio. itemName es el nombre limpio del item.",
@@ -490,14 +573,32 @@ function assertInventoryOnlyText(text: string) {
     throw new Error("quick-add-inventory-only");
   }
 
-  if (!hasQuantity && !createIntentWords.some((word) => normalized.includes(word))) {
+  const countActionWithoutQuantity =
+    normalized.includes("abrir conteo") ||
+    normalized.includes("abre conteo") ||
+    normalized.includes("iniciar conteo") ||
+    normalized.includes("inicia conteo") ||
+    normalized.includes("cerrar conteo") ||
+    normalized.includes("cierra conteo") ||
+    normalized.includes("cierre conteo");
+
+  if (!hasQuantity && !createIntentWords.some((word) => normalized.includes(word)) && !countActionWithoutQuantity) {
     throw new Error("quick-add-quantity-required");
   }
 }
 
 function inferQuickAddLocally(text: string) {
   const normalized = normalizeForMatch(text);
-  const action = createIntentWords.some((word) => normalized.includes(word)) ? "create_item" : "movement";
+  const action =
+    normalized.includes("abrir conteo") || normalized.includes("abre conteo") || normalized.includes("iniciar conteo") || normalized.includes("inicia conteo") || normalized.includes("apertura conteo")
+      ? "open_count"
+      : normalized.includes("cerrar conteo") || normalized.includes("cierra conteo") || normalized.includes("cierre conteo")
+        ? "close_count"
+        : normalized.includes("conteo") || normalized.includes("conte ") || normalized.includes("contado") || normalized.includes("contar")
+          ? "count_line"
+          : createIntentWords.some((word) => normalized.includes(word))
+            ? "create_item"
+            : "movement";
   const type = normalized.includes("merma") || normalized.includes("vencid") || normalized.includes("roto") || normalized.includes("perdid")
     ? "waste"
     : normalized.includes("ajusta") || normalized.includes("deja en") || normalized.includes("stock final")
@@ -506,6 +607,7 @@ function inferQuickAddLocally(text: string) {
         ? "out"
         : "in";
   const quantity = extractQuantity(text);
+  const countedQuantity = extractCountedQuantity(text);
   const minStock = extractNumberAfter(normalized, ["stock minimo", "minimo", "min"]);
   const unitCost = extractNumberAfter(normalized, ["costo", "precio"]);
   const unit = inferUnit(normalized);
@@ -516,7 +618,55 @@ function inferQuickAddLocally(text: string) {
       .replace(/\b(crea|crear|nuevo|nueva|registra|registrar|alta|insumo|item|producto|terminado|agrega|agregar|ingresa|ingresar|suma|sumar|compra|compre|comprar|repone|reponer|saca|sacar|quita|quitar|descuenta|descontar|retira|retirar|merma|ajusta|ajustar|deja|stock|actual|final|minimo|minima|costo|precio|venta|en|de|del|la|el|los|las|un|una|unos|unas|unidades|unidad|kg|g|litro|litros|lt|ml|caja|cajas|paquete|paquetes)\b/gi, " "),
   );
 
-  return { action, type: type as InventoryMovementPreview["type"], quantity, itemName, itemKind, unit, minStock, unitCost };
+  return { action, type: type as InventoryMovementPreview["type"], quantity, countedQuantity, itemName, itemKind, unit, minStock, unitCost };
+}
+
+function prepareCountLinePreview({
+  restaurantId,
+  originalText,
+  items,
+  countedStock,
+  itemId,
+  itemName,
+  reason,
+  aiConfidence,
+}: {
+  restaurantId: string;
+  originalText: string;
+  items: InventoryItem[];
+  countedStock: number;
+  itemId: string;
+  itemName: string;
+  reason: string;
+  aiConfidence: number | null;
+}): InventoryCountLinePreview {
+  const match = findBestItem({ items, itemId, itemName, text: originalText });
+  if (!match.item) {
+    throw new Error("quick-add-item-not-found");
+  }
+
+  const differenceStock = Number((countedStock - match.item.currentStock).toFixed(3));
+  const confidence = Math.max(match.score, aiConfidence ?? 0);
+  const warnings: string[] = ["Agregado con IA: se registrara una linea de conteo fisico."];
+  if (confidence < 0.62) {
+    warnings.push("Coincidencia baja. Revisa que el item sea correcto.");
+  }
+
+  return {
+    action: "count_line",
+    restaurantId,
+    originalText,
+    inventoryItemId: match.item.id,
+    inventoryItemName: match.item.name,
+    inventoryItemUnit: match.item.unit,
+    expectedStock: match.item.currentStock,
+    countedStock,
+    differenceStock,
+    reason,
+    confidence,
+    warnings,
+    alternatives: match.alternatives.map(toAlternative),
+  };
 }
 
 function findBestItem({
@@ -630,6 +780,15 @@ function extractQuantity(text: string) {
   return clampPositiveNumber(match[0]);
 }
 
+function extractCountedQuantity(text: string) {
+  const match = text.match(/[-+]?\d+(?:[.,]\d+)?/);
+  if (!match) {
+    return null;
+  }
+
+  return clampNonNegativeNumber(match[0]);
+}
+
 function extractNumberAfter(text: string, labels: string[]) {
   for (const label of labels) {
     const index = text.indexOf(label);
@@ -658,8 +817,8 @@ function inferItemKind(text: string): InventoryItemKind {
   return "ingredient";
 }
 
-function normalizeAction(value: unknown): "movement" | "create_item" | null {
-  return value === "movement" || value === "create_item" ? value : null;
+function normalizeAction(value: unknown): "movement" | "create_item" | "open_count" | "count_line" | "close_count" | null {
+  return value === "movement" || value === "create_item" || value === "open_count" || value === "count_line" || value === "close_count" ? value : null;
 }
 
 function normalizeMovementType(value: unknown): InventoryMovementPreview["type"] | null {

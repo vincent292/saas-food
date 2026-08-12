@@ -212,13 +212,18 @@ export function InventoryWorkspaceClient({
               {movements.length ? (
                 movements.map((movement) => {
                   const item = items.find((inventoryItem) => inventoryItem.id === movement.inventoryItemId);
+                  const addedWithAi = movement.reason.toLowerCase().startsWith("agregado con ia:");
                   return (
                     <div className="grid gap-2 rounded-2xl bg-[var(--color-surface)] p-3 sm:grid-cols-[1fr_auto] sm:items-center print:border print:bg-[var(--surface)]" key={movement.id}>
                       <div>
-                        <p className="font-bold text-[var(--color-heading)]">
-                        {item?.name ?? "Insumo"} · {movementLabels[movement.type]}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-bold text-[var(--color-heading)]">
+                          {item?.name ?? "Insumo"} · {movementLabels[movement.type]}
+                          </p>
+                          {addedWithAi ? <span className="rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary)]">Agregado con IA</span> : null}
+                        </div>
                         <p className="text-sm text-[var(--color-secondary-text)]">{movement.reason}</p>
+                        <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">Hecho por: {movement.createdByName || movement.createdBy || "Usuario"}</p>
                       </div>
                       <p className="text-sm font-semibold text-[var(--color-body)]">
                         {movement.previousStock} → {movement.newStock} {item?.unit ?? ""} · {formatShortDate(movement.createdAt)} {formatShortTime(movement.createdAt)}

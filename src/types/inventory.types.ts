@@ -68,6 +68,7 @@ export type InventoryMovement = {
   newStock: number;
   reason: string;
   createdBy: string;
+  createdByName?: string;
   createdAt: string;
   fromZoneId?: string;
   toZoneId?: string;

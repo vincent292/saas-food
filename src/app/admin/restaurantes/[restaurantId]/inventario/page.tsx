@@ -72,6 +72,7 @@ export default async function InventoryPage({
         productSuppliers={productSuppliers}
         products={products}
         restaurantId={restaurant.id}
+        restaurantName={restaurant.name}
         suppliers={suppliers}
         zones={zones}
       />

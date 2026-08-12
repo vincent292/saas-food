@@ -18,6 +18,7 @@ import {
   transferInventoryZoneAction,
 } from "@/app/admin/actions";
 import { InventoryItemRow } from "@/components/inventory/InventoryItemRow";
+import { InventoryQuickAddOrb } from "@/components/inventory/InventoryQuickAddOrb";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -55,6 +56,7 @@ const movementLabels: Record<InventoryMovement["type"], string> = {
 
 export function InventoryWorkspaceClient({
   restaurantId,
+  restaurantName,
   items,
   categories,
   suppliers,
@@ -73,6 +75,7 @@ export function InventoryWorkspaceClient({
   initialTab,
 }: {
   restaurantId: string;
+  restaurantName: string;
   items: InventoryItem[];
   categories: InventoryCategory[];
   suppliers: InventorySupplier[];
@@ -121,6 +124,8 @@ export function InventoryWorkspaceClient({
 
   return (
     <div className="space-y-6">
+      <InventoryQuickAddOrb branches={[{ restaurantId, restaurantName }]} currentRestaurantId={restaurantId} />
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard label="Valor inventario" value={formatMoney(inventoryValue)} />
         <MetricCard label="Items activos" value={String(items.length)} />

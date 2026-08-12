@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, Boxes, CalendarClock, PackageSearch } from "lucide-react";
+import { InventoryQuickAddOrb } from "@/components/inventory/InventoryQuickAddOrb";
 import type { ReactNode } from "react";
 import { OwnerLayout, getOwnerLayoutContext } from "@/components/layout/OwnerLayout";
 import { Card } from "@/components/ui/Card";
@@ -15,6 +16,13 @@ export default async function OwnerInventoryPage() {
   return (
     <OwnerLayout active="/dueno/inventario" memberships={ownerMemberships} title="Inventario general">
       <div className="space-y-6">
+        <InventoryQuickAddOrb
+          branches={ownerMemberships.map((membership) => ({
+            restaurantId: membership.restaurant.id,
+            restaurantName: membership.restaurant.name,
+          }))}
+        />
+
         <div className="grid gap-3 sm:grid-cols-3">
           <InventoryMetric icon={<Boxes className="h-5 w-5" />} label="Sucursales" value={String(summaries.length)} />
           <InventoryMetric icon={<PackageSearch className="h-5 w-5" />} label="Bajo stock" value={String(totalLowStock)} />

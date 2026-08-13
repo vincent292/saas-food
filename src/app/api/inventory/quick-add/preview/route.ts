@@ -33,8 +33,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
-  const [items, openCount] = await Promise.all([
+  const [items, lots, openCount] = await Promise.all([
     inventoryService.listItems(parsed.data.restaurantId),
+    inventoryService.listLots(parsed.data.restaurantId),
     inventoryService.getOpenCount(parsed.data.restaurantId),
   ]);
   const text = [parsed.data.contextText, parsed.data.text].filter(Boolean).join(" ");
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
       restaurantId: parsed.data.restaurantId,
       text,
       items,
+      lots,
       openCount,
     });
 

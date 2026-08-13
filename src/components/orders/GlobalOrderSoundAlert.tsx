@@ -134,9 +134,9 @@ export function GlobalOrderSoundAlert({ restaurantId, orders }: { restaurantId: 
       actionLabel="Ir a aprobar"
       className="fixed inset-x-3 top-20 z-[88] shadow-2xl sm:bottom-auto sm:left-auto sm:right-6 sm:top-24 sm:max-w-xl"
       description="Hay un pedido nuevo esperando aprobacion. Entra a Pedidos para revisarlo y cobrarlo si corresponde."
-      idleClassName="fixed right-3 top-[8.75rem] z-[70] sm:right-6 sm:top-24"
       onOpenAlerts={() => router.push(`/admin/restaurantes/${restaurantId}/pedidos?tab=nuevos`)}
       orders={alertOrders}
+      restaurantId={restaurantId}
       title="Pedido nuevo"
       watchOrderTypes={["table", "delivery", "pickup"]}
     />

@@ -62,11 +62,14 @@ type NeedsDetailsPreview = {
   originalText: string;
   draft: {
     name?: string;
+    itemName?: string;
     itemKind?: "finished" | "ingredient" | "supply";
     unit?: string;
     currentStock?: number;
     minStock?: number;
     unitCost?: number;
+    expiresOn?: string;
+    lotCode?: string;
   };
   missingFields: string[];
   questions: string[];
@@ -102,7 +105,29 @@ type CountLinePreview = {
   }>;
 };
 
-type QuickAddPreview = MovementPreview | CreateItemPreview | NeedsDetailsPreview | CountActionPreview | CountLinePreview;
+type ExpirationPreview = {
+  action: "update_expiration";
+  restaurantId: string;
+  originalText: string;
+  lotId: string;
+  inventoryItemName: string;
+  lotCode?: string;
+  previousExpiresOn?: string;
+  expiresOn: string;
+  remainingQuantity: number;
+  reason: string;
+  confidence: number;
+  warnings: string[];
+  alternatives: Array<{
+    lotId: string;
+    lotCode?: string;
+    inventoryItemName: string;
+    expiresOn?: string;
+    remainingQuantity: number;
+  }>;
+};
+
+type QuickAddPreview = MovementPreview | CreateItemPreview | NeedsDetailsPreview | CountActionPreview | CountLinePreview | ExpirationPreview;
 type RequestState = "idle" | "previewing" | "committing" | "success" | "error";
 
 const movementLabel: Record<MovementPreview["type"], string> = {
@@ -114,7 +139,7 @@ const movementLabel: Record<MovementPreview["type"], string> = {
 
 const errorMessages: Record<string, string> = {
   "quick-add-text-required": "Escribe el movimiento.",
-  "quick-add-inventory-only": "Solo preparo movimientos de inventario. No respondo preguntas ni codigo.",
+  "quick-add-inventory-only": "Solo preparo operaciones de inventario. No respondo preguntas ni codigo.",
   "quick-add-no-items": "Esta sucursal no tiene items activos.",
   "quick-add-quantity-required": "No encontre la cantidad.",
   "quick-add-item-not-found": "No encontre un item parecido.",
@@ -124,6 +149,9 @@ const errorMessages: Record<string, string> = {
   "inventory-item-already-exists": "Ya existe un item con ese nombre.",
   "quick-add-open-count-required": "Primero abre un conteo de inventario.",
   "quick-add-count-already-open": "Ya hay un conteo abierto.",
+  "quick-add-expiration-date-required": "Indica la fecha de vencimiento.",
+  "quick-add-lot-not-found": "No encontre un lote activo para ese item.",
+  "quick-add-lot-required": "Indica el codigo de lote.",
   unauthorized: "Sesion vencida.",
   "inventory-access-denied": "No tienes acceso para mover inventario.",
 };
@@ -217,7 +245,14 @@ export function InventoryQuickAddOrb({
               unitCost: preview.unitCost,
               reason: preview.reason,
             }
-            : preview.action === "count_line"
+          : preview.action === "update_expiration"
+            ? {
+                restaurantId: preview.restaurantId,
+                lotId: preview.lotId,
+                expiresOn: preview.expiresOn,
+                reason: preview.reason,
+              }
+          : preview.action === "count_line"
               ? {
                   restaurantId: preview.restaurantId,
                   inventoryItemId: preview.inventoryItemId,
@@ -294,7 +329,7 @@ export function InventoryQuickAddOrb({
           ) : null}
 
           <div className="space-y-3">
-            <p className="text-xs font-bold text-[var(--color-secondary-text)]">Solo entradas, salidas, mermas y ajustes de stock.</p>
+            <p className="text-xs font-bold text-[var(--color-secondary-text)]">Solo inventario: entradas, salidas, mermas, ajustes, conteos y vencimientos.</p>
             <Textarea
               className="min-h-24"
               disabled={state === "previewing" || state === "committing"}
@@ -315,7 +350,7 @@ export function InventoryQuickAddOrb({
 
             {preview?.action === "needs_details" ? (
               <div className="rounded-2xl border border-[var(--color-warning-soft)] bg-[var(--color-warning-soft)] p-3">
-                <p className="text-sm font-black text-[var(--color-heading)]">Faltan datos para crear el item</p>
+                <p className="text-sm font-black text-[var(--color-heading)]">Faltan datos para continuar</p>
                 <div className="mt-2 space-y-1">
                   {preview.questions.map((question) => (
                     <p className="text-xs font-bold text-[var(--color-warning-strong)]" key={question}>
@@ -323,12 +358,41 @@ export function InventoryQuickAddOrb({
                     </p>
                   ))}
                 </div>
-                {preview.draft.name ? <p className="mt-2 text-xs font-semibold text-[var(--color-secondary-text)]">Detecte: {preview.draft.name}</p> : null}
+                {preview.draft.name || preview.draft.itemName ? <p className="mt-2 text-xs font-semibold text-[var(--color-secondary-text)]">Detecte: {preview.draft.name ?? preview.draft.itemName}</p> : null}
                 {preview.warnings.map((warning) => (
                   <p className="mt-2 text-xs font-bold text-[var(--color-warning-strong)]" key={warning}>
                     {warning}
                   </p>
                 ))}
+              </div>
+            ) : null}
+
+            {preview?.action === "update_expiration" ? (
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-black text-[var(--color-heading)]">{preview.inventoryItemName}</p>
+                    <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">
+                      Lote {preview.lotCode || "sin codigo"} - quedan {preview.remainingQuantity}
+                    </p>
+                  </div>
+                  <span className={cn("rounded-full px-2 py-1 text-xs font-black", preview.confidence >= 0.72 ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]")}>
+                    {Math.round(preview.confidence * 100)}%
+                  </span>
+                </div>
+                <p className="mt-3 text-lg font-black text-[var(--color-heading)]">
+                  {preview.previousExpiresOn ?? "Sin fecha"} {"->"} {preview.expiresOn}
+                </p>
+                {preview.warnings.map((warning) => (
+                  <p className="mt-2 text-xs font-bold text-[var(--color-warning-strong)]" key={warning}>
+                    {warning}
+                  </p>
+                ))}
+                {preview.alternatives.length ? (
+                  <p className="mt-2 truncate text-xs font-semibold text-[var(--color-secondary-text)]">
+                    Otros lotes: {preview.alternatives.map((lot) => `${lot.lotCode || "sin codigo"} (${lot.expiresOn ?? "sin fecha"})`).join(", ")}
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
@@ -435,7 +499,7 @@ export function InventoryQuickAddOrb({
 
             {state === "success" ? (
               <p className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-black text-[var(--color-success-strong)]">
-                Movimiento registrado.
+                Inventario actualizado.
               </p>
             ) : null}
 
@@ -454,7 +518,7 @@ export function InventoryQuickAddOrb({
                   </Button>
                   <Button disabled={state === "committing" || hasNegativeStock} onClick={commitPreview} type="button">
                     {state === "committing" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    {preview.action === "create_item" ? "Crear" : preview.action === "open_count" ? "Abrir" : preview.action === "close_count" ? "Cerrar" : "Confirmar"}
+                    {preview.action === "create_item" ? "Crear" : preview.action === "open_count" ? "Abrir" : preview.action === "close_count" ? "Cerrar" : preview.action === "update_expiration" ? "Modificar" : "Confirmar"}
                   </Button>
                 </>
               ) : (
@@ -486,7 +550,7 @@ export function InventoryQuickAddOrb({
 }
 
 function errorLabel(error?: string) {
-  return errorMessages[error ?? ""] ?? "No pude preparar el movimiento.";
+  return errorMessages[error ?? ""] ?? "No pude preparar la operacion.";
 }
 
 function itemKindLabel(kind: CreateItemPreview["itemKind"]) {

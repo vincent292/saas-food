@@ -1,18 +1,23 @@
 "use client";
 
-import { BellRing, Eye, Volume2, VolumeX } from "lucide-react";
+import { BellRing, Eye } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buttonClasses } from "@/components/ui/Button";
+import {
+  ORDER_ALERT_AUDIO_SRC,
+  ORDER_ALERT_SOUND_CHANGE_EVENT,
+  ORDER_ALERT_SOUND_STOP_EVENT,
+  readOrderAlertSoundEnabled,
+} from "@/lib/client/order-notification-sound";
 import { cn } from "@/lib/utils/cn";
 import type { Order, OrderType } from "@/types/order.types";
-
-const ORDER_ALERT_AUDIO_SRC = "/notificaciones/notificaiones.mp3";
 
 function sameOrderIds(left: Order[], right: Order[]) {
   return left.length === right.length && left.every((order, index) => order.id === right[index]?.id);
 }
 
 export function NewOrderSoundAlert({
+  restaurantId,
   orders,
   title = "Pedido nuevo",
   description = "Hay pedidos nuevos esperando revision.",
@@ -20,8 +25,8 @@ export function NewOrderSoundAlert({
   onOpenAlerts,
   actionLabel = "Ver pedidos",
   className,
-  idleClassName,
 }: {
+  restaurantId: string;
   orders: Order[];
   title?: string;
   description?: string;
@@ -29,26 +34,68 @@ export function NewOrderSoundAlert({
   onOpenAlerts?: (orders: Order[]) => void;
   actionLabel?: string;
   className?: string;
-  idleClassName?: string;
 }) {
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(() => readOrderAlertSoundEnabled(restaurantId));
   const [soundBlocked, setSoundBlocked] = useState(false);
   const [unseenOrders, setUnseenOrders] = useState<Order[]>([]);
   const [soundRequestId, setSoundRequestId] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const knownOrderIdsRef = useRef<Set<string> | null>(null);
+  const soundEnabledRef = useRef(soundEnabled);
   const unseenOrdersRef = useRef<Order[]>([]);
-  const soundUnlockedRef = useRef(false);
-  const unlockingRef = useRef(false);
 
   const ensureAudio = useCallback(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio(ORDER_ALERT_AUDIO_SRC);
+      audioRef.current.loop = false;
       audioRef.current.preload = "auto";
       audioRef.current.volume = 0.78;
     }
     return audioRef.current;
   }, []);
+
+  const stopSound = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    audio.pause();
+    audio.currentTime = 0;
+  }, []);
+
+  useEffect(() => {
+    const syncSoundPreference = (event: Event) => {
+      const detail = (event as CustomEvent<{ restaurantId?: string; enabled?: boolean }>).detail;
+      if (detail?.restaurantId !== restaurantId || typeof detail.enabled !== "boolean") {
+        return;
+      }
+
+      setSoundEnabled(detail.enabled);
+      soundEnabledRef.current = detail.enabled;
+      if (!detail.enabled) {
+        stopSound();
+        setSoundBlocked(false);
+      }
+    };
+
+    const stopFromNotification = (event: Event) => {
+      const detail = (event as CustomEvent<{ restaurantId?: string }>).detail;
+      if (!detail?.restaurantId || detail.restaurantId === restaurantId) {
+        stopSound();
+      }
+    };
+
+    window.addEventListener(ORDER_ALERT_SOUND_CHANGE_EVENT, syncSoundPreference);
+    window.addEventListener(ORDER_ALERT_SOUND_STOP_EVENT, stopFromNotification);
+    return () => {
+      window.removeEventListener(ORDER_ALERT_SOUND_CHANGE_EVENT, syncSoundPreference);
+      window.removeEventListener(ORDER_ALERT_SOUND_STOP_EVENT, stopFromNotification);
+      stopSound();
+    };
+  }, [restaurantId, stopSound]);
+
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
 
   const alertCandidates = useMemo(
     () =>
@@ -72,7 +119,7 @@ export function NewOrderSoundAlert({
     const knownOrderIds = knownOrderIdsRef.current;
     const incomingOrders = alertCandidates.filter((order) => !knownOrderIds.has(order.id));
     alertCandidates.forEach((order) => knownOrderIds.add(order.id));
-    if (incomingOrders.length) {
+    if (incomingOrders.length && soundEnabledRef.current) {
       setSoundRequestId((current) => current + 1);
     }
 
@@ -87,51 +134,6 @@ export function NewOrderSoundAlert({
     setUnseenOrders(nextUnseen);
   }, [alertCandidates]);
 
-  const enableSound = useCallback(async () => {
-    if (unlockingRef.current) {
-      return;
-    }
-
-    unlockingRef.current = true;
-    const audio = ensureAudio();
-    setSoundEnabled(true);
-    setSoundBlocked(false);
-
-    try {
-      const previousVolume = audio.volume;
-      audio.volume = 0.01;
-      await audio.play();
-      audio.pause();
-      audio.currentTime = 0;
-      audio.volume = previousVolume;
-      soundUnlockedRef.current = true;
-      setSoundBlocked(false);
-    } catch {
-      setSoundBlocked(true);
-    } finally {
-      unlockingRef.current = false;
-    }
-  }, [ensureAudio]);
-
-  useEffect(() => {
-    const unlockFromUserGesture = () => {
-      if (soundUnlockedRef.current) {
-        return;
-      }
-      void enableSound();
-    };
-
-    window.addEventListener("pointerdown", unlockFromUserGesture, { passive: true });
-    window.addEventListener("touchstart", unlockFromUserGesture, { passive: true });
-    window.addEventListener("keydown", unlockFromUserGesture);
-
-    return () => {
-      window.removeEventListener("pointerdown", unlockFromUserGesture);
-      window.removeEventListener("touchstart", unlockFromUserGesture);
-      window.removeEventListener("keydown", unlockFromUserGesture);
-    };
-  }, [enableSound]);
-
   useEffect(() => {
     if (!soundRequestId || !soundEnabled) {
       return;
@@ -139,13 +141,16 @@ export function NewOrderSoundAlert({
 
     let cancelled = false;
     const audio = ensureAudio();
+    if (!audio.paused && !audio.ended) {
+      return;
+    }
+
     audio.currentTime = 0;
     void audio.play().then(
       () => {
         if (cancelled) {
           return;
         }
-        soundUnlockedRef.current = true;
         setSoundBlocked(false);
       },
       () => {
@@ -161,6 +166,7 @@ export function NewOrderSoundAlert({
   }, [ensureAudio, soundEnabled, soundRequestId]);
 
   function acknowledge() {
+    stopSound();
     unseenOrdersRef.current = [];
     setUnseenOrders([]);
   }
@@ -172,21 +178,7 @@ export function NewOrderSoundAlert({
   }
 
   if (!unseenOrders.length) {
-    return (
-      <div className={cn("flex justify-end", idleClassName)}>
-        <button
-          className={buttonClasses(
-            "secondary",
-            cn("min-h-9 px-3 text-xs", soundEnabled && !soundBlocked ? "text-[var(--color-success-strong)]" : "text-[var(--muted)]"),
-          )}
-          onClick={enableSound}
-          type="button"
-        >
-          {soundEnabled && !soundBlocked ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-          {soundEnabled && !soundBlocked ? "Sonido activo" : "Sonido pendiente"}
-        </button>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -199,16 +191,10 @@ export function NewOrderSoundAlert({
           <p className="text-base font-black">
             {title}: {unseenOrders.length}
           </p>
-          <p className="mt-1 text-sm font-bold leading-5">{soundBlocked ? "El navegador bloqueo el audio hasta la primera interaccion. Toca el panel una vez." : description}</p>
+          <p className="mt-1 text-sm font-bold leading-5">{soundBlocked ? "El navegador bloqueo el audio. Habilitalo en Configuracion > Notificaciones." : description}</p>
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        {!soundEnabled || soundBlocked ? (
-          <button className={buttonClasses("secondary", "bg-[var(--surface)]")} onClick={enableSound} type="button">
-            <Volume2 className="h-4 w-4" />
-            Probar sonido
-          </button>
-        ) : null}
         <button className={buttonClasses("primary")} onClick={openAlerts} type="button">
           <Eye className="h-4 w-4" />
           {actionLabel}

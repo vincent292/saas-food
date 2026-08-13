@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { InventoryCountReport, InventoryItem, InventoryItemKind, InventoryMovementType } from "@/types/inventory.types";
+import type { InventoryCountReport, InventoryItem, InventoryItemKind, InventoryLot, InventoryMovementType } from "@/types/inventory.types";
 
 const defaultModel = "gemini-3.6-flash";
 const units = ["unidad", "kg", "g", "lb", "oz", "litro", "ml", "caja", "paquete"] as const;
@@ -54,6 +54,16 @@ const inventoryIntentWords = [
   "cierra conteo",
   "cerrar conteo",
   "cierre conteo",
+  "vencimiento",
+  "vence",
+  "vencera",
+  "fecha",
+  "lote",
+  "modifica",
+  "modificar",
+  "modificalo",
+  "actualiza",
+  "actualizar",
 ];
 const blockedNonInventoryWords = [
   "pedido",
@@ -75,7 +85,6 @@ const blockedNonInventoryWords = [
   "api key",
   "token",
   "secret",
-  "codigo",
   "code",
   "programa",
   "programar",
@@ -118,7 +127,7 @@ const blockedNonInventoryWords = [
 const quickAddSchema = {
   type: "object",
   properties: {
-    action: { type: "string", enum: ["movement", "create_item", "open_count", "count_line", "close_count"] },
+    action: { type: "string", enum: ["movement", "create_item", "open_count", "count_line", "close_count", "update_expiration"] },
     type: { type: "string", enum: ["in", "out", "adjustment", "waste"] },
     quantity: { type: "number" },
     itemId: { type: "string" },
@@ -127,10 +136,12 @@ const quickAddSchema = {
     unit: { type: "string", enum: [...units] },
     minStock: { type: "number" },
     unitCost: { type: "number" },
+    expiresOn: { type: "string" },
+    lotCode: { type: "string" },
     reason: { type: "string" },
     confidence: { type: "number" },
   },
-  required: ["action", "type", "quantity", "itemId", "itemName", "itemKind", "unit", "minStock", "unitCost", "reason", "confidence"],
+  required: ["action", "type", "quantity", "itemId", "itemName", "itemKind", "unit", "minStock", "unitCost", "expiresOn", "lotCode", "reason", "confidence"],
 };
 
 type GeminiInteractionResponse = {
@@ -156,6 +167,8 @@ type QuickAddAiDraft = {
   unit?: unknown;
   minStock?: unknown;
   unitCost?: unknown;
+  expiresOn?: unknown;
+  lotCode?: unknown;
   reason?: unknown;
   confidence?: unknown;
 };
@@ -197,8 +210,12 @@ type InventoryNeedsDetailsPreview = {
   action: "needs_details";
   restaurantId: string;
   originalText: string;
-  draft: Partial<Pick<InventoryCreateItemPreview, "name" | "itemKind" | "unit" | "currentStock" | "minStock" | "unitCost">>;
-  missingFields: Array<"name" | "currentStock" | "minStock" | "unitCost">;
+  draft: Partial<Pick<InventoryCreateItemPreview, "name" | "itemKind" | "unit" | "currentStock" | "minStock" | "unitCost">> & {
+    itemName?: string;
+    expiresOn?: string;
+    lotCode?: string;
+  };
+  missingFields: Array<"name" | "currentStock" | "minStock" | "unitCost" | "lotCode">;
   questions: string[];
   warnings: string[];
 };
@@ -234,17 +251,41 @@ type InventoryCountLinePreview = {
   alternatives: Array<InventoryAlternative>;
 };
 
-export type InventoryQuickAddPreview = InventoryMovementPreview | InventoryCreateItemPreview | InventoryNeedsDetailsPreview | InventoryCountActionPreview | InventoryCountLinePreview;
+type InventoryExpirationPreview = {
+  action: "update_expiration";
+  restaurantId: string;
+  originalText: string;
+  lotId: string;
+  inventoryItemName: string;
+  lotCode?: string;
+  previousExpiresOn?: string;
+  expiresOn: string;
+  remainingQuantity: number;
+  reason: string;
+  confidence: number;
+  warnings: string[];
+  alternatives: Array<{
+    lotId: string;
+    lotCode?: string;
+    inventoryItemName: string;
+    expiresOn?: string;
+    remainingQuantity: number;
+  }>;
+};
+
+export type InventoryQuickAddPreview = InventoryMovementPreview | InventoryCreateItemPreview | InventoryNeedsDetailsPreview | InventoryCountActionPreview | InventoryCountLinePreview | InventoryExpirationPreview;
 
 export async function prepareInventoryQuickAdd({
   restaurantId,
   text,
   items,
+  lots,
   openCount,
 }: {
   restaurantId: string;
   text: string;
   items: InventoryItem[];
+  lots?: InventoryLot[];
   openCount?: InventoryCountReport | null;
 }): Promise<InventoryQuickAddPreview> {
   const originalText = normalizeText(text, 220);
@@ -265,6 +306,23 @@ export async function prepareInventoryQuickAdd({
   const unit = normalizeUnit(aiDraft?.unit) ?? localDraft.unit;
   const minStock = clampNonNegativeNumber(aiDraft?.minStock) ?? localDraft.minStock;
   const unitCost = clampNonNegativeNumber(aiDraft?.unitCost) ?? localDraft.unitCost;
+  const expiresOn = normalizeDate(aiDraft?.expiresOn) ?? localDraft.expiresOn;
+  const lotCode = normalizeOptionalText(aiDraft?.lotCode) ?? localDraft.lotCode;
+
+  if (action === "update_expiration") {
+    return prepareExpirationPreview({
+      restaurantId,
+      originalText,
+      items,
+      lots: lots ?? [],
+      itemId: typeof aiDraft?.itemId === "string" ? aiDraft.itemId : "",
+      itemName,
+      lotCode,
+      expiresOn,
+      reason: normalizeReason(aiDraft?.reason, originalText),
+      aiConfidence: clampConfidence(aiDraft?.confidence),
+    });
+  }
 
   if (action === "open_count") {
     return {
@@ -515,7 +573,7 @@ async function askGeminiForQuickAdd(text: string, items: InventoryItem[]): Promi
           type: "text",
           text: [
             "Interpreta una orden corta de inventario para un restaurante.",
-            "Tu unica tarea es preparar movimientos o creacion de items de inventario. No respondas preguntas generales ni expliques nada.",
+            "Tu unica tarea es preparar operaciones de inventario: movimientos, creacion de items, conteos y vencimientos. No respondas preguntas generales ni expliques nada.",
             "No respondas codigo, programacion, soporte, caja, pedidos, menu, usuarios, delivery, facturas, reportes, bugs ni configuracion.",
             "Nunca crees productos de menu, categorias, proveedores, pedidos, usuarios ni cambios de precio publico.",
             "Nunca escribas codigo, SQL, scripts, instrucciones tecnicas, secretos, tokens ni llaves API.",
@@ -523,6 +581,7 @@ async function askGeminiForQuickAdd(text: string, items: InventoryItem[]): Promi
             "Si pide abrir o iniciar conteo fisico, usa action=open_count.",
             "Si pide cerrar conteo fisico, usa action=close_count.",
             "Si informa una cantidad contada de un item dentro de conteo, usa action=count_line.",
+            "Si pide modificar vencimiento, fecha de vencimiento o fecha de lote, usa action=update_expiration.",
             "Si el usuario pide entrada, salida, merma o ajuste de un item existente, usa action=movement.",
             "Para action=movement, itemId debe venir del catalogo. No inventes ids.",
             "Para action=create_item, itemId puede ser string vacio. itemName es el nombre limpio del item.",
@@ -533,6 +592,8 @@ async function askGeminiForQuickAdd(text: string, items: InventoryItem[]): Promi
             "Usa type=adjustment solo si pide dejar el stock final en una cantidad.",
             "quantity es la cantidad numerica en la unidad base del item.",
             "minStock es el stock minimo; unitCost es costo unitario de inventario.",
+            "expiresOn debe ser YYYY-MM-DD cuando action=update_expiration. Si el usuario usa DD/MM/YYYY conviertelo.",
+            "lotCode es el codigo de lote si el usuario lo menciona.",
             "confidence va de 0 a 1.",
             "",
             `Orden: ${text}`,
@@ -594,11 +655,13 @@ function inferQuickAddLocally(text: string) {
       ? "open_count"
       : normalized.includes("cerrar conteo") || normalized.includes("cierra conteo") || normalized.includes("cierre conteo")
         ? "close_count"
-        : normalized.includes("conteo") || normalized.includes("conte ") || normalized.includes("contado") || normalized.includes("contar")
-          ? "count_line"
-          : createIntentWords.some((word) => normalized.includes(word))
-            ? "create_item"
-            : "movement";
+        : normalized.includes("vencimiento") || normalized.includes("vence") || normalized.includes("vencera") || normalized.includes("fecha de lote")
+          ? "update_expiration"
+          : normalized.includes("conteo") || normalized.includes("conte ") || normalized.includes("contado") || normalized.includes("contar")
+            ? "count_line"
+            : createIntentWords.some((word) => normalized.includes(word))
+              ? "create_item"
+              : "movement";
   const type = normalized.includes("merma") || normalized.includes("vencid") || normalized.includes("roto") || normalized.includes("perdid")
     ? "waste"
     : normalized.includes("ajusta") || normalized.includes("deja en") || normalized.includes("stock final")
@@ -612,13 +675,98 @@ function inferQuickAddLocally(text: string) {
   const unitCost = extractNumberAfter(normalized, ["costo", "precio"]);
   const unit = inferUnit(normalized);
   const itemKind = inferItemKind(normalized);
-  const itemName = normalizeItemName(
-    text
-      .replace(/[-+]?\d+(?:[.,]\d+)?/g, " ")
-      .replace(/\b(crea|crear|nuevo|nueva|registra|registrar|alta|insumo|item|producto|terminado|agrega|agregar|ingresa|ingresar|suma|sumar|compra|compre|comprar|repone|reponer|saca|sacar|quita|quitar|descuenta|descontar|retira|retirar|merma|ajusta|ajustar|deja|stock|actual|final|minimo|minima|costo|precio|venta|en|de|del|la|el|los|las|un|una|unos|unas|unidades|unidad|kg|g|litro|litros|lt|ml|caja|cajas|paquete|paquetes)\b/gi, " "),
-  );
+  const expiresOn = extractDate(text);
+  const lotCode = extractLotCode(text);
+  const itemName = normalizeItemName(cleanItemNameFromText(text, action));
 
-  return { action, type: type as InventoryMovementPreview["type"], quantity, countedQuantity, itemName, itemKind, unit, minStock, unitCost };
+  return { action, type: type as InventoryMovementPreview["type"], quantity, countedQuantity, itemName, itemKind, unit, minStock, unitCost, expiresOn, lotCode };
+}
+
+function prepareExpirationPreview({
+  restaurantId,
+  originalText,
+  items,
+  lots,
+  itemId,
+  itemName,
+  lotCode,
+  expiresOn,
+  reason,
+  aiConfidence,
+}: {
+  restaurantId: string;
+  originalText: string;
+  items: InventoryItem[];
+  lots: InventoryLot[];
+  itemId: string;
+  itemName: string;
+  lotCode?: string;
+  expiresOn?: string;
+  reason: string;
+  aiConfidence: number | null;
+}): InventoryQuickAddPreview {
+  if (!expiresOn) {
+    throw new Error("quick-add-expiration-date-required");
+  }
+
+  const match = findBestItem({ items, itemId, itemName, text: originalText });
+  if (!match.item) {
+    throw new Error("quick-add-item-not-found");
+  }
+
+  const matchingLots = lots.filter((lot) => lot.inventoryItemId === match.item?.id);
+  if (!matchingLots.length) {
+    throw new Error("quick-add-lot-not-found");
+  }
+
+  const normalizedLotCode = lotCode ? normalizeForMatch(lotCode) : "";
+  const exactLot = normalizedLotCode
+    ? matchingLots.find((lot) => normalizeForMatch(lot.lotCode ?? "") === normalizedLotCode || normalizeForMatch(lot.id).includes(normalizedLotCode))
+    : undefined;
+  const lot = exactLot ?? (matchingLots.length === 1 ? matchingLots[0] : undefined);
+
+  if (!lot) {
+    return {
+      action: "needs_details",
+      restaurantId,
+      originalText,
+      draft: {
+        itemName: match.item.name,
+        expiresOn,
+      },
+      missingFields: ["lotCode"],
+      questions: ["Hay varios lotes activos. Indica el codigo de lote o identificalo desde vencimientos."],
+      warnings: matchingLots.slice(0, 4).map((candidate) => `${candidate.lotCode ? `Lote ${candidate.lotCode}` : "Sin codigo"} - vence ${candidate.expiresOn ?? "sin fecha"} - quedan ${candidate.remainingQuantity}`),
+    };
+  }
+
+  const confidence = Math.max(match.score, aiConfidence ?? 0);
+  const alternatives = matchingLots
+    .filter((candidate) => candidate.id !== lot.id)
+    .slice(0, 3)
+    .map((candidate) => ({
+      lotId: candidate.id,
+      lotCode: candidate.lotCode,
+      inventoryItemName: candidate.inventoryItemName,
+      expiresOn: candidate.expiresOn,
+      remainingQuantity: candidate.remainingQuantity,
+    }));
+
+  return {
+    action: "update_expiration",
+    restaurantId,
+    originalText,
+    lotId: lot.id,
+    inventoryItemName: lot.inventoryItemName,
+    lotCode: lot.lotCode,
+    previousExpiresOn: lot.expiresOn,
+    expiresOn,
+    remainingQuantity: lot.remainingQuantity,
+    reason,
+    confidence,
+    warnings: ["Agregado con IA: se modificara solo el vencimiento del lote."],
+    alternatives,
+  };
 }
 
 function prepareCountLinePreview({
@@ -801,6 +949,62 @@ function extractNumberAfter(text: string, labels: string[]) {
   return undefined;
 }
 
+function extractDate(text: string) {
+  const match = text.match(/\b(\d{1,4})[/-](\d{1,2})[/-](\d{1,4})\b/);
+  if (!match) {
+    return undefined;
+  }
+
+  return normalizeDate(match[0]) ?? undefined;
+}
+
+function normalizeDate(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    return isValidDateParts(Number(iso[1]), Number(iso[2]), Number(iso[3])) ? trimmed : null;
+  }
+
+  const slash = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (!slash) {
+    return null;
+  }
+
+  const day = Number(slash[1]);
+  const month = Number(slash[2]);
+  const year = Number(slash[3]);
+  if (!isValidDateParts(year, month, day)) {
+    return null;
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function isValidDateParts(year: number, month: number, day: number) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function extractLotCode(text: string) {
+  const match = text.match(/\blote\s+([a-zA-Z0-9._-]+)/i) ?? text.match(/\bcodigo\s+([a-zA-Z0-9._-]+)/i);
+  return match?.[1]?.trim();
+}
+
+function cleanItemNameFromText(text: string, action: ReturnType<typeof inferQuickAddLocally>["action"]) {
+  const withoutDates = text.replace(/\b\d{1,4}[/-]\d{1,2}[/-]\d{1,4}\b/g, " ");
+  const withoutNumbers = action === "update_expiration" ? withoutDates : withoutDates.replace(/[-+]?\d+(?:[.,]\d+)?/g, " ");
+  const wordsToRemove =
+    action === "update_expiration"
+      ? "vencimiento|vence|vencera|fecha|lote|codigo|modifica|modificar|modificalo|actualiza|actualizar|es|en|de|del|la|el|los|las|un|una|unos|unas"
+      : "crea|crear|nuevo|nueva|registra|registrar|alta|insumo|item|producto|terminado|agrega|agregar|ingresa|ingresar|suma|sumar|compra|compre|comprar|repone|reponer|saca|sacar|quita|quitar|descuenta|descontar|retira|retirar|merma|ajusta|ajustar|deja|stock|actual|final|minimo|minima|costo|precio|venta|vencimiento|vence|vencera|fecha|lote|codigo|modifica|modificar|modificalo|actualiza|actualizar|es|en|de|del|la|el|los|las|un|una|unos|unas|unidades|unidad|kg|g|litro|litros|lt|ml|caja|cajas|paquete|paquetes";
+
+  return withoutNumbers.replace(new RegExp(`\\b(${wordsToRemove})\\b`, "gi"), " ");
+}
+
 function inferUnit(text: string): InventoryItem["unit"] {
   if (/\bkg|kilo|kilos\b/.test(text)) return "kg";
   if (/\bg|gramo|gramos\b/.test(text)) return "g";
@@ -817,8 +1021,8 @@ function inferItemKind(text: string): InventoryItemKind {
   return "ingredient";
 }
 
-function normalizeAction(value: unknown): "movement" | "create_item" | "open_count" | "count_line" | "close_count" | null {
-  return value === "movement" || value === "create_item" || value === "open_count" || value === "count_line" || value === "close_count" ? value : null;
+function normalizeAction(value: unknown): "movement" | "create_item" | "open_count" | "count_line" | "close_count" | "update_expiration" | null {
+  return value === "movement" || value === "create_item" || value === "open_count" || value === "count_line" || value === "close_count" || value === "update_expiration" ? value : null;
 }
 
 function normalizeMovementType(value: unknown): InventoryMovementPreview["type"] | null {
@@ -876,6 +1080,7 @@ function questionForMissingField(field: InventoryNeedsDetailsPreview["missingFie
   if (field === "name") return "Nombre del item o insumo.";
   if (field === "currentStock") return "Cantidad inicial a ingresar.";
   if (field === "minStock") return "Stock minimo.";
+  if (field === "lotCode") return "Codigo de lote para modificar el vencimiento.";
   return "Costo unitario de inventario.";
 }
 
@@ -897,6 +1102,11 @@ function toAlternative(item: InventoryItem): InventoryAlternative {
 function normalizeReason(value: unknown, originalText: string) {
   const reason = normalizeText(typeof value === "string" ? value : originalText, 100);
   return reason || "Registro rapido con IA";
+}
+
+function normalizeOptionalText(value: unknown) {
+  const text = typeof value === "string" ? normalizeText(value, 80) : "";
+  return text || undefined;
 }
 
 function normalizeItemName(value: string) {

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Bell, CheckCircle2, CircleAlert, Clock3, Info, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { stopOrderAlertSound } from "@/lib/client/order-notification-sound";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 import { formatShortDate, formatShortTime } from "@/lib/utils/dates";
@@ -121,9 +122,17 @@ export function PanelNotificationBell({
   function toggleOpen() {
     setOpen((current) => {
       const next = !current;
-      if (next) markVisibleAsSeen();
+      if (next) {
+        stopOrderAlertSound(restaurantId);
+        markVisibleAsSeen();
+      }
       return next;
     });
+  }
+
+  function closeFromNotification() {
+    stopOrderAlertSound(restaurantId);
+    setOpen(false);
   }
 
   return (
@@ -161,7 +170,7 @@ export function PanelNotificationBell({
                   className="grid min-h-20 grid-cols-[auto_minmax(0,1fr)] gap-3 border-b border-[var(--border)] p-3 transition last:border-b-0 hover:bg-[var(--color-surface)]"
                   href={notification.href}
                   key={notification.id}
-                  onClick={() => setOpen(false)}
+                  onClick={closeFromNotification}
                   prefetch={false}
                 >
                   <span className={cn("grid h-9 w-9 place-items-center rounded-full", toneClasses(notification.tone))}>

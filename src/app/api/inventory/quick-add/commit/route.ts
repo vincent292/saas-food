@@ -45,7 +45,15 @@ const closeCountCommitSchema = z.object({
   reason: z.string().trim().min(2).max(120),
 });
 
-const commitSchema = z.discriminatedUnion("action", [movementCommitSchema, createItemCommitSchema, openCountCommitSchema, countLineCommitSchema, closeCountCommitSchema]);
+const updateExpirationCommitSchema = z.object({
+  action: z.literal("update_expiration"),
+  restaurantId: z.string().uuid(),
+  lotId: z.string().uuid(),
+  expiresOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  reason: z.string().trim().min(2).max(120),
+});
+
+const commitSchema = z.discriminatedUnion("action", [movementCommitSchema, createItemCommitSchema, openCountCommitSchema, countLineCommitSchema, closeCountCommitSchema, updateExpirationCommitSchema]);
 
 export async function POST(request: Request) {
   if (!hasSupabaseEnv()) {
@@ -113,6 +121,38 @@ export async function POST(request: Request) {
 
     revalidateInventory(parsed.data.restaurantId);
     return NextResponse.json({ ok: true, countId });
+  }
+
+  if (parsed.data.action === "update_expiration") {
+    const { data: lot } = await supabase
+      .from("inventory_lots")
+      .select("id,restaurant_id,inventory_item_id,lot_code,expires_on,notes")
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .eq("id", parsed.data.lotId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (!lot) {
+      return NextResponse.json({ error: "quick-add-lot-not-found" }, { status: 404 });
+    }
+
+    const auditNote = `Agregado con IA por ${access.actorName}: vencimiento ${lot.expires_on ?? "sin fecha"} -> ${parsed.data.expiresOn}. ${parsed.data.reason}`.slice(0, 260);
+    const notes = [lot.notes, auditNote].filter(Boolean).join("\n");
+    const { error } = await supabase
+      .from("inventory_lots")
+      .update({
+        expires_on: parsed.data.expiresOn,
+        notes,
+      })
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .eq("id", parsed.data.lotId);
+
+    if (error) {
+      return NextResponse.json({ error: normalizeInventoryError(error.message || error.code || "expiration-update-failed") }, { status: 400 });
+    }
+
+    revalidateInventory(parsed.data.restaurantId);
+    return NextResponse.json({ ok: true, lotId: parsed.data.lotId });
   }
 
   if (parsed.data.action === "create_item") {
@@ -209,7 +249,7 @@ async function requireInventoryAccess(restaurantId: string) {
 
   const { data: profile } = await supabase.from("profiles").select("global_role").eq("id", userData.user.id).maybeSingle();
   if (profile?.global_role === "superadmin") {
-    return { ok: true as const, supabase, userId: userData.user.id, role: "superadmin" as const };
+    return { ok: true as const, supabase, userId: userData.user.id, role: "superadmin" as const, actorName: userData.user.email ?? "Usuario" };
   }
 
   const { data: restaurant } = await supabase
@@ -237,7 +277,14 @@ async function requireInventoryAccess(restaurantId: string) {
     return { ok: false as const, error: "inventory-access-denied", status: 403 };
   }
 
-  return { ok: true as const, supabase, userId: userData.user.id, role: membership.role as "restaurant_admin" | "cashier" };
+  const { data: actorProfile } = await supabase.from("profiles").select("full_name,email").eq("id", userData.user.id).maybeSingle();
+  return {
+    ok: true as const,
+    supabase,
+    userId: userData.user.id,
+    role: membership.role as "restaurant_admin" | "cashier",
+    actorName: actorProfile?.full_name || actorProfile?.email || userData.user.email || "Usuario",
+  };
 }
 
 function normalizeInventoryError(message: string) {
@@ -246,6 +293,7 @@ function normalizeInventoryError(message: string) {
   if (message.includes("item-not-found")) return "inventory-item-not-found";
   if (message.includes("no-open-count")) return "quick-add-open-count-required";
   if (message.includes("count-open")) return "quick-add-count-already-open";
+  if (message.includes("lot-not-found")) return "quick-add-lot-not-found";
   if (message.includes("access denied")) return "inventory-access-denied";
   return "inventory-movement-failed";
 }

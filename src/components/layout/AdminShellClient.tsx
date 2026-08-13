@@ -103,7 +103,7 @@ export function AdminShellClient({
 
   return (
     <div className="admin-panel min-h-dvh bg-[var(--color-surface)] text-[var(--color-heading)]">
-      {restaurantId ? <GlobalOrderSoundAlert orders={pendingOrderAlerts} restaurantId={restaurantId} /> : null}
+      {restaurantId ? <GlobalOrderSoundAlert key={restaurantId} orders={pendingOrderAlerts} restaurantId={restaurantId} /> : null}
 
       <div className={cn("fixed inset-0 z-40 bg-[var(--color-overlay)] backdrop-blur-sm lg:hidden", sidebarOpen ? "block" : "hidden")} onClick={() => setSidebarOpen(false)} />
       <aside

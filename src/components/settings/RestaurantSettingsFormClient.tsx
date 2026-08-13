@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  BellRing,
   CalendarClock,
   CheckCircle2,
   Clock3,
@@ -16,8 +17,10 @@ import {
   ReceiptText,
   RotateCcw,
   Store,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { updateRestaurantConfigurationAction } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
@@ -29,6 +32,12 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
+import {
+  ORDER_ALERT_AUDIO_SRC,
+  ORDER_ALERT_SOUND_CHANGE_EVENT,
+  readOrderAlertSoundEnabled,
+  writeOrderAlertSoundEnabled,
+} from "@/lib/client/order-notification-sound";
 import {
   businessCatalogLabelTitle,
   categoriesForBusinessType,
@@ -64,6 +73,7 @@ const tabs = [
   { key: "ubicacion", label: "Ubicacion", icon: MapPin },
   { key: "delivery", label: "Delivery", icon: Bike },
   { key: "operacion", label: "Operacion", icon: Power },
+  { key: "notificaciones", label: "Notificaciones", icon: BellRing },
   { key: "horarios", label: "Horarios", icon: Clock3 },
   { key: "avisos", label: "Avisos", icon: Megaphone },
 ] as const;
@@ -848,6 +858,22 @@ export function RestaurantSettingsFormClient({
         </div>
       </div>
 
+      <div className={cn(activeTab === "notificaciones" ? "block" : "hidden")}>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <Card className="grid gap-4">
+            <SectionTitle title="Sonido de pedidos" description="Activa el aviso sonoro de pedidos nuevos en este navegador." />
+            <OrderNotificationSoundSettings restaurantId={restaurant.id} />
+          </Card>
+
+          <Card className="space-y-4">
+            <SectionTitle title="Estado actual" description="El sonido se guarda por sucursal y dispositivo." />
+            <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+              El audio solo se dispara cuando llega un pedido nuevo pendiente. Al abrir la notificacion o entrar a revisar pedidos, se detiene.
+            </div>
+          </Card>
+        </div>
+      </div>
+
       <div className={cn(activeTab === "horarios" ? "block" : "hidden")}>
         <Card>
           <SectionTitle title="Horarios" description="Horario operativo asociado al restaurante." />
@@ -1002,6 +1028,102 @@ function SettingsSubmitButton({
     <Button disabled={pending || disabled} type="submit" variant={variant} {...props}>
       {pending ? pendingLabel : children}
     </Button>
+  );
+}
+
+function OrderNotificationSoundSettings({ restaurantId }: { restaurantId: string }) {
+  const [enabled, setEnabled] = useState(() => readOrderAlertSoundEnabled(restaurantId));
+  const [blocked, setBlocked] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  function ensureAudio() {
+    if (!audioRef.current) {
+      audioRef.current = new Audio(ORDER_ALERT_AUDIO_SRC);
+      audioRef.current.loop = false;
+      audioRef.current.preload = "auto";
+      audioRef.current.volume = 0.78;
+    }
+
+    return audioRef.current;
+  }
+
+  useEffect(() => {
+    const syncSoundPreference = (event: Event) => {
+      const detail = (event as CustomEvent<{ restaurantId?: string; enabled?: boolean }>).detail;
+      if (detail?.restaurantId !== restaurantId || typeof detail.enabled !== "boolean") {
+        return;
+      }
+
+      setEnabled(detail.enabled);
+      if (!detail.enabled) {
+        setBlocked(false);
+      }
+    };
+
+    window.addEventListener(ORDER_ALERT_SOUND_CHANGE_EVENT, syncSoundPreference);
+    return () => window.removeEventListener(ORDER_ALERT_SOUND_CHANGE_EVENT, syncSoundPreference);
+  }, [restaurantId]);
+
+  async function enableSound() {
+    const audio = ensureAudio();
+    const previousVolume = audio.volume;
+
+    audio.pause();
+    audio.currentTime = 0;
+    audio.volume = 0;
+
+    try {
+      await audio.play();
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = previousVolume;
+      writeOrderAlertSoundEnabled(restaurantId, true);
+      setBlocked(false);
+    } catch {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = previousVolume;
+      writeOrderAlertSoundEnabled(restaurantId, false);
+      setBlocked(true);
+    }
+  }
+
+  function disableSound() {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+
+    writeOrderAlertSoundEnabled(restaurantId, false);
+    setBlocked(false);
+  }
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-black text-[var(--color-heading)]">Aviso sonoro de pedidos nuevos</p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">
+            {enabled ? "Activo en este navegador." : blocked ? "El navegador no permitio activar el audio. Vuelve a tocar activar." : "Desactivado en este navegador."}
+          </p>
+        </div>
+        {enabled ? (
+          <button className={buttonClasses("secondary", "shrink-0")} onClick={disableSound} type="button">
+            <VolumeX className="h-4 w-4" />
+            Desactivar sonido
+          </button>
+        ) : (
+          <button className={buttonClasses("primary", "shrink-0")} onClick={enableSound} type="button">
+            <Volume2 className="h-4 w-4" />
+            Activar sonido
+          </button>
+        )}
+      </div>
+      <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+        No se reproduce una prueba audible al activarlo. El proximo pedido nuevo hara sonar el audio completo una sola vez.
+      </div>
+    </div>
   );
 }
 

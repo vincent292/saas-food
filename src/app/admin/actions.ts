@@ -16,6 +16,7 @@ import {
 } from "@/lib/restaurant-directory-options";
 import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { ownerBillingService } from "@/lib/services/owner-billing.service";
+import { printConnectorService } from "@/lib/services/print-connector.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { membershipService } from "@/lib/services/membership.service";
 import { analyzeMenuFileWithGemini, normalizeMenuImportDraft, validateMenuImportFile } from "@/lib/services/menu-import-ai.service";
@@ -3923,6 +3924,10 @@ async function dispatchRestaurantSettingsIntent(rawIntent: string, formData: For
         return markInvoiceIssuedAction(formData);
       }
       break;
+    case "generate-print-connector-token":
+      return generatePrintConnectorTokenAction(formData);
+    case "revoke-print-connector-token":
+      return revokePrintConnectorTokenAction(formData);
     case "create-owner-request":
       return createOwnerChangeRequestAction(formData);
     case "reject-owner-request":
@@ -3932,6 +3937,52 @@ async function dispatchRestaurantSettingsIntent(rawIntent: string, formData: For
   }
 
   redirect(`${configPath}&error=invalid`);
+}
+
+export async function generatePrintConnectorTokenAction(formData: FormData) {
+  const parsed = restaurantIdSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=impresion&error=invalid`);
+  }
+
+  const configPath = `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=impresion`;
+  await requireRestaurantAccess(parsed.data.restaurantId, configPath);
+  const { user } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+
+  try {
+    await printConnectorService.generateForRestaurant(parsed.data.restaurantId, user.id);
+  } catch (error) {
+    redirect(`${configPath}&error=${error instanceof Error ? error.message : "print-token-generate-failed"}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  redirect(`${configPath}&printConnector=generated`);
+}
+
+export async function revokePrintConnectorTokenAction(formData: FormData) {
+  const parsed = restaurantIdSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/configuracion?tab=impresion&error=invalid`);
+  }
+
+  const configPath = `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=impresion`;
+  await requireRestaurantAccess(parsed.data.restaurantId, configPath);
+  const { user } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
+
+  try {
+    await printConnectorService.revokeForRestaurant(parsed.data.restaurantId, user.id);
+  } catch (error) {
+    redirect(`${configPath}&error=${error instanceof Error ? error.message : "print-token-revoke-failed"}`);
+  }
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion`);
+  redirect(`${configPath}&printConnector=revoked`);
 }
 
 export async function updateRestaurantConfigurationAction(formData: FormData) {

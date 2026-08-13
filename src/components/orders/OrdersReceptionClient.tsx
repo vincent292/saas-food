@@ -29,7 +29,7 @@ import {
 } from "@/lib/restaurant-directory-options";
 import type { Order } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
-import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
+import type { Restaurant, RestaurantPrintConnector, RestaurantSettings } from "@/types/restaurant.types";
 
 type ReceptionTab = "todos" | "nuevos" | "cocina" | "historial";
 
@@ -123,6 +123,7 @@ function OrderReceiptControls({ order }: { order: Order }) {
 export function OrdersReceptionClient({
   restaurant,
   settings,
+  printConnectorLink,
   orders,
   hasOpenSession,
   status,
@@ -133,6 +134,7 @@ export function OrdersReceptionClient({
 }: {
   restaurant: Restaurant;
   settings: RestaurantSettings | null;
+  printConnectorLink: RestaurantPrintConnector | null;
   orders: Order[];
   hasOpenSession: boolean;
   status: ReceptionStatus;
@@ -210,9 +212,10 @@ export function OrdersReceptionClient({
   const visibleOrders = groups[activeTab];
   const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType) && (settings?.kitchenEnabled ?? true);
   const queueLabel = businessQueueLabel(restaurant.businessType);
+  const hasDirectPrintConnector = Boolean(printConnectorLink?.linkedAt || printConnectorLink?.lastSeenAt);
 
   useEffect(() => {
-    if (!settings?.autoPrintKitchen || !status.charged) {
+    if (!settings?.autoPrintKitchen || !status.charged || hasDirectPrintConnector) {
       return;
     }
 
@@ -240,7 +243,7 @@ export function OrdersReceptionClient({
     } else {
       window.setTimeout(() => setBlockedAutoPrintOrderId(order.id), 0);
     }
-  }, [orders, restaurant.id, restaurant.logoUrl, restaurant.name, settings?.autoPrintKitchen, settings?.printFormat, settings?.printLogo, status.charged]);
+  }, [hasDirectPrintConnector, orders, restaurant.id, restaurant.logoUrl, restaurant.name, settings?.autoPrintKitchen, settings?.printFormat, settings?.printLogo, status.charged]);
 
   const blockedAutoPrintOrder = blockedAutoPrintOrderId ? orders.find((order) => order.id === blockedAutoPrintOrderId) : undefined;
 

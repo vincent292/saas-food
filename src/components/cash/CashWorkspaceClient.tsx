@@ -28,7 +28,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { CashAuditSnapshot, CashMovement, CashSessionReport, CashSummary } from "@/types/cash.types";
 import type { Order } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
-import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
+import type { Restaurant, RestaurantPrintConnector, RestaurantSettings } from "@/types/restaurant.types";
 
 type CashTab = "venta" | "pedidos" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
 
@@ -116,6 +116,7 @@ export function CashWorkspaceClient({
   products,
   configuration,
   settings,
+  printConnectorLink,
   loadedTab,
   movements,
   reports,
@@ -130,6 +131,7 @@ export function CashWorkspaceClient({
   products: Product[];
   configuration: ProductConfiguration;
   settings: RestaurantSettings | null;
+  printConnectorLink: RestaurantPrintConnector | null;
   loadedTab: CashTab;
   movements: CashMovement[];
   reports: CashSessionReport[];
@@ -250,6 +252,7 @@ export function CashWorkspaceClient({
   const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
   const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
   const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType) && (settings?.kitchenEnabled ?? true);
+  const hasDirectPrintConnector = Boolean(printConnectorLink?.linkedAt || printConnectorLink?.lastSeenAt);
   const trackingUrl =
     status.posOrderId && status.posTrackingToken && clientOrigin
       ? `${clientOrigin}${publicRestaurantPath(restaurant.slug, `pedido/${status.posOrderId}`)}?token=${status.posTrackingToken}`
@@ -260,7 +263,7 @@ export function CashWorkspaceClient({
       : "";
 
   useEffect(() => {
-    if (!settings?.autoPrintKitchen || !status.charged) {
+    if (!settings?.autoPrintKitchen || !status.charged || hasDirectPrintConnector) {
       return;
     }
 
@@ -288,7 +291,7 @@ export function CashWorkspaceClient({
     } else {
       window.setTimeout(() => setBlockedAutoPrintOrderId(order.id), 0);
     }
-  }, [ordersById, restaurant.id, restaurant.logoUrl, restaurant.name, settings?.autoPrintKitchen, settings?.printFormat, settings?.printLogo, status.charged]);
+  }, [hasDirectPrintConnector, ordersById, restaurant.id, restaurant.logoUrl, restaurant.name, settings?.autoPrintKitchen, settings?.printFormat, settings?.printLogo, status.charged]);
 
   const blockedAutoPrintOrder = blockedAutoPrintOrderId ? ordersById.get(blockedAutoPrintOrderId) : undefined;
 

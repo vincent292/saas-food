@@ -95,6 +95,16 @@ export type RestaurantSettings = {
   printLogo?: boolean;
 };
 
+export type RestaurantPrintConnector = {
+  id: string;
+  restaurantId: string;
+  token: string;
+  status: "token_active" | "linked";
+  createdAt: string;
+  linkedAt?: string;
+  lastSeenAt?: string;
+};
+
 export type RestaurantDeliveryZone = {
   id: string;
   restaurantId: string;

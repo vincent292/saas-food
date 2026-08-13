@@ -5,6 +5,7 @@ import { OrdersReceptionClient } from "@/components/orders/OrdersReceptionClient
 import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
 import { categoryService } from "@/lib/services/category.service";
 import { orderService } from "@/lib/services/order.service";
+import { printConnectorService } from "@/lib/services/print-connector.service";
 import { productService } from "@/lib/services/product.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
@@ -38,13 +39,14 @@ export default async function OrdersPage({
   }
 
   const canUsePos = hasRestaurantModule(restaurant, "cash");
-  const [orders, settings, cashSummary, products, categories, configuration] = await Promise.all([
+  const [orders, settings, cashSummary, products, categories, configuration, printConnectorLink] = await Promise.all([
     measurePerf("[pedidos-page] orderService.listCashWorkspaceOrders", () => orderService.listCashWorkspaceOrders(restaurant.id)),
     measurePerf("[pedidos-page] restaurantService.getSettings", () => restaurantService.getSettings(restaurant.id)),
     measurePerf("[pedidos-page] cashService.getSessionStatusSummary", () => cashService.getSessionStatusSummary(restaurant.id)),
     canUsePos ? measurePerf("[pedidos-page] productService.listAvailableByRestaurant", () => productService.listAvailableByRestaurant(restaurant.id)) : Promise.resolve([]),
     canUsePos ? measurePerf("[pedidos-page] categoryService.listByRestaurant", () => categoryService.listByRestaurant(restaurant.id)) : Promise.resolve([]),
     canUsePos ? measurePerf("[pedidos-page] productService.listConfigurationsByRestaurant", () => productService.listConfigurationsByRestaurant(restaurant.id)) : Promise.resolve(emptyConfiguration),
+    measurePerf("[pedidos-page] printConnectorService.getActiveForRestaurant", () => printConnectorService.getActiveForRestaurant(restaurant.id)),
   ]);
   perfLog("[pedidos-page] total-before-render", pageStartedAt, { restaurantId: restaurant.id, orders: orders.length, canUsePos });
 
@@ -57,7 +59,7 @@ export default async function OrdersPage({
       restaurantStatus={restaurant.status}
       title="Pedidos"
     >
-      <OrdersReceptionClient categories={categories} configuration={configuration} hasOpenSession={Boolean(cashSummary.session)} orders={orders} products={products} restaurant={restaurant} settings={settings} showFloatingPos={canUsePos} status={status} />
+      <OrdersReceptionClient categories={categories} configuration={configuration} hasOpenSession={Boolean(cashSummary.session)} orders={orders} printConnectorLink={printConnectorLink} products={products} restaurant={restaurant} settings={settings} showFloatingPos={canUsePos} status={status} />
     </AdminLayout>
   );
 }

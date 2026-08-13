@@ -5,6 +5,7 @@ import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
 import { cashService } from "@/lib/services/cash.service";
 import { categoryService } from "@/lib/services/category.service";
 import { orderService } from "@/lib/services/order.service";
+import { printConnectorService } from "@/lib/services/print-connector.service";
 import { productService } from "@/lib/services/product.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
@@ -54,7 +55,7 @@ export default async function CashPage({
   const needsCancellationReviewCount = activeTab === "cierre";
   const needsFullCashSummary = activeTab === "venta" || activeTab === "movimientos" || activeTab === "egresos" || needsReports;
 
-  const [summary, settings, products, categories, configuration, movements, orders, reports, pendingCancellationReviews, cashAudit] = await Promise.all([
+  const [summary, settings, products, categories, configuration, movements, orders, reports, pendingCancellationReviews, cashAudit, printConnectorLink] = await Promise.all([
     measurePerf(needsFullCashSummary ? "[caja-page] cashService.getSummary" : "[caja-page] cashService.getSessionStatusSummary", () => (needsFullCashSummary ? cashService.getSummary(restaurant.id) : cashService.getSessionStatusSummary(restaurant.id)), { tab: activeTab }),
     measurePerf("[caja-page] restaurantService.getSettings", () => restaurantService.getSettings(restaurant.id), { tab: activeTab }),
     needsPosCatalog ? measurePerf("[caja-page] productService.listAvailableByRestaurant", () => productService.listAvailableByRestaurant(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
@@ -65,6 +66,7 @@ export default async function CashPage({
     needsReports ? measurePerf("[caja-page] cashService.listSessionReports", () => cashService.listSessionReports(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
     needsCancellationReviewCount ? measurePerf("[caja-page] cashService.countPendingCashCancellationReviews", () => cashService.countPendingCashCancellationReviews(restaurant.id), { tab: activeTab }) : Promise.resolve(0),
     needsReports ? measurePerf("[caja-page] cashService.getAuditSnapshot", () => cashService.getAuditSnapshot(restaurant.id), { tab: activeTab }) : Promise.resolve(null),
+    measurePerf("[caja-page] printConnectorService.getActiveForRestaurant", () => printConnectorService.getActiveForRestaurant(restaurant.id), { tab: activeTab }),
   ]);
 
   perfLog("[caja-page] total-before-render", pageStartedAt, { tab: activeTab, restaurantId: restaurant.id, orders: orders.length });
@@ -102,6 +104,7 @@ export default async function CashPage({
         movements={movements}
         orders={orders}
         pendingCancellationReviews={pendingCancellationReviews}
+        printConnectorLink={printConnectorLink}
         products={products}
         reports={reports}
         restaurant={restaurant}

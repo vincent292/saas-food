@@ -5,6 +5,7 @@ import { modulesForAdminLayout } from "@/lib/modules";
 import { authService } from "@/lib/services/auth.service";
 import { announcementService } from "@/lib/services/announcement.service";
 import { orderService } from "@/lib/services/order.service";
+import { printConnectorService } from "@/lib/services/print-connector.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { settingsService } from "@/lib/services/settings.service";
@@ -32,6 +33,7 @@ export default async function SettingsPage({
     closed?: string;
     disabled?: string;
     zone?: string;
+    printConnector?: string;
     invoiceMarked?: string;
     invoiceFrom?: string;
     invoiceTo?: string;
@@ -39,7 +41,7 @@ export default async function SettingsPage({
   }>;
 }) {
   const { restaurantId } = await params;
-  const { saved, error, tab, announcement, closed, disabled, zone, invoiceMarked, invoiceFrom, invoiceTo, invoiceStatus } = await searchParams;
+  const { saved, error, tab, announcement, closed, disabled, zone, printConnector, invoiceMarked, invoiceFrom, invoiceTo, invoiceStatus } = await searchParams;
   const restaurant = await restaurantService.getById(restaurantId);
 
   if (!restaurant) {
@@ -53,13 +55,14 @@ export default async function SettingsPage({
     dateTo: normalizeInvoiceDateFilter(invoiceTo),
     status: normalizeInvoiceStatusFilter(invoiceStatus),
   };
-  const [settings, businessHours, profile, announcements, deliveryZones, invoiceRequests] = await Promise.all([
+  const [settings, businessHours, profile, announcements, deliveryZones, invoiceRequests, printConnectorLink] = await Promise.all([
     restaurantService.getSettings(restaurant.id),
     settingsService.listBusinessHours(restaurant.id),
     authService.getCurrentProfile(),
     announcementService.listForAdmin(restaurant.id),
     restaurantService.listDeliveryZones(restaurant.id),
     orderService.listInvoiceRequests(restaurant.id, invoiceFilters),
+    printConnectorService.getActiveForRestaurant(restaurant.id),
   ]);
 
   const canManageOwnerSettings = profile?.globalRole === "superadmin" || profile?.id === restaurant.ownerUserId;
@@ -86,6 +89,8 @@ export default async function SettingsPage({
         announcementDisabled={disabled}
         error={error}
         initialTab={tab}
+        printConnector={printConnector}
+        printConnectorLink={printConnectorLink}
         invoiceFilters={{
           dateFrom: invoiceFilters.dateFrom ?? "",
           dateTo: invoiceFilters.dateTo ?? "",

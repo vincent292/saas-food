@@ -204,6 +204,18 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      restaurant_print_connectors: Row<{
+        id: string;
+        restaurant_id: string;
+        token: string;
+        linked_at: string | null;
+        last_seen_at: string | null;
+        revoked_at: string | null;
+        created_by: string | null;
+        revoked_by: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       restaurant_delivery_zones: Row<{
         id: string;
         restaurant_id: string;

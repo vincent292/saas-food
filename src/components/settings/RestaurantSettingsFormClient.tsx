@@ -5,11 +5,15 @@ import {
   BellRing,
   CalendarClock,
   CheckCircle2,
+  Copy,
   Clock3,
   CreditCard,
+  Download,
   Filter,
   ImageIcon,
   Bike,
+  KeyRound,
+  Link2,
   Megaphone,
   MapPin,
   Power,
@@ -17,6 +21,7 @@ import {
   ReceiptText,
   RotateCcw,
   Store,
+  Unlink,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -51,6 +56,7 @@ import type {
   Restaurant,
   RestaurantDeliveryZone,
   RestaurantAnnouncement,
+  RestaurantPrintConnector,
   RestaurantSettings,
 } from "@/types/restaurant.types";
 import type { Order } from "@/types/order.types";
@@ -91,6 +97,8 @@ const errorMessages: Record<string, string> = {
   "superadmin-required": "Solo superadmin puede cambiar esta configuracion sensible.",
   "invalid-zone": "Revisa los datos de la zona de delivery.",
   "invalid-invoice": "No se pudo marcar la factura.",
+  "print-token-generate-failed": "No se pudo generar el token de impresion.",
+  "print-token-revoke-failed": "No se pudo revocar el token de impresion.",
 };
 
 type SettingsTab = (typeof tabs)[number]["key"];
@@ -216,6 +224,7 @@ function savedMessage({
   announcementDisabled,
   zoneSaved,
   invoiceMarked,
+  printConnector,
 }: {
   saved?: string;
   announcementCreated?: string;
@@ -223,6 +232,7 @@ function savedMessage({
   announcementDisabled?: string;
   zoneSaved?: string;
   invoiceMarked?: string;
+  printConnector?: string;
 }) {
   if (saved) return "Configuracion general guardada.";
   if (announcementCreated === "updated") return "Aviso actualizado.";
@@ -231,6 +241,8 @@ function savedMessage({
   if (announcementDisabled) return "Aviso desactivado.";
   if (zoneSaved) return "Zona de delivery actualizada.";
   if (invoiceMarked) return "Factura marcada como emitida.";
+  if (printConnector === "generated") return "Token de impresion generado.";
+  if (printConnector === "revoked") return "Token de impresion revocado.";
   return "";
 }
 
@@ -245,8 +257,10 @@ export function RestaurantSettingsFormClient({
   closureCreated,
   announcementDisabled,
   zoneSaved,
+  printConnector,
   invoiceMarked,
   deliveryZones,
+  printConnectorLink,
   invoiceRequests,
   initialTab,
   canManagePlan,
@@ -265,8 +279,10 @@ export function RestaurantSettingsFormClient({
   closureCreated?: string;
   announcementDisabled?: string;
   zoneSaved?: string;
+  printConnector?: string;
   invoiceMarked?: string;
   deliveryZones: RestaurantDeliveryZone[];
+  printConnectorLink: RestaurantPrintConnector | null;
   invoiceRequests: Order[];
   initialTab?: string;
   canManagePlan: boolean;
@@ -290,6 +306,7 @@ export function RestaurantSettingsFormClient({
     announcementDisabled,
     zoneSaved,
     invoiceMarked,
+    printConnector,
   });
   const [showSuccessModal, setShowSuccessModal] = useState(Boolean(successMessage));
 
@@ -361,6 +378,8 @@ export function RestaurantSettingsFormClient({
       {closureCreated ? <Banner tone="success">Cierre temporal publicado para hoy.</Banner> : null}
       {announcementDisabled ? <Banner tone="success">Aviso desactivado.</Banner> : null}
       {zoneSaved ? <Banner tone="success">Zona de delivery actualizada.</Banner> : null}
+      {printConnector === "generated" ? <Banner tone="success">Token de impresion generado.</Banner> : null}
+      {printConnector === "revoked" ? <Banner tone="success">Token de impresion revocado.</Banner> : null}
       {invoiceMarked ? <Banner tone="success">Factura marcada como emitida.</Banner> : null}
       {error ? <Banner tone="danger">{errorMessages[error] ?? `No se pudo guardar la configuracion: ${error}.`}</Banner> : null}
 
@@ -648,38 +667,42 @@ export function RestaurantSettingsFormClient({
       </div>
 
       <div className={cn(activeTab === "impresion" ? "block" : "hidden")}>
-        <Card className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="grid gap-4">
-            <SectionTitle title="Impresion de cocina" description="Formato que usan los botones de ticket y la impresion al aprobar pedidos." />
-            <FieldSelect label="Formato por defecto">
-              <Select defaultValue={settings?.printFormat ?? "thermal_80"} name="printFormat">
-                <option value="thermal_58">Ticket termico 58 mm</option>
-                <option value="thermal_80">Ticket termico 80 mm</option>
-                <option value="large">Hoja normal / formato grande</option>
-              </Select>
-            </FieldSelect>
-            <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)]">
-              <span>
-                <span className="block font-black text-[var(--color-heading)]">Abrir ticket al aprobar</span>
-                <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">Cuando caja aprueba y cobra, se abre el ticket de cocina con el dialogo de impresion del navegador.</span>
-              </span>
-              <input defaultChecked={settings?.autoPrintKitchen ?? false} name="autoPrintKitchen" type="checkbox" />
-            </label>
-            <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)]">
-              <span>
-                <span className="block font-black text-[var(--color-heading)]">Mostrar logo en ticket</span>
-                <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">Usa el logo guardado en la sucursal cuando sea una imagen valida.</span>
-              </span>
-              <input defaultChecked={settings?.printLogo ?? true} name="printLogo" type="checkbox" />
-            </label>
-          </div>
+        <div className="space-y-6">
+          <Card className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="grid gap-4">
+              <SectionTitle title="Impresion de cocina" description="Formato que usan los botones de ticket y la impresion al aprobar pedidos." />
+              <FieldSelect label="Formato por defecto">
+                <Select defaultValue={settings?.printFormat ?? "thermal_80"} name="printFormat">
+                  <option value="thermal_58">Ticket termico 58 mm</option>
+                  <option value="thermal_80">Ticket termico 80 mm</option>
+                  <option value="large">Hoja normal / formato grande</option>
+                </Select>
+              </FieldSelect>
+              <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)]">
+                <span>
+                  <span className="block font-black text-[var(--color-heading)]">Abrir ticket al aprobar</span>
+                  <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">Cuando caja aprueba y cobra, se abre el ticket de cocina con el dialogo de impresion del navegador.</span>
+                </span>
+                <input defaultChecked={settings?.autoPrintKitchen ?? false} name="autoPrintKitchen" type="checkbox" />
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4 text-sm font-semibold text-[var(--color-body)]">
+                <span>
+                  <span className="block font-black text-[var(--color-heading)]">Mostrar logo en ticket</span>
+                  <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">Usa el logo guardado en la sucursal cuando sea una imagen valida.</span>
+                </span>
+                <input defaultChecked={settings?.printLogo ?? true} name="printLogo" type="checkbox" />
+              </label>
+            </div>
 
-          <div className="space-y-3 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
-            <p className="font-black text-[var(--color-heading)]">Operacion sin pantalla</p>
-            <p>58/80 mm esta pensado para impresoras termicas de rollo. Formato grande sirve para impresora normal.</p>
-            <p>La impresion web abre una ventana de ticket y ejecuta imprimir. Para impresion silenciosa directa se necesita un puente local o impresora de red configurada fuera del navegador.</p>
-          </div>
-        </Card>
+            <div className="space-y-3 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+              <p className="font-black text-[var(--color-heading)]">Operacion sin pantalla</p>
+              <p>58/80 mm esta pensado para impresoras termicas de rollo. Formato grande sirve para impresora normal.</p>
+              <p>La impresion web abre una ventana de ticket y ejecuta imprimir. Para impresion silenciosa directa se necesita un puente local o impresora de red configurada fuera del navegador.</p>
+            </div>
+          </Card>
+
+          <PrintConnectorSettingsCard connector={printConnectorLink} restaurant={restaurant} />
+        </div>
       </div>
 
       <div className={cn(activeTab === "ubicacion" ? "block" : "hidden")}>
@@ -1124,6 +1147,126 @@ function OrderNotificationSoundSettings({ restaurantId }: { restaurantId: string
         No se reproduce una prueba audible al activarlo. El proximo pedido nuevo hara sonar el audio completo una sola vez.
       </div>
     </div>
+  );
+}
+
+function PrintConnectorSettingsCard({
+  connector,
+  restaurant,
+}: {
+  connector: RestaurantPrintConnector | null;
+  restaurant: Restaurant;
+}) {
+  const [origin, setOrigin] = useState("");
+  const connectorIsOnline = connector?.lastSeenAt ? Date.now() - new Date(connector.lastSeenAt).getTime() <= 5 * 60 * 1000 : false;
+  const statusLabel = connectorIsOnline ? "Conector en linea" : connector ? (connector.status === "linked" ? "Conector vinculado" : "Token activo") : "Sin vincular";
+  const statusClassName = connectorIsOnline || connector?.status === "linked"
+    ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]"
+    : connector
+      ? "bg-[var(--color-info-soft)] text-[var(--color-info-strong)]"
+      : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]";
+  const panelUrl = origin || "http://localhost:3000";
+  const bootstrapUrl = `${panelUrl}/api/print-connector/bootstrap`;
+  const pairingPayload = connector
+    ? [
+        `panelUrl=${panelUrl}`,
+        `bootstrapUrl=${bootstrapUrl}`,
+        `restaurantId=${restaurant.id}`,
+        `restaurantName=${restaurant.name}`,
+        `token=${connector.token}`,
+      ].join("\n")
+    : "";
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  async function copyPairingPayload() {
+    if (!pairingPayload || !navigator.clipboard) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(pairingPayload);
+  }
+
+  return (
+    <Card className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <SectionTitle
+            title="Impresion directa Windows"
+            description="Permite imprimir automaticamente al aprobar pedidos usando un conector local .exe."
+          />
+          <span className={cn("inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black", statusClassName)}>
+            <Link2 className="h-3.5 w-3.5" />
+            {statusLabel}
+          </span>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+          <label className="space-y-2">
+            <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">Token o codigo de vinculacion</span>
+            <Input
+              aria-label="Token o codigo de vinculacion para el conector Windows"
+              className="font-mono text-xs"
+              readOnly
+              value={connector?.token ?? "Sin token generado"}
+            />
+          </label>
+          <div className="flex flex-col justify-end gap-2 sm:flex-row md:flex-col">
+            <SettingsSubmitButton name="settingsIntent" pendingLabel="Generando..." value="generate-print-connector-token" variant={connector ? "secondary" : "primary"}>
+              <KeyRound className="h-4 w-4" />
+              {connector ? "Regenerar token" : "Generar token"}
+            </SettingsSubmitButton>
+            {connector ? (
+              <SettingsSubmitButton name="settingsIntent" pendingLabel="Revocando..." value="revoke-print-connector-token" variant="danger">
+                <Unlink className="h-4 w-4" />
+                Revocar token
+              </SettingsSubmitButton>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+          El formato, logo y reglas de impresion se siguen configurando aqui en la web.
+        </div>
+
+        {connector ? (
+          <div className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm font-black text-[var(--color-heading)]">Datos para copiar al conector</p>
+              <button className={buttonClasses("secondary", "shrink-0")} onClick={copyPairingPayload} type="button">
+                <Copy className="h-4 w-4" />
+                Copiar datos
+              </button>
+            </div>
+            <div className="grid gap-2 text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">
+              <p>
+                URL panel: <span className="font-mono text-[var(--color-heading)]">{panelUrl}</span>
+              </p>
+              <p>
+                Restaurante ID: <span className="font-mono text-[var(--color-heading)]">{restaurant.id}</span>
+              </p>
+              <p>
+                Sucursal: <span className="font-mono text-[var(--color-heading)]">{restaurant.name}</span>
+              </p>
+              <p>
+                Token: <span className="break-all font-mono text-[var(--color-heading)]">{connector.token}</span>
+              </p>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+        <p className="font-black text-[var(--color-heading)]">Conector local</p>
+        <p>Instala el conector en la computadora Windows conectada a la impresora y pegale el token de vinculacion.</p>
+        <Link className={buttonClasses("primary", "w-full")} href="/api/print-connector/windows/download">
+          <Download className="h-4 w-4" />
+          Descargar conector
+        </Link>
+      </div>
+    </Card>
   );
 }
 

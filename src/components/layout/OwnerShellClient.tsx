@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   BarChart3,
+  Bike,
   Boxes,
   Building2,
   ClipboardX,
@@ -40,6 +41,7 @@ const ownerNav: OwnerNavItem[] = [
   { label: "Anulaciones", href: "/dueno/anulaciones", icon: ClipboardX },
   { label: "Inventario general", href: "/dueno/inventario", icon: Boxes },
   { label: "Responsables", href: "/dueno/responsables", icon: Users },
+  { label: "Riders", href: "/dueno/riders", icon: Bike },
   { label: "Tarifa", href: "/dueno/plan", icon: WalletCards },
   { label: "Soporte", href: "/dueno/soporte", icon: LifeBuoy },
   { label: "Cuenta", href: "/dueno/cuenta", icon: Settings },

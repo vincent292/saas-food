@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { RestaurantSettingsFormClient } from "@/components/settings/RestaurantSettingsFormClient";
 import { modulesForAdminLayout } from "@/lib/modules";
@@ -6,6 +7,7 @@ import { authService } from "@/lib/services/auth.service";
 import { announcementService } from "@/lib/services/announcement.service";
 import { orderService } from "@/lib/services/order.service";
 import { printConnectorService } from "@/lib/services/print-connector.service";
+import { riderService } from "@/lib/services/rider.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { settingsService } from "@/lib/services/settings.service";
@@ -18,6 +20,14 @@ function normalizeInvoiceDateFilter(value?: string) {
 
 function normalizeInvoiceStatusFilter(value?: string): "all" | "pending" | "issued" {
   return value === "pending" || value === "issued" ? value : "all";
+}
+
+async function currentOrigin() {
+  const headerStore = await headers();
+  const fallbackPort = process.env.PORT?.trim() || "3000";
+  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host") ?? `localhost:${fallbackPort}`;
+  const protocol = headerStore.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
+  return `${protocol}://${host}`;
 }
 
 export default async function SettingsPage({
@@ -66,6 +76,8 @@ export default async function SettingsPage({
   ]);
 
   const canManageOwnerSettings = profile?.globalRole === "superadmin" || profile?.id === restaurant.ownerUserId;
+  const riderInvite = canManageOwnerSettings ? await riderService.ensureRestaurantInvite(restaurant.id, profile?.id) : null;
+  const riderInviteUrl = riderInvite ? `${await currentOrigin()}/riders/${riderInvite.invite_token}` : "";
 
   return (
     <AdminLayout
@@ -99,6 +111,7 @@ export default async function SettingsPage({
         invoiceRequests={invoiceRequests}
         invoiceMarked={invoiceMarked}
         restaurant={restaurant}
+        riderInviteUrl={riderInviteUrl}
         saved={saved}
         settings={settings}
         zoneSaved={zone}

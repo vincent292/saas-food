@@ -9,6 +9,7 @@ import {
   Clock3,
   CreditCard,
   Download,
+  ExternalLink,
   Filter,
   ImageIcon,
   Bike,
@@ -268,6 +269,7 @@ export function RestaurantSettingsFormClient({
   canManageOperationSettings,
   canManagePayments,
   invoiceFilters,
+  riderInviteUrl,
 }: {
   restaurant: Restaurant;
   settings: RestaurantSettings | null;
@@ -294,11 +296,13 @@ export function RestaurantSettingsFormClient({
     dateTo: string;
     status: "all" | "pending" | "issued";
   };
+  riderInviteUrl?: string;
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeTab(initialTab));
   const [invoiceDateFromFilter, setInvoiceDateFromFilter] = useState(invoiceFilters.dateFrom);
   const [invoiceDateToFilter, setInvoiceDateToFilter] = useState(invoiceFilters.dateTo);
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState(invoiceFilters.status);
+  const [riderInviteCopied, setRiderInviteCopied] = useState(false);
   const successMessage = savedMessage({
     saved,
     announcementCreated,
@@ -340,6 +344,13 @@ export function RestaurantSettingsFormClient({
     return `/admin/restaurantes/${restaurant.id}/configuracion?${params.toString()}`;
   }, [invoiceDateFromFilter, invoiceDateToFilter, invoiceStatusFilter, restaurant.id]);
   const invoiceResetHref = `/admin/restaurantes/${restaurant.id}/configuracion?tab=facturas`;
+
+  async function copyRiderInviteUrl() {
+    if (!riderInviteUrl) return;
+    await navigator.clipboard.writeText(riderInviteUrl);
+    setRiderInviteCopied(true);
+    window.setTimeout(() => setRiderInviteCopied(false), 1400);
+  }
 
   useEffect(() => {
     if (!successMessage) {
@@ -762,6 +773,35 @@ export function RestaurantSettingsFormClient({
                 Default del sistema: 5 km. Si esta regla esta apagada, el cliente podra elegir efectivo aunque viva lejos.
               </div>
             </Card>
+
+            <Card className="space-y-4">
+              <SectionTitle title="Registro de riders" description="Link unico y reutilizable para afiliar motos de confianza a esta sucursal." />
+              {riderInviteUrl ? (
+                <>
+                  <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-3">
+                    <p className="text-xs font-black uppercase text-[var(--color-secondary-text)]">Link para WhatsApp</p>
+                    <p className="mt-2 break-all text-sm font-black text-[var(--color-heading)]">{riderInviteUrl}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button className={buttonClasses("secondary")} onClick={copyRiderInviteUrl} type="button">
+                      <Copy className="h-4 w-4" />
+                      {riderInviteCopied ? "Copiado" : "Copiar link"}
+                    </button>
+                    <a className={buttonClasses("primary")} href={riderInviteUrl} rel="noreferrer" target="_blank">
+                      <ExternalLink className="h-4 w-4" />
+                      Abrir formulario
+                    </a>
+                  </div>
+                  <div className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-body)]">
+                    Puedes mandar este mismo link a un grupo. Cada rider que lo llene crea una solicitud independiente para revision de superadmin.
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
+                  El link se genera para el dueno de la cuenta o superadmin cuando esta configuracion esta habilitada.
+                </div>
+              )}
+            </Card>
           </div>
 
           <Card className="space-y-4">
@@ -1157,36 +1197,31 @@ function PrintConnectorSettingsCard({
   connector: RestaurantPrintConnector | null;
   restaurant: Restaurant;
 }) {
-  const [origin, setOrigin] = useState("");
-  const connectorIsOnline = connector?.lastSeenAt ? Date.now() - new Date(connector.lastSeenAt).getTime() <= 5 * 60 * 1000 : false;
+  const connectorIsOnline = connector?.status === "linked";
   const statusLabel = connectorIsOnline ? "Conector en linea" : connector ? (connector.status === "linked" ? "Conector vinculado" : "Token activo") : "Sin vincular";
   const statusClassName = connectorIsOnline || connector?.status === "linked"
     ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]"
     : connector
       ? "bg-[var(--color-info-soft)] text-[var(--color-info-strong)]"
       : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]";
-  const panelUrl = origin || "http://localhost:3000";
-  const bootstrapUrl = `${panelUrl}/api/print-connector/bootstrap`;
-  const pairingPayload = connector
-    ? [
-        `panelUrl=${panelUrl}`,
-        `bootstrapUrl=${bootstrapUrl}`,
-        `restaurantId=${restaurant.id}`,
-        `restaurantName=${restaurant.name}`,
-        `token=${connector.token}`,
-      ].join("\n")
-    : "";
-
-  useEffect(() => {
-    setOrigin(window.location.origin);
-  }, []);
+  const panelUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000";
 
   async function copyPairingPayload() {
-    if (!pairingPayload || !navigator.clipboard) {
+    if (!connector || !navigator.clipboard) {
       return;
     }
 
-    await navigator.clipboard.writeText(pairingPayload);
+    const runtimePanelUrl = window.location.origin || panelUrl;
+    const runtimeBootstrapUrl = `${runtimePanelUrl}/api/print-connector/bootstrap`;
+    await navigator.clipboard.writeText(
+      [
+        `panelUrl=${runtimePanelUrl}`,
+        `bootstrapUrl=${runtimeBootstrapUrl}`,
+        `restaurantId=${restaurant.id}`,
+        `restaurantName=${restaurant.name}`,
+        `token=${connector.token}`,
+      ].join("\n"),
+    );
   }
 
   return (

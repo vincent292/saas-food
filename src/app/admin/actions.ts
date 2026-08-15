@@ -17,6 +17,7 @@ import {
 import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { ownerBillingService } from "@/lib/services/owner-billing.service";
 import { printConnectorService } from "@/lib/services/print-connector.service";
+import { riderService } from "@/lib/services/rider.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { membershipService } from "@/lib/services/membership.service";
 import { analyzeMenuFileWithGemini, normalizeMenuImportDraft, validateMenuImportFile } from "@/lib/services/menu-import-ai.service";
@@ -327,6 +328,35 @@ const updateBranchRequestPaymentSettingsSchema = z.object({
   currency: z.string().min(3).max(3).default("BOB"),
   currentBranchRequestQrUrl: z.string().optional(),
   qrNote: z.string().max(1000).optional(),
+});
+
+const updateRiderPaymentSettingsSchema = z.object({
+  amount: z.coerce.number().nonnegative().default(30),
+  currency: z.string().min(3).max(3).default("BOB"),
+  currentRiderPaymentQrUrl: z.string().optional(),
+  qrNote: z.string().max(1000).optional(),
+});
+
+const resolveRiderApplicationSchema = z.object({
+  applicationId: z.string().uuid(),
+  decision: z.enum(["approve", "reject"]),
+  resolutionNotes: z.string().max(1000).optional(),
+});
+
+const requestRiderRenewalSchema = z.object({
+  restaurantId: z.string().uuid(),
+  restaurantRiderId: z.string().uuid(),
+});
+
+const resolveRiderRenewalSchema = z.object({
+  renewalId: z.string().uuid(),
+  decision: z.enum(["approve", "reject"]),
+  resolutionNotes: z.string().max(1000).optional(),
+});
+
+const updateRestaurantRiderStatusSchema = z.object({
+  restaurantRiderId: z.string().uuid(),
+  status: z.enum(["active", "suspended"]),
 });
 
 const resolveOwnerBranchCapacitySchema = z.object({
@@ -794,6 +824,7 @@ const SUPPORT_AI_MAX_RESTAURANT_DAILY = 12;
 const MENU_IMPORT_AI_MAX_FAILED_DAILY = 3;
 const MAX_BRANCH_REQUEST_PAYMENT_PROOF_BYTES = 5 * 1024 * 1024;
 const MAX_OWNER_BILLING_PAYMENT_PROOF_BYTES = 5 * 1024 * 1024;
+const MAX_RIDER_RENEWAL_PAYMENT_PROOF_BYTES = 5 * 1024 * 1024;
 
 async function modulesForPlan(planKey: PlanKey): Promise<ModuleKey[]> {
   void planKey;
@@ -2002,6 +2033,22 @@ function adminReturnTo(formData: FormData, fallback: string) {
   return value.startsWith("/admin") ? value : fallback;
 }
 
+function addMonthsClampedDateOnly(dateValue: string, months: number) {
+  const source = new Date(`${dateValue}T00:00:00`);
+
+  if (Number.isNaN(source.getTime())) {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  const day = source.getDate();
+  const next = new Date(source);
+  next.setDate(1);
+  next.setMonth(next.getMonth() + months);
+  const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(day, lastDay));
+  return next.toISOString().slice(0, 10);
+}
+
 function parseJsonArray(value: FormDataEntryValue | null) {
   if (!value) {
     return [];
@@ -2941,6 +2988,317 @@ export async function updateBranchRequestPaymentSettingsAction(formData: FormDat
   revalidatePath("/admin/soporte");
   revalidatePath("/dueno/soporte");
   redirect("/admin/soporte?tab=solicitudes&settings=1");
+}
+
+export async function updateRiderPaymentSettingsAction(formData: FormData) {
+  const parsed = updateRiderPaymentSettingsSchema.safeParse({
+    amount: formData.get("amount") || 30,
+    currency: formData.get("currency") || "BOB",
+    currentRiderPaymentQrUrl: formData.get("currentRiderPaymentQrUrl") || undefined,
+    qrNote: formData.get("qrNote") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/soporte?tab=riders&error=invalid-rider-payment-settings");
+  }
+
+  const { user } = await requireSuperadmin();
+  const admin = createAdminClient();
+
+  if (!admin) {
+    redirect("/admin/soporte?tab=riders&error=service-role-required");
+  }
+
+  let qrUrl: string | null = parsed.data.currentRiderPaymentQrUrl ?? null;
+
+  try {
+    qrUrl = (await uploadPublicImage(formData.get("riderPaymentQrFile") as File | null, "platform/riders/qr")) ?? qrUrl;
+  } catch {
+    redirect("/admin/soporte?tab=riders&error=rider-payment-qr-upload");
+  }
+
+  const { error } = await admin.from("platform_rider_payment_settings").upsert(
+    {
+      amount: parsed.data.amount,
+      currency: parsed.data.currency.toUpperCase(),
+      id: true,
+      qr_note: parsed.data.qrNote ?? null,
+      qr_url: qrUrl,
+      updated_by: user.id,
+    },
+    { onConflict: "id" },
+  );
+
+  if (error) {
+    redirect(`/admin/soporte?tab=riders&error=${cashErrorKey(error, "rider-payment-settings-save")}`);
+  }
+
+  revalidatePath("/admin/soporte");
+  redirect("/admin/soporte?tab=riders&settings=1");
+}
+
+export async function resolveRiderApplicationAction(formData: FormData) {
+  const parsed = resolveRiderApplicationSchema.safeParse({
+    applicationId: formData.get("applicationId"),
+    decision: formData.get("decision"),
+    resolutionNotes: formData.get("resolutionNotes") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/soporte?tab=riders&error=invalid-rider-application");
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  const { data: application } = await supabase
+    .from("rider_applications")
+    .select("id,restaurant_id,full_name,email,phone,document_number,plate_number,vehicle_owner_name,ruat_number,payment_amount,payment_currency,status")
+    .eq("id", parsed.data.applicationId)
+    .maybeSingle();
+
+  if (!application || (parsed.data.decision === "reject" && application.status !== "submitted")) {
+    redirect("/admin/soporte?tab=riders&error=rider-application-not-found");
+  }
+
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const validUntil = new Date(now);
+  validUntil.setMonth(validUntil.getMonth() + 1);
+  const resolutionNotes = parsed.data.resolutionNotes?.trim() || null;
+
+  if (parsed.data.decision === "approve") {
+    const { error: riderError } = await supabase.from("restaurant_riders").upsert(
+      {
+        approved_at: nowIso,
+        approved_by: user.id,
+        document_number: application.document_number,
+        email: application.email,
+        full_name: application.full_name,
+        membership_amount: application.payment_amount,
+        membership_currency: application.payment_currency,
+        membership_started_at: nowIso,
+        membership_valid_until: validUntil.toISOString().slice(0, 10),
+        phone: application.phone,
+        plate_number: application.plate_number,
+        restaurant_id: application.restaurant_id,
+        rider_application_id: application.id,
+        ruat_number: application.ruat_number,
+        status: "active",
+        vehicle_owner_name: application.vehicle_owner_name,
+      },
+      { onConflict: "rider_application_id" },
+    );
+
+    if (riderError) {
+      redirect(`/admin/soporte?tab=riders&error=${cashErrorKey(riderError, "rider-approve")}`);
+    }
+  }
+
+  const { error } = await supabase
+    .from("rider_applications")
+    .update({
+      resolution_notes: resolutionNotes,
+      reviewed_at: nowIso,
+      reviewed_by: user.id,
+      status: parsed.data.decision === "approve" ? "approved" : "rejected",
+    })
+    .eq("id", application.id);
+
+  if (error) {
+    redirect(`/admin/soporte?tab=riders&error=${cashErrorKey(error, "rider-resolution")}`);
+  }
+
+  revalidatePath("/admin/soporte");
+  revalidatePath(`/admin/restaurantes/${application.restaurant_id}/configuracion`);
+  revalidatePath("/dueno/riders");
+  redirect("/admin/soporte?tab=riders&saved=rider");
+}
+
+export async function requestRiderRenewalAction(formData: FormData) {
+  const parsed = requestRiderRenewalSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    restaurantRiderId: formData.get("restaurantRiderId"),
+  });
+
+  if (!parsed.success) {
+    redirect("/dueno/riders?error=invalid-rider-renewal");
+  }
+
+  const { supabase, user } = await requireRestaurantOwnerOrSuperadmin(parsed.data.restaurantId, "/dueno/riders");
+  const { data: rider } = await supabase
+    .from("restaurant_riders")
+    .select("id,restaurant_id,full_name,status")
+    .eq("id", parsed.data.restaurantRiderId)
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .maybeSingle();
+
+  if (!rider) {
+    redirect("/dueno/riders?error=rider-not-found");
+  }
+
+  const { data: pendingRenewal } = await supabase
+    .from("rider_renewal_requests")
+    .select("id")
+    .eq("restaurant_rider_id", rider.id)
+    .eq("status", "submitted")
+    .maybeSingle();
+
+  if (pendingRenewal) {
+    redirect("/dueno/riders?error=rider-renewal-pending");
+  }
+
+  const paymentSettings = await riderService.getPaymentSettings();
+  if (!paymentSettings.qrUrl) {
+    redirect("/dueno/riders?error=rider-payment-settings");
+  }
+
+  const proofFile = formData.get("paymentProofFile") as File | null;
+  const proofTypeIsValid = proofFile?.type.startsWith("image/") || proofFile?.type === "application/pdf";
+
+  if (!proofFile || proofFile.size <= 0 || !proofTypeIsValid || proofFile.size > MAX_RIDER_RENEWAL_PAYMENT_PROOF_BYTES) {
+    redirect("/dueno/riders?error=invalid-rider-payment-proof");
+  }
+
+  let proofUrl: string | null = null;
+
+  try {
+    proofUrl = await uploadPrivateFile(proofFile, `platform/riders/renewals/${parsed.data.restaurantId}/${rider.id}`);
+  } catch {
+    redirect("/dueno/riders?error=rider-payment-proof-upload");
+  }
+
+  if (!proofUrl) {
+    redirect("/dueno/riders?error=rider-payment-proof-upload");
+  }
+
+  const { error } = await supabase.from("rider_renewal_requests").insert({
+    created_by: user.id,
+    payment_amount: paymentSettings.amount,
+    payment_currency: paymentSettings.currency,
+    payment_proof_file_name: proofFile.name,
+    payment_proof_file_size: proofFile.size,
+    payment_proof_url: proofUrl,
+    payment_qr_note: paymentSettings.qrNote ?? null,
+    payment_qr_url: paymentSettings.qrUrl,
+    restaurant_id: parsed.data.restaurantId,
+    restaurant_rider_id: rider.id,
+  });
+
+  if (error) {
+    const errorKey = error.code === "23505" ? "rider-renewal-pending" : cashErrorKey(error, "rider-renewal-request");
+    redirect(`/dueno/riders?error=${errorKey}`);
+  }
+
+  revalidatePath("/dueno/riders");
+  revalidatePath("/admin/soporte");
+  redirect("/dueno/riders?renewal=1");
+}
+
+export async function resolveRiderRenewalAction(formData: FormData) {
+  const parsed = resolveRiderRenewalSchema.safeParse({
+    renewalId: formData.get("renewalId"),
+    decision: formData.get("decision"),
+    resolutionNotes: formData.get("resolutionNotes") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/soporte?tab=riders&error=invalid-rider-renewal");
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  const { data: renewal } = await supabase
+    .from("rider_renewal_requests")
+    .select("id,restaurant_rider_id,restaurant_id,status")
+    .eq("id", parsed.data.renewalId)
+    .maybeSingle();
+
+  if (!renewal || renewal.status !== "submitted") {
+    redirect("/admin/soporte?tab=riders&error=rider-renewal-not-found");
+  }
+
+  const nowIso = new Date().toISOString();
+  const resolutionNotes = parsed.data.resolutionNotes?.trim() || null;
+  let approvedValidUntil: string | null = null;
+
+  if (parsed.data.decision === "approve") {
+    const { data: rider } = await supabase
+      .from("restaurant_riders")
+      .select("id,membership_valid_until")
+      .eq("id", renewal.restaurant_rider_id)
+      .maybeSingle();
+
+    if (!rider) {
+      redirect("/admin/soporte?tab=riders&error=rider-not-found");
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const baseDate = rider.membership_valid_until && rider.membership_valid_until > today ? rider.membership_valid_until : today;
+    approvedValidUntil = addMonthsClampedDateOnly(baseDate, 1);
+
+    const { error: riderError } = await supabase
+      .from("restaurant_riders")
+      .update({
+        membership_started_at: nowIso,
+        membership_valid_until: approvedValidUntil,
+        status: "active",
+      })
+      .eq("id", rider.id);
+
+    if (riderError) {
+      redirect(`/admin/soporte?tab=riders&error=${cashErrorKey(riderError, "rider-renewal-approve")}`);
+    }
+  }
+
+  const { error } = await supabase
+    .from("rider_renewal_requests")
+    .update({
+      approved_valid_until: approvedValidUntil,
+      resolution_notes: resolutionNotes,
+      reviewed_at: nowIso,
+      reviewed_by: user.id,
+      status: parsed.data.decision === "approve" ? "approved" : "rejected",
+    })
+    .eq("id", renewal.id);
+
+  if (error) {
+    redirect(`/admin/soporte?tab=riders&error=${cashErrorKey(error, "rider-renewal-resolution")}`);
+  }
+
+  revalidatePath("/admin/soporte");
+  revalidatePath("/dueno/riders");
+  redirect("/admin/soporte?tab=riders&saved=renewal");
+}
+
+export async function updateRestaurantRiderStatusAction(formData: FormData) {
+  const parsed = updateRestaurantRiderStatusSchema.safeParse({
+    restaurantRiderId: formData.get("restaurantRiderId"),
+    status: formData.get("status"),
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/soporte?tab=riders&error=invalid-rider-status");
+  }
+
+  const { supabase } = await requireSuperadmin();
+  const { data: rider } = await supabase
+    .from("restaurant_riders")
+    .select("id,restaurant_id")
+    .eq("id", parsed.data.restaurantRiderId)
+    .maybeSingle();
+
+  if (!rider) {
+    redirect("/admin/soporte?tab=riders&error=rider-not-found");
+  }
+
+  const { error } = await supabase.from("restaurant_riders").update({ status: parsed.data.status }).eq("id", rider.id);
+
+  if (error) {
+    redirect(`/admin/soporte?tab=riders&error=${cashErrorKey(error, "rider-status-update")}`);
+  }
+
+  revalidatePath("/admin/soporte");
+  revalidatePath("/dueno/riders");
+  revalidatePath(`/admin/restaurantes/${rider.restaurant_id}/configuracion`);
+  redirect("/admin/soporte?tab=riders&saved=rider-status");
 }
 
 export async function requestOwnerBranchCapacityAction(formData: FormData) {

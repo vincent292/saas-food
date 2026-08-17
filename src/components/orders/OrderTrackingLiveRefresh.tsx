@@ -52,6 +52,12 @@ type DeliveryChangePayload = {
   opened_at?: string | null;
   arrived_at?: string | null;
   delivered_at?: string | null;
+  rider_latitude?: number | string | null;
+  rider_longitude?: number | string | null;
+  rider_location_accuracy_m?: number | string | null;
+  rider_location_heading?: number | string | null;
+  rider_location_speed_mps?: number | string | null;
+  rider_location_updated_at?: string | null;
 };
 
 type OrderChangePayload = {
@@ -268,7 +274,7 @@ function mergeOrderChange<T extends Order>(order: T, payload: OrderChangePayload
 }
 
 function mergeDeliveryChange<T extends Order>(order: T, payload: DeliveryChangePayload): T {
-  if (!payload.status) {
+  if (!payload.status && payload.rider_latitude == null && payload.rider_longitude == null) {
     return order;
   }
 
@@ -276,15 +282,38 @@ function mergeDeliveryChange<T extends Order>(order: T, payload: DeliveryChangeP
     ...order,
     deliveryDispatch: {
       ...order.deliveryDispatch,
-      status: payload.status,
+      status: payload.status ?? order.deliveryDispatch?.status ?? "active",
       deliveryPhone: payload.delivery_phone ?? order.deliveryDispatch?.deliveryPhone,
       deliveryName: payload.delivery_name ?? order.deliveryDispatch?.deliveryName,
       dispatchedAt: payload.created_at ?? order.deliveryDispatch?.dispatchedAt,
       openedAt: payload.opened_at ?? order.deliveryDispatch?.openedAt,
       arrivedAt: payload.arrived_at ?? order.deliveryDispatch?.arrivedAt,
       deliveredAt: payload.delivered_at ?? order.deliveryDispatch?.deliveredAt,
+      riderLatitude: payload.rider_latitude == null ? order.deliveryDispatch?.riderLatitude : Number(payload.rider_latitude),
+      riderLongitude: payload.rider_longitude == null ? order.deliveryDispatch?.riderLongitude : Number(payload.rider_longitude),
+      riderLocationAccuracyMeters: payload.rider_location_accuracy_m == null ? order.deliveryDispatch?.riderLocationAccuracyMeters : Number(payload.rider_location_accuracy_m),
+      riderLocationHeading: payload.rider_location_heading == null ? order.deliveryDispatch?.riderLocationHeading : Number(payload.rider_location_heading),
+      riderLocationSpeedMetersPerSecond: payload.rider_location_speed_mps == null ? order.deliveryDispatch?.riderLocationSpeedMetersPerSecond : Number(payload.rider_location_speed_mps),
+      riderLocationUpdatedAt: payload.rider_location_updated_at ?? order.deliveryDispatch?.riderLocationUpdatedAt,
     },
   } as T;
+}
+
+function googleMapsSearchUrl(latitude: number, longitude: number) {
+  return `https://www.google.com/maps/search/?api=1&query=${latitude.toFixed(7)},${longitude.toFixed(7)}`;
+}
+
+function locationTimeLabel(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return new Intl.DateTimeFormat("es-BO", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "America/La_Paz",
+  }).format(date);
 }
 
 function trackingSteps(order: Order & { businessType?: BusinessType }) {
@@ -401,6 +430,9 @@ export function OrderTrackingLiveRefresh({
     ? `https://wa.me/${deliveryPhoneDigits}?text=${encodeURIComponent(`Hola, soy del pedido ${order.orderNumber}. Quiero saber donde esta mi entrega.`)}`
     : "";
   const deliveryElapsed = order.orderType === "delivery" ? deliveryElapsedLabel(order) : "";
+  const hasRiderLocation = typeof order.deliveryDispatch?.riderLatitude === "number" && typeof order.deliveryDispatch?.riderLongitude === "number";
+  const riderMapsUrl = hasRiderLocation ? googleMapsSearchUrl(order.deliveryDispatch!.riderLatitude!, order.deliveryDispatch!.riderLongitude!) : "";
+  const riderLocationTime = locationTimeLabel(order.deliveryDispatch?.riderLocationUpdatedAt);
 
   const fetchLatestStatus = useCallback(async () => {
     if (document.visibilityState !== "visible") {
@@ -564,6 +596,27 @@ export function OrderTrackingLiveRefresh({
                   WhatsApp
                 </a>
               </div>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
+
+      {order.orderType === "delivery" && order.deliveryDispatch && order.deliveryDispatch.status !== "delivered" ? (
+        <Card className="mt-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">Ubicacion del rider</p>
+              <h3 className="mt-1 text-lg font-black text-[var(--text)]">{hasRiderLocation ? "Compartiendo en tiempo real" : "Esperando ubicacion"}</h3>
+              <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
+                {hasRiderLocation
+                  ? `Ultima actualizacion${riderLocationTime ? `: ${riderLocationTime}` : ""}.`
+                  : "Cuando el rider tenga la app abierta durante la entrega, veras su ubicacion aqui."}
+              </p>
+            </div>
+            {hasRiderLocation ? (
+              <a className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-4 text-sm font-black text-[var(--color-on-primary)]" href={riderMapsUrl} rel="noreferrer" target="_blank">
+                Ver en Google Maps
+              </a>
             ) : null}
           </div>
         </Card>

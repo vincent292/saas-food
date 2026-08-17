@@ -73,6 +73,12 @@ type DeliveryLinkRow = {
   opened_at: string | null;
   arrived_at: string | null;
   delivered_at: string | null;
+  rider_latitude?: number | null;
+  rider_longitude?: number | null;
+  rider_location_accuracy_m?: number | null;
+  rider_location_heading?: number | null;
+  rider_location_speed_mps?: number | null;
+  rider_location_updated_at?: string | null;
 };
 
 type PublicOrderPayload = OrderRow & {
@@ -84,6 +90,12 @@ type PublicOrderPayload = OrderRow & {
   delivery_opened_at?: string | null;
   delivery_arrived_at?: string | null;
   delivery_delivered_at?: string | null;
+  rider_latitude?: number | null;
+  rider_longitude?: number | null;
+  rider_location_accuracy_m?: number | null;
+  rider_location_heading?: number | null;
+  rider_location_speed_mps?: number | null;
+  rider_location_updated_at?: string | null;
 };
 
 type PublicQueuePayload = {
@@ -132,6 +144,12 @@ type DeliveryTrackingStatusRow = {
   arrived_at: string | null;
   delivered_at: string | null;
   updated_at?: string;
+  rider_latitude?: number | null;
+  rider_longitude?: number | null;
+  rider_location_accuracy_m?: number | null;
+  rider_location_heading?: number | null;
+  rider_location_speed_mps?: number | null;
+  rider_location_updated_at?: string | null;
 };
 
 function mapItem(row: ItemRow): OrderItem {
@@ -161,6 +179,12 @@ function mapDeliveryLink(row?: DeliveryLinkRow | null): OrderDeliveryDispatch | 
     openedAt: row.opened_at ?? undefined,
     arrivedAt: row.arrived_at ?? undefined,
     deliveredAt: row.delivered_at ?? undefined,
+    riderLatitude: row.rider_latitude == null ? undefined : Number(row.rider_latitude),
+    riderLongitude: row.rider_longitude == null ? undefined : Number(row.rider_longitude),
+    riderLocationAccuracyMeters: row.rider_location_accuracy_m == null ? undefined : Number(row.rider_location_accuracy_m),
+    riderLocationHeading: row.rider_location_heading == null ? undefined : Number(row.rider_location_heading),
+    riderLocationSpeedMetersPerSecond: row.rider_location_speed_mps == null ? undefined : Number(row.rider_location_speed_mps),
+    riderLocationUpdatedAt: row.rider_location_updated_at ?? undefined,
   };
 }
 
@@ -177,6 +201,12 @@ function mapPublicDelivery(payload: PublicOrderPayload): OrderDeliveryDispatch |
     openedAt: payload.delivery_opened_at ?? undefined,
     arrivedAt: payload.delivery_arrived_at ?? undefined,
     deliveredAt: payload.delivery_delivered_at ?? undefined,
+    riderLatitude: payload.rider_latitude == null ? undefined : Number(payload.rider_latitude),
+    riderLongitude: payload.rider_longitude == null ? undefined : Number(payload.rider_longitude),
+    riderLocationAccuracyMeters: payload.rider_location_accuracy_m == null ? undefined : Number(payload.rider_location_accuracy_m),
+    riderLocationHeading: payload.rider_location_heading == null ? undefined : Number(payload.rider_location_heading),
+    riderLocationSpeedMetersPerSecond: payload.rider_location_speed_mps == null ? undefined : Number(payload.rider_location_speed_mps),
+    riderLocationUpdatedAt: payload.rider_location_updated_at ?? undefined,
   };
 }
 
@@ -284,6 +314,12 @@ function mapTrackingStatus(row: OrderTrackingStatusRow, deliveryDispatch?: Deliv
           openedAt: deliveryDispatch.opened_at ?? undefined,
           arrivedAt: deliveryDispatch.arrived_at ?? undefined,
           deliveredAt: deliveryDispatch.delivered_at ?? undefined,
+          riderLatitude: deliveryDispatch.rider_latitude == null ? undefined : Number(deliveryDispatch.rider_latitude),
+          riderLongitude: deliveryDispatch.rider_longitude == null ? undefined : Number(deliveryDispatch.rider_longitude),
+          riderLocationAccuracyMeters: deliveryDispatch.rider_location_accuracy_m == null ? undefined : Number(deliveryDispatch.rider_location_accuracy_m),
+          riderLocationHeading: deliveryDispatch.rider_location_heading == null ? undefined : Number(deliveryDispatch.rider_location_heading),
+          riderLocationSpeedMetersPerSecond: deliveryDispatch.rider_location_speed_mps == null ? undefined : Number(deliveryDispatch.rider_location_speed_mps),
+          riderLocationUpdatedAt: deliveryDispatch.rider_location_updated_at ?? undefined,
         }
       : undefined,
   };
@@ -311,6 +347,12 @@ function mapOrderToTrackingStatus(order: Order): OrderTrackingStatus {
           openedAt: order.deliveryDispatch.openedAt,
           arrivedAt: order.deliveryDispatch.arrivedAt,
           deliveredAt: order.deliveryDispatch.deliveredAt,
+          riderLatitude: order.deliveryDispatch.riderLatitude,
+          riderLongitude: order.deliveryDispatch.riderLongitude,
+          riderLocationAccuracyMeters: order.deliveryDispatch.riderLocationAccuracyMeters,
+          riderLocationHeading: order.deliveryDispatch.riderLocationHeading,
+          riderLocationSpeedMetersPerSecond: order.deliveryDispatch.riderLocationSpeedMetersPerSecond,
+          riderLocationUpdatedAt: order.deliveryDispatch.riderLocationUpdatedAt,
         }
       : undefined,
   };
@@ -594,7 +636,7 @@ export const orderService = {
 
     const { data: deliveryLink } = await supabase
       .from("order_delivery_links")
-      .select("status,delivery_phone,delivery_name,created_at,opened_at,arrived_at,delivered_at,updated_at")
+      .select("status,delivery_phone,delivery_name,created_at,opened_at,arrived_at,delivered_at,updated_at,rider_latitude,rider_longitude,rider_location_accuracy_m,rider_location_heading,rider_location_speed_mps,rider_location_updated_at")
       .eq("order_id", order.id)
       .maybeSingle();
 
@@ -627,7 +669,7 @@ export const orderService = {
 
     const { data: deliveryLink } = await admin
       .from("order_delivery_links")
-      .select("status,delivery_phone,delivery_name,created_at,opened_at,arrived_at,delivered_at,updated_at")
+      .select("status,delivery_phone,delivery_name,created_at,opened_at,arrived_at,delivered_at,updated_at,rider_latitude,rider_longitude,rider_location_accuracy_m,rider_location_heading,rider_location_speed_mps,rider_location_updated_at")
       .eq("order_id", order.id)
       .maybeSingle();
 

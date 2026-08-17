@@ -37,6 +37,12 @@ export type OrderDeliveryDispatch = {
   openedAt?: string;
   arrivedAt?: string;
   deliveredAt?: string;
+  riderLatitude?: number;
+  riderLongitude?: number;
+  riderLocationAccuracyMeters?: number;
+  riderLocationHeading?: number;
+  riderLocationSpeedMetersPerSecond?: number;
+  riderLocationUpdatedAt?: string;
 };
 
 export type Order = {
@@ -123,5 +129,20 @@ export type OrderTrackingStatus = {
   cancelledAt?: string;
   cancellationReason?: string;
   updatedAt: string;
-  deliveryDispatch?: Pick<OrderDeliveryDispatch, "status" | "deliveryPhone" | "deliveryName" | "dispatchedAt" | "openedAt" | "arrivedAt" | "deliveredAt">;
+  deliveryDispatch?: Pick<
+    OrderDeliveryDispatch,
+    | "status"
+    | "deliveryPhone"
+    | "deliveryName"
+    | "dispatchedAt"
+    | "openedAt"
+    | "arrivedAt"
+    | "deliveredAt"
+    | "riderLatitude"
+    | "riderLongitude"
+    | "riderLocationAccuracyMeters"
+    | "riderLocationHeading"
+    | "riderLocationSpeedMetersPerSecond"
+    | "riderLocationUpdatedAt"
+  >;
 };

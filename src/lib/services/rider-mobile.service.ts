@@ -85,6 +85,12 @@ type DeliveryLinkRow = {
   delivered_at: string | null;
   expires_at: string;
   created_at: string;
+  rider_latitude?: number | string | null;
+  rider_longitude?: number | string | null;
+  rider_location_accuracy_m?: number | string | null;
+  rider_location_heading?: number | string | null;
+  rider_location_speed_mps?: number | string | null;
+  rider_location_updated_at?: string | null;
 };
 
 export type MobileRider = {
@@ -152,6 +158,14 @@ export type MobileRiderOrder = {
     deliveredAt: string | null;
     expiresAt: string;
     createdAt: string;
+    riderLocation: {
+      latitude: number;
+      longitude: number;
+      accuracyMeters: number | null;
+      heading: number | null;
+      speedMetersPerSecond: number | null;
+      updatedAt: string;
+    } | null;
   } | null;
   items: Array<{
     id: string;
@@ -580,6 +594,17 @@ function serializeOrder({
           deliveredAt: dispatch.delivered_at,
           expiresAt: dispatch.expires_at,
           createdAt: dispatch.created_at,
+          riderLocation:
+            dispatch.rider_latitude == null || dispatch.rider_longitude == null || !dispatch.rider_location_updated_at
+              ? null
+              : {
+                  latitude: Number(dispatch.rider_latitude),
+                  longitude: Number(dispatch.rider_longitude),
+                  accuracyMeters: dispatch.rider_location_accuracy_m == null ? null : Number(dispatch.rider_location_accuracy_m),
+                  heading: dispatch.rider_location_heading == null ? null : Number(dispatch.rider_location_heading),
+                  speedMetersPerSecond: dispatch.rider_location_speed_mps == null ? null : Number(dispatch.rider_location_speed_mps),
+                  updatedAt: dispatch.rider_location_updated_at,
+                },
         }
       : null,
     items: items.map((item) => ({
@@ -634,7 +659,7 @@ const orderSelect =
   "id,restaurant_id,order_number,customer_name,customer_phone,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,requested_fulfillment_at,status,payment_status,payment_method,subtotal,delivery_fee,discount_total,total,notes,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,created_at";
 
 const deliveryLinkSelect =
-  "id,restaurant_id,order_id,restaurant_rider_id,delivery_token,delivery_phone,delivery_name,status,opened_at,arrived_at,delivered_at,expires_at,created_at";
+  "id,restaurant_id,order_id,restaurant_rider_id,delivery_token,delivery_phone,delivery_name,status,opened_at,arrived_at,delivered_at,expires_at,created_at,rider_latitude,rider_longitude,rider_location_accuracy_m,rider_location_heading,rider_location_speed_mps,rider_location_updated_at";
 
 export async function listMobileRiderOrders(
   session: MobileRiderSession,
@@ -868,4 +893,61 @@ export async function updateMobileRiderDeliveryStatus(
       status,
     },
   };
+}
+
+export async function updateMobileRiderLocation(
+  session: MobileRiderSession,
+  orderId: string,
+  input: {
+    latitude: number;
+    longitude: number;
+    accuracyMeters?: number | null;
+    heading?: number | null;
+    speedMetersPerSecond?: number | null;
+  },
+): Promise<ServiceResult<{ order: MobileRiderOrder }>> {
+  if (
+    !Number.isFinite(input.latitude) ||
+    !Number.isFinite(input.longitude) ||
+    input.latitude < -90 ||
+    input.latitude > 90 ||
+    input.longitude < -180 ||
+    input.longitude > 180
+  ) {
+    return { ok: false, error: "invalid-rider-location", status: 400 };
+  }
+
+  const riderIds = session.activeRiders.map((rider) => rider.id);
+  const { data: link } = await session.admin
+    .from("order_delivery_links")
+    .select(deliveryLinkSelect)
+    .eq("order_id", orderId)
+    .in("restaurant_rider_id", riderIds)
+    .in("status", Array.from(activeDispatchStatuses))
+    .maybeSingle();
+
+  const linkRow = link as DeliveryLinkRow | null;
+  if (!linkRow) {
+    return { ok: false, error: "rider-dispatch-not-found", status: 404 };
+  }
+
+  const { error } = await session.admin
+    .from("order_delivery_links")
+    .update({
+      rider_latitude: input.latitude,
+      rider_longitude: input.longitude,
+      rider_location_accuracy_m: input.accuracyMeters ?? null,
+      rider_location_heading: input.heading ?? null,
+      rider_location_speed_mps: input.speedMetersPerSecond ?? null,
+      rider_location_updated_at: new Date().toISOString(),
+    })
+    .eq("id", linkRow.id);
+
+  if (error) {
+    return { ok: false, error: "rider-location-failed", status: 400 };
+  }
+
+  const result = await getMobileRiderOrder(session, orderId);
+  if (!result.ok) return result;
+  return { ok: true, data: { order: result.data.order } };
 }

@@ -509,6 +509,7 @@ export type Database = {
         id: string;
         restaurant_id: string;
         order_id: string;
+        restaurant_rider_id: string | null;
         delivery_token: string;
         delivery_phone: string | null;
         delivery_name: string | null;

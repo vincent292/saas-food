@@ -6767,6 +6767,7 @@ export async function createDeliveryLinkAction(input: {
     {
       restaurant_id: parsed.data.restaurantId,
       order_id: parsed.data.orderId,
+      restaurant_rider_id: null,
       delivery_token: deliveryToken,
       delivery_phone: deliveryPhone,
       delivery_name: deliveryName,

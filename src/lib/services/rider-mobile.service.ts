@@ -225,19 +225,6 @@ function isExpired(validUntil: string) {
   return validUntil < todayDateOnly();
 }
 
-async function activateRidersForToday(admin: SupabaseClient, userId: string, riders: MobileRider[]) {
-  const active = riders.filter((rider) => rider.status === "active");
-  await Promise.all(
-    active.map((rider) =>
-      setRiderAvailability(admin, {
-        isAvailable: true,
-        riderId: rider.id,
-        riderUserId: userId,
-      }),
-    ),
-  );
-}
-
 function endOfBusinessDayIso(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
     day: "2-digit",
@@ -250,6 +237,20 @@ function endOfBusinessDayIso(date = new Date()) {
   const day = Number(parts.find((part) => part.type === "day")?.value ?? date.getUTCDate());
 
   return new Date(Date.UTC(year, month - 1, day + 1, 4, 0, 0, 0)).toISOString();
+}
+
+function todayLaPazDate() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/La_Paz",
+    year: "numeric",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? String(new Date().getUTCFullYear());
+  const month = parts.find((part) => part.type === "month")?.value ?? String(new Date().getUTCMonth() + 1).padStart(2, "0");
+  const day = parts.find((part) => part.type === "day")?.value ?? String(new Date().getUTCDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 function getAdmin(): ServiceResult<SupabaseClient> {
@@ -355,7 +356,7 @@ export async function registerMobileRiderAccount(input: {
   password: string;
   documentNumber: string;
   plateNumber: string;
-}): Promise<ServiceResult<{ accessToken: string; refreshToken: string; user: { id: string; email: string }; riders: MobileRider[] }>> {
+}): Promise<ServiceResult<{ accessToken: string; availableToday: boolean; refreshToken: string; user: { id: string; email: string }; riders: MobileRider[] }>> {
   const adminResult = getAdmin();
   if (!adminResult.ok) return adminResult;
   const admin = adminResult.data;
@@ -440,12 +441,12 @@ export async function registerMobileRiderAccount(input: {
   }
 
   const riders = await hydrateRiders(admin, matchedRows);
-  await activateRidersForToday(admin, sessionData.user.id, riders);
 
   return {
     ok: true,
     data: {
       accessToken: sessionData.session.access_token,
+      availableToday: false,
       refreshToken: sessionData.session.refresh_token,
       user: {
         id: sessionData.user.id,
@@ -459,7 +460,7 @@ export async function registerMobileRiderAccount(input: {
 export async function loginMobileRider(input: {
   email: string;
   password: string;
-}): Promise<ServiceResult<{ accessToken: string; refreshToken: string; user: { id: string; email: string }; riders: MobileRider[] }>> {
+}): Promise<ServiceResult<{ accessToken: string; availableToday: boolean; refreshToken: string; user: { id: string; email: string }; riders: MobileRider[] }>> {
   const publicClient = createPublicServerClient();
   if (!publicClient) {
     return { ok: false, error: "supabase-not-configured", status: 500 };
@@ -489,12 +490,19 @@ export async function loginMobileRider(input: {
   if (!riders.length) {
     return { ok: false, error: "rider-account-not-linked", status: 403 };
   }
-  await activateRidersForToday(adminResult.data, data.user.id, riders);
+  const activeRiders = riders.filter((rider) => rider.status === "active");
+  const availability = await getMobileRiderAvailability({
+    activeRiders,
+    admin: adminResult.data,
+    riders,
+    user: data.user,
+  });
 
   return {
     ok: true,
     data: {
       accessToken: data.session.access_token,
+      availableToday: availability.ok ? availability.data.available : false,
       refreshToken: data.session.refresh_token,
       user: {
         id: data.user.id,
@@ -1039,6 +1047,41 @@ export async function updateMobileRiderLocation(
   const result = await getMobileRiderOrder(session, orderId);
   if (!result.ok) return result;
   return { ok: true, data: { order: result.data.order } };
+}
+
+export async function getMobileRiderAvailability(
+  session: MobileRiderSession,
+): Promise<ServiceResult<{ available: boolean; updatedAt: string | null }>> {
+  const riderIds = session.activeRiders.map((rider) => rider.id);
+  if (!riderIds.length) {
+    return { ok: true, data: { available: false, updatedAt: null } };
+  }
+
+  const { data, error } = await session.admin
+    .from("rider_availability")
+    .select("is_available,last_seen_at")
+    .eq("rider_user_id", session.user.id)
+    .in("restaurant_rider_id", riderIds)
+    .eq("available_date", todayLaPazDate());
+
+  if (error) {
+    return { ok: false, error: "rider-availability-failed", status: 400 };
+  }
+
+  const rows = (data ?? []) as Array<{ is_available: boolean; last_seen_at: string | null }>;
+  const updatedAt = rows
+    .map((row) => row.last_seen_at)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1) ?? null;
+
+  return {
+    ok: true,
+    data: {
+      available: rows.some((row) => row.is_available),
+      updatedAt,
+    },
+  };
 }
 
 export async function updateMobileRiderAvailability(

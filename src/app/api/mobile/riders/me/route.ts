@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getMobileRiderSession, updateMobileRiderAvailability } from "@/lib/services/rider-mobile.service";
+import { getMobileRiderAvailability, getMobileRiderSession } from "@/lib/services/rider-mobile.service";
 
 export async function GET(request: Request) {
   const session = await getMobileRiderSession(request, { requireActive: false });
@@ -7,7 +7,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: session.error }, { status: session.status });
   }
 
-  await updateMobileRiderAvailability(session.data, { isAvailable: true });
+  const availability = await getMobileRiderAvailability(session.data);
 
   return NextResponse.json({
     user: {
@@ -16,6 +16,7 @@ export async function GET(request: Request) {
     },
     riders: session.data.riders,
     activeRiders: session.data.activeRiders,
+    availableToday: availability.ok ? availability.data.available : false,
     updatedAt: new Date().toISOString(),
   });
 }

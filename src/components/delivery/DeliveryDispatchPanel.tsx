@@ -1,10 +1,10 @@
 "use client";
 
-import { Bike, CheckCircle2, Copy, Download, ExternalLink, MessageCircle, QrCode } from "lucide-react";
+import { Bike, CheckCircle2, Copy, Download, ExternalLink, MessageCircle, QrCode, Search } from "lucide-react";
 import Image from "next/image";
 import QRCode from "qrcode";
 import { useEffect, useState, useTransition } from "react";
-import { createDeliveryLinkAction } from "@/app/admin/actions";
+import { createDeliveryLinkAction, requestRiderAutoDispatchAction } from "@/app/admin/actions";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
@@ -24,6 +24,17 @@ type DeliveryLinkResult =
       error: string;
     };
 
+type RiderDispatchResult =
+  | {
+      ok: true;
+      status: string;
+      message: string;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
 export function DeliveryDispatchPanel({
   order,
   restaurantSlug,
@@ -36,9 +47,11 @@ export function DeliveryDispatchPanel({
   const [deliveryPhone, setDeliveryPhone] = useState("");
   const [deliveryName, setDeliveryName] = useState("");
   const [result, setResult] = useState<DeliveryLinkResult | null>(null);
+  const [dispatchResult, setDispatchResult] = useState<RiderDispatchResult | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [isDispatchPending, startDispatchTransition] = useTransition();
 
   useEffect(() => {
     if (!result?.ok) {
@@ -83,6 +96,17 @@ export function DeliveryDispatchPanel({
     });
   }
 
+  function searchRider() {
+    setDispatchResult(null);
+    startDispatchTransition(async () => {
+      const response = (await requestRiderAutoDispatchAction({
+        restaurantId: order.restaurantId,
+        orderId: order.id,
+      })) as RiderDispatchResult;
+      setDispatchResult(response);
+    });
+  }
+
   async function copyLink() {
     if (!result?.ok) {
       return;
@@ -100,11 +124,25 @@ export function DeliveryDispatchPanel({
         </span>
         <div className="min-w-0">
           <p className="text-sm font-black text-[var(--text)]">Despacho de moto</p>
-          <p className="mt-1 text-xs font-semibold leading-5 text-[var(--muted)]">Genera QR seguro para escanear aqui o envia el link por WhatsApp.</p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-[var(--muted)]">Primero busca rider afiliado. Si no hay disponible, usa QR seguro o WhatsApp manual.</p>
         </div>
       </div>
 
       <div className="mt-3 grid gap-2">
+        <Button className="min-h-11 w-full" disabled={isDispatchPending} onClick={searchRider} type="button" variant="secondary">
+          <Search className="h-4 w-4" />
+          {isDispatchPending ? "Buscando rider cercano..." : "Buscar rider afiliado"}
+        </Button>
+        {dispatchResult ? (
+          <div
+            className={cn(
+              "rounded-2xl p-3 text-sm font-bold",
+              dispatchResult.ok ? "bg-[var(--color-info-soft)] text-[var(--color-info-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]",
+            )}
+          >
+            {dispatchResult.ok ? dispatchResult.message : dispatchResult.error}
+          </div>
+        ) : null}
         <Input
           name="deliveryPhone"
           onChange={(event) => setDeliveryPhone(event.target.value)}

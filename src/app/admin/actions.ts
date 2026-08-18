@@ -17,6 +17,7 @@ import {
 import { platformBillingService } from "@/lib/services/platform-billing.service";
 import { ownerBillingService } from "@/lib/services/owner-billing.service";
 import { printConnectorService } from "@/lib/services/print-connector.service";
+import { offerNextRiderForOrder } from "@/lib/services/rider-dispatch.service";
 import { riderService } from "@/lib/services/rider.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { membershipService } from "@/lib/services/membership.service";
@@ -6577,7 +6578,7 @@ export async function updateOrderStatusAction(formData: FormData) {
   const now = new Date().toISOString();
   const { data: order } = await supabase
     .from("orders")
-    .select("status,payment_status")
+    .select("order_type,status,payment_status")
     .eq("restaurant_id", parsed.data.restaurantId)
     .eq("id", parsed.data.orderId)
     .maybeSingle();
@@ -6673,6 +6674,12 @@ export async function updateOrderStatusAction(formData: FormData) {
     }).catch((error) => {
       console.error("order-status-push-failed", error);
     });
+
+    if (nextStatus === "ready" && order.order_type === "delivery") {
+      await offerNextRiderForOrder(parsed.data.orderId).catch((error) => {
+        console.error("rider-auto-dispatch-failed", error);
+      });
+    }
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos`);
@@ -6771,6 +6778,9 @@ export async function createDeliveryLinkAction(input: {
       restaurant_id: parsed.data.restaurantId,
       order_id: parsed.data.orderId,
       restaurant_rider_id: null,
+      rider_offer_id: null,
+      assigned_at: null,
+      dispatch_source: "manual_qr",
       delivery_token: deliveryToken,
       delivery_phone: deliveryPhone,
       delivery_name: deliveryName,
@@ -6786,6 +6796,16 @@ export async function createDeliveryLinkAction(input: {
   if (error) {
     return { ok: false, error: `No se pudo generar el link: ${error.message}` };
   }
+
+  await supabase
+    .from("rider_delivery_offers")
+    .update({
+      responded_at: new Date().toISOString(),
+      response_reason: "manual-qr-created",
+      status: "cancelled",
+    })
+    .eq("order_id", parsed.data.orderId)
+    .eq("status", "pending");
 
   const deliveryUrl = `${await currentPublicOrigin()}/delivery/${deliveryToken}`;
   const deliveryMapsUrl = hasValidCoordinates(order.delivery_latitude, order.delivery_longitude)
@@ -6823,6 +6843,42 @@ export async function createDeliveryLinkAction(input: {
     deliveryPhone,
     expiresAt,
   };
+}
+
+export async function requestRiderAutoDispatchAction(input: {
+  restaurantId: string;
+  orderId: string;
+}) {
+  const parsed = z
+    .object({
+      restaurantId: z.string().uuid(),
+      orderId: z.string().uuid(),
+    })
+    .safeParse(input);
+
+  if (!parsed.success) {
+    return { ok: false, error: "Datos invalidos para buscar rider." };
+  }
+
+  await requireRestaurantMemberOrSuperadmin(parsed.data.restaurantId);
+  const result = await offerNextRiderForOrder(parsed.data.orderId);
+  if (!result.ok) {
+    return { ok: false, error: result.error };
+  }
+
+  if (result.status === "offered") {
+    return { ok: true, status: result.status, message: `Oferta enviada a ${result.riderName}.` };
+  }
+
+  if (result.status === "pending_offer") {
+    return { ok: true, status: result.status, message: "Ya hay una oferta esperando respuesta." };
+  }
+
+  if (result.status === "already_assigned") {
+    return { ok: true, status: result.status, message: "El pedido ya tiene rider asignado." };
+  }
+
+  return { ok: true, status: result.status, message: "No hay riders activos disponibles. Usa QR o WhatsApp manual." };
 }
 
 export async function saveDeliveryZoneAction(formData: FormData) {

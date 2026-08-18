@@ -1,5 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createPublicServerClient } from "@/lib/supabase/public-server";
+import {
+  assignAcceptedRiderOffer,
+  listPendingRiderOffers,
+  registerRiderPushToken,
+  rejectRiderOffer,
+  setRiderAvailability,
+} from "@/lib/services/rider-dispatch.service";
 import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
@@ -80,6 +87,9 @@ type DeliveryLinkRow = {
   delivery_phone: string | null;
   delivery_name: string | null;
   status: "active" | "arrived" | "delivered" | "cancelled" | "expired";
+  dispatch_source?: "manual_qr" | "rider_auto" | "rider_manual";
+  rider_offer_id?: string | null;
+  assigned_at?: string | null;
   opened_at: string | null;
   arrived_at: string | null;
   delivered_at: string | null;
@@ -151,8 +161,11 @@ export type MobileRiderOrder = {
     id: string;
     riderId: string | null;
     status: DeliveryLinkRow["status"];
+    source: "manual_qr" | "rider_auto" | "rider_manual";
+    riderOfferId: string | null;
     deliveryPhone: string;
     deliveryName: string;
+    assignedAt: string | null;
     openedAt: string | null;
     arrivedAt: string | null;
     deliveredAt: string | null;
@@ -178,6 +191,18 @@ export type MobileRiderOrder = {
   }>;
 };
 
+export type MobileRiderOffer = {
+  id: string;
+  orderId: string;
+  restaurantId: string;
+  restaurantRiderId: string;
+  status: "pending";
+  expiresAt: string;
+  createdAt: string;
+  distanceKm: number | null;
+  order: MobileRiderOrder;
+};
+
 export type MobileRiderSession = {
   admin: SupabaseClient;
   user: User;
@@ -198,6 +223,19 @@ function todayDateOnly() {
 
 function isExpired(validUntil: string) {
   return validUntil < todayDateOnly();
+}
+
+async function activateRidersForToday(admin: SupabaseClient, userId: string, riders: MobileRider[]) {
+  const active = riders.filter((rider) => rider.status === "active");
+  await Promise.all(
+    active.map((rider) =>
+      setRiderAvailability(admin, {
+        isAvailable: true,
+        riderId: rider.id,
+        riderUserId: userId,
+      }),
+    ),
+  );
 }
 
 function endOfBusinessDayIso(date = new Date()) {
@@ -402,6 +440,7 @@ export async function registerMobileRiderAccount(input: {
   }
 
   const riders = await hydrateRiders(admin, matchedRows);
+  await activateRidersForToday(admin, sessionData.user.id, riders);
 
   return {
     ok: true,
@@ -450,6 +489,7 @@ export async function loginMobileRider(input: {
   if (!riders.length) {
     return { ok: false, error: "rider-account-not-linked", status: 403 };
   }
+  await activateRidersForToday(adminResult.data, data.user.id, riders);
 
   return {
     ok: true,
@@ -587,8 +627,11 @@ function serializeOrder({
           id: dispatch.id,
           riderId: dispatch.restaurant_rider_id,
           status: dispatch.status,
+          source: dispatch.dispatch_source ?? "manual_qr",
+          riderOfferId: dispatch.rider_offer_id ?? null,
           deliveryPhone: dispatch.delivery_phone ?? "",
           deliveryName: dispatch.delivery_name ?? "",
+          assignedAt: dispatch.assigned_at ?? null,
           openedAt: dispatch.opened_at,
           arrivedAt: dispatch.arrived_at,
           deliveredAt: dispatch.delivered_at,
@@ -659,7 +702,7 @@ const orderSelect =
   "id,restaurant_id,order_number,customer_name,customer_phone,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,requested_fulfillment_at,status,payment_status,payment_method,subtotal,delivery_fee,discount_total,total,notes,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,created_at";
 
 const deliveryLinkSelect =
-  "id,restaurant_id,order_id,restaurant_rider_id,delivery_token,delivery_phone,delivery_name,status,opened_at,arrived_at,delivered_at,expires_at,created_at,rider_latitude,rider_longitude,rider_location_accuracy_m,rider_location_heading,rider_location_speed_mps,rider_location_updated_at";
+  "id,restaurant_id,order_id,restaurant_rider_id,delivery_token,delivery_phone,delivery_name,status,dispatch_source,rider_offer_id,assigned_at,opened_at,arrived_at,delivered_at,expires_at,created_at,rider_latitude,rider_longitude,rider_location_accuracy_m,rider_location_heading,rider_location_speed_mps,rider_location_updated_at";
 
 export async function listMobileRiderOrders(
   session: MobileRiderSession,
@@ -697,9 +740,19 @@ export async function listMobileRiderOrders(
       ? await session.admin.from("order_delivery_links").select(deliveryLinkSelect).in("order_id", orderIds)
       : { data: [] };
     const linksByOrder = new Map(((links ?? []) as DeliveryLinkRow[]).map((link) => [link.order_id, link]));
+    const { data: pendingOffers } = orderIds.length
+      ? await session.admin
+          .from("rider_delivery_offers")
+          .select("order_id,restaurant_rider_id,expires_at")
+          .in("order_id", orderIds)
+          .eq("status", "pending")
+          .gt("expires_at", new Date().toISOString())
+      : { data: [] };
+    const pendingOfferByOrder = new Map((pendingOffers ?? []).map((offer) => [offer.order_id, offer.restaurant_rider_id]));
     const availableOrders = orderRows.filter((order) => {
       const link = linksByOrder.get(order.id);
-      return !link || finalDispatchStatuses.has(link.status);
+      const pendingOfferRiderId = pendingOfferByOrder.get(order.id);
+      return (!pendingOfferRiderId || riderIds.includes(pendingOfferRiderId)) && (!link || finalDispatchStatuses.has(link.status));
     });
 
     return {
@@ -772,8 +825,16 @@ export async function getMobileRiderOrder(session: MobileRiderSession, orderId: 
 
   const { data: link } = await session.admin.from("order_delivery_links").select(deliveryLinkSelect).eq("order_id", orderId).maybeSingle();
   const linkRow = link as DeliveryLinkRow | null;
+  const { data: pendingOffer } = await session.admin
+    .from("rider_delivery_offers")
+    .select("restaurant_rider_id")
+    .eq("order_id", orderId)
+    .eq("status", "pending")
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+  const pendingOfferAllowed = !pendingOffer || riderIds.includes(pendingOffer.restaurant_rider_id);
   const visible =
-    (order as OrderRow).status === "ready" && (!linkRow || finalDispatchStatuses.has(linkRow.status)) ||
+    ((order as OrderRow).status === "ready" && pendingOfferAllowed && (!linkRow || finalDispatchStatuses.has(linkRow.status))) ||
     Boolean(linkRow?.restaurant_rider_id && riderIds.includes(linkRow.restaurant_rider_id));
 
   if (!visible) {
@@ -816,11 +877,39 @@ export async function acceptMobileRiderOrder(session: MobileRiderSession, orderI
     return { ok: false, error: "order-already-delivered", status: 409 };
   }
 
+  const { data: pendingOffer } = await session.admin
+    .from("rider_delivery_offers")
+    .select("id,restaurant_rider_id")
+    .eq("order_id", orderId)
+    .eq("status", "pending")
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+  if (pendingOffer && pendingOffer.restaurant_rider_id !== rider.id) {
+    return { ok: false, error: "order-already-offered", status: 409 };
+  }
+
+  if (pendingOffer?.restaurant_rider_id === rider.id) {
+    const accepted = await assignAcceptedRiderOffer(session.admin, {
+      offerId: pendingOffer.id,
+      riderId: rider.id,
+      riderUserId: session.user.id,
+    });
+    if (!accepted.ok) {
+      return accepted;
+    }
+
+    const result = await getMobileRiderOrder(session, orderId);
+    return result.ok ? { ok: true, data: { order: result.data.order } } : result;
+  }
+
   const token = existing?.delivery_token || `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
   const payload = {
+    assigned_at: new Date().toISOString(),
+    dispatch_source: "rider_manual" as const,
     restaurant_id: orderRow.restaurant_id,
     order_id: orderRow.id,
     restaurant_rider_id: rider.id,
+    rider_offer_id: null,
     delivery_token: token,
     delivery_phone: rider.phone,
     delivery_name: rider.fullName,
@@ -950,4 +1039,181 @@ export async function updateMobileRiderLocation(
   const result = await getMobileRiderOrder(session, orderId);
   if (!result.ok) return result;
   return { ok: true, data: { order: result.data.order } };
+}
+
+export async function updateMobileRiderAvailability(
+  session: MobileRiderSession,
+  input: {
+    accuracyMeters?: number | null;
+    heading?: number | null;
+    isAvailable: boolean;
+    latitude?: number | null;
+    longitude?: number | null;
+    speedMetersPerSecond?: number | null;
+  },
+): Promise<ServiceResult<{ activeRiders: MobileRider[]; available: boolean; updatedAt: string }>> {
+  const riders = input.isAvailable ? session.activeRiders : session.riders.filter((rider) => rider.status !== "expired");
+  if (!riders.length) {
+    return { ok: false, error: "rider-membership-inactive", status: 403 };
+  }
+
+  const results = await Promise.all(
+    riders.map((rider) =>
+      setRiderAvailability(session.admin, {
+        accuracyMeters: input.accuracyMeters,
+        heading: input.heading,
+        isAvailable: input.isAvailable,
+        latitude: input.latitude,
+        longitude: input.longitude,
+        riderId: rider.id,
+        riderUserId: session.user.id,
+        speedMetersPerSecond: input.speedMetersPerSecond,
+      }),
+    ),
+  );
+  const failed = results.find((result) => !result.ok);
+  if (failed && !failed.ok) {
+    return { ok: false, error: failed.error, status: failed.status };
+  }
+
+  return {
+    ok: true,
+    data: {
+      activeRiders: session.activeRiders,
+      available: input.isAvailable,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+export async function registerMobileRiderPushToken(
+  session: MobileRiderSession,
+  input: {
+    appVersion?: string;
+    deviceId?: string;
+    expoPushToken: string;
+    platform?: string;
+    riderId?: string;
+  },
+): Promise<ServiceResult<{ ok: true }>> {
+  const rider = input.riderId ? session.riders.find((candidate) => candidate.id === input.riderId) : session.activeRiders[0] ?? session.riders[0];
+  if (!rider) {
+    return { ok: false, error: "rider-account-not-linked", status: 403 };
+  }
+
+  const result = await registerRiderPushToken(session.admin, {
+    appVersion: input.appVersion,
+    deviceId: input.deviceId,
+    expoPushToken: input.expoPushToken,
+    platform: input.platform,
+    riderId: rider.id,
+    riderUserId: session.user.id,
+  });
+
+  return result.ok ? { ok: true, data: { ok: true } } : { ok: false, error: result.error, status: result.status };
+}
+
+export async function listMobileRiderDeliveryOffers(
+  session: MobileRiderSession,
+): Promise<ServiceResult<{ offers: MobileRiderOffer[]; updatedAt: string }>> {
+  const riderIds = session.activeRiders.map((rider) => rider.id);
+  const offers = await listPendingRiderOffers(session.admin, riderIds);
+  const orderIds = offers.map((offer) => offer.order_id);
+  const { data: orders, error } = orderIds.length
+    ? await session.admin.from("orders").select(orderSelect).in("id", orderIds).eq("order_type", "delivery").eq("status", "ready")
+    : { data: [], error: null };
+
+  if (error) {
+    return { ok: false, error: "rider-offers-failed", status: 400 };
+  }
+
+  const orderRows = (orders ?? []) as OrderRow[];
+  const { data: links } = orderIds.length
+    ? await session.admin.from("order_delivery_links").select(deliveryLinkSelect).in("order_id", orderIds)
+    : { data: [] };
+  const hydrated = await hydrateOrders(session.admin, orderRows, (links ?? []) as DeliveryLinkRow[]);
+  const orderById = new Map(hydrated.map((order) => [order.id, order]));
+
+  return {
+    ok: true,
+    data: {
+      offers: offers.flatMap((offer) => {
+        const order = orderById.get(offer.order_id);
+        if (!order) return [];
+
+        return [
+          {
+            id: offer.id,
+            order,
+            orderId: offer.order_id,
+            restaurantId: offer.restaurant_id,
+            restaurantRiderId: offer.restaurant_rider_id,
+            status: "pending" as const,
+            expiresAt: offer.expires_at,
+            createdAt: offer.created_at,
+            distanceKm: offer.distance_km == null ? null : Number(offer.distance_km),
+          },
+        ];
+      }),
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+export async function acceptMobileRiderOffer(
+  session: MobileRiderSession,
+  offerId: string,
+): Promise<ServiceResult<{ order: MobileRiderOrder }>> {
+  const riderIds = session.activeRiders.map((rider) => rider.id);
+  const { data: offer } = await session.admin
+    .from("rider_delivery_offers")
+    .select("order_id,restaurant_rider_id")
+    .eq("id", offerId)
+    .in("restaurant_rider_id", riderIds)
+    .maybeSingle();
+
+  if (!offer) {
+    return { ok: false, error: "rider-offer-not-found", status: 404 };
+  }
+
+  const accepted = await assignAcceptedRiderOffer(session.admin, {
+    offerId,
+    riderId: offer.restaurant_rider_id,
+    riderUserId: session.user.id,
+  });
+  if (!accepted.ok) {
+    return { ok: false, error: accepted.error, status: accepted.status };
+  }
+
+  const result = await getMobileRiderOrder(session, offer.order_id);
+  return result.ok ? { ok: true, data: { order: result.data.order } } : result;
+}
+
+export async function rejectMobileRiderDeliveryOffer(
+  session: MobileRiderSession,
+  input: {
+    offerId: string;
+    reason?: string;
+  },
+): Promise<ServiceResult<{ next: unknown; orderId: string }>> {
+  const riderIds = session.activeRiders.map((rider) => rider.id);
+  const { data: offer } = await session.admin
+    .from("rider_delivery_offers")
+    .select("order_id,restaurant_rider_id")
+    .eq("id", input.offerId)
+    .in("restaurant_rider_id", riderIds)
+    .maybeSingle();
+
+  if (!offer) {
+    return { ok: false, error: "rider-offer-not-found", status: 404 };
+  }
+
+  const rejected = await rejectRiderOffer(session.admin, {
+    offerId: input.offerId,
+    reason: input.reason,
+    riderId: offer.restaurant_rider_id,
+    riderUserId: session.user.id,
+  });
+
+  return rejected.ok ? { ok: true, data: rejected.data } : { ok: false, error: rejected.error, status: rejected.status };
 }

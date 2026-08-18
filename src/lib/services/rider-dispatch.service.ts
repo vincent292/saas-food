@@ -191,18 +191,23 @@ async function sendRiderOfferPush({
   order,
   riderId,
   riderName,
+  riderUserId,
   restaurant,
 }: {
   admin: AdminClient;
   order: DispatchOrderRow;
   riderId: string;
   riderName: string;
+  riderUserId?: string | null;
   restaurant?: DispatchRestaurantRow | null;
 }) {
+  const riderTokenFilter = riderUserId
+    ? `restaurant_rider_id.eq.${riderId},rider_user_id.eq.${riderUserId}`
+    : `restaurant_rider_id.eq.${riderId}`;
   const { data: tokens } = await admin
     .from("rider_push_tokens")
     .select("expo_push_token")
-    .eq("restaurant_rider_id", riderId)
+    .or(riderTokenFilter)
     .eq("is_enabled", true)
     .order("last_seen_at", { ascending: false })
     .limit(3);
@@ -483,6 +488,7 @@ export async function offerNextRiderForOrder(orderId: string): Promise<RiderAuto
     restaurant,
     riderId: picked.rider.id,
     riderName: picked.rider.full_name,
+    riderUserId: picked.rider.rider_user_id,
   });
 
   return {

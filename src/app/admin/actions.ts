@@ -7138,7 +7138,7 @@ export async function chargeOrderAction(formData: FormData) {
 
   if (!(await restaurantUsesKitchenFlow(supabase, parsed.data.restaurantId))) {
     const now = new Date().toISOString();
-    await supabase
+    const { data: readyOrder } = await supabase
       .from("orders")
       .update({
         status: "ready",
@@ -7147,7 +7147,24 @@ export async function chargeOrderAction(formData: FormData) {
       })
       .eq("restaurant_id", parsed.data.restaurantId)
       .eq("id", parsed.data.orderId)
-      .in("status", ["accepted", "preparing"]);
+      .in("status", ["accepted", "preparing"])
+      .select("id,order_type")
+      .maybeSingle();
+
+    if (readyOrder?.id) {
+      await sendOrderStatusPush({
+        orderId: readyOrder.id,
+        status: "ready",
+      }).catch((pushError) => {
+        console.error("charge-order-ready-push-failed", pushError);
+      });
+
+      if (readyOrder.order_type === "delivery") {
+        await offerNextRiderForOrder(readyOrder.id).catch((dispatchError) => {
+          console.error("charge-order-rider-auto-dispatch-failed", dispatchError);
+        });
+      }
+    }
   }
 
   await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
@@ -7202,6 +7219,13 @@ export async function rejectCashOrderAction(formData: FormData) {
     reason: parsed.data.reason,
     orderStatusAtCancellation: orderBeforeReject?.status as OrderStatus | undefined,
     paymentStatusAtCancellation: orderBeforeReject?.payment_status as "pending" | "paid" | "cancelled" | "refunded" | undefined,
+  });
+
+  await sendOrderStatusPush({
+    orderId: parsed.data.orderId,
+    status: "cancelled",
+  }).catch((pushError) => {
+    console.error("reject-cash-order-push-failed", pushError);
   });
 
   await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);

@@ -6643,7 +6643,10 @@ export async function updateOrderStatusAction(formData: FormData) {
 
   const { error: updateError } = await supabase.from("orders").update(updatePayload).eq("id", parsed.data.orderId).eq("restaurant_id", parsed.data.restaurantId);
   if (updateError) {
-    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=${updateError.code}`);
+    const errorKey = updateError.message?.startsWith("invalid-order-transition")
+      ? "invalid-order-transition"
+      : cashErrorKey(updateError, "order-status-update");
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=${errorKey}`);
   }
 
   if (nextStatus === "cancelled") {

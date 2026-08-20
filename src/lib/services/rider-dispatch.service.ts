@@ -694,8 +694,6 @@ export async function rejectRiderOffer(
 }
 
 export async function listPendingRiderOffers(admin: AdminClient, riderIds: string[]) {
-  await expirePendingOffers(admin);
-
   if (!riderIds.length) {
     return [];
   }

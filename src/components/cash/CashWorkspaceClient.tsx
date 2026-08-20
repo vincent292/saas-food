@@ -32,8 +32,8 @@ import type { Restaurant, RestaurantPrintConnector, RestaurantSettings } from "@
 
 type CashTab = "venta" | "pedidos" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
 
-const CASH_REFRESH_FAST_INTERVAL_MS = 15000;
-const CASH_REFRESH_QUIET_INTERVAL_MS = 30000;
+const CASH_REFRESH_FAST_INTERVAL_MS = 30000;
+const CASH_REFRESH_QUIET_INTERVAL_MS = 60000;
 const CASH_REALTIME_REFRESH_DEBOUNCE_MS = 250;
 const CASH_REFRESH_MIN_GAP_MS = 3000;
 const operationalTabs = new Set<CashTab>(["pedidos", "delivery", "recojo"]);
@@ -153,6 +153,7 @@ export function CashWorkspaceClient({
   const [clientOrigin, setClientOrigin] = useState("");
   const refreshTimeoutRef = useRef<number | null>(null);
   const lastRefreshAtRef = useRef(0);
+  const realtimeConnectedRef = useRef(false);
 
   useEffect(() => {
     lastRefreshAtRef.current = Date.now();
@@ -195,9 +196,12 @@ export function CashWorkspaceClient({
       .channel(`caja-despacho-${restaurant.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurant.id}` }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_delivery_links", filter: `restaurant_id=eq.${restaurant.id}` }, refresh)
-      .subscribe();
+      .subscribe((status) => {
+        realtimeConnectedRef.current = status === "SUBSCRIBED";
+      });
 
     return () => {
+      realtimeConnectedRef.current = false;
       if (refreshTimeoutRef.current) {
         window.clearTimeout(refreshTimeoutRef.current);
       }
@@ -344,7 +348,12 @@ export function CashWorkspaceClient({
       router.refresh();
     };
 
-    const interval = window.setInterval(refreshIfVisible, fallbackRefreshIntervalMs);
+    const refreshFallback = () => {
+      if (realtimeConnectedRef.current && Date.now() - lastRefreshAtRef.current < 120000) return;
+      refreshIfVisible();
+    };
+
+    const interval = window.setInterval(refreshFallback, fallbackRefreshIntervalMs);
     window.addEventListener("focus", refreshIfVisible);
     document.addEventListener("visibilitychange", refreshIfVisible);
 

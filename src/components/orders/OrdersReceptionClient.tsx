@@ -148,6 +148,8 @@ export function OrdersReceptionClient({
   const [blockedAutoPrintOrderId, setBlockedAutoPrintOrderId] = useState("");
   const [posOpen, setPosOpen] = useState(false);
   const refreshTimeoutRef = useRef<number | null>(null);
+  const realtimeConnectedRef = useRef(false);
+  const lastRefreshAtRef = useRef(0);
 
   useEffect(() => {
     const refresh = () => {
@@ -160,6 +162,7 @@ export function OrdersReceptionClient({
       }
 
       refreshTimeoutRef.current = window.setTimeout(() => {
+        lastRefreshAtRef.current = Date.now();
         router.refresh();
         refreshTimeoutRef.current = null;
       }, 250);
@@ -168,9 +171,12 @@ export function OrdersReceptionClient({
     const channel = supabase
       .channel(`pedidos-recepcion-${restaurant.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurant.id}` }, refresh)
-      .subscribe();
+      .subscribe((status) => {
+        realtimeConnectedRef.current = status === "SUBSCRIBED";
+      });
 
     return () => {
+      realtimeConnectedRef.current = false;
       if (refreshTimeoutRef.current) {
         window.clearTimeout(refreshTimeoutRef.current);
       }
@@ -183,10 +189,16 @@ export function OrdersReceptionClient({
       if (document.visibilityState !== "visible") {
         return;
       }
+      lastRefreshAtRef.current = Date.now();
       router.refresh();
     };
 
-    const interval = window.setInterval(refreshIfVisible, 5000);
+    const refreshFallback = () => {
+      if (realtimeConnectedRef.current && Date.now() - lastRefreshAtRef.current < 120000) return;
+      refreshIfVisible();
+    };
+
+    const interval = window.setInterval(refreshFallback, 30000);
     window.addEventListener("focus", refreshIfVisible);
     document.addEventListener("visibilitychange", refreshIfVisible);
 

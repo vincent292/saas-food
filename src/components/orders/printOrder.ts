@@ -26,7 +26,7 @@ function formatTitle(format: PrintFormat) {
   return "Formato grande";
 }
 
-export function printOrderTicket({
+export function buildOrderTicketHtml({
   order,
   restaurantName,
   restaurantLogoUrl,
@@ -67,7 +67,7 @@ export function printOrderTicket({
     )
     .join("");
 
-  const html = `
+  return `
     <!doctype html>
     <html lang="es">
       <head>
@@ -207,20 +207,38 @@ export function printOrderTicket({
           </div>
           ${order.notes ? `<div class="notes"><strong>Notas:</strong><br />${escapeHtml(order.notes)}</div>` : ""}
         </main>
-        <script>
-          window.addEventListener("load", () => {
-            window.print();
-          });
-        </script>
       </body>
     </html>
   `;
+}
+
+export function printOrderTicket({
+  order,
+  restaurantName,
+  restaurantLogoUrl,
+  format,
+  printLogo = true,
+}: {
+  order: Order;
+  restaurantName: string;
+  restaurantLogoUrl?: string;
+  format: PrintFormat;
+  printLogo?: boolean;
+}) {
+  const html = buildOrderTicketHtml({
+    order,
+    restaurantName,
+    restaurantLogoUrl,
+    format,
+    printLogo,
+  });
 
   const printWindow = window.open("", "_blank", "width=420,height=720");
   if (!printWindow) {
     return false;
   }
 
+  printWindow.addEventListener("load", () => printWindow.print(), { once: true });
   printWindow.document.open();
   printWindow.document.write(html);
   printWindow.document.close();

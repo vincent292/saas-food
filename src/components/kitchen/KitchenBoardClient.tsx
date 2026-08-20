@@ -54,6 +54,8 @@ export function KitchenBoardClient({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const refreshTimeoutRef = useRef<number | null>(null);
+  const realtimeConnectedRef = useRef(false);
+  const lastRefreshAtRef = useRef(0);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
@@ -72,6 +74,7 @@ export function KitchenBoardClient({
 
       refreshTimeoutRef.current = window.setTimeout(() => {
         setIsRefreshing(true);
+        lastRefreshAtRef.current = Date.now();
         router.refresh();
         window.setTimeout(() => setIsRefreshing(false), 800);
         refreshTimeoutRef.current = null;
@@ -81,9 +84,12 @@ export function KitchenBoardClient({
     const channel = supabase
       .channel(`cocina-${restaurant.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurant.id}` }, refresh)
-      .subscribe();
+      .subscribe((status) => {
+        realtimeConnectedRef.current = status === "SUBSCRIBED";
+      });
 
     return () => {
+      realtimeConnectedRef.current = false;
       if (refreshTimeoutRef.current) {
         window.clearTimeout(refreshTimeoutRef.current);
       }
@@ -97,11 +103,17 @@ export function KitchenBoardClient({
         return;
       }
       setIsRefreshing(true);
+      lastRefreshAtRef.current = Date.now();
       router.refresh();
       window.setTimeout(() => setIsRefreshing(false), 800);
     };
 
-    const interval = window.setInterval(refreshIfVisible, 5000);
+    const refreshFallback = () => {
+      if (realtimeConnectedRef.current && Date.now() - lastRefreshAtRef.current < 120000) return;
+      refreshIfVisible();
+    };
+
+    const interval = window.setInterval(refreshFallback, 30000);
     window.addEventListener("focus", refreshIfVisible);
     document.addEventListener("visibilitychange", refreshIfVisible);
 

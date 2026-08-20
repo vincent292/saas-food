@@ -24,7 +24,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
     return NextResponse.json({ error: "invalid-rider-location" }, { status: 400 });
   }
 
-  const session = await getMobileRiderSession(request);
+  const session = await getMobileRiderSession(request, { includeRestaurantDetails: false });
   if (!session.ok) {
     return NextResponse.json({ error: session.error }, { status: session.status });
   }

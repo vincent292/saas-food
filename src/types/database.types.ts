@@ -487,6 +487,7 @@ export type Database = {
         delivered_at: string | null;
         cancelled_at: string | null;
         cancellation_reason: string | null;
+        print_requested_at: string | null;
         printed_at: string | null;
         created_at: string;
         updated_at: string;

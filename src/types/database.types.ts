@@ -1007,6 +1007,20 @@ export type Database = {
         ticket_id: string | null;
         created_at: string;
       }>;
+      whatsapp_messages: Row<{
+        id: string;
+        message_id: string;
+        from_phone: string;
+        to_phone_number_id: string | null;
+        to_display_phone: string | null;
+        contact_name: string | null;
+        message_type: string;
+        message_text: string | null;
+        payload: Json;
+        whatsapp_timestamp: string | null;
+        received_at: string;
+        created_at: string;
+      }>;
       menu_import_ai_attempts: Row<{
         id: string;
         restaurant_id: string;

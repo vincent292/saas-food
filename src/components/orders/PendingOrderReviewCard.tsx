@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Clock3, ReceiptText, WalletCards } from "lucide-react";
+import { ChevronDown, Clock3, MapPin, Navigation, ReceiptText, WalletCards } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { chargeOrderAction, rejectCashOrderAction } from "@/app/admin/actions";
@@ -13,6 +13,7 @@ import { Input, Select, Textarea } from "@/components/ui/Input";
 import { formatShortTime } from "@/lib/utils/dates";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
+import { directionsToMapsUrl, hasValidCoordinates } from "@/lib/utils/google-maps";
 import { businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import type { Order } from "@/types/order.types";
 import type { BusinessType } from "@/types/restaurant.types";
@@ -50,6 +51,16 @@ export function PendingOrderReviewCard({
   const groupReceipts = groupReceiptLinksFromNotes(order.notes);
   const preparationArea = businessPreparationAreaLabel(businessType);
   const hasKitchenFlow = businessTypeSupportsKitchen(businessType);
+  const hasDeliveryDestination =
+    order.orderType === "delivery" &&
+    (Boolean(order.customerAddress?.trim()) || hasValidCoordinates(order.deliveryLatitude, order.deliveryLongitude));
+  const deliveryRouteUrl = hasDeliveryDestination
+    ? directionsToMapsUrl({
+        latitude: order.deliveryLatitude,
+        longitude: order.deliveryLongitude,
+        address: order.customerAddress,
+      })
+    : "";
   const approvalCopy =
     context === "pedidos"
       ? hasKitchenFlow
@@ -79,6 +90,29 @@ export function PendingOrderReviewCard({
           <p className="mt-3 text-sm font-semibold text-[var(--muted)]">
             {order.customerName || "Cliente"} | {order.customerPhone || "Sin WhatsApp"} | {orderTypeLabels[order.orderType]}
           </p>
+
+          {order.orderType === "delivery" ? (
+            <div className="mt-3 flex flex-wrap items-start justify-between gap-3 border-y border-[var(--border)] py-3">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
+                  <MapPin className="h-4 w-4 shrink-0" />
+                  <span>{order.customerAddress || "Direccion pendiente"}</span>
+                </p>
+                {order.deliveryAddressDetail ? <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Referencia: {order.deliveryAddressDetail}</p> : null}
+                {order.deliveryDistanceKm != null ? (
+                  <p className="mt-1 text-xs font-black text-[var(--primary-dark)]">
+                    {order.deliveryDistanceKm.toFixed(1)} km{order.requiresPrepayment ? " | Prepago QR" : ""}
+                  </p>
+                ) : null}
+              </div>
+              {deliveryRouteUrl ? (
+                <a className={buttonClasses("secondary", "min-h-9 px-3 text-xs")} href={deliveryRouteUrl} rel="noreferrer" target="_blank">
+                  <Navigation className="h-4 w-4" />
+                  Abrir ruta
+                </a>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mt-4 grid gap-2">
             {order.items.map((item) => (

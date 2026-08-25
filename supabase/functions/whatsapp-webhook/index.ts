@@ -60,6 +60,9 @@ type ProductSummaryRow = {
   price: number | string;
   category_id: string | null;
   description: string | null;
+  image_url: string | null;
+  is_featured: boolean;
+  product_kind: "standard" | "promotion" | "lunch" | null;
   available_from: string | null;
   available_until: string | null;
   available_days: number[] | null;
@@ -883,9 +886,11 @@ async function findRestaurantById(supabase: ReturnType<typeof createSupabaseAdmi
 async function listTopProducts(supabase: ReturnType<typeof createSupabaseAdminClient>, restaurantId: string) {
   const { data, error } = await supabase
     .from("products")
-    .select("id,name,price,category_id,description,available_from,available_until,available_days,available_start_time,available_end_time")
+    .select("id,name,price,category_id,description,image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
     .eq("restaurant_id", restaurantId)
     .eq("is_available", true)
+    .order("is_featured", { ascending: false })
+    .order("product_kind", { ascending: true })
     .order("order_count", { ascending: false, nullsFirst: false })
     .order("sort_order", { ascending: true })
     .limit(5);
@@ -922,7 +927,7 @@ async function listProducts(
 ) {
   let query = supabase
     .from("products")
-    .select("id,name,price,category_id,description,available_from,available_until,available_days,available_start_time,available_end_time")
+    .select("id,name,price,category_id,description,image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
     .eq("restaurant_id", restaurantId)
     .eq("is_available", true)
     .order("sort_order", { ascending: true })
@@ -976,13 +981,17 @@ async function sendRestaurantPicker(supabase: ReturnType<typeof createSupabaseAd
 
 async function sendRestaurantMenuIntro(to: string, restaurant: RestaurantRow, products: ProductSummaryRow[]) {
   const menuUrl = `${getSiteUrl()}/r/${restaurant.slug}?pedido=1`;
+  const promoProducts = products.filter((product) => product.product_kind === "promotion" || product.is_featured).slice(0, 3);
+  const regularProducts = products.filter((product) => !promoProducts.some((promo) => promo.id === product.id)).slice(0, 3);
+  const visibleProducts = promoProducts.length ? promoProducts : regularProducts.length ? regularProducts : products.slice(0, 3);
   const productLines = products.length
-    ? products.map((product) => `- ${product.name}: Bs ${formatMoney(product.price)}`).join("\n")
+    ? visibleProducts.map((product) => `${product.product_kind === "promotion" ? "Promo: " : ""}${product.name}: Bs ${formatMoney(product.price)}`).join("\n")
     : "El menu completo esta disponible en el enlace.";
+  const heading = promoProducts.length ? "Promos y favoritos" : "Algunos favoritos";
 
   await sendWhatsAppInteractiveButtons({
     to,
-    body: `Estas en ${restaurant.name}.\n\nAlgunos favoritos:\n${productLines}\n\nTambien puedes abrir el menu visual:\n${menuUrl}`,
+    body: `Estas en ${restaurant.name}.\n\n${heading}:\n${productLines}\n\nTambien puedes abrir el menu visual:\n${menuUrl}`,
     buttons: [
       { id: "ACTION_ORDER", title: "Hacer pedido" },
       { id: "ACTION_ORDERS", title: "Mis pedidos" },
@@ -1191,7 +1200,7 @@ async function getProductConfiguration(
   const [productResult, variantsResult, groupsResult, optionsResult] = await Promise.all([
     supabase
       .from("products")
-      .select("id,name,price,category_id,description,available_from,available_until,available_days,available_start_time,available_end_time")
+      .select("id,name,price,category_id,description,image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
       .eq("restaurant_id", restaurantId)
       .eq("id", productId)
       .eq("is_available", true)
@@ -1268,6 +1277,7 @@ async function beginProductConfiguration(
     pending_item: pendingItem,
   });
   await updateConversationState(supabase, conversation.id, "drafting_order", "configuring_product", row.message_id);
+  await sendProductImagePreview(row.from_phone, configuration.product);
   await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft);
 }
 
@@ -2163,6 +2173,27 @@ async function sendQrPaymentInstructions(to: string, qrUrl: string, total: numbe
   });
 }
 
+async function sendProductImagePreview(to: string, product: ProductSummaryRow) {
+  const imageUrl = resolvePublicImageUrl(product.image_url);
+  if (!imageUrl) {
+    return;
+  }
+
+  try {
+    await sendWhatsAppImageMessage({
+      to,
+      imageUrl,
+      caption: `${product.name}\nBs ${formatMoney(product.price)}${product.description ? `\n${truncate(product.description, 180)}` : ""}`,
+    });
+  } catch (error) {
+    console.warn("Could not send WhatsApp product image", {
+      productId: product.id,
+      imageUrl,
+      error,
+    });
+  }
+}
+
 async function showDraftConfirmation(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   row: WhatsAppMessageRow,
@@ -2395,7 +2426,7 @@ async function revalidateDraftItems(
   const [productsResult, variantsResult, groupsResult, optionsResult] = await Promise.all([
     supabase
       .from("products")
-      .select("id,name,price,category_id,description,available_from,available_until,available_days,available_start_time,available_end_time")
+      .select("id,name,price,category_id,description,image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
       .eq("restaurant_id", restaurantId)
       .in("id", productIds),
     supabase
@@ -3188,6 +3219,23 @@ function detectIntent(value: string) {
 function getSiteUrl() {
   const value = Deno.env.get("NEXT_PUBLIC_SITE_URL") ?? Deno.env.get("SITE_URL") ?? Deno.env.get("NEXT_PUBLIC_APP_URL") ?? "https://yopido.shop";
   return value.replace(/\/+$/, "");
+}
+
+function resolvePublicImageUrl(value: string | null) {
+  const imageUrl = value?.trim();
+  if (!imageUrl) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(imageUrl)) {
+    return imageUrl;
+  }
+
+  if (imageUrl.startsWith("/")) {
+    return `${getSiteUrl()}${imageUrl}`;
+  }
+
+  return `${getSiteUrl()}/${imageUrl}`;
 }
 
 function truncate(value: string, maxLength: number) {

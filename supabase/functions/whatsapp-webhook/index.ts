@@ -627,6 +627,17 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
     }
   }
 
+  if (
+    conversation.state === "handoff" &&
+    !isMenuIntent(normalized) &&
+    !isOrderIntent(normalized) &&
+    !isChangeRestaurantIntent(normalized) &&
+    !isRecentOrdersIntent(normalized)
+  ) {
+    await updateConversationState(supabase, conversation.id, "handoff", "handoff_message", row.message_id);
+    return;
+  }
+
   const selectedRestaurant = await resolveSelectedRestaurant(supabase, conversation, command.text);
 
   if (selectedRestaurant) {
@@ -3036,6 +3047,24 @@ export async function sendWhatsAppTextMessage({
     throw new Error("whatsapp_send_failed");
   }
 
+  await rememberOutboundWhatsAppMessage({
+    to,
+    phoneNumberId,
+    messageType: "text",
+    messageText: body,
+    source: "bot_text",
+    outboundPayload: {
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: {
+        body,
+        preview_url: previewUrl,
+      },
+    },
+    result,
+  });
+
   return result;
 }
 
@@ -3166,7 +3195,102 @@ async function sendMetaWhatsAppMessage(body: JsonObject) {
     throw new Error("whatsapp_send_failed");
   }
 
+  await rememberOutboundWhatsAppMessage({
+    to: stringValue(body.to) ?? "",
+    phoneNumberId,
+    messageType: stringValue(body.type) ?? "unknown",
+    messageText: extractOutboundMessageText(body),
+    source: "bot",
+    outboundPayload: body,
+    result,
+  });
+
   return result;
+}
+
+function extractOutboundMessageText(body: JsonObject) {
+  const type = stringValue(body.type);
+  if (type === "text") {
+    return stringValue(objectValue(body.text).body) ?? "Mensaje enviado";
+  }
+  if (type === "image") {
+    return stringValue(objectValue(body.image).caption) ?? "Imagen enviada";
+  }
+  if (type === "interactive") {
+    const interactive = objectValue(body.interactive);
+    return stringValue(objectValue(interactive.body).text) ?? "Mensaje interactivo enviado";
+  }
+  return "Mensaje enviado";
+}
+
+async function rememberOutboundWhatsAppMessage({
+  to,
+  phoneNumberId,
+  messageType,
+  messageText,
+  source,
+  outboundPayload,
+  result,
+}: {
+  to: string;
+  phoneNumberId: string;
+  messageType: string;
+  messageText: string;
+  source: string;
+  outboundPayload: JsonObject;
+  result: unknown;
+}) {
+  if (!to.trim()) {
+    return;
+  }
+
+  try {
+    const resultPayload = objectValue(result);
+    const messages = recordArray(resultPayload.messages);
+    const messageId = stringValue(messages[0]?.id) ?? `outbound-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const supabase = createSupabaseAdminClient();
+    const { data: conversation } = await supabase
+      .from("whatsapp_conversations")
+      .select("id,restaurant_id")
+      .eq("from_phone", to)
+      .maybeSingle();
+
+    await supabase.from("whatsapp_messages").upsert(
+      {
+        message_id: messageId,
+        from_phone: to,
+        to_phone_number_id: phoneNumberId,
+        to_display_phone: null,
+        contact_name: null,
+        message_type: messageType,
+        message_text: messageText,
+        payload: {
+          direction: "outbound",
+          source,
+          restaurant_id: conversation?.restaurant_id ?? null,
+          conversation_id: conversation?.id ?? null,
+          outbound_payload: outboundPayload,
+          meta_response: resultPayload,
+        },
+        whatsapp_timestamp: now,
+        received_at: now,
+      },
+      { onConflict: "message_id", ignoreDuplicates: true },
+    );
+
+    if (conversation?.id) {
+      await supabase
+        .from("whatsapp_conversations")
+        .update({
+          last_message_id: messageId,
+          last_message_at: now,
+        })
+        .eq("id", conversation.id);
+    }
+  } catch (error) {
+    console.error("Could not store outbound WhatsApp message", error);
+  }
 }
 
 function getVerifyToken() {

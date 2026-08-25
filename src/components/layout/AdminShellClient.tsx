@@ -53,6 +53,7 @@ const restaurantNav: NavItem[] = [
   { label: "Cocina", href: "cocina", icon: ChefHat, moduleKey: "kitchen" },
   { label: "Caja", href: "caja", icon: CreditCard, moduleKey: "cash" },
   { label: "Inventario", href: "inventario", icon: Boxes, moduleKey: "inventory" },
+  { label: "CRM WhatsApp", href: "whatsapp", icon: MessageSquareText },
   { label: "Soporte", href: "soporte", icon: LifeBuoy },
   { label: "Configuración", href: "configuracion", icon: Settings },
 ];
@@ -200,7 +201,7 @@ export function AdminShellClient({
             </div>
           </div>
         </header>
-        <main className="mx-auto max-w-7xl px-3 py-4 pb-8 sm:px-6 sm:py-6 lg:px-8">{children}</main>
+        <main className={cn("mx-auto px-3 py-4 pb-8 sm:px-6 sm:py-6 lg:px-8", active === "whatsapp" ? "max-w-[104rem] lg:py-4" : "max-w-7xl")}>{children}</main>
       </div>
     </div>
   );

@@ -969,6 +969,18 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      restaurant_whatsapp_quick_replies: Row<{
+        id: string;
+        restaurant_id: string;
+        title: string;
+        body: string;
+        category: string;
+        is_active: boolean;
+        created_by: string | null;
+        updated_by: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       support_tickets: Row<{
         id: string;
         restaurant_id: string | null;

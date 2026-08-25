@@ -2179,11 +2179,21 @@ async function sendProductImagePreview(to: string, product: ProductSummaryRow) {
     return;
   }
 
+  const caption = `${product.name}\nBs ${formatMoney(product.price)}${product.description ? `\n${truncate(product.description, 180)}` : ""}`;
+  if (!isWhatsAppRenderableImageUrl(imageUrl)) {
+    await sendWhatsAppTextMessage({
+      to,
+      body: `${caption}\n\nFoto del producto:\n${imageUrl}`,
+      previewUrl: true,
+    });
+    return;
+  }
+
   try {
     await sendWhatsAppImageMessage({
       to,
       imageUrl,
-      caption: `${product.name}\nBs ${formatMoney(product.price)}${product.description ? `\n${truncate(product.description, 180)}` : ""}`,
+      caption,
     });
   } catch (error) {
     console.warn("Could not send WhatsApp product image", {
@@ -3236,6 +3246,11 @@ function resolvePublicImageUrl(value: string | null) {
   }
 
   return `${getSiteUrl()}/${imageUrl}`;
+}
+
+function isWhatsAppRenderableImageUrl(value: string) {
+  const pathname = new URL(value, getSiteUrl()).pathname.toLowerCase();
+  return pathname.endsWith(".jpg") || pathname.endsWith(".jpeg") || pathname.endsWith(".png");
 }
 
 function truncate(value: string, maxLength: number) {

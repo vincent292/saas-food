@@ -503,7 +503,38 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
   if (command.kind === "DRAFT_CANCEL") {
     await abandonOpenDraft(supabase, conversation.id);
     await updateConversationState(supabase, conversation.id, "idle", "draft_cancelled", row.message_id);
-    await sendWhatsAppTextMessage({ to: row.from_phone, body: "Listo, cancele el pedido en curso. Cuando quieras empezar otro, escribe: menu." });
+    await sendWhatsAppInteractiveButtons({
+      to: row.from_phone,
+      body: "Listo, cancele el pedido en curso. Puedes empezar de nuevo cuando quieras.",
+      buttons: [
+        { id: "ACTION_ORDER", title: "Nuevo pedido" },
+        { id: "ACTION_MENU", title: "Ver menu" },
+        { id: "ACTION_ORDERS", title: "Mis pedidos" },
+      ],
+    });
+    return;
+  }
+
+  if (command.kind === "DRAFT_RESTART" || isRestartIntent(normalized)) {
+    await abandonOpenDraft(supabase, conversation.id);
+    await clearConversationRestaurant(supabase, conversation.id, row.message_id);
+    await sendRestaurantPicker(supabase, row.from_phone);
+    return;
+  }
+
+  if (command.kind === "DRAFT_BACK" || (conversation.state === "drafting_order" && isBackIntent(normalized))) {
+    if (await goBackInDraft(supabase, row, conversation)) {
+      return;
+    }
+    await sendWhatsAppInteractiveButtons({
+      to: row.from_phone,
+      body: "Ya estas al inicio de este flujo. Puedes elegir una opcion para continuar.",
+      buttons: [
+        { id: "ACTION_ORDER", title: "Hacer pedido" },
+        { id: "ACTION_CHANGE_RESTAURANT", title: "Cambiar lugar" },
+        { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+      ],
+    });
     return;
   }
 
@@ -673,7 +704,7 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
   await updateConversationState(supabase, conversation.id, "idle", "fallback", row.message_id);
   await sendWhatsAppInteractiveButtons({
     to: row.from_phone,
-    body: "Hola, soy YoPido.shop. Para empezar dime el nombre del restaurante o elige una opcion.",
+    body: "Hola, soy YoPido.shop. Puedo ayudarte a pedir, ver el menu o revisar tus ultimos pedidos.",
     buttons: [
       { id: "ACTION_MENU", title: "Ver menu" },
       { id: "ACTION_ORDER", title: "Hacer pedido" },
@@ -1546,11 +1577,11 @@ async function finishPendingItem(
 async function sendDraftSummary(to: string, restaurant: RestaurantRow, draft: WhatsAppOrderDraftRow) {
   await sendWhatsAppInteractiveButtons({
     to,
-    body: `Tu pedido en ${restaurant.name}\n\n${formatDraftItems(draft)}\n\nSubtotal: Bs ${formatMoney(draftSubtotal(draft))}\n\nPuedes seguir agregando o pasar a entrega y pago.`,
+    body: `Asi va tu pedido en ${restaurant.name}\n\n${formatDraftItems(draft)}\n\nSubtotal: Bs ${formatMoney(draftSubtotal(draft))}\n\nPuedes agregar algo mas o avanzar a entrega y pago.`,
     buttons: [
       { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
       { id: "DRAFT_CHECKOUT", title: "Continuar pedido" },
-      { id: "DRAFT_CANCEL", title: "Cancelar" },
+      { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
     ],
   });
 }
@@ -1625,7 +1656,7 @@ async function selectDraftOrderType(
     buttons: [
       { id: "FULFILLMENT:now", title: "Lo antes posible" },
       { id: "FULFILLMENT:schedule", title: "Programar" },
-      { id: "DRAFT_CANCEL", title: "Cancelar" },
+      { id: "DRAFT_BACK", title: "Volver" },
     ],
   });
 }
@@ -1643,9 +1674,14 @@ async function selectDraftFulfillmentTime(
 
   if (schedule) {
     await updateOpenDraft(supabase, conversation.id, { checkout_step: "schedule", requested_fulfillment_at: null });
-    await sendWhatsAppTextMessage({
+    await sendWhatsAppInteractiveButtons({
       to: row.from_phone,
       body: "Escribe la fecha y hora en formato DD/MM/AAAA HH:MM. Ejemplo: 28/08/2026 19:30.",
+      buttons: [
+        { id: "FULFILLMENT:now", title: "Lo antes posible" },
+        { id: "DRAFT_BACK", title: "Volver" },
+        { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+      ],
     });
     return;
   }
@@ -1656,11 +1692,16 @@ async function selectDraftFulfillmentTime(
   ]);
   if (!isLocalDateTimeWithinBusinessHours(formatLocalDateTimeInput(new Date()), hours) || !hasCash) {
     await updateOpenDraft(supabase, conversation.id, { checkout_step: "schedule", requested_fulfillment_at: null });
-    await sendWhatsAppTextMessage({
+    await sendWhatsAppInteractiveButtons({
       to: row.from_phone,
       body: !hasCash
         ? "La caja del restaurante aun no esta abierta para pedidos inmediatos. Puedes programarlo escribiendo DD/MM/AAAA HH:MM."
         : "El restaurante esta fuera de horario ahora. Puedes programar el pedido escribiendo DD/MM/AAAA HH:MM.",
+      buttons: [
+        { id: "DRAFT_BACK", title: "Volver" },
+        { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
+        { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+      ],
     });
     return;
   }
@@ -1679,8 +1720,9 @@ async function continueAfterFulfillmentTime(
     await updateOpenDraft(supabase, conversation.id, { checkout_step: "location" });
     await sendWhatsAppLocationRequest({
       to: row.from_phone,
-      body: "Comparte tu ubicacion exacta. Con el GPS calcularemos distancia, zona, costo de envio y si corresponde prepago QR.",
+      body: "Comparte tu ubicacion exacta desde WhatsApp. Asi calculamos delivery, distancia y si corresponde prepago QR.",
     });
+    await sendNavigationButtons(row.from_phone, "Tambien puedes escribir volver o empezar de nuevo si quieres cambiar algo.");
     return;
   }
 
@@ -1703,7 +1745,8 @@ async function consumeDraftInput(
 
   if (draft.checkout_step === "location") {
     if (row.message_type !== "location") {
-      await sendWhatsAppLocationRequest({ to: row.from_phone, body: "Necesito la ubicacion enviada con el boton de WhatsApp para calcular el delivery." });
+      await sendWhatsAppLocationRequest({ to: row.from_phone, body: "Necesito que compartas la ubicacion usando el boton de WhatsApp para calcular el delivery." });
+      await sendNavigationButtons(row.from_phone, "Si quieres cambiar algo, toca volver o empieza de nuevo.");
       return true;
     }
 
@@ -1721,9 +1764,14 @@ async function consumeDraftInput(
       delivery_longitude: longitude,
       delivery_maps_url: coordinatesToMapsUrl(latitude, longitude),
     });
-    await sendWhatsAppTextMessage({
+    await sendWhatsAppInteractiveButtons({
       to: row.from_phone,
-      body: "Ubicacion recibida. Ahora escribe la direccion: calle, numero y zona o barrio.",
+      body: "Perfecto, ya tengo tu ubicacion. Ahora escribe la direccion: calle, numero y zona o barrio.",
+      buttons: [
+        { id: "DRAFT_BACK", title: "Volver" },
+        { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
+        { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+      ],
     });
     return true;
   }
@@ -1775,13 +1823,18 @@ async function consumeDraftInput(
 
   if (draft.checkout_step === "address") {
     if (text.length < 5 || text.length > 240) {
-      await sendWhatsAppTextMessage({ to: row.from_phone, body: "Escribe una direccion mas completa, de hasta 240 caracteres." });
+      await sendWhatsAppTextMessage({ to: row.from_phone, body: "Escribe una direccion un poco mas completa, por ejemplo calle, numero y zona." });
       return true;
     }
     await updateOpenDraft(supabase, conversation.id, { customer_address: text, checkout_step: "address_detail" });
-    await sendWhatsAppTextMessage({
+    await sendWhatsAppInteractiveButtons({
       to: row.from_phone,
-      body: "Agrega una referencia, piso, puerta o indicacion para el repartidor. Si no hace falta, escribe NO.",
+      body: "Agrega una referencia para el repartidor: piso, puerta, color de casa o indicacion. Si no hace falta, escribe NO.",
+      buttons: [
+        { id: "DRAFT_BACK", title: "Volver" },
+        { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
+        { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+      ],
     });
     return true;
   }
@@ -1831,7 +1884,142 @@ async function askCustomerName(
   conversationId: string,
 ) {
   await updateOpenDraft(supabase, conversationId, { checkout_step: "name" });
-  await sendWhatsAppTextMessage({ to, body: "A que nombre registramos el pedido?" });
+  await sendWhatsAppInteractiveButtons({
+    to,
+    body: "A que nombre registramos el pedido?",
+    buttons: [
+      { id: "DRAFT_BACK", title: "Volver" },
+      { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
+      { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+    ],
+  });
+}
+
+async function sendNavigationButtons(to: string, body: string) {
+  await sendWhatsAppInteractiveButtons({
+    to,
+    body,
+    buttons: [
+      { id: "DRAFT_BACK", title: "Volver" },
+      { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
+      { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+    ],
+  });
+}
+
+async function goBackInDraft(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+) {
+  const draft = await getOpenDraft(supabase, conversation.id);
+  const restaurant = await findRestaurantById(supabase, draft?.restaurant_id ?? conversation.restaurant_id ?? "");
+
+  if (!draft || !restaurant) {
+    await sendRestaurantPicker(supabase, row.from_phone);
+    return true;
+  }
+
+  if (draft.pending_item) {
+    const updated = await updateOpenDraft(supabase, conversation.id, { pending_item: null, checkout_step: "catalog" });
+    await sendDraftSummary(row.from_phone, restaurant, updated);
+    return true;
+  }
+
+  if (draft.checkout_step === "catalog") {
+    await sendDraftSummary(row.from_phone, restaurant, draft);
+    return true;
+  }
+
+  if (draft.checkout_step === "order_type") {
+    await sendDraftSummary(row.from_phone, restaurant, draft);
+    return true;
+  }
+
+  if (draft.checkout_step === "fulfillment") {
+    await beginDraftCheckout(supabase, row, conversation);
+    return true;
+  }
+
+  if (draft.checkout_step === "schedule") {
+    await updateOpenDraft(supabase, conversation.id, { checkout_step: "fulfillment", requested_fulfillment_at: null });
+    await selectDraftOrderType(supabase, row, conversation, draft.order_type ?? "delivery");
+    return true;
+  }
+
+  if (draft.checkout_step === "location") {
+    await updateOpenDraft(supabase, conversation.id, { checkout_step: "fulfillment" });
+    await selectDraftOrderType(supabase, row, conversation, "delivery");
+    return true;
+  }
+
+  if (draft.checkout_step === "address") {
+    await updateOpenDraft(supabase, conversation.id, {
+      checkout_step: "location",
+      delivery_latitude: null,
+      delivery_longitude: null,
+      delivery_maps_url: null,
+    });
+    await continueAfterFulfillmentTime(supabase, row, conversation, { ...draft, order_type: "delivery" });
+    return true;
+  }
+
+  if (draft.checkout_step === "address_detail") {
+    await updateOpenDraft(supabase, conversation.id, { checkout_step: "address", customer_address: null });
+    await sendWhatsAppInteractiveButtons({
+      to: row.from_phone,
+      body: "Volvimos a la direccion. Escribe calle, numero y zona o barrio.",
+      buttons: [
+        { id: "DRAFT_BACK", title: "Volver" },
+        { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
+        { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+      ],
+    });
+    return true;
+  }
+
+  if (draft.checkout_step === "name") {
+    if (draft.order_type === "delivery") {
+      await updateOpenDraft(supabase, conversation.id, { checkout_step: "address_detail", customer_address_detail: null });
+      await sendWhatsAppInteractiveButtons({
+        to: row.from_phone,
+        body: "Volvimos a la referencia. Escribe una indicacion para el repartidor o NO.",
+        buttons: [
+          { id: "DRAFT_BACK", title: "Volver" },
+          { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
+          { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+        ],
+      });
+      return true;
+    }
+    await updateOpenDraft(supabase, conversation.id, { checkout_step: "fulfillment", customer_name: null });
+    await selectDraftOrderType(supabase, row, conversation, draft.order_type ?? "pickup");
+    return true;
+  }
+
+  if (draft.checkout_step === "invoice") {
+    await askCustomerName(supabase, row.from_phone, conversation.id);
+    return true;
+  }
+
+  if (draft.checkout_step === "invoice_detail") {
+    await updateOpenDraft(supabase, conversation.id, { checkout_step: "invoice", invoice_required: null });
+    await continueAfterCustomerName(supabase, row, conversation, { ...draft, invoice_required: null });
+    return true;
+  }
+
+  if (draft.checkout_step === "payment" || draft.checkout_step === "receipt" || draft.checkout_step === "confirmation") {
+    await updateOpenDraft(supabase, conversation.id, {
+      checkout_step: "name",
+      payment_method: null,
+      payment_receipt_url: null,
+      payment_receipt_media_id: null,
+    });
+    await askCustomerName(supabase, row.from_phone, conversation.id);
+    return true;
+  }
+
+  return false;
 }
 
 async function continueAfterCustomerName(
@@ -2156,8 +2344,7 @@ async function validateDraftOrder(
   if (draft.order_type === "delivery") {
     if (
       !draft.customer_address?.trim() ||
-      !hasValidCoordinates(draft.delivery_latitude, draft.delivery_longitude) ||
-      !hasValidCoordinates(Number(restaurant.latitude), Number(restaurant.longitude))
+      !hasValidCoordinates(draft.delivery_latitude, draft.delivery_longitude)
     ) {
       throw new Error("delivery-location");
     }
@@ -2366,7 +2553,10 @@ function resolveWhatsAppDeliveryPolicy({
   settings: RestaurantSettingsRow;
   subtotal: number;
 }): DeliveryPolicy {
-  const restaurantPoint = { latitude: Number(restaurant.latitude), longitude: Number(restaurant.longitude) };
+  const hasRestaurantPoint = hasValidCoordinates(Number(restaurant.latitude), Number(restaurant.longitude));
+  const restaurantPoint = hasRestaurantPoint
+    ? { latitude: Number(restaurant.latitude), longitude: Number(restaurant.longitude) }
+    : { latitude, longitude };
   const deliveryPoint = { latitude, longitude };
   const distanceKm = calculateDistanceKm(restaurantPoint, deliveryPoint);
   const matchingZones = zones
@@ -2387,7 +2577,7 @@ function resolveWhatsAppDeliveryPolicy({
     deliveryFee: freeFrom > 0 && subtotal >= freeFrom ? 0 : roundMoney(configuredFee),
     minOrderAmount: Number(zone?.min_order_amount ?? settings.min_order_amount),
     requiresQrPrepayment: Boolean(settings.delivery_qr_prepayment_enabled) && distanceKm >= farDistance,
-    sameCity: distanceKm <= 50,
+    sameCity: !hasRestaurantPoint || distanceKm <= 50,
     zoneName: zone?.name ?? null,
   };
 }
@@ -2410,7 +2600,7 @@ async function sendDraftValidationError(
     "order-type-disabled": "La forma de entrega elegida ya no esta habilitada.",
     "customer-name-required": "Falta el nombre del cliente.",
     "delivery-location": "Falta una direccion o una ubicacion GPS valida para el delivery.",
-    "different-city": "La ubicacion esta fuera del area admitida por este restaurante.",
+    "different-city": "Esa ubicacion parece estar demasiado lejos para el delivery de este restaurante. Puedes volver para enviar otra ubicacion o empezar de nuevo.",
     "outside-hours": "La hora elegida esta fuera del horario del restaurante. Puedes programar otra fecha y hora.",
     "schedule-past": "La hora programada ya paso. Elige una fecha futura.",
     "no-open-cash": "La caja no esta abierta para un pedido inmediato. Puedes programarlo para mas tarde.",
@@ -2962,6 +3152,17 @@ function isRecentOrdersIntent(value: string) {
 
 function isChangeRestaurantIntent(value: string) {
   return value === "ACTION_CHANGE_RESTAURANT".toLowerCase() || /\b(cambiar|otro lugar|otro restaurante|restaurante)\b/.test(value);
+}
+
+function isBackIntent(value: string) {
+  return value === "DRAFT_BACK".toLowerCase() || /\b(volver|atras|anterior|regresar|retroceder)\b/.test(value);
+}
+
+function isRestartIntent(value: string) {
+  return (
+    value === "DRAFT_RESTART".toLowerCase() ||
+    /\b(empezar de nuevo|reiniciar|nuevo pedido|cancelar todo|borrar pedido|desde cero)\b/.test(value)
+  );
 }
 
 function detectIntent(value: string) {

@@ -7,6 +7,7 @@ type OrderNotificationRow = {
   id: string;
   order_number: string;
   order_type: "table" | "delivery" | "pickup" | "pos";
+  order_origin: "pos_counter" | "table_qr" | "web_checkout" | "phone_whatsapp" | "external_platform";
   total: number;
   created_at: string;
 };
@@ -51,7 +52,11 @@ function money(value: number) {
   return `Bs ${Number(value || 0).toFixed(2)}`;
 }
 
-function orderTypeLabel(type: OrderNotificationRow["order_type"]) {
+function orderTypeLabel(type: OrderNotificationRow["order_type"], origin?: OrderNotificationRow["order_origin"]) {
+  if (origin === "phone_whatsapp") {
+    return type === "pickup" ? "WhatsApp recojo" : "WhatsApp delivery";
+  }
+
   if (type === "delivery") return "delivery";
   if (type === "pickup") return "recojo";
   if (type === "table") return "mesa";
@@ -72,7 +77,7 @@ export const panelNotificationsService = {
     const [{ data: pendingOrders }, { data: pendingReviews }, { data: reviewedCancellations }, { data: recentCashSessions }] = await Promise.all([
       supabase
         .from("orders")
-        .select("id,order_number,order_type,total,created_at")
+        .select("id,order_number,order_type,order_origin,total,created_at")
         .eq("restaurant_id", restaurantId)
         .gte("created_at", today)
         .eq("status", "pending")
@@ -110,7 +115,7 @@ export const panelNotificationsService = {
       notifications.push({
         id: `order:${order.id}:${order.created_at}`,
         title: `Pedido ${order.order_number} pendiente`,
-        description: `${orderTypeLabel(order.order_type)} por ${money(Number(order.total))}. Requiere aprobacion.`,
+        description: `${orderTypeLabel(order.order_type, order.order_origin)} por ${money(Number(order.total))}. Requiere aprobacion.`,
         href: `/admin/restaurantes/${restaurantId}/pedidos?tab=nuevos`,
         createdAt: order.created_at,
         tone: "danger",

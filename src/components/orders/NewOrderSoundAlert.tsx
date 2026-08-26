@@ -16,6 +16,32 @@ function sameOrderIds(left: Order[], right: Order[]) {
   return left.length === right.length && left.every((order, index) => order.id === right[index]?.id);
 }
 
+function acknowledgedStorageKey(restaurantId: string) {
+  return `yopido:order-alert-sound:acknowledged:${restaurantId}`;
+}
+
+function readAcknowledgedOrderIds(restaurantId: string) {
+  if (typeof window === "undefined") return new Set<string>();
+
+  try {
+    const raw = window.localStorage.getItem(acknowledgedStorageKey(restaurantId));
+    const ids = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(ids) ? ids.filter((id) => typeof id === "string") : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writeAcknowledgedOrderIds(restaurantId: string, ids: Set<string>) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(acknowledgedStorageKey(restaurantId), JSON.stringify(Array.from(ids).slice(-160)));
+  } catch {
+    // Local alert state is a convenience; failing to persist it should not block orders.
+  }
+}
+
 export function NewOrderSoundAlert({
   restaurantId,
   orders,
@@ -41,6 +67,7 @@ export function NewOrderSoundAlert({
   const [soundRequestId, setSoundRequestId] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const knownOrderIdsRef = useRef<Set<string> | null>(null);
+  const acknowledgedOrderIdsRef = useRef<Set<string> | null>(null);
   const soundEnabledRef = useRef(soundEnabled);
   const unseenOrdersRef = useRef<Order[]>([]);
 
@@ -108,16 +135,43 @@ export function NewOrderSoundAlert({
     [orders, watchOrderTypes],
   );
 
+  const ensureAcknowledgedOrderIds = useCallback(() => {
+    acknowledgedOrderIdsRef.current ??= readAcknowledgedOrderIds(restaurantId);
+    return acknowledgedOrderIdsRef.current;
+  }, [restaurantId]);
+
+  const rememberAcknowledgedOrders = useCallback(
+    (ordersToAcknowledge: Order[]) => {
+      if (!ordersToAcknowledge.length) return;
+
+      const acknowledgedOrderIds = ensureAcknowledgedOrderIds();
+      for (const order of ordersToAcknowledge) {
+        acknowledgedOrderIds.add(order.id);
+      }
+      writeAcknowledgedOrderIds(restaurantId, acknowledgedOrderIds);
+    },
+    [ensureAcknowledgedOrderIds, restaurantId],
+  );
+
   useEffect(() => {
     const candidateIds = new Set(alertCandidates.map((order) => order.id));
+    const acknowledgedOrderIds = ensureAcknowledgedOrderIds();
 
     if (!knownOrderIdsRef.current) {
       knownOrderIdsRef.current = candidateIds;
+      const initialUnseenOrders = alertCandidates.filter((order) => !acknowledgedOrderIds.has(order.id));
+      if (initialUnseenOrders.length) {
+        unseenOrdersRef.current = initialUnseenOrders;
+        setUnseenOrders(initialUnseenOrders);
+        if (soundEnabledRef.current) {
+          setSoundRequestId((current) => current + 1);
+        }
+      }
       return;
     }
 
     const knownOrderIds = knownOrderIdsRef.current;
-    const incomingOrders = alertCandidates.filter((order) => !knownOrderIds.has(order.id));
+    const incomingOrders = alertCandidates.filter((order) => !knownOrderIds.has(order.id) && !acknowledgedOrderIds.has(order.id));
     alertCandidates.forEach((order) => knownOrderIds.add(order.id));
     if (incomingOrders.length && soundEnabledRef.current) {
       setSoundRequestId((current) => current + 1);
@@ -132,7 +186,7 @@ export function NewOrderSoundAlert({
 
     unseenOrdersRef.current = nextUnseen;
     setUnseenOrders(nextUnseen);
-  }, [alertCandidates]);
+  }, [alertCandidates, ensureAcknowledgedOrderIds]);
 
   useEffect(() => {
     if (!soundRequestId || !soundEnabled) {
@@ -166,6 +220,7 @@ export function NewOrderSoundAlert({
   }, [ensureAudio, soundEnabled, soundRequestId]);
 
   function acknowledge() {
+    rememberAcknowledgedOrders(unseenOrdersRef.current);
     stopSound();
     unseenOrdersRef.current = [];
     setUnseenOrders([]);

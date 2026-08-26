@@ -26,6 +26,32 @@ test("WhatsApp checkout collects delivery location and QR receipt evidence", asy
   assert.match(source, /whatsapp-payment-receipts/);
 });
 
+test("WhatsApp ordering supports compact text shortcuts", async () => {
+  const source = await readFile(webhookPath, "utf8");
+
+  assert.match(source, /tryBeginProductFromText/);
+  assert.match(source, /parseProductSearchInput/);
+  assert.match(source, /quantity: normalizeQuantity\(initialQuantity\)/);
+  assert.match(source, /applyCompactCheckoutInput/);
+  assert.match(source, /formatCheckoutGuide/);
+  assert.match(source, /sendCheckoutGuide/);
+  assert.match(source, /Responde copiando este formato/);
+  assert.match(source, /🛵 Entrega: \$\{settings\.delivery_enabled/);
+  assert.match(source, /👤 Cliente: Juan Perez/);
+  assert.match(source, /Hora: ahora, 19:30 o 28\/08\/2026 19:30/);
+  assert.match(source, /stripCheckoutLinePrefix/);
+  assert.doesNotMatch(source, /recojo \| ahora \| Tu nombre/);
+});
+
+test("WhatsApp delivery distance can force QR after location is calculated", async () => {
+  const source = await readFile(webhookPath, "utf8");
+
+  assert.match(source, /deliveryPolicy\?\.requiresQrPrepayment && paymentMethod !== "qr"/);
+  assert.match(source, /paymentMethod = "qr"/);
+  assert.match(source, /sendQrPaymentInstructions/);
+  assert.match(source, /receipt-required/);
+});
+
 test("WhatsApp checkout migration and private receipt route are present", async () => {
   const [migration, route] = await Promise.all([
     readFile(migrationPath, "utf8"),
@@ -40,4 +66,3 @@ test("WhatsApp checkout migration and private receipt route are present", async 
   assert.match(route, /restaurant_memberships/);
   assert.match(route, /createSignedUrl/);
 });
-

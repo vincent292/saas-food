@@ -111,6 +111,7 @@ type PendingDraftItem = {
   option_ids: string[];
   option_names: string[];
   group_index: number;
+  quantity: number | null;
 };
 
 type DraftItem = {
@@ -218,6 +219,30 @@ type RecentOrderRow = {
 type CreatedOrderRow = {
   id: string;
   tracking_token: string;
+};
+
+type ProductTextMatch = {
+  product: ProductSummaryRow | null;
+  quantity: number | null;
+  candidates: ProductSummaryRow[];
+};
+
+type CompactCheckoutInput = {
+  hasSignal: boolean;
+  orderType: "delivery" | "pickup" | null;
+  fulfillment: "now" | "schedule" | null;
+  scheduledIso: string | null;
+  scheduledLocalInput: string | null;
+  customerName: string | null;
+  customerAddress: string | null;
+  customerAddressDetail: string | null;
+  paymentMethod: "cash" | "qr" | null;
+  invoiceRequired: boolean | null;
+  invoiceFields: {
+    documentType: string;
+    documentNumber: string;
+    name: string;
+  } | null;
 };
 
 const corsHeaders = {
@@ -583,6 +608,19 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
     return;
   }
 
+  if (command.kind?.startsWith("PRODUCT_QTY:")) {
+    const restaurant = await findRestaurantById(supabase, conversation.restaurant_id ?? "");
+    const [, quantityValue, productId] = command.kind.split(":");
+
+    if (!restaurant || !productId) {
+      await sendRestaurantPicker(supabase, row.from_phone);
+      return;
+    }
+
+    await beginProductConfiguration(supabase, row, conversation, customer, restaurant, productId, normalizeQuantity(Number(quantityValue)));
+    return;
+  }
+
   if (command.kind?.startsWith("VARIANT:")) {
     await selectPendingVariant(supabase, row, conversation, command.kind.replace("VARIANT:", ""));
     return;
@@ -601,7 +639,7 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
   if (command.kind === "OPTION_MORE") {
     const draft = await getOpenDraft(supabase, conversation.id);
     if (draft) {
-      await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft);
+      await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft, row);
     }
     return;
   }
@@ -654,10 +692,29 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
     return;
   }
 
+  if (conversation.state === "drafting_order" && isConfirmIntent(normalized)) {
+    const draft = await getOpenDraft(supabase, conversation.id);
+    if (draft?.checkout_step === "confirmation" && !draft.pending_item) {
+      await confirmDraftOrder(supabase, row, customer, conversation);
+      return;
+    }
+  }
+
   if (conversation.state === "drafting_order") {
     const draft = await getOpenDraft(supabase, conversation.id);
     if (draft && (await consumeDraftInput(supabase, row, conversation, draft))) {
       return;
+    }
+  }
+
+  if (row.message_type === "text" && conversation.restaurant_id) {
+    const draft = conversation.state === "drafting_order" ? await getOpenDraft(supabase, conversation.id) : null;
+    const canSearchProduct = !draft || (!draft.pending_item && draft.checkout_step === "catalog");
+    if (canSearchProduct) {
+      const restaurant = await findRestaurantById(supabase, conversation.restaurant_id);
+      if (restaurant && (await tryBeginProductFromText(supabase, row, conversation, customer, restaurant, command.text))) {
+        return;
+      }
     }
   }
 
@@ -946,6 +1003,83 @@ async function listProducts(
   return ((data ?? []) as ProductSummaryRow[]).filter((product) => isProductCurrentlyOrderable(product));
 }
 
+async function tryBeginProductFromText(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  customer: WhatsAppCustomerRow,
+  restaurant: RestaurantRow,
+  text: string,
+) {
+  const match = await resolveProductFromText(supabase, restaurant.id, text);
+  if (!match.product && match.candidates.length === 0) {
+    return false;
+  }
+
+  await ensureOpenDraft(supabase, conversation, customer, restaurant.id);
+  await updateConversationState(supabase, conversation.id, "drafting_order", "product_search", row.message_id);
+
+  if (!match.product) {
+    await sendProductSearchCandidates(row.from_phone, restaurant, match.candidates, match.quantity);
+    return true;
+  }
+
+  await beginProductConfiguration(supabase, row, conversation, customer, restaurant, match.product.id, match.quantity);
+  return true;
+}
+
+async function resolveProductFromText(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  restaurantId: string,
+  text: string,
+): Promise<ProductTextMatch> {
+  const request = parseProductSearchInput(text);
+  if (!request.query) {
+    return { product: null, quantity: request.quantity, candidates: [] };
+  }
+
+  const products = await listProducts(supabase, restaurantId, "all");
+  const scored = products
+    .map((product) => ({ product, score: scoreProductMatch(request.query, product) }))
+    .filter((item) => item.score >= 55)
+    .sort((left, right) => right.score - left.score || Number(left.product.price) - Number(right.product.price));
+
+  if (scored.length === 0) {
+    return { product: null, quantity: request.quantity, candidates: [] };
+  }
+
+  const [best, second] = scored;
+  const exactEnough = best.score >= 96 || !second || best.score - second.score >= 12;
+  if (exactEnough) {
+    return { product: best.product, quantity: request.quantity, candidates: [] };
+  }
+
+  return {
+    product: null,
+    quantity: request.quantity,
+    candidates: scored.slice(0, 10).map((item) => item.product),
+  };
+}
+
+async function sendProductSearchCandidates(
+  to: string,
+  restaurant: RestaurantRow,
+  products: ProductSummaryRow[],
+  quantity: number | null,
+) {
+  await sendWhatsAppListMessage({
+    to,
+    body: `Encontre varias opciones en ${restaurant.name}. Elige cual quieres${quantity ? ` x${quantity}` : ""}.`,
+    buttonText: "Elegir producto",
+    sectionTitle: "Coincidencias",
+    rows: products.map((product) => ({
+      id: quantity ? `PRODUCT_QTY:${quantity}:${product.id}` : `PRODUCT:${product.id}`,
+      title: truncate(product.name, 24),
+      description: truncate(`Bs ${formatMoney(product.price)}${product.description ? ` - ${product.description}` : ""}`, 72),
+    })),
+  });
+}
+
 async function sendRestaurantPicker(supabase: ReturnType<typeof createSupabaseAdminClient>, to: string) {
   const restaurants = await listActiveRestaurants(supabase);
 
@@ -974,7 +1108,7 @@ async function sendRestaurantPicker(supabase: ReturnType<typeof createSupabaseAd
     rows: restaurants.slice(0, 10).map((restaurant) => ({
       id: `RESTAURANT:${restaurant.id}`,
       title: truncate(restaurant.name, 24),
-      description: truncate([restaurant.city, restaurant.public_category].filter(Boolean).join(" | "), 72),
+      description: truncate([restaurant.city, restaurant.public_category].filter(Boolean).join(" - "), 72),
     })),
   });
 }
@@ -991,7 +1125,9 @@ async function sendRestaurantMenuIntro(to: string, restaurant: RestaurantRow, pr
 
   await sendWhatsAppInteractiveButtons({
     to,
-    body: `Estas en ${restaurant.name}.\n\n${heading}:\n${productLines}\n\nTambien puedes abrir el menu visual:\n${menuUrl}`,
+    body:
+      `Estas en ${restaurant.name}.\n\n${heading}:\n${productLines}\n\n` +
+      `Puedes escribir directo: 2 hamburguesas, o abrir el menu visual:\n${menuUrl}`,
     buttons: [
       { id: "ACTION_ORDER", title: "Hacer pedido" },
       { id: "ACTION_ORDERS", title: "Mis pedidos" },
@@ -1065,7 +1201,7 @@ async function sendCategoryPicker(
 
   await sendWhatsAppListMessage({
     to,
-    body: `Que te gustaria pedir de ${restaurant.name}?`,
+    body: `Que te gustaria pedir de ${restaurant.name}? Puedes elegir de la lista o escribir algo como: 2 hamburguesas.`,
     buttonText: "Ver categorias",
     sectionTitle: "Menu",
     rows,
@@ -1096,7 +1232,7 @@ async function sendProductPicker(
     ...pageProducts.map((product) => ({
       id: `PRODUCT:${product.id}`,
       title: truncate(product.name, 24),
-      description: truncate(`Bs ${formatMoney(product.price)}${product.description ? ` | ${product.description}` : ""}`, 72),
+      description: truncate(`Bs ${formatMoney(product.price)}${product.description ? ` - ${product.description}` : ""}`, 72),
     })),
     ...(safePage > 0
       ? [{ id: `PRODUCT_PAGE:${categoryId}:${safePage - 1}`, title: "Pagina anterior", description: "Volver a otros productos" }]
@@ -1110,8 +1246,8 @@ async function sendProductPicker(
     to,
     body:
       products.length > pageSize
-        ? `Elige un producto de ${restaurant.name}. Usa las filas de navegacion para recorrer esta seccion.`
-        : `Elige un producto de ${restaurant.name}.`,
+        ? `Elige un producto de ${restaurant.name}. Tambien puedes escribir cantidad + producto, por ejemplo: 2 pizzas.`
+        : `Elige un producto de ${restaurant.name} o escribe cantidad + producto, por ejemplo: 2 pizzas.`,
     buttonText: "Ver productos",
     sectionTitle: "Productos",
     rows,
@@ -1248,6 +1384,7 @@ async function beginProductConfiguration(
   customer: WhatsAppCustomerRow,
   restaurant: RestaurantRow,
   productId: string,
+  initialQuantity: number | null = null,
 ) {
   const configuration = await getProductConfiguration(supabase, restaurant.id, productId);
   if (!configuration) {
@@ -1269,6 +1406,7 @@ async function beginProductConfiguration(
     option_ids: [],
     option_names: [],
     group_index: 0,
+    quantity: normalizeQuantity(initialQuantity),
   };
   const draft = await updateOpenDraft(supabase, conversation.id, {
     restaurant_id: restaurant.id,
@@ -1278,7 +1416,7 @@ async function beginProductConfiguration(
   });
   await updateConversationState(supabase, conversation.id, "drafting_order", "configuring_product", row.message_id);
   await sendProductImagePreview(row.from_phone, configuration.product);
-  await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft);
+  await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft, row);
 }
 
 async function continuePendingItemConfiguration(
@@ -1286,6 +1424,7 @@ async function continuePendingItemConfiguration(
   to: string,
   conversation: WhatsAppConversationRow,
   draft: WhatsAppOrderDraftRow,
+  row?: WhatsAppMessageRow,
 ) {
   const pending = draft.pending_item;
   if (!pending || !draft.restaurant_id) {
@@ -1338,7 +1477,7 @@ async function continuePendingItemConfiguration(
       const updated = await updateOpenDraft(supabase, conversation.id, {
         pending_item: { ...pending, group_index: pending.group_index + 1 },
       });
-      await continuePendingItemConfiguration(supabase, to, conversation, updated);
+      await continuePendingItemConfiguration(supabase, to, conversation, updated, row);
       return;
     }
     const selectedCount = groupOptions.filter((option) => pending.option_ids.includes(option.id)).length;
@@ -1375,6 +1514,11 @@ async function continuePendingItemConfiguration(
   }
 
   await updateOpenDraft(supabase, conversation.id, { checkout_step: "quantity" });
+  if (pending.quantity && row) {
+    await finishPendingItem(supabase, row, conversation, pending.quantity);
+    return;
+  }
+
   await sendWhatsAppInteractiveButtons({
     to,
     body: `Cuantas unidades de ${pending.product_name} quieres? Tambien puedes escribir una cantidad del 1 al 50.`,
@@ -1402,7 +1546,7 @@ async function selectPendingVariant(
   const variant = configuration?.variants.find((item) => item.id === variantId);
   if (!configuration || !variant) {
     await sendWhatsAppTextMessage({ to: row.from_phone, body: "Esa presentacion ya no esta disponible. Elige otra." });
-    await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft);
+    await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft, row);
     return;
   }
 
@@ -1410,7 +1554,7 @@ async function selectPendingVariant(
     checkout_step: configuration.groups.length ? "option" : "quantity",
     pending_item: { ...pending, variant_id: variant.id, variant_name: variant.name },
   });
-  await continuePendingItemConfiguration(supabase, row.from_phone, conversation, updated);
+  await continuePendingItemConfiguration(supabase, row.from_phone, conversation, updated, row);
 }
 
 async function selectPendingOption(
@@ -1430,7 +1574,7 @@ async function selectPendingOption(
   const option = configuration?.options.find((item) => item.id === optionId && item.option_group_id === group?.id);
   if (!configuration || !group || !option) {
     await sendWhatsAppTextMessage({ to: row.from_phone, body: "Esa opcion ya no esta disponible. Revisa la lista actualizada." });
-    await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft);
+    await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft, row);
     return;
   }
 
@@ -1458,7 +1602,7 @@ async function selectPendingOption(
     group_index: shouldAdvance ? pending.group_index + 1 : pending.group_index,
   };
   const updated = await updateOpenDraft(supabase, conversation.id, { pending_item: nextPending });
-  await continuePendingItemConfiguration(supabase, row.from_phone, conversation, updated);
+  await continuePendingItemConfiguration(supabase, row.from_phone, conversation, updated, row);
 }
 
 async function finishPendingOptionGroup(
@@ -1486,7 +1630,7 @@ async function finishPendingOptionGroup(
       to: row.from_phone,
       body: `Para ${group.name} debes elegir entre ${group.min_choices} y ${group.max_choices}.`,
     });
-    await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft);
+    await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft, row);
     return;
   }
 
@@ -1501,7 +1645,7 @@ async function finishPendingOptionGroup(
       group_index: pending.group_index + 1,
     },
   });
-  await continuePendingItemConfiguration(supabase, row.from_phone, conversation, updated);
+  await continuePendingItemConfiguration(supabase, row.from_phone, conversation, updated, row);
 }
 
 async function finishPendingItem(
@@ -1531,14 +1675,14 @@ async function finishPendingItem(
   const variant = pending.variant_id ? configuration.variants.find((item) => item.id === pending.variant_id) : null;
   if (configuration.variants.length && !variant) {
     await sendWhatsAppTextMessage({ to: row.from_phone, body: "Falta elegir la presentacion del producto." });
-    await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft);
+    await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft, row);
     return;
   }
 
   const selectedOptions = configuration.options.filter((option) => pending.option_ids.includes(option.id));
   if (!hasValidOptionSelection(configuration.groups, selectedOptions)) {
     await sendWhatsAppTextMessage({ to: row.from_phone, body: "Falta completar una opcion obligatoria del producto." });
-    await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft);
+    await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft, row);
     return;
   }
 
@@ -1558,7 +1702,7 @@ async function finishPendingItem(
     unit_price: unitPrice,
     quantity: safeQuantity,
     subtotal: roundMoney(unitPrice * safeQuantity),
-    notes: [variant?.name, ...selectedOptions.map((option) => option.name)].filter(Boolean).join(" | ") || null,
+    notes: [variant?.name, ...selectedOptions.map((option) => option.name)].filter(Boolean).join(", ") || null,
   };
   const items = [...draft.items];
   const existing = items.find(
@@ -1587,7 +1731,9 @@ async function finishPendingItem(
 async function sendDraftSummary(to: string, restaurant: RestaurantRow, draft: WhatsAppOrderDraftRow) {
   await sendWhatsAppInteractiveButtons({
     to,
-    body: `Asi va tu pedido en ${restaurant.name}\n\n${formatDraftItems(draft)}\n\nSubtotal: Bs ${formatMoney(draftSubtotal(draft))}\n\nPuedes agregar algo mas o avanzar a entrega y pago.`,
+    body:
+      `Asi va tu pedido en ${restaurant.name}\n\n${formatDraftItems(draft)}\n\nSubtotal: Bs ${formatMoney(draftSubtotal(draft))}\n\n` +
+      "Puedes agregar otro producto o continuar para completar entrega y pago.",
     buttons: [
       { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
       { id: "DRAFT_CHECKOUT", title: "Continuar pedido" },
@@ -1608,12 +1754,7 @@ async function beginDraftCheckout(
   }
 
   const settings = await getRestaurantSettings(supabase, draft.restaurant_id);
-  const buttons = [
-    ...(settings?.pickup_enabled ? [{ id: "ORDER_TYPE:pickup", title: "Recojo" }] : []),
-    ...(settings?.delivery_enabled ? [{ id: "ORDER_TYPE:delivery", title: "Delivery" }] : []),
-    { id: "DRAFT_CANCEL", title: "Cancelar" },
-  ];
-  if (!settings || buttons.length === 1) {
+  if (!settings || (!settings.pickup_enabled && !settings.delivery_enabled)) {
     await sendWhatsAppTextMessage({ to: row.from_phone, body: "Este restaurante no tiene recojo ni delivery habilitados en este momento." });
     return;
   }
@@ -1626,7 +1767,41 @@ async function beginDraftCheckout(
     payment_receipt_media_id: null,
   });
   await updateConversationState(supabase, conversation.id, "drafting_order", "awaiting_order_type", row.message_id);
-  await sendWhatsAppInteractiveButtons({ to: row.from_phone, body: "Como quieres recibir tu pedido?", buttons });
+  await sendCheckoutGuide(row.from_phone, settings);
+}
+
+function formatCheckoutGuide(settings: RestaurantSettingsRow) {
+  const deliveryOptions = [
+    ...(settings.pickup_enabled ? ["recojo"] : []),
+    ...(settings.delivery_enabled ? ["delivery"] : []),
+  ].join(" o ");
+  const paymentOptions = settings.qr_payment_url?.trim() ? "efectivo o QR" : "efectivo";
+  const lines = [
+    "Completemos tu pedido.",
+    "",
+    "Responde copiando este formato:",
+    `🛵 Entrega: ${settings.delivery_enabled ? "delivery" : "recojo"}`,
+    "🕒 Hora: ahora",
+    "👤 Cliente: Juan Perez",
+    "💵 Pago: efectivo",
+    ...(settings.invoice_enabled ? ["🧾 Factura: sin factura"] : []),
+    "",
+    "Ejemplos validos:",
+    `Entrega: ${deliveryOptions}`,
+    "Hora: ahora, 19:30 o 28/08/2026 19:30",
+    `Pago: ${paymentOptions}`,
+    ...(settings.invoice_enabled ? ["Factura: sin factura o con factura"] : []),
+  ];
+
+  if (settings.delivery_enabled) {
+    lines.push("", "Si es delivery agrega:", "📍 Direccion: Av. Siempre Viva 123", "🏠 Referencia: puerta negra");
+  }
+
+  return lines.join("\n");
+}
+
+async function sendCheckoutGuide(to: string, settings: RestaurantSettingsRow) {
+  await sendWhatsAppTextMessage({ to, body: formatCheckoutGuide(settings) });
 }
 
 async function selectDraftOrderType(
@@ -1660,14 +1835,22 @@ async function selectDraftOrderType(
         }
       : {}),
   });
-  await sendWhatsAppInteractiveButtons({
-    to: row.from_phone,
-    body: "Cuando quieres recibirlo?",
-    buttons: [
-      { id: "FULFILLMENT:now", title: "Lo antes posible" },
-      { id: "FULFILLMENT:schedule", title: "Programar" },
-      { id: "DRAFT_BACK", title: "Volver" },
-    ],
+  if (settings) {
+    await sendCheckoutGuide(row.from_phone, settings);
+    return;
+  }
+  await sendFulfillmentPicker(row.from_phone);
+}
+
+async function sendFulfillmentPicker(to: string) {
+  await sendWhatsAppTextMessage({
+    to,
+    body:
+      "Completemos tu pedido.\n\n" +
+      "Responde copiando este formato:\n" +
+      "🕒 Hora: ahora\n" +
+      "👤 Cliente: Juan Perez\n" +
+      "💵 Pago: efectivo",
   });
 }
 
@@ -1732,7 +1915,6 @@ async function continueAfterFulfillmentTime(
       to: row.from_phone,
       body: "Comparte tu ubicacion exacta desde WhatsApp. Asi calculamos delivery, distancia y si corresponde prepago QR.",
     });
-    await sendNavigationButtons(row.from_phone, "Tambien puedes escribir volver o empezar de nuevo si quieres cambiar algo.");
     return;
   }
 
@@ -1756,7 +1938,6 @@ async function consumeDraftInput(
   if (draft.checkout_step === "location") {
     if (row.message_type !== "location") {
       await sendWhatsAppLocationRequest({ to: row.from_phone, body: "Necesito que compartas la ubicacion usando el boton de WhatsApp para calcular el delivery." });
-      await sendNavigationButtons(row.from_phone, "Si quieres cambiar algo, toca volver o empieza de nuevo.");
       return true;
     }
 
@@ -1768,12 +1949,16 @@ async function consumeDraftInput(
       return true;
     }
 
-    await updateOpenDraft(supabase, conversation.id, {
-      checkout_step: "address",
+    const updated = await updateOpenDraft(supabase, conversation.id, {
+      checkout_step: draft.customer_address?.trim() ? "name" : "address",
       delivery_latitude: latitude,
       delivery_longitude: longitude,
       delivery_maps_url: coordinatesToMapsUrl(latitude, longitude),
     });
+    if (updated.customer_address?.trim()) {
+      await continueAfterCompactCheckout(supabase, row, conversation, updated, true);
+      return true;
+    }
     await sendWhatsAppInteractiveButtons({
       to: row.from_phone,
       body: "Perfecto, ya tengo tu ubicacion. Ahora escribe la direccion: calle, numero y zona o barrio.",
@@ -1812,6 +1997,20 @@ async function consumeDraftInput(
   const text = row.message_type === "text" ? row.message_text?.trim() : null;
   if (!text) {
     return false;
+  }
+
+  if (await applyCompactCheckoutInput(supabase, row, conversation, draft, text)) {
+    return true;
+  }
+
+  if (draft.checkout_step === "order_type" || draft.checkout_step === "fulfillment") {
+    const settings = draft.restaurant_id ? await getRestaurantSettings(supabase, draft.restaurant_id) : null;
+    if (settings) {
+      await sendCheckoutGuide(row.from_phone, settings);
+    } else {
+      await sendFulfillmentPicker(row.from_phone);
+    }
+    return true;
   }
 
   if (draft.checkout_step === "schedule") {
@@ -1868,24 +2067,237 @@ async function consumeDraftInput(
   }
 
   if (draft.checkout_step === "invoice_detail") {
-    const parts = text.split(/\s*[|;\n]\s*/).filter(Boolean);
-    if (parts.length < 3) {
+    const invoiceFields = parseInvoiceFieldsFromSegments(text.split(/\s*[|;\n]\s*/).filter(Boolean));
+    if (!invoiceFields) {
       await sendWhatsAppTextMessage({
         to: row.from_phone,
-        body: "Envia los tres datos separados por |. Ejemplo: CI | 1234567 | Maria Perez.",
+        body:
+          "Envia los datos de factura asi:\n" +
+          "🧾 Tipo: CI\n" +
+          "🔢 Numero: 1234567\n" +
+          "👤 Nombre: Maria Perez",
       });
       return true;
     }
     const updated = await updateOpenDraft(supabase, conversation.id, {
-      invoice_document_type: truncate(parts[0], 24),
-      invoice_document_number: truncate(parts[1], 80),
-      invoice_name: truncate(parts.slice(2).join(" "), 160),
+      invoice_document_type: invoiceFields.documentType,
+      invoice_document_number: invoiceFields.documentNumber,
+      invoice_name: invoiceFields.name,
     });
     await moveDraftToPayment(supabase, row, conversation, updated);
     return true;
   }
 
   return false;
+}
+
+async function applyCompactCheckoutInput(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  draft: WhatsAppOrderDraftRow,
+  text: string,
+) {
+  if (draft.pending_item || draft.items.length === 0 || draft.checkout_step === "receipt" || draft.checkout_step === "quantity") {
+    return false;
+  }
+
+  const input = parseCompactCheckoutInput(text, draft);
+  if (!input.hasSignal) {
+    return false;
+  }
+
+  if (!draft.restaurant_id) {
+    await sendRestaurantPicker(supabase, row.from_phone);
+    return true;
+  }
+
+  const settings = await getRestaurantSettings(supabase, draft.restaurant_id);
+  if (!settings) {
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "No pude leer la configuracion del restaurante. Intenta nuevamente en unos minutos." });
+    return true;
+  }
+
+  const enabledOrderTypes: Array<"delivery" | "pickup"> = [
+    ...(settings.delivery_enabled ? (["delivery"] as const) : []),
+    ...(settings.pickup_enabled ? (["pickup"] as const) : []),
+  ];
+  const requestedOrderType = input.orderType ?? draft.order_type ?? (enabledOrderTypes.length === 1 ? enabledOrderTypes[0] : null);
+  if (input.orderType && !enabledOrderTypes.includes(input.orderType)) {
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "Esa forma de entrega no esta habilitada para este restaurante." });
+    await beginDraftCheckout(supabase, row, conversation);
+    return true;
+  }
+
+  const patch: JsonObject = { status: "open" };
+  let fulfillmentResolved = Boolean(input.fulfillment);
+  if (requestedOrderType) {
+    patch.order_type = requestedOrderType;
+    patch.checkout_step = "fulfillment";
+    if (requestedOrderType === "pickup") {
+      patch.customer_address = null;
+      patch.customer_address_detail = null;
+      patch.delivery_latitude = null;
+      patch.delivery_longitude = null;
+      patch.delivery_maps_url = null;
+      patch.delivery_distance_km = null;
+      patch.delivery_fee = 0;
+      patch.requires_prepayment = false;
+    }
+  }
+
+  if (input.fulfillment === "schedule") {
+    if (!input.scheduledLocalInput || !input.scheduledIso) {
+      await updateOpenDraft(supabase, conversation.id, { ...patch, checkout_step: "schedule", requested_fulfillment_at: null });
+      await sendWhatsAppInteractiveButtons({
+        to: row.from_phone,
+        body: "Para programarlo escribe fecha y hora en formato DD/MM/AAAA HH:MM. Ejemplo: 28/08/2026 19:30.",
+        buttons: [
+          { id: "FULFILLMENT:now", title: "Lo antes posible" },
+          { id: "DRAFT_BACK", title: "Volver" },
+          { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+        ],
+      });
+      return true;
+    }
+
+    const hours = await listBusinessHours(supabase, draft.restaurant_id);
+    if (new Date(input.scheduledIso).getTime() <= Date.now() || !isLocalDateTimeWithinBusinessHours(input.scheduledLocalInput, hours)) {
+      await sendWhatsAppTextMessage({
+        to: row.from_phone,
+        body: "Esa fecha no es valida, ya paso o esta fuera del horario del restaurante. Usa DD/MM/AAAA HH:MM.",
+      });
+      return true;
+    }
+    patch.requested_fulfillment_at = input.scheduledIso;
+  } else if (input.fulfillment === "now") {
+    patch.requested_fulfillment_at = null;
+    fulfillmentResolved = true;
+  } else if (draft.requested_fulfillment_at) {
+    fulfillmentResolved = true;
+  } else if (input.orderType || input.paymentMethod || input.invoiceRequired !== null || input.customerName) {
+    patch.requested_fulfillment_at = null;
+    fulfillmentResolved = true;
+  }
+
+  if (input.customerName) {
+    patch.customer_name = input.customerName;
+  }
+  if (requestedOrderType === "delivery" && input.customerAddress) {
+    patch.customer_address = input.customerAddress;
+  }
+  if (requestedOrderType === "delivery" && input.customerAddressDetail !== null) {
+    patch.customer_address_detail = input.customerAddressDetail;
+  }
+  if (input.invoiceFields) {
+    patch.invoice_required = true;
+    patch.invoice_document_type = input.invoiceFields.documentType;
+    patch.invoice_document_number = input.invoiceFields.documentNumber;
+    patch.invoice_name = input.invoiceFields.name;
+  } else if (input.invoiceRequired !== null) {
+    patch.invoice_required = input.invoiceRequired;
+    patch.invoice_document_type = null;
+    patch.invoice_document_number = null;
+    patch.invoice_name = null;
+  }
+  if (input.paymentMethod) {
+    patch.payment_method = input.paymentMethod;
+    patch.payment_receipt_url = null;
+    patch.payment_receipt_media_id = null;
+  }
+
+  const updated = await updateOpenDraft(supabase, conversation.id, patch);
+  await continueAfterCompactCheckout(supabase, row, conversation, updated, fulfillmentResolved);
+  return true;
+}
+
+async function continueAfterCompactCheckout(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  draft: WhatsAppOrderDraftRow,
+  fulfillmentResolved: boolean,
+) {
+  if (!draft.order_type) {
+    await beginDraftCheckout(supabase, row, conversation);
+    return;
+  }
+
+  if (!fulfillmentResolved && !draft.requested_fulfillment_at) {
+    await updateOpenDraft(supabase, conversation.id, { checkout_step: "fulfillment" });
+    await sendFulfillmentPicker(row.from_phone);
+    return;
+  }
+
+  if (draft.order_type === "delivery") {
+    if (!hasValidCoordinates(draft.delivery_latitude, draft.delivery_longitude)) {
+      await updateOpenDraft(supabase, conversation.id, { checkout_step: "location" });
+      await sendWhatsAppLocationRequest({
+        to: row.from_phone,
+        body: "Listo. Ahora comparte tu ubicacion exacta desde WhatsApp para calcular el delivery.",
+      });
+      return;
+    }
+
+    if (!draft.customer_address?.trim()) {
+      await updateOpenDraft(supabase, conversation.id, { checkout_step: "address" });
+      await sendWhatsAppInteractiveButtons({
+        to: row.from_phone,
+        body:
+          "Ya tengo tu GPS. Completa la direccion asi:\n" +
+          "📍 Direccion: Av. Siempre Viva 123\n" +
+          "🏠 Referencia: puerta negra",
+        buttons: [
+          { id: "DRAFT_BACK", title: "Volver" },
+          { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
+          { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+        ],
+      });
+      return;
+    }
+  }
+
+  if (!draft.customer_name?.trim()) {
+    await askCustomerName(supabase, row.from_phone, conversation.id);
+    return;
+  }
+
+  const settings = draft.restaurant_id ? await getRestaurantSettings(supabase, draft.restaurant_id) : null;
+  if (settings?.invoice_enabled) {
+    if (draft.invoice_required === null) {
+      await updateOpenDraft(supabase, conversation.id, { checkout_step: "invoice" });
+      await sendWhatsAppInteractiveButtons({
+        to: row.from_phone,
+        body: "Necesitas factura? Para ir mas rapido tambien puedes escribir: sin factura.",
+        buttons: [
+          { id: "INVOICE:NO", title: "Sin factura" },
+          { id: "INVOICE:YES", title: "Quiero factura" },
+          { id: "DRAFT_CANCEL", title: "Cancelar" },
+        ],
+      });
+      return;
+    }
+
+    if (draft.invoice_required && (!draft.invoice_document_type || !draft.invoice_document_number || !draft.invoice_name)) {
+      await updateOpenDraft(supabase, conversation.id, { checkout_step: "invoice_detail" });
+      await sendWhatsAppTextMessage({
+        to: row.from_phone,
+        body:
+          "Envia los datos de factura asi:\n" +
+          "🧾 Tipo: NIT\n" +
+          "🔢 Numero: 123456789\n" +
+          "👤 Nombre: Empresa SRL",
+      });
+      return;
+    }
+  }
+
+  if (!draft.payment_method) {
+    await moveDraftToPayment(supabase, row, conversation, draft);
+    return;
+  }
+
+  await selectDraftPayment(supabase, row, conversation, draft.payment_method);
 }
 
 async function askCustomerName(
@@ -1897,18 +2309,6 @@ async function askCustomerName(
   await sendWhatsAppInteractiveButtons({
     to,
     body: "A que nombre registramos el pedido?",
-    buttons: [
-      { id: "DRAFT_BACK", title: "Volver" },
-      { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
-      { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
-    ],
-  });
-}
-
-async function sendNavigationButtons(to: string, body: string) {
-  await sendWhatsAppInteractiveButtons({
-    to,
-    body,
     buttons: [
       { id: "DRAFT_BACK", title: "Volver" },
       { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
@@ -2073,7 +2473,11 @@ async function selectDraftInvoice(
   if (required) {
     await sendWhatsAppTextMessage({
       to: row.from_phone,
-      body: "Envia: tipo de documento | numero | nombre o razon social. Ejemplo: NIT | 123456789 | Empresa SRL.",
+      body:
+        "Envia los datos de factura asi:\n" +
+        "🧾 Tipo: NIT\n" +
+        "🔢 Numero: 123456789\n" +
+        "👤 Nombre: Empresa SRL",
     });
     return;
   }
@@ -2132,7 +2536,11 @@ async function selectDraftPayment(
   try {
     const quote = await validateDraftOrder(supabase, await getOpenDraft(supabase, conversation.id), false);
     if (quote.deliveryPolicy?.requiresQrPrepayment && paymentMethod !== "qr") {
-      throw new Error("qr-required-distance");
+      await sendWhatsAppTextMessage({
+        to: row.from_phone,
+        body: `Por la distancia del delivery (${quote.deliveryPolicy.distanceKm.toFixed(1)} km), este pedido requiere prepago por QR.`,
+      });
+      paymentMethod = "qr";
     }
     if (paymentMethod === "qr" && !quote.settings.qr_payment_url?.trim()) {
       throw new Error("qr-unavailable");
@@ -2159,7 +2567,7 @@ async function selectDraftPayment(
 
 async function sendQrPaymentInstructions(to: string, qrUrl: string, total: number, restaurantName: string) {
   try {
-    await sendWhatsAppImageMessage({ to, imageUrl: qrUrl, caption: `QR de ${restaurantName} | Total: Bs ${formatMoney(total)}` });
+    await sendWhatsAppImageMessage({ to, imageUrl: qrUrl, caption: `QR de ${restaurantName}\nTotal: Bs ${formatMoney(total)}` });
   } catch {
     await sendWhatsAppTextMessage({
       to,
@@ -2216,7 +2624,7 @@ async function showDraftConfirmation(
       body:
         `Revisa tu pedido en ${quote.restaurant.name}\n\n${formatDraftItems(draft)}\n\n` +
         `Entrega: ${formatDraftFulfillment(draft)}\n` +
-        `${quote.deliveryPolicy ? `Distancia: ${quote.deliveryPolicy.distanceKm.toFixed(1)} km${quote.deliveryPolicy.zoneName ? ` | ${quote.deliveryPolicy.zoneName}` : ""}\nDelivery: Bs ${formatMoney(quote.deliveryPolicy.deliveryFee)}\n` : ""}` +
+        `${quote.deliveryPolicy ? `Distancia: ${quote.deliveryPolicy.distanceKm.toFixed(1)} km${quote.deliveryPolicy.zoneName ? `\nZona: ${quote.deliveryPolicy.zoneName}` : ""}\nDelivery: Bs ${formatMoney(quote.deliveryPolicy.deliveryFee)}\n` : ""}` +
         `Pago: ${draft.payment_method === "qr" ? "QR con comprobante" : "Efectivo"}\n` +
         `Subtotal: Bs ${formatMoney(quote.subtotal)}\nTotal: Bs ${formatMoney(quote.total)}\n\n` +
         "Al confirmar entrara al panel del restaurante.",
@@ -2490,7 +2898,7 @@ async function revalidateDraftItems(
       option_ids: selected.map((option) => option.id),
       unit_price: unitPrice,
       subtotal: roundMoney(unitPrice * item.quantity),
-      notes: [variant?.name, ...selected.map((option) => option.name)].filter(Boolean).join(" | ") || null,
+      notes: [variant?.name, ...selected.map((option) => option.name)].filter(Boolean).join(", ") || null,
     } satisfies DraftItem;
   });
 }
@@ -2777,6 +3185,7 @@ function normalizeDraft(value: JsonObject): WhatsAppOrderDraftRow {
         option_ids: stringArray(pendingValue.option_ids),
         option_names: stringArray(pendingValue.option_names),
         group_index: Math.max(0, Math.floor(numberValue(pendingValue.group_index) ?? 0)),
+        quantity: normalizeQuantity(numberValue(pendingValue.quantity)),
       }
     : null;
 
@@ -2842,6 +3251,328 @@ function normalizeDraftItems(value: unknown): DraftItem[] {
       },
     ];
   });
+}
+
+function parseProductSearchInput(text: string) {
+  const normalized = normalizeForMatch(text)
+    .replace(/\b(quiero|quisiera|deseo|pedir|pedido|ordenar|comprar|agrega|agregar|anade|anadir|dame|deme|me das|por favor|porfa)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  let quantity: number | null = null;
+  let query = normalized;
+  const quantityWords = "(un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)";
+  const prefix = new RegExp(`^(?:(\\d{1,2})|${quantityWords})(?:\\s*x)?\\s+(.+)$`).exec(query);
+  const compactPrefix = /^(\d{1,2})\s*x\s*(.+)$/.exec(query);
+  const suffix = /^(.+?)\s+(?:x\s*)?(\d{1,2})$/.exec(query);
+
+  if (prefix) {
+    quantity = normalizeQuantity(Number(prefix[1]) || quantityWordValue(prefix[2]));
+    query = prefix[3] ?? "";
+  } else if (compactPrefix) {
+    quantity = normalizeQuantity(Number(compactPrefix[1]));
+    query = compactPrefix[2] ?? "";
+  } else if (suffix) {
+    quantity = normalizeQuantity(Number(suffix[2]));
+    query = suffix[1] ?? "";
+  }
+
+  query = searchTokens(query)
+    .filter((token) => !checkoutSignalTokens().has(token))
+    .join(" ");
+
+  return { query, quantity };
+}
+
+function scoreProductMatch(query: string, product: ProductSummaryRow) {
+  const normalizedQuery = normalizeForMatch(query);
+  const normalizedName = normalizeForMatch(product.name);
+  const queryTokens = searchTokens(normalizedQuery);
+  const nameTokens = searchTokens(normalizedName);
+  if (queryTokens.length === 0 || nameTokens.length === 0) {
+    return 0;
+  }
+
+  if (normalizedName === normalizedQuery) {
+    return 100;
+  }
+  if (normalizedName.includes(normalizedQuery)) {
+    return 92;
+  }
+  if (normalizedQuery.includes(normalizedName) && normalizedName.length >= 4) {
+    return 88;
+  }
+
+  const matched = queryTokens.filter((queryToken) =>
+    nameTokens.some((nameToken) => nameToken === queryToken || nameToken.includes(queryToken) || queryToken.includes(nameToken)),
+  ).length;
+  if (matched === queryTokens.length) {
+    return 72 + matched;
+  }
+  if (matched > 0 && queryTokens.length <= 2) {
+    return 45 + matched * 8;
+  }
+
+  const descriptionTokens = searchTokens(product.description ?? "");
+  const descriptionMatches = queryTokens.filter((queryToken) => descriptionTokens.includes(queryToken)).length;
+  return descriptionMatches === queryTokens.length ? 40 + descriptionMatches : 0;
+}
+
+function parseCompactCheckoutInput(text: string, draft?: WhatsAppOrderDraftRow): CompactCheckoutInput {
+  const rawSegments = text
+    .split(/\s*[|;\n]\s*/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const segments = rawSegments.map(stripCheckoutLinePrefix);
+  const normalizedSegments = (segments.length ? segments : [text]).map((segment) => normalizeForMatch(segment));
+  const normalized = normalizedSegments.join("\n");
+  const invoiceFields = parseInvoiceFieldsFromSegments(segments);
+  const taggedTime = readTaggedSegment(segments, ["hora", "cuando", "tiempo"]);
+  const scheduledLocalInput =
+    parseScheduleInput(taggedTime ?? "") ??
+    parseScheduleInput(text) ??
+    segments.map(parseScheduleInput).find(Boolean) ??
+    normalizedSegments.map(parseScheduleInput).find(Boolean) ??
+    null;
+  const scheduledIso = scheduledLocalInput ? localDateTimeInputToIso(scheduledLocalInput) : null;
+  const orderType = parseOrderTypeText(readTaggedSegment(segments, ["entrega", "recibir", "tipo de entrega"]) ?? normalized);
+  const paymentMethod = parsePaymentMethodText(readTaggedSegment(segments, ["pago", "forma de pago"]) ?? normalized);
+  const invoiceRequired = invoiceFields ? true : parseInvoicePreferenceText(readTaggedSegment(segments, ["factura"]) ?? normalized);
+  const fulfillment = parseFulfillmentText(taggedTime ?? normalized, scheduledLocalInput);
+  const taggedName = readTaggedSegment(segments, ["cliente", "nombre cliente", "a nombre de"]);
+  const taggedAddress = readTaggedSegment(segments, ["direccion", "dir", "ubicacion"]);
+  const taggedReference = readTaggedSegment(segments, ["referencia", "ref", "detalle", "indicacion"]);
+  const targetOrderType = orderType ?? draft?.order_type ?? null;
+  const leftovers = segments.filter((segment) => !isRecognizedCheckoutSegment(segment));
+  let customerName = taggedName ? truncate(taggedName, 120) : null;
+  let customerAddress = taggedAddress ? truncate(taggedAddress, 240) : null;
+  let customerAddressDetail = taggedReference ? normalizeOptionalText(taggedReference, 180) : null;
+
+  if (!customerName && draft?.checkout_step === "name" && leftovers[0]) {
+    customerName = truncate(leftovers[0], 120);
+  }
+
+  if (!invoiceFields && targetOrderType === "delivery") {
+    if (!customerAddress && draft?.checkout_step === "address" && leftovers[0]) {
+      customerAddress = truncate(leftovers[0], 240);
+      customerAddressDetail = leftovers[1] ? normalizeOptionalText(leftovers[1], 180) : null;
+    } else if (!customerAddress && leftovers.length >= 2 && orderType) {
+      customerName = customerName ?? truncate(leftovers[0], 120);
+      customerAddress = truncate(leftovers[1], 240);
+      customerAddressDetail = leftovers[2] ? normalizeOptionalText(leftovers[2], 180) : customerAddressDetail;
+    }
+
+    if (!customerAddressDetail && draft?.checkout_step === "address_detail" && leftovers[0]) {
+      customerAddressDetail = normalizeOptionalText(leftovers[0], 180);
+    }
+  } else if (!invoiceFields && !customerName && segments.length > 1 && leftovers[0]) {
+    customerName = truncate(leftovers[0], 120);
+  }
+
+  return {
+    hasSignal: Boolean(
+      segments.length > 1 ||
+        orderType ||
+        paymentMethod ||
+        invoiceRequired !== null ||
+        fulfillment ||
+        invoiceFields ||
+        taggedName ||
+        taggedAddress ||
+        taggedReference,
+    ),
+    orderType,
+    fulfillment,
+    scheduledIso,
+    scheduledLocalInput,
+    customerName,
+    customerAddress,
+    customerAddressDetail,
+    paymentMethod,
+    invoiceRequired: invoiceFields ? true : invoiceRequired,
+    invoiceFields,
+  };
+}
+
+function parseOrderTypeText(value: string | null) {
+  if (!value) {
+    return null;
+  }
+  const normalized = normalizeForMatch(value);
+  const hasDelivery = /\b(delivery|envio|enviar|domicilio|llevar a casa)\b/.test(normalized);
+  const hasPickup = /\b(recojo|retiro|recoger|pickup|paso por|en tienda)\b/.test(normalized);
+  if (hasDelivery === hasPickup) {
+    return null;
+  }
+  return hasDelivery ? "delivery" : "pickup";
+}
+
+function parsePaymentMethodText(value: string | null) {
+  if (!value) {
+    return null;
+  }
+  const normalized = normalizeForMatch(value);
+  const hasQr = /\b(qr|transferencia|pago movil)\b/.test(normalized);
+  const hasCash = /\b(efectivo|cash|al contado)\b/.test(normalized);
+  if (hasQr === hasCash) {
+    return null;
+  }
+  return hasQr ? "qr" : "cash";
+}
+
+function parseInvoicePreferenceText(value: string | null) {
+  if (!value) {
+    return null;
+  }
+  const normalized = normalizeForMatch(value);
+  if (/\b(sin factura|no factura|no necesito factura|sin nit)\b/.test(normalized)) {
+    return false;
+  }
+  if (/\b(con factura|quiero factura|factura|nit)\b/.test(normalized)) {
+    return true;
+  }
+  return null;
+}
+
+function parseFulfillmentText(value: string | null, scheduledLocalInput: string | null) {
+  if (scheduledLocalInput) {
+    return "schedule";
+  }
+  if (!value) {
+    return null;
+  }
+  const normalized = normalizeForMatch(value);
+  const hasSchedule = /\b(programar|programado|mas tarde|a las|para las)\b/.test(normalized);
+  const hasNow = /\b(ahora|lo antes posible|cuanto antes|ya|inmediato)\b/.test(normalized);
+  if (hasSchedule === hasNow) {
+    return null;
+  }
+  return hasSchedule ? "schedule" : "now";
+}
+
+function parseInvoiceFieldsFromSegments(segments: string[]) {
+  const cleanedSegments = segments.map(stripCheckoutLinePrefix);
+  if (cleanedSegments.some((segment) => parseInvoicePreferenceText(segment) === false)) {
+    return null;
+  }
+
+  const type = readTaggedSegment(cleanedSegments, ["tipo", "tipo documento", "documento"]);
+  const number = readTaggedSegment(cleanedSegments, ["numero", "nro", "nit", "ci"]);
+  const name = readTaggedSegment(cleanedSegments, ["nombre factura", "razon social", "nombre"]);
+  if (type && number && name) {
+    return {
+      documentType: truncate(type, 24),
+      documentNumber: truncate(number, 80),
+      name: truncate(name, 160),
+    };
+  }
+
+  const normalizedSegments = cleanedSegments.map((segment) => normalizeForMatch(segment));
+  const invoiceIndex = normalizedSegments.findIndex((segment) => /\b(factura|nit|ci)\b/.test(segment));
+  if (invoiceIndex === -1) {
+    return null;
+  }
+
+  const fields = cleanedSegments
+    .slice(invoiceIndex)
+    .map((segment) => segment.replace(/^(factura|datos factura|facturacion)\s*:?\s*/i, "").trim())
+    .filter((segment) => {
+      const normalized = normalizeForMatch(segment);
+      return segment && !["con factura", "factura", "si", "quiero factura"].includes(normalized);
+    });
+  if (fields.length < 3) {
+    return null;
+  }
+
+  return {
+    documentType: truncate(fields[0], 24),
+    documentNumber: truncate(fields[1], 80),
+    name: truncate(fields.slice(2).join(" "), 160),
+  };
+}
+
+function readTaggedSegment(segments: string[], labels: string[]) {
+  for (const segment of segments) {
+    const cleanSegment = stripCheckoutLinePrefix(segment);
+    const normalized = normalizeForMatch(cleanSegment);
+    for (const label of [...labels].sort((left, right) => right.length - left.length)) {
+      const normalizedLabel = normalizeForMatch(label);
+      if (normalized.startsWith(`${normalizedLabel}:`) || normalized.startsWith(`${normalizedLabel} `)) {
+        return cleanSegment.slice(label.length).replace(/^[:\s]+/, "").trim() || null;
+      }
+    }
+  }
+  return null;
+}
+
+function isRecognizedCheckoutSegment(segment: string) {
+  const normalized = normalizeForMatch(stripCheckoutLinePrefix(segment));
+  return (
+    !normalized ||
+    /\b(delivery|envio|enviar|domicilio|recojo|retiro|recoger|pickup|ahora|lo antes posible|programar|programado|efectivo|cash|qr|transferencia|sin factura|no factura|con factura|quiero factura)\b/.test(normalized) ||
+    Boolean(parseScheduleInput(segment)) ||
+    /^(cliente|nombre cliente|a nombre de|direccion|dir|ubicacion|referencia|ref|detalle|indicacion|entrega|recibir|tipo de entrega|hora|cuando|tiempo|pago|forma de pago|factura|tipo|tipo documento|documento|numero|nro|nit|ci|nombre|razon social)\b/.test(normalized)
+  );
+}
+
+function stripCheckoutLinePrefix(value: string) {
+  return value.replace(/^[^\w]+/, "").trim();
+}
+
+function normalizeOptionalText(value: string, maxLength: number) {
+  return normalizeForMatch(value) === "no" || /\b(sin referencia|sin detalle|ninguna|ninguno)\b/.test(normalizeForMatch(value))
+    ? null
+    : truncate(value, maxLength);
+}
+
+function searchTokens(value: string) {
+  return normalizeForMatch(value)
+    .split(/\s+/)
+    .map((token) => singularizeSearchToken(token.replace(/[^a-z0-9]/g, "")))
+    .filter((token) => token.length >= 2 && !productSearchStopWords().has(token));
+}
+
+function singularizeSearchToken(token: string) {
+  if (token.length > 4 && token.endsWith("es")) {
+    return token.slice(0, -2);
+  }
+  if (token.length > 3 && token.endsWith("s")) {
+    return token.slice(0, -1);
+  }
+  return token;
+}
+
+function productSearchStopWords() {
+  return new Set(["de", "del", "la", "el", "los", "las", "con", "sin", "para", "por", "favor", "un", "una", "uno"]);
+}
+
+function checkoutSignalTokens() {
+  return new Set(["delivery", "envio", "domicilio", "recojo", "retiro", "pickup", "ahora", "efectivo", "cash", "qr", "factura"]);
+}
+
+function quantityWordValue(value: string | undefined) {
+  const values: Record<string, number> = {
+    un: 1,
+    una: 1,
+    uno: 1,
+    dos: 2,
+    tres: 3,
+    cuatro: 4,
+    cinco: 5,
+    seis: 6,
+    siete: 7,
+    ocho: 8,
+    nueve: 9,
+    diez: 10,
+  };
+  return value ? values[value] ?? null : null;
+}
+
+function normalizeQuantity(value: number | null) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  const quantity = Math.floor(Number(value));
+  return quantity >= 1 && quantity <= 50 ? quantity : null;
 }
 
 function roundMoney(value: number) {
@@ -2996,6 +3727,19 @@ function formatLocalDateTimeInput(date: Date) {
 
 function parseScheduleInput(value: string) {
   const normalized = value.trim();
+  const simple = normalizeForMatch(normalized);
+  const timeOnly = /^(?:(hoy|manana)\s+)?(\d{1,2}):(\d{2})$/.exec(simple);
+  if (timeOnly) {
+    const dayOffset = timeOnly[1] === "manana" ? 1 : 0;
+    const parts = zonedDateParts(new Date(Date.now() + dayOffset * 24 * 60 * 60 * 1000));
+    const hour = Number(timeOnly[2]);
+    const minute = Number(timeOnly[3]);
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      return null;
+    }
+    return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(hour)}:${pad(minute)}`;
+  }
+
   const match = /^(?:(\d{2})\/(\d{2})\/(\d{4})|(\d{4})-(\d{2})-(\d{2}))[ T](\d{2}):(\d{2})$/.exec(normalized);
   if (!match) {
     return null;
@@ -3194,6 +3938,10 @@ function isRestartIntent(value: string) {
     value === "DRAFT_RESTART".toLowerCase() ||
     /\b(empezar de nuevo|reiniciar|nuevo pedido|cancelar todo|borrar pedido|desde cero)\b/.test(value)
   );
+}
+
+function isConfirmIntent(value: string) {
+  return /\b(confirmar|confirmo|enviar pedido|finalizar|listo)\b/.test(value);
 }
 
 function detectIntent(value: string) {

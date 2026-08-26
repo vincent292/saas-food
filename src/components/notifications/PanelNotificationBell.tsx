@@ -14,6 +14,7 @@ type RealtimeOrderRow = {
   restaurant_id?: string;
   order_number?: string | null;
   order_type?: "table" | "delivery" | "pickup" | "pos" | null;
+  order_origin?: "pos_counter" | "table_qr" | "web_checkout" | "phone_whatsapp" | "external_platform" | null;
   status?: "pending" | "accepted" | "preparing" | "ready" | "delivered" | "cancelled" | null;
   total?: number | null;
   created_at?: string | null;
@@ -48,6 +49,17 @@ function ToneIcon({ tone }: { tone: PanelNotificationTone }) {
   return <Info className="h-4 w-4" />;
 }
 
+function realtimeOrderSourceLabel(row: RealtimeOrderRow) {
+  if (row.order_origin === "phone_whatsapp") {
+    return row.order_type === "pickup" ? "WhatsApp recojo" : "WhatsApp delivery";
+  }
+
+  if (row.order_type === "delivery") return "delivery";
+  if (row.order_type === "pickup") return "recojo";
+  if (row.order_type === "table") return "mesa";
+  return "pedido";
+}
+
 function realtimeOrderNotification(row: RealtimeOrderRow, restaurantId: string): PanelNotification | null {
   if (!row.id || row.restaurant_id !== restaurantId || row.status !== "pending" || !row.order_type || row.order_type === "pos") {
     return null;
@@ -57,7 +69,7 @@ function realtimeOrderNotification(row: RealtimeOrderRow, restaurantId: string):
   return {
     id: `order:${row.id}:${createdAt}`,
     title: `Pedido ${row.order_number ?? "nuevo"} pendiente`,
-    description: `Requiere aprobacion${row.total ? ` por Bs ${Number(row.total).toFixed(2)}` : ""}.`,
+    description: `${realtimeOrderSourceLabel(row)} requiere aprobacion${row.total ? ` por Bs ${Number(row.total).toFixed(2)}` : ""}.`,
     href: `/admin/restaurantes/${restaurantId}/pedidos?tab=nuevos`,
     createdAt,
     tone: "danger",

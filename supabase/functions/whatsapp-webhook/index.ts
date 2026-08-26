@@ -12,6 +12,7 @@ const GRAPH_API_VERSION = "v26.0";
 const RESTAURANT_TIME_ZONE = "America/La_Paz";
 const RECEIPT_BUCKET = "whatsapp-payment-receipts";
 const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
+const R2_DEFAULT_REGION = "auto";
 const DRAFT_SELECT =
   "id,conversation_id,customer_id,restaurant_id,status,items,checkout_step,pending_item,customer_name,customer_address,customer_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,delivery_fee,requires_prepayment,requested_fulfillment_at,order_type,payment_method,payment_receipt_url,payment_receipt_media_id,invoice_required,invoice_document_type,invoice_document_number,invoice_name,notes,created_order_id";
 
@@ -219,6 +220,21 @@ type RecentOrderRow = {
 type CreatedOrderRow = {
   id: string;
   tracking_token: string;
+};
+
+type SavedDeliveryAddress = {
+  customerName: string | null;
+  address: string;
+  addressDetail: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  mapsUrl: string | null;
+  lastOrderAt: string;
+};
+
+type SavedCheckoutProfile = {
+  customerName: string | null;
+  addresses: SavedDeliveryAddress[];
 };
 
 type ProductTextMatch = {
@@ -1742,6 +1758,64 @@ async function sendDraftSummary(to: string, restaurant: RestaurantRow, draft: Wh
   });
 }
 
+async function getSavedCheckoutProfile(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  phone: string,
+  restaurantId: string,
+): Promise<SavedCheckoutProfile> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("customer_name,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,created_at")
+    .eq("restaurant_id", restaurantId)
+    .eq("customer_phone", phone)
+    .neq("status", "cancelled")
+    .order("created_at", { ascending: false })
+    .limit(12);
+
+  if (error) {
+    console.warn("Could not read WhatsApp saved checkout profile", { restaurantId, error });
+    return { customerName: null, addresses: [] };
+  }
+
+  const rows = recordArray(data);
+  const customerName = rows.map((row) => stringValue(row.customer_name)?.trim()).find(Boolean) ?? null;
+  const addresses: SavedDeliveryAddress[] = [];
+  const seenAddresses = new Set<string>();
+
+  for (const row of rows) {
+    const address = stringValue(row.customer_address)?.trim();
+    if (!address) {
+      continue;
+    }
+
+    const addressDetail = stringValue(row.delivery_address_detail)?.trim() || null;
+    const latitude = numberValue(row.delivery_latitude);
+    const longitude = numberValue(row.delivery_longitude);
+    const hasCoordinates = latitude !== null && longitude !== null && hasValidCoordinates(latitude, longitude);
+    const key = normalizeForMatch(`${address}|${addressDetail ?? ""}|${latitude?.toFixed(5) ?? ""}|${longitude?.toFixed(5) ?? ""}`);
+    if (seenAddresses.has(key)) {
+      continue;
+    }
+
+    seenAddresses.add(key);
+    addresses.push({
+      customerName: stringValue(row.customer_name)?.trim() || null,
+      address,
+      addressDetail,
+      latitude,
+      longitude,
+      mapsUrl: stringValue(row.delivery_maps_url) ?? (hasCoordinates ? coordinatesToMapsUrl(latitude, longitude) : null),
+      lastOrderAt: stringValue(row.created_at) ?? new Date().toISOString(),
+    });
+
+    if (addresses.length >= 2) {
+      break;
+    }
+  }
+
+  return { customerName, addresses };
+}
+
 async function beginDraftCheckout(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   row: WhatsAppMessageRow,
@@ -1767,41 +1841,137 @@ async function beginDraftCheckout(
     payment_receipt_media_id: null,
   });
   await updateConversationState(supabase, conversation.id, "drafting_order", "awaiting_order_type", row.message_id);
-  await sendCheckoutGuide(row.from_phone, settings);
+  await sendCheckoutGuide(supabase, row.from_phone, settings, draft.restaurant_id);
 }
 
-function formatCheckoutGuide(settings: RestaurantSettingsRow) {
+function formatCheckoutGuide(settings: RestaurantSettingsRow, profile: SavedCheckoutProfile = { customerName: null, addresses: [] }) {
   const deliveryOptions = [
-    ...(settings.pickup_enabled ? ["recojo"] : []),
     ...(settings.delivery_enabled ? ["delivery"] : []),
+    ...(settings.pickup_enabled ? ["recojo"] : []),
   ].join(" o ");
   const paymentOptions = settings.qr_payment_url?.trim() ? "efectivo o QR" : "efectivo";
   const lines = [
     "Completemos tu pedido.",
     "",
-    "Responde copiando este formato:",
-    `🛵 Entrega: ${settings.delivery_enabled ? "delivery" : "recojo"}`,
-    "🕒 Hora: ahora",
-    "👤 Cliente: Juan Perez",
-    "💵 Pago: efectivo",
-    ...(settings.invoice_enabled ? ["🧾 Factura: sin factura"] : []),
-    "",
-    "Ejemplos validos:",
-    `Entrega: ${deliveryOptions}`,
-    "Hora: ahora, 19:30 o 28/08/2026 19:30",
-    `Pago: ${paymentOptions}`,
-    ...(settings.invoice_enabled ? ["Factura: sin factura o con factura"] : []),
+    "Responde copiando esto y elige entre:",
+    `🛵 Entrega: ${deliveryOptions}`,
+    "🕒 Hora: ahora o la hora que te gustaria recibir",
+    `👤 Cliente: ${profile.customerName ?? "nombre completo"}`,
+    `💵 Pago: ${paymentOptions}`,
+    ...(settings.invoice_enabled ? ["🧾 Factura: sin factura o con factura"] : []),
   ];
 
   if (settings.delivery_enabled) {
     lines.push("", "Si es delivery agrega:", "📍 Direccion: Av. Siempre Viva 123", "🏠 Referencia: puerta negra");
   }
 
+  if (settings.delivery_enabled && profile.addresses.length) {
+    lines.push(
+      "",
+      "Direcciones guardadas:",
+      ...profile.addresses.map((address, index) => `${index + 1}. ${formatSavedDeliveryAddress(address)}`),
+      "Para usar una, responde Direccion: 1 o solo 1.",
+    );
+  }
+
   return lines.join("\n");
 }
 
-async function sendCheckoutGuide(to: string, settings: RestaurantSettingsRow) {
-  await sendWhatsAppTextMessage({ to, body: formatCheckoutGuide(settings) });
+function formatSavedDeliveryAddress(address: SavedDeliveryAddress) {
+  return `${address.address}${address.addressDetail ? ` (${address.addressDetail})` : ""}`;
+}
+
+async function sendCheckoutGuide(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  to: string,
+  settings: RestaurantSettingsRow,
+  restaurantId: string | null,
+) {
+  const profile = restaurantId ? await getSavedCheckoutProfile(supabase, to, restaurantId) : { customerName: null, addresses: [] };
+  await sendWhatsAppTextMessage({ to, body: formatCheckoutGuide(settings, profile) });
+}
+
+function parseSavedDeliveryAddressSelection(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = normalizeForMatch(stripCheckoutLinePrefix(value));
+  const match =
+    /^(?:direccion|dir|ubicacion|opcion)?\s*#?\s*([12])$/.exec(normalized) ??
+    /^(?:usar|usa|utilizar|elige|elegir)\s+(?:direccion|dir|ubicacion|opcion)?\s*#?\s*([12])$/.exec(normalized);
+
+  return match ? Number(match[1]) - 1 : null;
+}
+
+async function resolveSavedDeliveryAddress(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  phone: string,
+  restaurantId: string,
+  selectionText: string | null,
+) {
+  const selectedIndex = parseSavedDeliveryAddressSelection(selectionText);
+  if (selectedIndex === null) {
+    return { selectedIndex, profile: null, address: null };
+  }
+
+  const profile = await getSavedCheckoutProfile(supabase, phone, restaurantId);
+  return { selectedIndex, profile, address: profile.addresses[selectedIndex] ?? null };
+}
+
+async function applySavedDeliveryAddressShortcut(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  draft: WhatsAppOrderDraftRow,
+  text: string,
+) {
+  const selectedIndex = parseSavedDeliveryAddressSelection(text);
+  if (
+    selectedIndex === null ||
+    draft.pending_item ||
+    draft.items.length === 0 ||
+    !draft.restaurant_id ||
+    !["order_type", "fulfillment", "location", "address", "address_detail", "name", "invoice", "payment"].includes(draft.checkout_step)
+  ) {
+    return false;
+  }
+
+  const settings = await getRestaurantSettings(supabase, draft.restaurant_id);
+  if (!settings?.delivery_enabled) {
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "Este restaurante no tiene delivery habilitado en este momento." });
+    return true;
+  }
+
+  const profile = await getSavedCheckoutProfile(supabase, row.from_phone, draft.restaurant_id);
+  const savedAddress = profile.addresses[selectedIndex];
+  if (!savedAddress) {
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "No encontre esa direccion guardada. Puedes escribir la direccion completa o compartir tu ubicacion." });
+    return true;
+  }
+
+  const hasCoordinates = hasValidCoordinates(savedAddress.latitude, savedAddress.longitude);
+  const updated = await updateOpenDraft(supabase, conversation.id, {
+    order_type: "delivery",
+    checkout_step: hasCoordinates ? "fulfillment" : "location",
+    customer_address: savedAddress.address,
+    customer_address_detail: savedAddress.addressDetail,
+    delivery_latitude: savedAddress.latitude,
+    delivery_longitude: savedAddress.longitude,
+    delivery_maps_url: savedAddress.mapsUrl,
+    customer_name: draft.customer_name ?? savedAddress.customerName ?? profile.customerName,
+  });
+
+  if (!hasCoordinates) {
+    await sendWhatsAppLocationRequest({
+      to: row.from_phone,
+      body: "Listo, usare esa direccion. Ahora comparte tu ubicacion exacta desde WhatsApp para calcular el delivery.",
+    });
+    return true;
+  }
+
+  await continueAfterCompactCheckout(supabase, row, conversation, updated, true);
+  return true;
 }
 
 async function selectDraftOrderType(
@@ -1836,7 +2006,7 @@ async function selectDraftOrderType(
       : {}),
   });
   if (settings) {
-    await sendCheckoutGuide(row.from_phone, settings);
+    await sendCheckoutGuide(supabase, row.from_phone, settings, draft.restaurant_id);
     return;
   }
   await sendFulfillmentPicker(row.from_phone);
@@ -1847,10 +2017,10 @@ async function sendFulfillmentPicker(to: string) {
     to,
     body:
       "Completemos tu pedido.\n\n" +
-      "Responde copiando este formato:\n" +
-      "🕒 Hora: ahora\n" +
-      "👤 Cliente: Juan Perez\n" +
-      "💵 Pago: efectivo",
+      "Responde copiando esto:\n" +
+      "🕒 Hora: ahora o la hora que te gustaria recibir\n" +
+      "👤 Cliente: nombre completo\n" +
+      "💵 Pago: efectivo o QR",
   });
 }
 
@@ -1999,6 +2169,10 @@ async function consumeDraftInput(
     return false;
   }
 
+  if (await applySavedDeliveryAddressShortcut(supabase, row, conversation, draft, text)) {
+    return true;
+  }
+
   if (await applyCompactCheckoutInput(supabase, row, conversation, draft, text)) {
     return true;
   }
@@ -2006,7 +2180,7 @@ async function consumeDraftInput(
   if (draft.checkout_step === "order_type" || draft.checkout_step === "fulfillment") {
     const settings = draft.restaurant_id ? await getRestaurantSettings(supabase, draft.restaurant_id) : null;
     if (settings) {
-      await sendCheckoutGuide(row.from_phone, settings);
+      await sendCheckoutGuide(supabase, row.from_phone, settings, draft.restaurant_id);
     } else {
       await sendFulfillmentPicker(row.from_phone);
     }
@@ -2122,15 +2296,36 @@ async function applyCompactCheckoutInput(
     ...(settings.delivery_enabled ? (["delivery"] as const) : []),
     ...(settings.pickup_enabled ? (["pickup"] as const) : []),
   ];
-  const requestedOrderType = input.orderType ?? draft.order_type ?? (enabledOrderTypes.length === 1 ? enabledOrderTypes[0] : null);
+  const savedAddressSelection = parseSavedDeliveryAddressSelection(input.customerAddress);
+  const requestedOrderType = input.orderType ?? (savedAddressSelection !== null ? "delivery" : null) ?? draft.order_type ?? (enabledOrderTypes.length === 1 ? enabledOrderTypes[0] : null);
   if (input.orderType && !enabledOrderTypes.includes(input.orderType)) {
     await sendWhatsAppTextMessage({ to: row.from_phone, body: "Esa forma de entrega no esta habilitada para este restaurante." });
+    await beginDraftCheckout(supabase, row, conversation);
+    return true;
+  }
+  if (requestedOrderType === "delivery" && !settings.delivery_enabled) {
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "El delivery no esta habilitado para este restaurante." });
     await beginDraftCheckout(supabase, row, conversation);
     return true;
   }
 
   const patch: JsonObject = { status: "open" };
   let fulfillmentResolved = Boolean(input.fulfillment);
+  let savedAddress: SavedDeliveryAddress | null = null;
+  let savedProfile: SavedCheckoutProfile | null = null;
+  if (requestedOrderType === "delivery" && input.customerAddress) {
+    const resolvedSavedAddress = await resolveSavedDeliveryAddress(supabase, row.from_phone, draft.restaurant_id, input.customerAddress);
+    savedAddress = resolvedSavedAddress.address;
+    savedProfile = resolvedSavedAddress.profile;
+    if (savedAddressSelection !== null && !savedAddress) {
+      await sendWhatsAppTextMessage({
+        to: row.from_phone,
+        body: "No encontre esa direccion guardada. Puedes escribir la direccion completa o compartir tu ubicacion.",
+      });
+      return true;
+    }
+  }
+
   if (requestedOrderType) {
     patch.order_type = requestedOrderType;
     patch.checkout_step = "fulfillment";
@@ -2183,10 +2378,19 @@ async function applyCompactCheckoutInput(
   if (input.customerName) {
     patch.customer_name = input.customerName;
   }
-  if (requestedOrderType === "delivery" && input.customerAddress) {
+  if (savedAddress) {
+    patch.customer_address = savedAddress.address;
+    patch.customer_address_detail = savedAddress.addressDetail;
+    patch.delivery_latitude = savedAddress.latitude;
+    patch.delivery_longitude = savedAddress.longitude;
+    patch.delivery_maps_url = savedAddress.mapsUrl;
+    if (!input.customerName && !draft.customer_name && (savedAddress.customerName || savedProfile?.customerName)) {
+      patch.customer_name = savedAddress.customerName ?? savedProfile?.customerName ?? null;
+    }
+  } else if (requestedOrderType === "delivery" && input.customerAddress) {
     patch.customer_address = input.customerAddress;
   }
-  if (requestedOrderType === "delivery" && input.customerAddressDetail !== null) {
+  if (!savedAddress && requestedOrderType === "delivery" && input.customerAddressDetail !== null) {
     patch.customer_address_detail = input.customerAddressDetail;
   }
   if (input.invoiceFields) {
@@ -3110,6 +3314,17 @@ async function storeInboundPaymentReceipt(
   const now = new Date();
   const extension = receiptExtension(contentType);
   const path = `restaurants/${draft.restaurant_id}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, "0")}/${crypto.randomUUID()}.${extension}`;
+  const r2ReceiptUrl = await uploadReceiptToR2(path, body, contentType).catch((error) => {
+    console.warn("Could not upload WhatsApp receipt to R2; falling back to Supabase Storage", { error });
+    return null;
+  });
+  if (r2ReceiptUrl) {
+    return {
+      mediaId,
+      url: r2ReceiptUrl,
+    };
+  }
+
   const { error } = await supabase.storage.from(RECEIPT_BUCKET).upload(path, body, {
     contentType,
     upsert: false,
@@ -3122,6 +3337,99 @@ async function storeInboundPaymentReceipt(
     mediaId,
     url: `${getSiteUrl()}/api/storage/whatsapp-receipts/${path}`,
   };
+}
+
+function getR2Config() {
+  const accountId = Deno.env.get("R2_ACCOUNT_ID")?.trim();
+  const accessKeyId = Deno.env.get("R2_ACCESS_KEY_ID")?.trim();
+  const secretAccessKey = Deno.env.get("R2_SECRET_ACCESS_KEY")?.trim();
+  const privateBucket = Deno.env.get("R2_PRIVATE_BUCKET")?.trim();
+
+  if (!accountId || !accessKeyId || !secretAccessKey || !privateBucket) {
+    return null;
+  }
+
+  return {
+    endpoint: (Deno.env.get("R2_ENDPOINT")?.trim() || `https://${accountId}.r2.cloudflarestorage.com`).replace(/\/$/, ""),
+    accessKeyId,
+    secretAccessKey,
+    privateBucket,
+    region: Deno.env.get("R2_REGION")?.trim() || R2_DEFAULT_REGION,
+  };
+}
+
+async function uploadReceiptToR2(path: string, body: ArrayBuffer, contentType: string) {
+  const config = getR2Config();
+  if (!config) {
+    return null;
+  }
+
+  const endpoint = new URL(config.endpoint);
+  const objectPath = `/${[config.privateBucket, ...path.split("/")].map(encodeURIComponent).join("/")}`;
+  const uploadUrl = new URL(objectPath, `${endpoint.origin}/`);
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+  const payloadHash = await sha256Hex(body);
+  const signedHeaders = "cache-control;content-type;host;x-amz-content-sha256;x-amz-date";
+  const canonicalHeaders =
+    `cache-control:private, no-store\n` +
+    `content-type:${contentType}\n` +
+    `host:${uploadUrl.host}\n` +
+    `x-amz-content-sha256:${payloadHash}\n` +
+    `x-amz-date:${amzDate}\n`;
+  const canonicalRequest = ["PUT", uploadUrl.pathname, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, credentialScope, await sha256Hex(canonicalRequest)].join("\n");
+  const signingKey = await getAwsSigningKey(config.secretAccessKey, dateStamp, config.region, "s3");
+  const signature = toHex(await hmacSha256(signingKey, stringToSign));
+  const authorization = `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const response = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: authorization,
+      "Cache-Control": "private, no-store",
+      "Content-Type": contentType,
+      "X-Amz-Content-Sha256": payloadHash,
+      "X-Amz-Date": amzDate,
+    },
+    body,
+  });
+
+  if (!response.ok) {
+    throw new Error(`r2-upload-${response.status}`);
+  }
+
+  return `${getSiteUrl()}/api/storage/private/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+async function sha256Hex(value: string | ArrayBuffer) {
+  const input = typeof value === "string" ? new TextEncoder().encode(value) : value;
+  return toHex(await crypto.subtle.digest("SHA-256", input));
+}
+
+async function getAwsSigningKey(secretAccessKey: string, dateStamp: string, region: string, service: string) {
+  const dateKey = await hmacSha256(new TextEncoder().encode(`AWS4${secretAccessKey}`), dateStamp);
+  const regionKey = await hmacSha256(dateKey, region);
+  const serviceKey = await hmacSha256(regionKey, service);
+  return hmacSha256(serviceKey, "aws4_request");
+}
+
+async function hmacSha256(key: ArrayBuffer | Uint8Array, value: string) {
+  const keyBytes = key instanceof Uint8Array ? key.slice() : new Uint8Array(key);
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(value));
+}
+
+function toHex(value: ArrayBuffer | Uint8Array) {
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function allowedReceiptMimeType(value: string) {

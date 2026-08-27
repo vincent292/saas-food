@@ -43,6 +43,7 @@ type WhatsAppConversationRow = {
   from_phone: string;
   restaurant_id: string | null;
   state: string;
+  last_intent: string | null;
 };
 
 type RestaurantRow = {
@@ -64,6 +65,7 @@ type ProductSummaryRow = {
   category_id: string | null;
   description: string | null;
   image_url: string | null;
+  whatsapp_image_url: string | null;
   is_featured: boolean;
   product_kind: "standard" | "promotion" | "lunch" | null;
   available_from: string | null;
@@ -217,11 +219,53 @@ type ValidatedDraftOrder = {
 };
 
 type RecentOrderRow = {
+  id: string;
+  restaurant_id: string;
   order_number: string;
   status: string;
   payment_status: string;
   total: number | string;
   created_at: string;
+  restaurants?: { name?: string | null } | { name?: string | null }[] | null;
+  order_items?: { product_name?: string | null; quantity?: number | null }[] | null;
+};
+
+type RepeatableOrderRow = RecentOrderRow & {
+  customer_name: string | null;
+  customer_address: string | null;
+  delivery_address_detail: string | null;
+  delivery_latitude: number | null;
+  delivery_longitude: number | null;
+  delivery_maps_url: string | null;
+  order_type: "delivery" | "pickup" | null;
+  notes: string | null;
+};
+
+type RepeatableOrderItemRow = {
+  product_id: string | null;
+  product_name: string;
+  variant_id: string | null;
+  option_ids: string[] | null;
+  unit_price: number | string;
+  quantity: number;
+  subtotal: number | string;
+  notes: string | null;
+};
+
+type CustomerProfileRow = {
+  id: string;
+  full_name: string;
+};
+
+type CustomerAddressRow = {
+  id: string;
+  customer_id: string;
+  label: string;
+  address: string;
+  apartment: string | null;
+  building_name: string | null;
+  reference: string | null;
+  is_default: boolean;
 };
 
 type CreatedOrderRow = {
@@ -326,6 +370,7 @@ const GLOBAL_CATALOG_DISCOVERY_ROWS = [
   { id: "GLOBAL_SEARCH:barato", title: "Algo barato", description: "Opciones ordenadas por precio" },
   { id: "BROWSE_RESTAURANTS", title: "Restaurantes", description: "Ver todos los locales" },
   { id: "ACTION_ORDERS", title: "Mis pedidos", description: "Revisar pedidos recientes" },
+  { id: "ACTION_ADDRESSES", title: "Mis direcciones", description: "Ver o eliminar direcciones guardadas" },
 ];
 
 type ProductTextMatch = {
@@ -696,6 +741,57 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
     return;
   }
 
+  const pendingDeleteAddressId = conversation.last_intent?.startsWith("confirm_delete_address:")
+    ? conversation.last_intent.replace("confirm_delete_address:", "")
+    : null;
+
+  if (command.kind?.startsWith("CONFIRM_DELETE_ADDRESS:")) {
+    await confirmCustomerAddressDeletion(supabase, row, conversation, command.kind.replace("CONFIRM_DELETE_ADDRESS:", ""));
+    return;
+  }
+
+  if (command.kind === "CANCEL_DELETE_ADDRESS" || (pendingDeleteAddressId && isNegativeIntent(normalized))) {
+    await clearPendingPersonalAction(supabase, conversation.id, row.message_id);
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "Listo, no elimine ninguna direccion." });
+    return;
+  }
+
+  if (pendingDeleteAddressId && isAffirmativeIntent(normalized)) {
+    await confirmCustomerAddressDeletion(supabase, row, conversation, pendingDeleteAddressId);
+    return;
+  }
+
+  if (command.kind?.startsWith("ADDRESS_MANAGE:")) {
+    await requestCustomerAddressDeletion(supabase, row, conversation, command.kind.replace("ADDRESS_MANAGE:", ""));
+    return;
+  }
+
+  if (isDeleteOwnAddressIntent(normalized)) {
+    await requestCustomerAddressDeletionFromText(supabase, row, conversation, normalized);
+    return;
+  }
+
+  if (command.kind === "ACTION_ADDRESSES" || isOwnAddressesIntent(normalized)) {
+    await sendCustomerAddresses(supabase, row.from_phone, customer.phone);
+    await updateConversationState(supabase, conversation.id, conversation.state, "customer_addresses", row.message_id);
+    return;
+  }
+
+  if (command.kind?.startsWith("REPEAT_ORDER:")) {
+    await repeatPreviousOrder(supabase, row, conversation, customer, command.kind.replace("REPEAT_ORDER:", ""));
+    return;
+  }
+
+  if (command.kind === "ACTION_REPEAT_ORDER" || isRepeatOrderIntent(normalized)) {
+    await sendRepeatOrderPicker(supabase, row.from_phone, customer.phone);
+    await updateConversationState(supabase, conversation.id, conversation.state, "repeat_order", row.message_id);
+    return;
+  }
+
+  if (pendingDeleteAddressId) {
+    await clearPendingPersonalAction(supabase, conversation.id, row.message_id);
+  }
+
   if (row.message_type === "text") {
     const safetyBlockReason = whatsAppSafetyBlockReason(normalized, conversation.state);
     if (safetyBlockReason) {
@@ -1035,7 +1131,7 @@ async function ensureWhatsAppConversation(supabase: ReturnType<typeof createSupa
 
   const { data: existingConversation, error: readError } = await supabase
     .from("whatsapp_conversations")
-    .select("id,customer_id,from_phone,restaurant_id,state")
+    .select("id,customer_id,from_phone,restaurant_id,state,last_intent")
     .eq("from_phone", row.from_phone)
     .maybeSingle();
 
@@ -1053,7 +1149,7 @@ async function ensureWhatsAppConversation(supabase: ReturnType<typeof createSupa
         last_message_at: row.whatsapp_timestamp ?? now,
       })
       .eq("id", existingConversation.id)
-      .select("id,customer_id,from_phone,restaurant_id,state")
+      .select("id,customer_id,from_phone,restaurant_id,state,last_intent")
       .single();
 
     if (updateError || !updatedConversation) {
@@ -1076,7 +1172,7 @@ async function ensureWhatsAppConversation(supabase: ReturnType<typeof createSupa
       last_message_id: row.message_id,
       last_message_at: row.whatsapp_timestamp ?? now,
     })
-    .select("id,customer_id,from_phone,restaurant_id,state")
+    .select("id,customer_id,from_phone,restaurant_id,state,last_intent")
     .single();
 
   if (insertError || !conversation) {
@@ -1189,7 +1285,7 @@ async function findRestaurantById(supabase: ReturnType<typeof createSupabaseAdmi
 async function listTopProducts(supabase: ReturnType<typeof createSupabaseAdminClient>, restaurantId: string) {
   const { data, error } = await supabase
     .from("products")
-    .select("id,name,price,category_id,description,image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
+    .select("id,name,price,category_id,description,image_url,whatsapp_image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
     .eq("restaurant_id", restaurantId)
     .eq("is_available", true)
     .order("is_featured", { ascending: false })
@@ -1230,7 +1326,7 @@ async function listProducts(
 ) {
   let query = supabase
     .from("products")
-    .select("id,name,price,category_id,description,image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
+    .select("id,name,price,category_id,description,image_url,whatsapp_image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
     .eq("restaurant_id", restaurantId)
     .eq("is_available", true)
     .order("sort_order", { ascending: true })
@@ -1259,7 +1355,7 @@ async function listGlobalCatalogProducts(supabase: ReturnType<typeof createSupab
   const [productsResult, categoriesResult] = await Promise.all([
     supabase
       .from("products")
-      .select("id,restaurant_id,name,price,category_id,description,image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
+      .select("id,restaurant_id,name,price,category_id,description,image_url,whatsapp_image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
       .in("restaurant_id", restaurantIds)
       .eq("is_available", true)
       .order("is_featured", { ascending: false })
@@ -1611,25 +1707,12 @@ async function sendRestaurantMenuIntro(
 }
 
 async function sendRecentOrders(supabase: ReturnType<typeof createSupabaseAdminClient>, to: string, customerPhone: string) {
-  const normalizedPhone = normalizeDigits(customerPhone);
-  const phoneFilters = phoneLookupVariants(normalizedPhone).map((phone) => `customer_phone_normalized.eq.${phone}`).join(",");
-  let query = supabase
-    .from("orders")
-    .select("order_number,status,payment_status,total,created_at")
-    .order("created_at", { ascending: false })
-    .limit(5);
-
-  query = phoneFilters ? query.or(phoneFilters) : query.eq("customer_phone_normalized", normalizedPhone);
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("Could not list WhatsApp recent orders", error);
+  const orders = await listRecentOrdersByPhone(supabase, customerPhone);
+  if (!orders) {
     await sendWhatsAppTextMessage({ to, body: "No pude revisar tus pedidos ahora. Intenta nuevamente en unos minutos." });
     return;
   }
 
-  const orders = (data ?? []) as RecentOrderRow[];
   if (orders.length === 0) {
     await sendWhatsAppTextMessage({
       to,
@@ -1638,10 +1721,377 @@ async function sendRecentOrders(supabase: ReturnType<typeof createSupabaseAdminC
     return;
   }
 
-  await sendWhatsAppTextMessage({
+  const details = await recentOrderDisplayDetails(supabase, orders);
+  await sendWhatsAppListMessage({
     to,
-    body: `Tus ultimos pedidos:\n${orders.map(formatRecentOrder).join("\n")}`,
+    body: `Estos son tus ultimos pedidos:\n${orders.map((order) => formatRecentOrder(order, details)).join("\n")}\n\nElige uno si quieres volver a armarlo con disponibilidad y precios actuales. No se enviara sin tu confirmacion.`,
+    buttonText: "Ver mis pedidos",
+    sectionTitle: "Pedidos recientes",
+    rows: orders.map((order) => ({
+      id: `REPEAT_ORDER:${order.id}`,
+      title: truncate(`${order.order_number} - ${details.restaurantNames.get(order.restaurant_id) ?? "Restaurante"}`, 24),
+      description: truncate(`${details.itemSummaries.get(order.id) ?? "Ver pedido"} - Bs ${formatMoney(order.total)}`, 72),
+    })),
   });
+}
+
+async function sendRepeatOrderPicker(supabase: ReturnType<typeof createSupabaseAdminClient>, to: string, customerPhone: string) {
+  const orders = await listRecentOrdersByPhone(supabase, customerPhone);
+  if (!orders) {
+    await sendWhatsAppTextMessage({ to, body: "No pude revisar tus pedidos ahora. Intenta nuevamente en unos minutos." });
+    return;
+  }
+  if (!orders.length) {
+    await sendWhatsAppTextMessage({ to, body: "Aun no encuentro pedidos anteriores con este numero. Podemos empezar uno nuevo si escribes menu." });
+    return;
+  }
+
+  const details = await recentOrderDisplayDetails(supabase, orders);
+  await sendWhatsAppListMessage({
+    to,
+    body: "Claro. Elige cual quieres repetir. Revisare cada producto, configuracion, precio y disponibilidad antes de armarlo.",
+    buttonText: "Elegir pedido",
+    sectionTitle: "Repetir pedido",
+    rows: orders.map((order) => ({
+      id: `REPEAT_ORDER:${order.id}`,
+      title: truncate(`${order.order_number} - ${details.restaurantNames.get(order.restaurant_id) ?? "Restaurante"}`, 24),
+      description: truncate(`${details.itemSummaries.get(order.id) ?? "Pedido anterior"} - Bs ${formatMoney(order.total)}`, 72),
+    })),
+  });
+}
+
+async function listRecentOrdersByPhone(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  customerPhone: string,
+  limit = 5,
+) {
+  const normalizedPhone = normalizeDigits(customerPhone);
+  const phoneFilters = phoneLookupVariants(normalizedPhone).map((phone) => `customer_phone_normalized.eq.${phone}`).join(",");
+  let query = supabase
+    .from("orders")
+    .select("id,restaurant_id,order_number,status,payment_status,total,created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  query = phoneFilters ? query.or(phoneFilters) : query.eq("customer_phone_normalized", normalizedPhone);
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("Could not list WhatsApp recent orders", error);
+    return null;
+  }
+
+  return (data ?? []) as RecentOrderRow[];
+}
+
+async function recentOrderDisplayDetails(supabase: ReturnType<typeof createSupabaseAdminClient>, orders: RecentOrderRow[]) {
+  const restaurantIds = [...new Set(orders.map((order) => order.restaurant_id))];
+  const orderIds = orders.map((order) => order.id);
+  const [restaurantResult, itemResult] = await Promise.all([
+    supabase.from("restaurants").select("id,name").in("id", restaurantIds),
+    supabase.from("order_items").select("order_id,product_name,quantity").in("order_id", orderIds).order("created_at"),
+  ]);
+  const restaurantNames = new Map<string, string>(
+    ((restaurantResult.data ?? []) as { id: string; name: string }[]).map((restaurant) => [restaurant.id, restaurant.name]),
+  );
+  const itemsByOrder = new Map<string, string[]>();
+  for (const item of (itemResult.data ?? []) as { order_id: string; product_name: string; quantity: number }[]) {
+    const current = itemsByOrder.get(item.order_id) ?? [];
+    current.push(`${item.quantity}x ${item.product_name}`);
+    itemsByOrder.set(item.order_id, current);
+  }
+  const itemSummaries = new Map([...itemsByOrder].map(([orderId, items]) => [orderId, items.slice(0, 3).join(", ")]));
+
+  return { itemSummaries, restaurantNames };
+}
+
+async function repeatPreviousOrder(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  customer: WhatsAppCustomerRow,
+  orderId: string,
+) {
+  const normalizedPhone = normalizeDigits(customer.phone);
+  const phoneFilters = phoneLookupVariants(normalizedPhone).map((phone) => `customer_phone_normalized.eq.${phone}`).join(",");
+  let orderQuery = supabase
+    .from("orders")
+    .select(
+      "id,restaurant_id,order_number,status,payment_status,total,created_at,customer_name,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,order_type,notes",
+    )
+    .eq("id", orderId);
+  orderQuery = phoneFilters ? orderQuery.or(phoneFilters) : orderQuery.eq("customer_phone_normalized", normalizedPhone);
+
+  const [{ data: orderData, error: orderError }, { data: itemData, error: itemError }] = await Promise.all([
+    orderQuery.maybeSingle(),
+    supabase
+      .from("order_items")
+      .select("product_id,product_name,variant_id,option_ids,unit_price,quantity,subtotal,notes")
+      .eq("order_id", orderId)
+      .order("created_at"),
+  ]);
+  const order = orderData as RepeatableOrderRow | null;
+  const historicalItems = (itemData ?? []) as RepeatableOrderItemRow[];
+
+  if (orderError || itemError || !order) {
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "No encontre ese pedido asociado a tu numero. Puedes abrir Mis pedidos e intentarlo nuevamente." });
+    return;
+  }
+
+  const restaurant = await findRestaurantById(supabase, order.restaurant_id);
+  if (!restaurant) {
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "El restaurante de ese pedido no esta disponible en este momento." });
+    return;
+  }
+
+  if (!historicalItems.length || historicalItems.some((item) => !item.product_id)) {
+    await sendWhatsAppTextMessage({
+      to: row.from_phone,
+      body: `Ese pedido tiene productos que ya no estan en el catalogo. Te muestro el menu actual de ${restaurant.name}.`,
+    });
+    await setConversationRestaurant(supabase, conversation.id, restaurant.id, "browsing_menu", "repeat_order_unavailable", row.message_id);
+    await sendRestaurantMenuIntro(supabase, row.from_phone, restaurant, await listTopProducts(supabase, restaurant.id));
+    return;
+  }
+
+  const draftItems: DraftItem[] = historicalItems.map((item) => ({
+    cart_id: crypto.randomUUID(),
+    product_id: item.product_id ?? "",
+    product_name: item.product_name,
+    variant_id: item.variant_id,
+    option_ids: item.option_ids ?? [],
+    unit_price: Number(item.unit_price),
+    quantity: item.quantity,
+    subtotal: Number(item.subtotal),
+    notes: item.notes,
+  }));
+
+  try {
+    const currentItems = await revalidateDraftItems(supabase, restaurant.id, draftItems);
+    await abandonOpenDraft(supabase, conversation.id);
+    const repeatedConversation = { ...conversation, restaurant_id: restaurant.id, state: "drafting_order" };
+    await setConversationRestaurant(supabase, conversation.id, restaurant.id, "drafting_order", "repeat_order_ready", row.message_id);
+    await ensureOpenDraft(supabase, repeatedConversation, customer, restaurant.id);
+    const draft = await updateOpenDraft(supabase, conversation.id, {
+      items: currentItems,
+      checkout_step: "catalog",
+      status: "open",
+      pending_item: null,
+      customer_name: order.customer_name,
+      customer_address: order.customer_address,
+      customer_address_detail: order.delivery_address_detail,
+      delivery_latitude: order.delivery_latitude,
+      delivery_longitude: order.delivery_longitude,
+      delivery_maps_url: order.delivery_maps_url,
+      order_type: null,
+      payment_method: null,
+      payment_receipt_url: null,
+      payment_receipt_media_id: null,
+      requested_fulfillment_at: null,
+      notes: order.notes,
+    });
+    await sendWhatsAppTextMessage({
+      to: row.from_phone,
+      body: `Revise el pedido ${order.order_number}: todos sus productos siguen disponibles. Lo arme nuevamente con nombres y precios actuales; revisalo antes de finalizar.`,
+    });
+    await sendDraftSummary(row.from_phone, restaurant, draft);
+  } catch (error) {
+    console.warn("Could not repeat WhatsApp order", { orderId, error });
+    await setConversationRestaurant(supabase, conversation.id, restaurant.id, "browsing_menu", "repeat_order_unavailable", row.message_id);
+    await sendWhatsAppTextMessage({
+      to: row.from_phone,
+      body: `No puedo repetirlo exactamente porque uno de sus productos u opciones ya no esta disponible. Te muestro el menu actualizado de ${restaurant.name}.`,
+    });
+    await sendCategoryPicker(supabase, row.from_phone, restaurant);
+  }
+}
+
+async function findCustomerProfileByPhone(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  phone: string,
+) {
+  const normalizedPhone = normalizeDigits(phone);
+  const filters = phoneLookupVariants(normalizedPhone).map((value) => `phone_normalized.eq.${value}`).join(",");
+  if (!filters) return null;
+
+  const { data, error } = await supabase
+    .from("customer_profiles")
+    .select("id,full_name")
+    .eq("status", "active")
+    .or(filters)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn("Could not find customer profile for WhatsApp", { phone: maskPhone(normalizedPhone), error });
+    return null;
+  }
+  return data as CustomerProfileRow | null;
+}
+
+async function listCustomerAddressesByPhone(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  phone: string,
+) {
+  const profile = await findCustomerProfileByPhone(supabase, phone);
+  if (!profile) return { profile: null, addresses: [] as CustomerAddressRow[] };
+
+  const { data, error } = await supabase
+    .from("customer_addresses")
+    .select("id,customer_id,label,address,apartment,building_name,reference,is_default")
+    .eq("customer_id", profile.id)
+    .order("is_default", { ascending: false })
+    .order("updated_at", { ascending: false });
+  if (error) {
+    console.warn("Could not list customer addresses for WhatsApp", { customerId: profile.id, error });
+    return { profile, addresses: [] as CustomerAddressRow[] };
+  }
+  return { profile, addresses: (data ?? []) as CustomerAddressRow[] };
+}
+
+async function sendCustomerAddresses(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  to: string,
+  customerPhone: string,
+) {
+  const { profile, addresses } = await listCustomerAddressesByPhone(supabase, customerPhone);
+  if (!profile) {
+    await sendWhatsAppTextMessage({
+      to,
+      body: "No encuentro una cuenta de Mi Yopido asociada a este WhatsApp. Aun puedo recordar direcciones usadas en pedidos recientes durante el checkout, pero para administrarlas debes registrar este mismo numero en Mi Yopido.",
+    });
+    return;
+  }
+  if (!addresses.length) {
+    await sendWhatsAppTextMessage({ to, body: `${profile.full_name}, no tienes direcciones guardadas en Mi Yopido.` });
+    return;
+  }
+
+  await sendWhatsAppListMessage({
+    to,
+    body: `${profile.full_name}, estas son tus direcciones guardadas. Elige una solamente si quieres administrarla o eliminarla.`,
+    buttonText: "Mis direcciones",
+    sectionTitle: "Direcciones guardadas",
+    rows: addresses.slice(0, 10).map((address) => ({
+      id: `ADDRESS_MANAGE:${address.id}`,
+      title: truncate(`${address.is_default ? "Principal - " : ""}${address.label}`, 24),
+      description: truncate(formatCustomerAddress(address), 72),
+    })),
+  });
+}
+
+async function requestCustomerAddressDeletionFromText(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  normalizedText: string,
+) {
+  const { addresses } = await listCustomerAddressesByPhone(supabase, row.from_phone);
+  const matches = addresses.filter((address) => {
+    const label = normalizeForMatch(address.label);
+    const addressText = normalizeForMatch(address.address);
+    return normalizedText.includes(label) || (label.length > 3 && normalizedText.includes(label)) || normalizedText.includes(addressText);
+  });
+  if (matches.length === 1) {
+    await requestCustomerAddressDeletion(supabase, row, conversation, matches[0].id);
+    return;
+  }
+  await sendCustomerAddresses(supabase, row.from_phone, row.from_phone);
+}
+
+async function requestCustomerAddressDeletion(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  addressId: string,
+) {
+  const profile = await findCustomerProfileByPhone(supabase, row.from_phone);
+  if (!profile) {
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "No encontre una cuenta asociada a este numero." });
+    return;
+  }
+  const { data } = await supabase
+    .from("customer_addresses")
+    .select("id,customer_id,label,address,apartment,building_name,reference,is_default")
+    .eq("id", addressId)
+    .eq("customer_id", profile.id)
+    .maybeSingle();
+  const address = data as CustomerAddressRow | null;
+  if (!address) {
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "Esa direccion no pertenece a tu cuenta o ya fue eliminada." });
+    return;
+  }
+
+  await supabase
+    .from("whatsapp_conversations")
+    .update({ last_intent: `confirm_delete_address:${address.id}`, last_message_id: row.message_id })
+    .eq("id", conversation.id);
+  await sendWhatsAppInteractiveButtons({
+    to: row.from_phone,
+    body: `Vas a eliminar ${address.label}: ${formatCustomerAddress(address)}. Esta accion no se puede deshacer.`,
+    buttons: [
+      { id: `CONFIRM_DELETE_ADDRESS:${address.id}`, title: "Si, eliminar" },
+      { id: "CANCEL_DELETE_ADDRESS", title: "Cancelar" },
+    ],
+  });
+}
+
+async function confirmCustomerAddressDeletion(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  addressId: string,
+) {
+  if (conversation.last_intent !== `confirm_delete_address:${addressId}`) {
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "La confirmacion vencio. Abre Mis direcciones y vuelve a elegirla." });
+    return;
+  }
+  const profile = await findCustomerProfileByPhone(supabase, row.from_phone);
+  if (!profile) return;
+
+  const { data: address } = await supabase
+    .from("customer_addresses")
+    .select("id,label,is_default")
+    .eq("id", addressId)
+    .eq("customer_id", profile.id)
+    .maybeSingle();
+  if (!address) {
+    await clearPendingPersonalAction(supabase, conversation.id, row.message_id);
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "Esa direccion ya no existe." });
+    return;
+  }
+
+  const { error } = await supabase.from("customer_addresses").delete().eq("id", addressId).eq("customer_id", profile.id);
+  if (error) {
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "No pude eliminar la direccion ahora. Intenta nuevamente." });
+    return;
+  }
+  if (address.is_default) {
+    const { data: nextAddress } = await supabase
+      .from("customer_addresses")
+      .select("id")
+      .eq("customer_id", profile.id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (nextAddress?.id) {
+      await supabase.from("customer_addresses").update({ is_default: true }).eq("id", nextAddress.id).eq("customer_id", profile.id);
+    }
+  }
+  await clearPendingPersonalAction(supabase, conversation.id, row.message_id);
+  await sendWhatsAppTextMessage({ to: row.from_phone, body: `Listo, elimine la direccion ${address.label} de tu cuenta.` });
+}
+
+async function clearPendingPersonalAction(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  conversationId: string,
+  messageId: string,
+) {
+  await supabase.from("whatsapp_conversations").update({ last_intent: null, last_message_id: messageId }).eq("id", conversationId);
+}
+
+function formatCustomerAddress(address: CustomerAddressRow) {
+  return [address.address, address.building_name, address.apartment, address.reference].filter(Boolean).join(" - ");
 }
 
 async function sendCategoryPicker(
@@ -1841,7 +2291,7 @@ async function getProductConfiguration(
   const [productResult, variantsResult, groupsResult, optionsResult] = await Promise.all([
     supabase
       .from("products")
-      .select("id,name,price,category_id,description,image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
+      .select("id,name,price,category_id,description,image_url,whatsapp_image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
       .eq("restaurant_id", restaurantId)
       .eq("id", productId)
       .eq("is_available", true)
@@ -3316,7 +3766,7 @@ async function sendQrPaymentInstructions(
 }
 
 async function sendProductImagePreview(to: string, product: ProductSummaryRow) {
-  const imageUrl = resolvePublicImageUrl(product.image_url);
+  const imageUrl = resolvePublicImageUrl(product.whatsapp_image_url ?? product.image_url);
   if (!imageUrl) {
     return;
   }
@@ -3578,8 +4028,9 @@ async function revalidateDraftItems(
   const [productsResult, variantsResult, groupsResult, optionsResult] = await Promise.all([
     supabase
       .from("products")
-      .select("id,name,price,category_id,description,image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
+      .select("id,name,price,category_id,description,image_url,whatsapp_image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
       .eq("restaurant_id", restaurantId)
+      .eq("is_available", true)
       .in("id", productIds),
     supabase
       .from("product_variants")
@@ -3608,7 +4059,7 @@ async function revalidateDraftItems(
   const groups = (groupsResult.data ?? []) as ProductOptionGroupRow[];
   const options = new Map(((optionsResult.data ?? []) as ProductOptionRow[]).map((option) => [option.id, option]));
 
-  return draftItems.map((item) => {
+  const validatedItems = draftItems.map((item) => {
     const product = products.get(item.product_id);
     if (!product || !isProductCurrentlyOrderable(product) || item.quantity < 1 || item.quantity > 50) {
       throw new Error("product-unavailable");
@@ -3645,6 +4096,74 @@ async function revalidateDraftItems(
       notes: [variant?.name, ...selected.map((option) => option.name)].filter(Boolean).join(", ") || null,
     } satisfies DraftItem;
   });
+
+  await assertDraftItemsInStock(supabase, restaurantId, validatedItems);
+  return validatedItems;
+}
+
+async function assertDraftItemsInStock(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  restaurantId: string,
+  items: DraftItem[],
+) {
+  const productIds = [...new Set(items.map((item) => item.product_id))];
+  const optionIds = [...new Set(items.flatMap((item) => item.option_ids))];
+  const [ingredientResult, optionResult] = await Promise.all([
+    supabase
+      .from("product_ingredients")
+      .select("product_id,inventory_item_id,quantity,waste_factor")
+      .eq("restaurant_id", restaurantId)
+      .in("product_id", productIds),
+    optionIds.length
+      ? supabase
+          .from("product_options")
+          .select("id,inventory_item_id,inventory_quantity,inventory_waste_factor")
+          .eq("restaurant_id", restaurantId)
+          .in("id", optionIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (ingredientResult.error || optionResult.error) throw new Error("product-unavailable");
+
+  const ingredients = (ingredientResult.data ?? []) as {
+    product_id: string;
+    inventory_item_id: string;
+    quantity: number | string;
+    waste_factor: number | string;
+  }[];
+  const inventoryOptions = (optionResult.data ?? []) as {
+    id: string;
+    inventory_item_id: string | null;
+    inventory_quantity: number | string | null;
+    inventory_waste_factor: number | string;
+  }[];
+  const requiredByInventoryItem = new Map<string, number>();
+  for (const item of items) {
+    for (const ingredient of ingredients.filter((candidate) => candidate.product_id === item.product_id)) {
+      const required = item.quantity * Number(ingredient.quantity) * (1 + Number(ingredient.waste_factor ?? 0) / 100);
+      requiredByInventoryItem.set(ingredient.inventory_item_id, (requiredByInventoryItem.get(ingredient.inventory_item_id) ?? 0) + required);
+    }
+    for (const option of inventoryOptions.filter((candidate) => candidate.inventory_item_id && item.option_ids.includes(candidate.id))) {
+      const required = item.quantity * Number(option.inventory_quantity ?? 1) * (1 + Number(option.inventory_waste_factor ?? 0) / 100);
+      requiredByInventoryItem.set(option.inventory_item_id ?? "", (requiredByInventoryItem.get(option.inventory_item_id ?? "") ?? 0) + required);
+    }
+  }
+  const inventoryItemIds = [...requiredByInventoryItem.keys()].filter(Boolean);
+  if (!inventoryItemIds.length) return;
+
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .select("id,current_stock,is_active")
+    .eq("restaurant_id", restaurantId)
+    .in("id", inventoryItemIds);
+  if (error) throw new Error("product-unavailable");
+  const inventory = new Map(
+    ((data ?? []) as { id: string; current_stock: number | string; is_active: boolean }[]).map((item) => [item.id, item]),
+  );
+  const unavailable = inventoryItemIds.some((id) => {
+    const item = inventory.get(id);
+    return !item?.is_active || Number(item.current_stock) < (requiredByInventoryItem.get(id) ?? 0);
+  });
+  if (unavailable) throw new Error("product-unavailable");
 }
 
 function hasValidOptionSelection(groups: ProductOptionGroupRow[], selectedOptions: ProductOptionRow[]) {
@@ -5297,6 +5816,32 @@ function isRecentOrdersIntent(value: string) {
   return value === "ACTION_ORDERS".toLowerCase() || /\b(mis pedidos|pedido anterior|ultimos pedidos|historial|estado)\b/.test(value);
 }
 
+function isRepeatOrderIntent(value: string) {
+  return (
+    value === "ACTION_REPEAT_ORDER".toLowerCase() ||
+    /\b(repetir|repite|volver a pedir|pedir de nuevo|quiero lo mismo|el mismo pedido|mi ultimo pedido otra vez)\b/.test(value)
+  );
+}
+
+function isOwnAddressesIntent(value: string) {
+  return (
+    value === "ACTION_ADDRESSES".toLowerCase() ||
+    /\b(mis direcciones|mi direccion|direcciones guardadas|direccion guardada|administrar direcciones|gestionar direcciones)\b/.test(value)
+  );
+}
+
+function isDeleteOwnAddressIntent(value: string) {
+  return /\b(eliminar|elimina|borrar|borra|quitar|quita)\b.{0,60}\b(mi direccion|mis direcciones|direccion guardada|casa|trabajo)\b/.test(value);
+}
+
+function isAffirmativeIntent(value: string) {
+  return /^(si|sí|confirmar|confirmo|de acuerdo|correcto|hazlo)$/.test(value);
+}
+
+function isNegativeIntent(value: string) {
+  return /^(no|cancelar|cancela|dejalo|volver)$/.test(value);
+}
+
 function isChangeRestaurantIntent(value: string) {
   return value === "ACTION_CHANGE_RESTAURANT".toLowerCase() || /\b(cambiar|otro lugar|otro restaurante|restaurante)\b/.test(value);
 }
@@ -5368,14 +5913,24 @@ function hasWhatsAppOrderingSignal(value: string) {
     isMenuIntent(value) ||
     isOrderIntent(value) ||
     isRecentOrdersIntent(value) ||
+    isRepeatOrderIntent(value) ||
+    isOwnAddressesIntent(value) ||
     isChangeRestaurantIntent(value) ||
-    /\b(restaurante|restaurant|local|pedido|orden|pedir|comprar|menu|carta|catalogo|producto|promocion|promo|oferta|combo|delivery|envio|domicilio|recojo|retiro|qr|factura|pago|precio|cuanto|hamburguesa|burger|pizza|pizzeria|pollo|galleta|postre|bebida|refresco|jugo|cafe|saltena|almuerzo|desayuno|cena|sushi|taco|empanada)\b/.test(
+    /\b(restaurante|restaurant|local|pedido|orden|pedir|comprar|menu|carta|catalogo|producto|promocion|promo|oferta|combo|delivery|envio|domicilio|recojo|retiro|direccion|direcciones|qr|factura|pago|precio|cuanto|hamburguesa|burger|pizza|pizzeria|pollo|galleta|postre|bebida|refresco|jugo|cafe|saltena|almuerzo|desayuno|cena|sushi|taco|empanada)\b/.test(
       value,
     )
   );
 }
 
 function detectIntent(value: string) {
+  if (isRepeatOrderIntent(value)) {
+    return "repeat_order";
+  }
+
+  if (isOwnAddressesIntent(value)) {
+    return "customer_addresses";
+  }
+
   if (isRecentOrdersIntent(value)) {
     return "recent_orders";
   }
@@ -5430,13 +5985,18 @@ function formatMoney(value: number | string) {
   return Number(value).toFixed(2);
 }
 
-function formatRecentOrder(order: RecentOrderRow) {
+function formatRecentOrder(
+  order: RecentOrderRow,
+  details?: { itemSummaries: Map<string, string>; restaurantNames: Map<string, string> },
+) {
   const date = new Date(order.created_at).toLocaleDateString("es-BO", {
     day: "2-digit",
     month: "2-digit",
   });
+  const restaurant = details?.restaurantNames.get(order.restaurant_id);
+  const items = details?.itemSummaries.get(order.id);
 
-  return `- ${order.order_number} (${date}): ${order.status}, pago ${order.payment_status}, Bs ${formatMoney(order.total)}`;
+  return `- ${order.order_number}${restaurant ? ` en ${restaurant}` : ""} (${date}): ${items ?? order.status}, Bs ${formatMoney(order.total)}`;
 }
 
 export async function sendWhatsAppTextMessage({

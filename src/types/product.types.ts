@@ -18,6 +18,7 @@ export type Product = {
   compareAtPrice?: number;
   prepMinutes: number;
   imageUrl: string;
+  whatsappImageUrl?: string;
   imagePositionX: number;
   imagePositionY: number;
   imageZoom: number;

@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import { markDeliveryArrivedAction, markDeliveryDeliveredAction } from "@/app/delivery/actions";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
 import { deliveryService } from "@/lib/services/delivery.service";
 import { formatShortTime } from "@/lib/utils/dates";
 import { directionsToMapsUrl, hasValidCoordinates } from "@/lib/utils/google-maps";
@@ -175,18 +175,18 @@ export default async function DeliveryOrderPage({
               {canMarkArrived ? (
                 <form action={markDeliveryArrivedAction}>
                   <input name="token" type="hidden" value={token} />
-                  <Button className="min-h-14 w-full text-base" type="submit" variant="secondary">
+                  <PendingSubmitButton className="min-h-14 w-full text-base" pendingLabel="Marcando llegada..." variant="secondary">
                     <MapPinned className="h-5 w-5" />
                     Llegue
-                  </Button>
+                  </PendingSubmitButton>
                 </form>
               ) : null}
               <form action={markDeliveryDeliveredAction} className={canMarkArrived ? "" : "sm:col-span-2"}>
                 <input name="token" type="hidden" value={token} />
-                <Button className="min-h-14 w-full text-base" type="submit">
+                <PendingSubmitButton className="min-h-14 w-full text-base" pendingLabel="Confirmando entrega...">
                   <CheckCircle2 className="h-5 w-5" />
                   Entregue
-                </Button>
+                </PendingSubmitButton>
               </form>
             </div>
           ) : (

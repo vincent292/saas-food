@@ -382,6 +382,7 @@ export type Database = {
         compare_at_price: number | null;
         prep_minutes: number;
         image_url: string | null;
+        whatsapp_image_url: string | null;
         image_position_x: number;
         image_position_y: number;
         image_zoom: number;

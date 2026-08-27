@@ -8,7 +8,6 @@ import { createPosSaleAction } from "@/app/admin/actions";
 import { orderOriginLabels } from "@/components/orders/orderPresentation";
 import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
-import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select } from "@/components/ui/Input";
@@ -485,12 +484,9 @@ function PosSubmitButton({ disabled, label }: { disabled?: boolean; label: strin
   const { pending } = useFormStatus();
 
   return (
-    <>
-      <Button className="sticky bottom-0 z-10 w-full shadow-lg" disabled={disabled || pending} type="submit">
-        {pending ? "Enviando venta..." : label}
-      </Button>
-      {pending ? <BrandLoadingOverlay description="Creando el pedido, registrando caja y enviandolo al panel." title="Registrando venta" zIndexClassName="z-[160]" /> : null}
-    </>
+    <Button aria-busy={pending} className="sticky bottom-0 z-10 w-full shadow-lg" disabled={disabled || pending} type="submit">
+      {pending ? "Enviando venta..." : label}
+    </Button>
   );
 }
 

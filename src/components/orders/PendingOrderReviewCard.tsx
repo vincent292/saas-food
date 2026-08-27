@@ -7,9 +7,10 @@ import { chargeOrderAction, rejectCashOrderAction } from "@/app/admin/actions";
 import { groupReceiptLinksFromNotes, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
 import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
-import { Button, buttonClasses } from "@/components/ui/Button";
+import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
+import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
 import { formatShortTime } from "@/lib/utils/dates";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
@@ -179,9 +180,9 @@ export function PendingOrderReviewCard({
                 )}
               </>
             ) : null}
-            <Button disabled={disabled} type="submit">
+            <PendingSubmitButton disabled={disabled} pendingLabel="Aprobando y cobrando...">
               Aprobar y cobrar
-            </Button>
+            </PendingSubmitButton>
           </form>
 
           <div className="rounded-2xl border border-[var(--color-danger-soft)] p-3">
@@ -200,9 +201,9 @@ export function PendingOrderReviewCard({
                 <input name="orderId" type="hidden" value={order.id} />
                 <input name="source" type="hidden" value={context} />
                 <Textarea name="reason" placeholder="Motivo obligatorio para cancelar o quitar de vista" required />
-                <Button className="w-full" type="submit" variant="danger">
+                <PendingSubmitButton className="w-full" pendingLabel="Cancelando..." variant="danger">
                   Confirmar cancelacion
-                </Button>
+                </PendingSubmitButton>
               </form>
             ) : null}
           </div>

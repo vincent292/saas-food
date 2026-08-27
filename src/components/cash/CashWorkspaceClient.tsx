@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input, Select, Textarea } from "@/components/ui/Input";
+import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { businessCatalogLabelTitle, businessOrderStatusLabel, businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils/dates";
@@ -987,9 +988,9 @@ function PickupOrderCard({ order, restaurantSlug, businessType, now }: { order: 
             <input name="source" type="hidden" value="caja" />
             <input name="tab" type="hidden" value="recojo" />
             <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">Confirma cuando el cliente ya retiro el pedido del local.</p>
-            <Button className="w-full" name="status" type="submit" value="delivered">
+            <PendingSubmitButton className="w-full" name="status" pendingLabel="Confirmando recojo..." value="delivered">
               Marcar retirado
-            </Button>
+            </PendingSubmitButton>
           </form>
         ) : order.status === "delivered" ? (
           <DispatchStatusPanel label="Retirado" tone="success" value={order.deliveredAt} />
@@ -1020,9 +1021,9 @@ function TableServiceOrderCard({ order, restaurantSlug, businessType, now }: { o
             <input name="source" type="hidden" value="caja" />
             <input name="tab" type="hidden" value="pedidos" />
             <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">Cuando el pedido ya fue entregado a la mesa, marcalo como servido para cerrar el seguimiento.</p>
-            <Button className="w-full" name="status" type="submit" value="delivered">
+            <PendingSubmitButton className="w-full" name="status" pendingLabel="Marcando servido..." value="delivered">
               Marcar servido
-            </Button>
+            </PendingSubmitButton>
           </form>
         ) : (
           <div className="rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-bold text-[var(--color-warning-strong)]">
@@ -1050,10 +1051,10 @@ function OrderReadyActionPanel({ order, restaurantSlug, tab, now }: { order: Ord
         {overdue ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />}
         <p>{overdue ? `Tiempo cumplido hace ${elapsedLabel(Math.abs(remainingMinutes))}.` : `Meta ${orderPrepMinutes(order)} min, objetivo ${formatShortTime(dueAt)}.`} Marca listo solo cuando cocina avise el numero.</p>
       </div>
-      <Button className="w-full" name="status" type="submit" value="ready">
+      <PendingSubmitButton className="w-full" name="status" pendingLabel="Marcando listo..." value="ready">
         <CheckCircle2 className="h-4 w-4" />
         Marcar listo
-      </Button>
+      </PendingSubmitButton>
     </form>
   );
 }

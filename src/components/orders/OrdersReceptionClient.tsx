@@ -11,10 +11,11 @@ import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCa
 import { elapsedLabel, groupReceiptLinksFromNotes, minutesSince, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
 import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
-import { Button, buttonClasses } from "@/components/ui/Button";
+import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Textarea } from "@/components/ui/Input";
+import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
 import { cn } from "@/lib/utils/cn";
 import { isSameBusinessDay } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
@@ -505,10 +506,10 @@ function ReceptionOrderCard({
               <input name="orderId" type="hidden" value={order.id} />
               <input name="source" type="hidden" value="pedidos" />
               <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">{hasKitchenFlow ? "Avance rapido para locales sin pantalla de cocina separada." : "Avance rapido para alistar y marcar pedidos listos desde recepcion."}</p>
-              <Button className="w-full" name="status" type="submit" value={nextKitchenStatus}>
+              <PendingSubmitButton className="w-full" name="status" pendingLabel="Actualizando..." value={nextKitchenStatus}>
                 {order.status === "accepted" ? <ChefHat className="h-4 w-4" /> : <Utensils className="h-4 w-4" />}
                 {nextKitchenLabel}
-              </Button>
+              </PendingSubmitButton>
             </form>
           ) : order.status === "ready" ? (
             <div className="rounded-2xl bg-[var(--primary-light)] p-3 text-center text-sm font-black text-[var(--primary-dark)]">{readyLabel}</div>
@@ -522,7 +523,7 @@ function ReceptionOrderCard({
                 <input name="orderId" type="hidden" value={order.id} />
                 <input name="source" type="hidden" value="pedidos" />
                 <Textarea name="reason" placeholder="Motivo del reembolso" required />
-                <Button className="w-full" type="submit" variant="danger">Confirmar reembolso</Button>
+                <PendingSubmitButton className="w-full" pendingLabel="Reembolsando..." variant="danger">Confirmar reembolso</PendingSubmitButton>
               </form>
             </details>
           ) : null}

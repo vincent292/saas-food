@@ -1,7 +1,8 @@
 "use client";
 
 import { CheckCircle2, KeyRound, LogOut, Mail, MapPin, Phone, Plus, ReceiptText, UserRound, X } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { Button } from "@/components/ui/Button";
@@ -53,6 +54,7 @@ export function PublicCustomerAccountButton({
   const [sessionName, setSessionName] = useState("");
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [loading, setLoading] = useState(!initialOpen);
+  const closeModal = useCallback(() => setOpen(false), []);
 
   async function refreshAccount() {
     setLoading(true);
@@ -111,7 +113,7 @@ export function PublicCustomerAccountButton({
           loading={loading}
           initialMode={initialMode}
           initialPanel={initialPanel}
-          onClose={() => setOpen(false)}
+          onClose={closeModal}
           onRefresh={refreshAccount}
           sessionEmail={sessionEmail}
           sessionName={sessionName}
@@ -176,6 +178,8 @@ function CustomerAccountModal({
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [portalReady, setPortalReady] = useState(false);
+  const [publicTheme, setPublicTheme] = useState<"light" | "dark">("light");
 
   const loggedIn = Boolean(sessionEmail);
   const profileComplete = Boolean(account.profile);
@@ -184,6 +188,30 @@ function CustomerAccountModal({
     const fromProfile = account.profile?.fullName?.trim().split(/\s+/)[0];
     return fromProfile || sessionEmail.split("@")[0] || "";
   }, [account.profile?.fullName, sessionEmail]);
+
+  useEffect(() => {
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    const sourceTheme = document.querySelector<HTMLElement>(".public-brand-theme")?.dataset.publicTheme;
+    const mountTimer = window.setTimeout(() => {
+      setPublicTheme(sourceTheme === "dark" ? "dark" : "light");
+      setPortalReady(true);
+    }, 0);
+
+    document.body.style.overflow = "hidden";
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(mountTimer);
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+      activeElement?.focus();
+    };
+  }, [onClose]);
 
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -315,28 +343,31 @@ function CustomerAccountModal({
     await onRefresh();
   }
 
-  return (
+  if (!portalReady) return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-[130] grid place-items-end bg-[rgb(8_36_65_/_0.68)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4"
+      className="public-brand-theme fixed inset-0 z-[200] flex items-stretch justify-center bg-[rgb(8_36_65_/_0.68)] p-0 text-[var(--text)] backdrop-blur-sm sm:items-center sm:p-4"
+      data-public-theme={publicTheme}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="Mi Yopido"
     >
       <div
-        className="relative flex max-h-[94dvh] w-full max-w-[min(100vw,62rem)] flex-col overflow-hidden rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:max-h-[90dvh] sm:rounded-[1.5rem]"
+        className="relative flex h-dvh max-h-dvh w-full max-w-[62rem] flex-col overflow-hidden bg-[var(--surface)] shadow-2xl sm:h-auto sm:max-h-[90dvh] sm:rounded-[1.5rem]"
         onClick={(event) => event.stopPropagation()}
       >
         <button
           aria-label="Cerrar Mi Yopido"
-          className="absolute right-3 top-3 z-20 grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl ring-1 ring-black/8 transition hover:scale-105 active:scale-95"
+          className="absolute right-3 top-[calc(0.75rem+env(safe-area-inset-top))] z-20 grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl ring-1 ring-black/8 transition hover:scale-105 active:scale-95 sm:top-3"
           onClick={onClose}
           type="button"
         >
           <X className="h-5 w-5" />
         </button>
 
-        <div className={cn("flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] bg-[#12355B] pr-20 text-white", loggedIn ? "p-5 pr-20" : "px-5 py-4 pr-20")}>
+        <div className={cn("flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] bg-[#12355B] pr-20 pt-[calc(1rem+env(safe-area-inset-top))] text-white sm:pt-4", loggedIn ? "px-5 pb-5 pr-20" : "px-5 pb-4 pr-20")}>
           <div>
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[var(--accent)]">Mi Yopido</p>
             {loggedIn ? (
@@ -348,7 +379,7 @@ function CustomerAccountModal({
           </div>
         </div>
 
-        <div className="admin-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+        <div className="admin-scrollbar min-h-0 flex-1 overscroll-contain overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:p-5">
           {loading ? <div className="rounded-3xl bg-[var(--color-surface)] p-5 text-sm font-black text-[var(--muted)]">Cargando Mi Yopido...</div> : null}
 
           {!loading && !loggedIn ? (
@@ -386,8 +417,8 @@ function CustomerAccountModal({
                       <Input onChange={(event) => setDocumentNumber(event.target.value)} placeholder="Carnet de identidad" required value={documentNumber} />
                     </>
                   ) : null}
-                  <Input autoCapitalize="none" onChange={(event) => setEmail(event.target.value)} placeholder="Correo electronico" required type="email" value={email} />
-                  <Input onChange={(event) => setPassword(event.target.value)} placeholder="Contrasena" required type="password" value={password} />
+                  <Input autoCapitalize="none" autoComplete="email" inputMode="email" name="email" onChange={(event) => setEmail(event.target.value)} placeholder="Correo electronico" required type="email" value={email} />
+                  <Input autoComplete={mode === "login" ? "current-password" : "new-password"} name="password" onChange={(event) => setPassword(event.target.value)} placeholder="Contrasena" required type="password" value={password} />
                 </div>
                 {error ? <Feedback tone="error">{error}</Feedback> : null}
                 {message ? <Feedback tone="success">{message}</Feedback> : null}
@@ -564,7 +595,8 @@ function CustomerAccountModal({
           ) : null}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

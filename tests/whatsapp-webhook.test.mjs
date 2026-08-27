@@ -17,6 +17,9 @@ const platformPagePath = new URL("../src/app/admin/whatsapp/page.tsx", import.me
 const platformClientPath = new URL("../src/components/admin/PlatformWhatsAppSettingsClient.tsx", import.meta.url);
 const adminShellPath = new URL("../src/components/layout/AdminShellClient.tsx", import.meta.url);
 const settingsClientPath = new URL("../src/components/settings/RestaurantSettingsFormClient.tsx", import.meta.url);
+const adminActionsPath = new URL("../src/app/admin/actions.ts", import.meta.url);
+const publicStoragePath = new URL("../src/lib/supabase/storage.ts", import.meta.url);
+const whatsappProductImagesMigrationPath = new URL("../supabase/migrations/0089_product_whatsapp_images.sql", import.meta.url);
 
 test("WhatsApp checkout reuses the canonical order RPC with a stable request id", async () => {
   const source = await readFile(webhookPath, "utf8");
@@ -235,6 +238,55 @@ test("WhatsApp bot refuses sensitive and off-topic AI prompts", async () => {
   assert.match(source, /prompt interno/);
   assert.match(source, /hasWhatsAppOrderingSignal/);
   assert.match(source, /Solo puedo ayudarte con restaurantes, menus, promociones, pedidos y seguimiento/);
+});
+
+test("WhatsApp product images use JPEG-compatible cached assets", async () => {
+  const [migration, storage, actions, webhook] = await Promise.all([
+    readFile(whatsappProductImagesMigrationPath, "utf8"),
+    readFile(publicStoragePath, "utf8"),
+    readFile(adminActionsPath, "utf8"),
+    readFile(webhookPath, "utf8"),
+  ]);
+
+  assert.match(migration, /add column if not exists whatsapp_image_url text/);
+  assert.match(storage, /import sharp from "sharp"/);
+  assert.match(storage, /uploadPublicWhatsAppImage/);
+  assert.match(storage, /type: "image\/jpeg"/);
+  assert.match(storage, /\.jpeg\(\{ quality, mozjpeg: true \}\)/);
+  assert.match(actions, /uploadPublicWhatsAppImage\(imageFile/);
+  assert.match(actions, /whatsapp_image_url: whatsappImageUrl/);
+  assert.match(webhook, /whatsapp_image_url/);
+  assert.match(webhook, /product\.whatsapp_image_url \?\? product\.image_url/);
+  assert.match(webhook, /pathname\.endsWith\("\.jpg"\)[\s\S]*pathname\.endsWith\("\.jpeg"\)[\s\S]*pathname\.endsWith\("\.png"\)/);
+});
+
+test("WhatsApp can repeat owned orders with current catalog validation", async () => {
+  const source = await readFile(webhookPath, "utf8");
+
+  assert.match(source, /isRepeatOrderIntent/);
+  assert.match(source, /REPEAT_ORDER:/);
+  assert.match(source, /repeatPreviousOrder/);
+  assert.match(source, /customer_phone_normalized/);
+  assert.match(source, /revalidateDraftItems/);
+  assert.match(source, /\.eq\("is_available", true\)/);
+  assert.match(source, /assertDraftItemsInStock/);
+  assert.match(source, /requiredByInventoryItem/);
+  assert.match(source, /precios actuales/);
+  assert.match(source, /No se enviara sin tu confirmacion/);
+});
+
+test("WhatsApp manages only the current customer's saved addresses with confirmation", async () => {
+  const source = await readFile(webhookPath, "utf8");
+
+  assert.match(source, /isOwnAddressesIntent/);
+  assert.match(source, /ACTION_ADDRESSES/);
+  assert.match(source, /findCustomerProfileByPhone/);
+  assert.match(source, /phone_normalized/);
+  assert.match(source, /ADDRESS_MANAGE:/);
+  assert.match(source, /confirm_delete_address:/);
+  assert.match(source, /CONFIRM_DELETE_ADDRESS:/);
+  assert.match(source, /\.delete\(\)\.eq\("id", addressId\)\.eq\("customer_id", profile\.id\)/);
+  assert.match(source, /Esta accion no se puede deshacer/);
 });
 
 test("WhatsApp restart keeps restaurant conversations visible in CRM", async () => {

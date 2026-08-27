@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { deleteRestaurantAssets, uploadPrivateFile, uploadPublicImage } from "@/lib/supabase/storage";
+import { deleteRestaurantAssets, uploadPrivateFile, uploadPublicImage, uploadPublicWhatsAppImage } from "@/lib/supabase/storage";
 import { fullPlanKey, fullPlanModules } from "@/lib/billing/full-plan";
 import {
   businessTypeSupportsKitchen,
@@ -1637,7 +1637,7 @@ async function cloneBranchCatalog(
 
   const productsResult = await admin
     .from("products")
-    .select("id,category_id,name,description,price,prep_minutes,image_url,image_position_x,image_position_y,image_zoom,is_available,is_featured,track_stock,sort_order")
+    .select("id,category_id,name,description,price,prep_minutes,image_url,whatsapp_image_url,image_position_x,image_position_y,image_zoom,is_available,is_featured,track_stock,sort_order")
     .eq("restaurant_id", sourceRestaurantId)
     .order("sort_order");
   throwIfSupabaseError(productsResult, "products-read");
@@ -1656,6 +1656,7 @@ async function cloneBranchCatalog(
       price: product.price,
       prep_minutes: product.prep_minutes ?? 15,
       image_url: product.image_url,
+      whatsapp_image_url: product.whatsapp_image_url,
       image_position_x: product.image_position_x,
       image_position_y: product.image_position_y,
       image_zoom: product.image_zoom,
@@ -6169,9 +6170,14 @@ export async function createProductAction(formData: FormData) {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=service-role-required`);
   }
 
+  const imageFile = formData.get("imageFile") as File | null;
   let imageUrl: string | null = null;
+  let whatsappImageUrl: string | null = null;
   try {
-    imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/products`);
+    [imageUrl, whatsappImageUrl] = await Promise.all([
+      uploadPublicImage(imageFile, `restaurants/${parsed.data.restaurantId}/products`),
+      uploadPublicWhatsAppImage(imageFile, `restaurants/${parsed.data.restaurantId}/products`),
+    ]);
   } catch {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=storage-upload`);
   }
@@ -6187,6 +6193,7 @@ export async function createProductAction(formData: FormData) {
       compare_at_price: parsed.data.compareAtPrice ?? null,
       prep_minutes: parsed.data.prepMinutes,
       image_url: imageUrl,
+      whatsapp_image_url: whatsappImageUrl,
       image_position_x: clampProductImagePosition(parsed.data.imagePositionX),
       image_position_y: clampProductImagePosition(parsed.data.imagePositionY),
       image_zoom: clampProductImageZoom(parsed.data.imageZoom),
@@ -6321,9 +6328,14 @@ export async function updateProductAction(formData: FormData) {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=service-role-required`);
   }
 
+  const imageFile = formData.get("imageFile") as File | null;
   let imageUrl: string | null = null;
+  let whatsappImageUrl: string | null = null;
   try {
-    imageUrl = await uploadPublicImage(formData.get("imageFile") as File | null, `restaurants/${parsed.data.restaurantId}/products`);
+    [imageUrl, whatsappImageUrl] = await Promise.all([
+      uploadPublicImage(imageFile, `restaurants/${parsed.data.restaurantId}/products`),
+      uploadPublicWhatsAppImage(imageFile, `restaurants/${parsed.data.restaurantId}/products`),
+    ]);
   } catch {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/productos?error=storage-upload`);
   }
@@ -6346,6 +6358,7 @@ export async function updateProductAction(formData: FormData) {
     available_end_time: string | null;
     sort_order: number;
     image_url?: string | null;
+    whatsapp_image_url?: string | null;
     image_position_x: number;
     image_position_y: number;
     image_zoom: number;
@@ -6373,6 +6386,7 @@ export async function updateProductAction(formData: FormData) {
 
   if (imageUrl) {
     updatePayload.image_url = imageUrl;
+    updatePayload.whatsapp_image_url = whatsappImageUrl;
   }
 
   const { error } = await admin
@@ -6599,7 +6613,7 @@ export async function updateOrderStatusAction(formData: FormData) {
   if (nextStatus !== order.status && !validTransitions[order.status as OrderStatus].includes(nextStatus)) {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=invalid-order-transition`);
   }
-  const statusChanged = nextStatus !== order.status;
+  let statusChanged = nextStatus !== order.status;
 
   if (nextStatus === "cancelled" && order.payment_status === "paid") {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=refund-required`);
@@ -6622,32 +6636,54 @@ export async function updateOrderStatusAction(formData: FormData) {
     cancelled_at?: string;
   } = { status: nextStatus };
 
-  if (nextStatus === "accepted") {
+  if (statusChanged && nextStatus === "accepted") {
     updatePayload.accepted_at = now;
   }
 
-  if (nextStatus === "preparing") {
+  if (statusChanged && nextStatus === "preparing") {
     updatePayload.preparing_at = now;
   }
 
-  if (nextStatus === "ready") {
+  if (statusChanged && nextStatus === "ready") {
     updatePayload.ready_at = now;
   }
 
-  if (nextStatus === "delivered") {
+  if (statusChanged && nextStatus === "delivered") {
     updatePayload.delivered_at = now;
   }
 
-  if (nextStatus === "cancelled") {
+  if (statusChanged && nextStatus === "cancelled") {
     updatePayload.cancelled_at = now;
   }
 
-  const { error: updateError } = await supabase.from("orders").update(updatePayload).eq("id", parsed.data.orderId).eq("restaurant_id", parsed.data.restaurantId);
+  const { data: updatedOrder, error: updateError } = await supabase
+    .from("orders")
+    .update(updatePayload)
+    .eq("id", parsed.data.orderId)
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("status", order.status)
+    .select("id")
+    .maybeSingle();
   if (updateError) {
     const errorKey = updateError.message?.startsWith("invalid-order-transition")
       ? "invalid-order-transition"
       : cashErrorKey(updateError, "order-status-update");
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=${errorKey}`);
+  }
+
+  if (!updatedOrder && statusChanged) {
+    const { data: currentOrder } = await supabase
+      .from("orders")
+      .select("status")
+      .eq("id", parsed.data.orderId)
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .maybeSingle();
+
+    if (currentOrder?.status === nextStatus) {
+      statusChanged = false;
+    } else {
+      redirect(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos?error=invalid-order-transition`);
+    }
   }
 
   if (nextStatus === "cancelled") {

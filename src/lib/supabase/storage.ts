@@ -7,12 +7,15 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import sharp from "sharp";
 import { createClient } from "./server";
 import { createAdminClient } from "./admin";
 
 const supabaseBucketName = "restaurant-assets";
 const defaultR2Region = "auto";
 const privateUrlPrefix = "/api/storage/private";
+const whatsappImageMaxBytes = 5 * 1024 * 1024;
+const whatsappImageMaxSide = 1600;
 
 let r2Client: S3Client | null = null;
 
@@ -99,6 +102,15 @@ export async function uploadPublicImage(file: File | null, folder: string) {
   return data.publicUrl;
 }
 
+export async function uploadPublicWhatsAppImage(file: File | null, folder: string) {
+  if (!file || file.size === 0) {
+    return null;
+  }
+
+  const image = await createWhatsAppJpegFile(file);
+  return uploadPublicImage(image, `${folder}/whatsapp`);
+}
+
 export async function uploadPrivateFile(file: File | null, folder: string) {
   if (!file || file.size === 0) {
     return null;
@@ -182,6 +194,36 @@ async function putR2Object(client: S3Client, bucket: string, path: string, file:
       Expires: expiresAt,
     }),
   );
+}
+
+async function createWhatsAppJpegFile(file: File) {
+  let quality = 86;
+  let buffer = await renderWhatsAppJpeg(file, quality, whatsappImageMaxSide);
+
+  while (buffer.byteLength > whatsappImageMaxBytes && quality > 48) {
+    quality -= 8;
+    buffer = await renderWhatsAppJpeg(file, quality, whatsappImageMaxSide);
+  }
+
+  if (buffer.byteLength > whatsappImageMaxBytes) {
+    buffer = await renderWhatsAppJpeg(file, 48, 1200);
+  }
+
+  const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+
+  return new File([arrayBuffer], file.name.replace(/\.[^.]+$/, "") + ".jpg", {
+    type: "image/jpeg",
+    lastModified: Date.now(),
+  });
+}
+
+async function renderWhatsAppJpeg(file: File, quality: number, maxSide: number) {
+  return sharp(Buffer.from(await file.arrayBuffer()))
+    .rotate()
+    .resize({ width: maxSide, height: maxSide, fit: "inside", withoutEnlargement: true })
+    .flatten({ background: "#ffffff" })
+    .jpeg({ quality, mozjpeg: true })
+    .toBuffer();
 }
 
 function privateObjectUrl(path: string) {

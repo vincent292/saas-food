@@ -1,4 +1,5 @@
 import { AlertTriangle, ChefHat, ClipboardList, PackageCheck, Table2, WalletCards } from "lucide-react";
+import { RestaurantRealtimeRefresh } from "@/components/realtime/RestaurantRealtimeRefresh";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { SectionTitle } from "@/components/ui/SectionTitle";
@@ -27,6 +28,7 @@ export async function RestaurantDashboard({ restaurantId, businessType }: { rest
 
   return (
     <div className="space-y-6">
+      <RestaurantRealtimeRefresh restaurantId={restaurantId} scope="dashboard" />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={<WalletCards className="h-5 w-5" />} label="Ventas del día" value={formatMoney(summary.salesTotal)} detail="Pagadas hasta ahora" />
         <StatCard icon={<ClipboardList className="h-5 w-5" />} label="Pedidos pendientes" value={String(todaysOrders.filter((order) => order.status === "pending").length)} />

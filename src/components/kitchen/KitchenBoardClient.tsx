@@ -2,8 +2,7 @@
 
 import { AlertTriangle, Clock, History, Maximize2, Minimize2, RefreshCw, Truck } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import {
   READY_PICKUP_WARNING_MINUTES,
   elapsedLabel,
@@ -17,8 +16,8 @@ import {
 import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useRestaurantRealtimeRefresh } from "@/lib/client/use-restaurant-realtime-refresh";
 import { cn } from "@/lib/utils/cn";
-import { createClient } from "@/lib/supabase/client";
 import type { Order } from "@/types/order.types";
 import type { Restaurant } from "@/types/restaurant.types";
 
@@ -48,81 +47,15 @@ export function KitchenBoardClient({
   restaurant: Restaurant;
   orders: Order[];
 }) {
-  const router = useRouter();
   const [activeView, setActiveView] = useState<KitchenView>("operacion");
   const [now, setNow] = useState(() => new Date());
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  const refreshTimeoutRef = useRef<number | null>(null);
-  const realtimeConnectedRef = useRef(false);
-  const lastRefreshAtRef = useRef(0);
+  useRestaurantRealtimeRefresh({ restaurantId: restaurant.id, scope: "kitchen" });
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    const refresh = () => {
-      if (document.visibilityState === "hidden") {
-        return;
-      }
-
-      if (refreshTimeoutRef.current) {
-        window.clearTimeout(refreshTimeoutRef.current);
-      }
-
-      refreshTimeoutRef.current = window.setTimeout(() => {
-        setIsRefreshing(true);
-        lastRefreshAtRef.current = Date.now();
-        router.refresh();
-        window.setTimeout(() => setIsRefreshing(false), 800);
-        refreshTimeoutRef.current = null;
-      }, 250);
-    };
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`cocina-${restaurant.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurant.id}` }, refresh)
-      .subscribe((status) => {
-        realtimeConnectedRef.current = status === "SUBSCRIBED";
-      });
-
-    return () => {
-      realtimeConnectedRef.current = false;
-      if (refreshTimeoutRef.current) {
-        window.clearTimeout(refreshTimeoutRef.current);
-      }
-      supabase.removeChannel(channel);
-    };
-  }, [restaurant.id, router]);
-
-  useEffect(() => {
-    const refreshIfVisible = () => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-      setIsRefreshing(true);
-      lastRefreshAtRef.current = Date.now();
-      router.refresh();
-      window.setTimeout(() => setIsRefreshing(false), 800);
-    };
-
-    const refreshFallback = () => {
-      if (realtimeConnectedRef.current && Date.now() - lastRefreshAtRef.current < 120000) return;
-      refreshIfVisible();
-    };
-
-    const interval = window.setInterval(refreshFallback, 30000);
-    window.addEventListener("focus", refreshIfVisible);
-    document.addEventListener("visibilitychange", refreshIfVisible);
-
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("focus", refreshIfVisible);
-      document.removeEventListener("visibilitychange", refreshIfVisible);
-    };
-  }, [router]);
 
   const groups = useMemo(() => {
     const activeOrders = orders.filter((order) => order.status === "accepted" || order.status === "preparing");
@@ -160,8 +93,8 @@ export function KitchenBoardClient({
               Pantalla grande
             </button>
             <div className="flex items-center gap-2 rounded-full bg-[var(--surface)] px-4 py-2 text-sm font-black text-[var(--muted)] shadow-sm">
-              <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin text-[var(--primary)]")} />
-              {isRefreshing ? "Actualizando" : "En vivo"}
+              <RefreshCw className="h-4 w-4 text-[var(--primary)]" />
+              En vivo
             </div>
           </div>
         </section>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { CheckCircle2, ChefHat, ClipboardCheck, MessageCircle, PackageCheck, Phone, ReceiptText, ShoppingBag, Store, Truck, XCircle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
@@ -8,13 +8,12 @@ import { SectionTitle } from "@/components/ui/SectionTitle";
 import { VirtualQueueCard } from "@/components/orders/VirtualQueueCard";
 import { Badge } from "@/components/ui/Badge";
 import { businessPickupReadyLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
-import { createClient } from "@/lib/supabase/client";
+import { useRealtimeBroadcast } from "@/lib/client/use-realtime-broadcast";
 import { cn } from "@/lib/utils/cn";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
-import type { Order, OrderDeliveryDispatch, OrderQueueState, OrderStatus, OrderTrackingStatus } from "@/types/order.types";
+import type { Order, OrderQueueState, OrderStatus, OrderTrackingStatus } from "@/types/order.types";
 import type { BusinessType } from "@/types/restaurant.types";
 
-const POLL_INTERVAL_MS = 30000;
 const terminalStatuses = new Set<OrderStatus>(["delivered", "cancelled"]);
 
 const trackingLabels: Record<OrderStatus, string> = {
@@ -42,33 +41,6 @@ const tableLabels: Record<OrderStatus, string> = {
   ready: "Listo",
   delivered: "Servido",
   cancelled: "Cancelado",
-};
-
-type DeliveryChangePayload = {
-  status?: OrderDeliveryDispatch["status"];
-  delivery_phone?: string | null;
-  delivery_name?: string | null;
-  created_at?: string | null;
-  opened_at?: string | null;
-  arrived_at?: string | null;
-  delivered_at?: string | null;
-  rider_latitude?: number | string | null;
-  rider_longitude?: number | string | null;
-  rider_location_accuracy_m?: number | string | null;
-  rider_location_heading?: number | string | null;
-  rider_location_speed_mps?: number | string | null;
-  rider_location_updated_at?: string | null;
-};
-
-type OrderChangePayload = {
-  status?: OrderStatus;
-  accepted_at?: string | null;
-  preparing_at?: string | null;
-  ready_at?: string | null;
-  delivered_at?: string | null;
-  cancelled_at?: string | null;
-  cancellation_reason?: string | null;
-  updated_at?: string | null;
 };
 
 function hasDeliveryDispatch(order: Order) {
@@ -260,45 +232,6 @@ function mergeTrackingStatus<T extends Order>(order: T, status: OrderTrackingSta
   } as T;
 }
 
-function mergeOrderChange<T extends Order>(order: T, payload: OrderChangePayload): T {
-  return {
-    ...order,
-    status: payload.status ?? order.status,
-    acceptedAt: payload.accepted_at ?? order.acceptedAt,
-    preparingAt: payload.preparing_at ?? order.preparingAt,
-    readyAt: payload.ready_at ?? order.readyAt,
-    deliveredAt: payload.delivered_at ?? order.deliveredAt,
-    cancelledAt: payload.cancelled_at ?? order.cancelledAt,
-    cancellationReason: payload.cancellation_reason ?? order.cancellationReason,
-  } as T;
-}
-
-function mergeDeliveryChange<T extends Order>(order: T, payload: DeliveryChangePayload): T {
-  if (!payload.status && payload.rider_latitude == null && payload.rider_longitude == null) {
-    return order;
-  }
-
-  return {
-    ...order,
-    deliveryDispatch: {
-      ...order.deliveryDispatch,
-      status: payload.status ?? order.deliveryDispatch?.status ?? "active",
-      deliveryPhone: payload.delivery_phone ?? order.deliveryDispatch?.deliveryPhone,
-      deliveryName: payload.delivery_name ?? order.deliveryDispatch?.deliveryName,
-      dispatchedAt: payload.created_at ?? order.deliveryDispatch?.dispatchedAt,
-      openedAt: payload.opened_at ?? order.deliveryDispatch?.openedAt,
-      arrivedAt: payload.arrived_at ?? order.deliveryDispatch?.arrivedAt,
-      deliveredAt: payload.delivered_at ?? order.deliveryDispatch?.deliveredAt,
-      riderLatitude: payload.rider_latitude == null ? order.deliveryDispatch?.riderLatitude : Number(payload.rider_latitude),
-      riderLongitude: payload.rider_longitude == null ? order.deliveryDispatch?.riderLongitude : Number(payload.rider_longitude),
-      riderLocationAccuracyMeters: payload.rider_location_accuracy_m == null ? order.deliveryDispatch?.riderLocationAccuracyMeters : Number(payload.rider_location_accuracy_m),
-      riderLocationHeading: payload.rider_location_heading == null ? order.deliveryDispatch?.riderLocationHeading : Number(payload.rider_location_heading),
-      riderLocationSpeedMetersPerSecond: payload.rider_location_speed_mps == null ? order.deliveryDispatch?.riderLocationSpeedMetersPerSecond : Number(payload.rider_location_speed_mps),
-      riderLocationUpdatedAt: payload.rider_location_updated_at ?? order.deliveryDispatch?.riderLocationUpdatedAt,
-    },
-  } as T;
-}
-
 function googleMapsSearchUrl(latitude: number, longitude: number) {
   return `https://www.google.com/maps/search/?api=1&query=${latitude.toFixed(7)},${longitude.toFixed(7)}`;
 }
@@ -452,64 +385,12 @@ export function OrderTrackingLiveRefresh({
     }
   }, [statusUrl]);
 
-  useEffect(() => {
-    if (isTerminal) {
-      return;
-    }
-
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`seguimiento-pedido-${initialOrder.id}`)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `id=eq.${initialOrder.id}` }, (payload) => {
-        setOrder((current) => mergeOrderChange(current, payload.new as OrderChangePayload));
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "order_delivery_links", filter: `order_id=eq.${initialOrder.id}` }, (payload) => {
-        setOrder((current) => mergeDeliveryChange(current, payload.new as DeliveryChangePayload));
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [initialOrder.id, isTerminal]);
-
-  useEffect(() => {
-    if (isTerminal) {
-      return;
-    }
-
-    let intervalId: number | undefined;
-    const stopPolling = () => {
-      if (intervalId) {
-        window.clearInterval(intervalId);
-        intervalId = undefined;
-      }
-    };
-    const startPolling = () => {
-      if (intervalId || document.visibilityState !== "visible") {
-        return;
-      }
-      intervalId = window.setInterval(fetchLatestStatus, POLL_INTERVAL_MS);
-    };
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") {
-        void fetchLatestStatus();
-        startPolling();
-      } else {
-        stopPolling();
-      }
-    };
-
-    startPolling();
-    window.addEventListener("focus", refreshWhenVisible);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-
-    return () => {
-      stopPolling();
-      window.removeEventListener("focus", refreshWhenVisible);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, [fetchLatestStatus, isTerminal]);
+  useRealtimeBroadcast({
+    enabled: !isTerminal && Boolean(token),
+    onChange: fetchLatestStatus,
+    onSync: fetchLatestStatus,
+    topic: token ? `order-tracking:${token}` : "",
+  });
 
   return (
     <>

@@ -2,8 +2,7 @@
 
 import { ChefHat, CheckCircle2, Clock, ExternalLink, Printer, RefreshCw, ShoppingCart, Truck, Utensils, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { refundOrderAction, updateOrderStatusAction } from "@/app/admin/actions";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
@@ -16,10 +15,10 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Textarea } from "@/components/ui/Input";
 import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
+import { useRestaurantRealtimeRefresh } from "@/lib/client/use-restaurant-realtime-refresh";
 import { cn } from "@/lib/utils/cn";
 import { isSameBusinessDay } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
-import { createClient } from "@/lib/supabase/client";
 import {
   businessOrderAdvanceLabel,
   businessOrderReadyLabel,
@@ -144,71 +143,10 @@ export function OrdersReceptionClient({
   categories?: Category[];
   configuration?: ProductConfiguration;
 }) {
-  const router = useRouter();
   const [activeTab, setActiveTab] = useState<ReceptionTab>(() => normalizeReceptionTab(status.tab));
   const [blockedAutoPrintOrderId, setBlockedAutoPrintOrderId] = useState("");
   const [posOpen, setPosOpen] = useState(false);
-  const refreshTimeoutRef = useRef<number | null>(null);
-  const realtimeConnectedRef = useRef(false);
-  const lastRefreshAtRef = useRef(0);
-
-  useEffect(() => {
-    const refresh = () => {
-      if (document.visibilityState === "hidden") {
-        return;
-      }
-
-      if (refreshTimeoutRef.current) {
-        window.clearTimeout(refreshTimeoutRef.current);
-      }
-
-      refreshTimeoutRef.current = window.setTimeout(() => {
-        lastRefreshAtRef.current = Date.now();
-        router.refresh();
-        refreshTimeoutRef.current = null;
-      }, 250);
-    };
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`pedidos-recepcion-${restaurant.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurant.id}` }, refresh)
-      .subscribe((status) => {
-        realtimeConnectedRef.current = status === "SUBSCRIBED";
-      });
-
-    return () => {
-      realtimeConnectedRef.current = false;
-      if (refreshTimeoutRef.current) {
-        window.clearTimeout(refreshTimeoutRef.current);
-      }
-      supabase.removeChannel(channel);
-    };
-  }, [restaurant.id, router]);
-
-  useEffect(() => {
-    const refreshIfVisible = () => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-      lastRefreshAtRef.current = Date.now();
-      router.refresh();
-    };
-
-    const refreshFallback = () => {
-      if (realtimeConnectedRef.current && Date.now() - lastRefreshAtRef.current < 120000) return;
-      refreshIfVisible();
-    };
-
-    const interval = window.setInterval(refreshFallback, 30000);
-    window.addEventListener("focus", refreshIfVisible);
-    document.addEventListener("visibilitychange", refreshIfVisible);
-
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("focus", refreshIfVisible);
-      document.removeEventListener("visibilitychange", refreshIfVisible);
-    };
-  }, [router]);
+  useRestaurantRealtimeRefresh({ restaurantId: restaurant.id, scope: "orders" });
 
   const todayOrders = useMemo(() => orders.filter((order) => isSameBusinessDay(order.createdAt)), [orders]);
   const groups = useMemo(

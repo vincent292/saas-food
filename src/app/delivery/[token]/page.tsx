@@ -3,6 +3,7 @@ import { Bike, CheckCircle2, Clock3, MapPinned, MessageCircle, Phone, ReceiptTex
 import type { ReactNode } from "react";
 import { markDeliveryArrivedAction, markDeliveryDeliveredAction } from "@/app/delivery/actions";
 import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
+import { RealtimeBroadcastRefresh } from "@/components/realtime/RealtimeBroadcastRefresh";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
@@ -53,6 +54,7 @@ export default async function DeliveryOrderPage({
 
   return (
     <main className="public-brand-theme min-h-screen bg-[var(--background)] px-4 py-5 text-[var(--text)] sm:px-6">
+      <RealtimeBroadcastRefresh enabled={order.orderStatus !== "delivered"} topic={`delivery:${token}`} />
       <div className="mx-auto max-w-3xl space-y-4">
         <div className="flex justify-end">
           <PublicThemeToggle />

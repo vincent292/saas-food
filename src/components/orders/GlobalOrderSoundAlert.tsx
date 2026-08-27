@@ -97,8 +97,7 @@ function realtimeOrder(row: RealtimeOrderRow): Order | null {
 
 export function GlobalOrderSoundAlert({ restaurantId, orders }: { restaurantId: string; orders: Order[] }) {
   const router = useRouter();
-  const refreshTimeoutRef = useRef<number | null>(null);
-  const pollKnownOrderIdsRef = useRef<Set<string>>(new Set(orders.map((order) => order.id)));
+  const realtimeConnectedRef = useRef(false);
   const [liveOrders, setLiveOrders] = useState<Order[]>([]);
 
   const alertOrders = useMemo(() => {
@@ -117,26 +116,7 @@ export function GlobalOrderSoundAlert({ restaurantId, orders }: { restaurantId: 
   }, [liveOrders, orders, restaurantId]);
 
   useEffect(() => {
-    for (const order of orders) {
-      pollKnownOrderIdsRef.current.add(order.id);
-    }
-  }, [orders]);
-
-  useEffect(() => {
     let cancelled = false;
-    let initialPollTimeout: number | null = null;
-    let pollInterval: number | null = null;
-
-    const refresh = () => {
-      if (refreshTimeoutRef.current) {
-        window.clearTimeout(refreshTimeoutRef.current);
-      }
-
-      refreshTimeoutRef.current = window.setTimeout(() => {
-        router.refresh();
-        refreshTimeoutRef.current = null;
-      }, 250);
-    };
 
     const supabase = createClient();
     const mergePendingOrders = (pendingOrders: Order[]) => {
@@ -169,16 +149,8 @@ export function GlobalOrderSoundAlert({ restaurantId, orders }: { restaurantId: 
       }
 
       const pendingOrders = ((data ?? []) as RealtimeOrderRow[]).map(realtimeOrder).filter((order): order is Order => Boolean(order));
-      const hasNewPendingOrder = pendingOrders.some((order) => !pollKnownOrderIdsRef.current.has(order.id));
       mergePendingOrders(pendingOrders);
 
-      for (const order of pendingOrders) {
-        pollKnownOrderIdsRef.current.add(order.id);
-      }
-
-      if (hasNewPendingOrder) {
-        refresh();
-      }
     };
 
     const channel = supabase
@@ -186,27 +158,28 @@ export function GlobalOrderSoundAlert({ restaurantId, orders }: { restaurantId: 
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurantId}` }, (payload) => {
         const nextOrder = realtimeOrder((payload.new ?? payload.old ?? {}) as RealtimeOrderRow);
         if (nextOrder) {
-          pollKnownOrderIdsRef.current.add(nextOrder.id);
           setLiveOrders((current) => {
             const withoutCurrent = current.filter((order) => order.id !== nextOrder.id);
-            return nextOrder.status === "pending" ? [...withoutCurrent, nextOrder] : withoutCurrent;
+            return [...withoutCurrent, nextOrder].slice(-60);
           });
         }
-        refresh();
       })
-      .subscribe();
+      .subscribe((status) => {
+        realtimeConnectedRef.current = status === "SUBSCRIBED";
+        if (status === "SUBSCRIBED") {
+          void loadPendingOrders();
+        }
+      });
 
-    initialPollTimeout = window.setTimeout(() => {
-      void loadPendingOrders();
-    }, 1200);
-    pollInterval = window.setInterval(() => {
-      void loadPendingOrders();
-    }, 12_000);
+    const fallbackInterval = window.setInterval(() => {
+      if (!realtimeConnectedRef.current) {
+        void loadPendingOrders();
+      }
+    }, 60_000);
 
     const refreshOnFocus = () => {
       if (document.visibilityState === "visible") {
         void loadPendingOrders();
-        refresh();
       }
     };
 
@@ -215,20 +188,13 @@ export function GlobalOrderSoundAlert({ restaurantId, orders }: { restaurantId: 
 
     return () => {
       cancelled = true;
-      if (refreshTimeoutRef.current) {
-        window.clearTimeout(refreshTimeoutRef.current);
-      }
-      if (initialPollTimeout) {
-        window.clearTimeout(initialPollTimeout);
-      }
-      if (pollInterval) {
-        window.clearInterval(pollInterval);
-      }
+      realtimeConnectedRef.current = false;
+      window.clearInterval(fallbackInterval);
       window.removeEventListener("focus", refreshOnFocus);
       document.removeEventListener("visibilitychange", refreshOnFocus);
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
-  }, [restaurantId, router]);
+  }, [restaurantId]);
 
   return (
     <NewOrderSoundAlert

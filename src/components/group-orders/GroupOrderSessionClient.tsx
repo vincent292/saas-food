@@ -4,7 +4,7 @@ import QRCode from "qrcode";
 import { ArrowRight, Bike, Check, Clipboard, CreditCard, Lock, MapPin, Minus, Plus, Send, Share2, ShoppingBag, Store, Trash2, UserRound, UsersRound, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type CSSProperties, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { type CSSProperties, useEffect, useMemo, useState, useTransition } from "react";
 import {
   addGroupOrderItemAction,
   joinGroupOrderSessionAction,
@@ -25,6 +25,7 @@ import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
+import { useRealtimeBroadcast } from "@/lib/client/use-realtime-broadcast";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { productImageFitStyle, type ProductImageFit } from "@/lib/utils/product-image-fit";
@@ -33,10 +34,6 @@ import type { Category, Product, ProductOption, ProductStockAvailability, Produc
 import type { Restaurant, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
 type PaymentStatus = "pending" | "qr_uploaded" | "paid_qr" | "cash_pending" | "covered_by_host" | "excluded";
-const OPEN_REFRESH_INTERVAL_MS = 5000;
-const LOCKED_REFRESH_INTERVAL_MS = 10000;
-const MIN_REFRESH_GAP_MS = 4500;
-
 export type GroupOrderSessionView = {
   id: string;
   publicToken: string;
@@ -163,7 +160,6 @@ export function GroupOrderSessionClient({
   const [hostAddressDetail, setHostAddressDetail] = useState("");
   const [hostPanelTab, setHostPanelTab] = useState<"invite" | "payments" | "finish">("payments");
   const [hostDeliveryCoordinates, setHostDeliveryCoordinates] = useState<{ latitude: number; longitude: number }>();
-  const lastRefreshAtRef = useRef(0);
   const inviteUrl = typeof window === "undefined" ? "" : `${window.location.origin}${publicRestaurantPath(restaurant.slug, `grupo/${session.publicToken}`)}`;
   const isHost = Boolean(hostAccessToken);
   const currentParticipant = participants.find((participant) => participant.id === currentParticipantId);
@@ -201,7 +197,13 @@ export function GroupOrderSessionClient({
   const participantSubmitted = Boolean(isJoined && !isHost && currentParticipant && currentParticipant.paymentStatus !== "pending");
   const participantCanAddProducts = Boolean(isJoined && session.status === "open" && !participantSubmitted);
   const showGroupDetails = !participantSubmitted || showSubmittedDetails || isHost;
-  const refreshIntervalMs = session.status === "open" ? OPEN_REFRESH_INTERVAL_MS : session.status === "locked" ? LOCKED_REFRESH_INTERVAL_MS : 0;
+  const realtimeEnabled = session.status === "open" || session.status === "locked";
+  useRealtimeBroadcast({
+    enabled: realtimeEnabled,
+    onChange: () => router.refresh(),
+    onSync: () => router.refresh(),
+    topic: `group-order:${session.publicToken}`,
+  });
   const pickupEnabled = settings?.pickupEnabled ?? true;
   const deliveryEnabled = settings?.deliveryEnabled ?? true;
   const qrPaymentConfigured = Boolean(settings?.qrPaymentUrl?.trim());
@@ -277,36 +279,6 @@ export function GroupOrderSessionClient({
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(""));
   }, [inviteUrl]);
-
-  useEffect(() => {
-    if (!refreshIntervalMs) {
-      return;
-    }
-
-    const refreshIfUseful = () => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-
-      const now = Date.now();
-      if (now - lastRefreshAtRef.current < Math.min(MIN_REFRESH_GAP_MS, refreshIntervalMs - 500)) {
-        return;
-      }
-
-      lastRefreshAtRef.current = now;
-      router.refresh();
-    };
-
-    const interval = window.setInterval(refreshIfUseful, refreshIntervalMs);
-    window.addEventListener("focus", refreshIfUseful);
-    document.addEventListener("visibilitychange", refreshIfUseful);
-
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("focus", refreshIfUseful);
-      document.removeEventListener("visibilitychange", refreshIfUseful);
-    };
-  }, [refreshIntervalMs, router]);
 
   async function copyInvite() {
     if (!inviteUrl) return;

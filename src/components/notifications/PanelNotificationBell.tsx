@@ -2,23 +2,12 @@
 
 import Link from "next/link";
 import { Bell, CheckCircle2, CircleAlert, Clock3, Info, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { stopOrderAlertSound } from "@/lib/client/order-notification-sound";
-import { createClient } from "@/lib/supabase/client";
+import { useRestaurantRealtimeRefresh } from "@/lib/client/use-restaurant-realtime-refresh";
 import { cn } from "@/lib/utils/cn";
 import { formatShortDate, formatShortTime } from "@/lib/utils/dates";
 import type { PanelNotification, PanelNotificationTone } from "@/types/notification.types";
-
-type RealtimeOrderRow = {
-  id?: string;
-  restaurant_id?: string;
-  order_number?: string | null;
-  order_type?: "table" | "delivery" | "pickup" | "pos" | null;
-  order_origin?: "pos_counter" | "table_qr" | "web_checkout" | "phone_whatsapp" | "external_platform" | null;
-  status?: "pending" | "accepted" | "preparing" | "ready" | "delivered" | "cancelled" | null;
-  total?: number | null;
-  created_at?: string | null;
-};
 
 function storageKey(scope: string) {
   return `yopido:panel-notifications-seen:${scope}`;
@@ -49,33 +38,6 @@ function ToneIcon({ tone }: { tone: PanelNotificationTone }) {
   return <Info className="h-4 w-4" />;
 }
 
-function realtimeOrderSourceLabel(row: RealtimeOrderRow) {
-  if (row.order_origin === "phone_whatsapp") {
-    return row.order_type === "pickup" ? "WhatsApp recojo" : "WhatsApp delivery";
-  }
-
-  if (row.order_type === "delivery") return "delivery";
-  if (row.order_type === "pickup") return "recojo";
-  if (row.order_type === "table") return "mesa";
-  return "pedido";
-}
-
-function realtimeOrderNotification(row: RealtimeOrderRow, restaurantId: string): PanelNotification | null {
-  if (!row.id || row.restaurant_id !== restaurantId || row.status !== "pending" || !row.order_type || row.order_type === "pos") {
-    return null;
-  }
-
-  const createdAt = row.created_at ?? new Date().toISOString();
-  return {
-    id: `order:${row.id}:${createdAt}`,
-    title: `Pedido ${row.order_number ?? "nuevo"} pendiente`,
-    description: `${realtimeOrderSourceLabel(row)} requiere aprobacion${row.total ? ` por Bs ${Number(row.total).toFixed(2)}` : ""}.`,
-    href: `/admin/restaurantes/${restaurantId}/pedidos?tab=nuevos`,
-    createdAt,
-    tone: "danger",
-  };
-}
-
 export function PanelNotificationBell({
   notifications,
   restaurantId,
@@ -87,39 +49,13 @@ export function PanelNotificationBell({
 }) {
   const [open, setOpen] = useState(false);
   const [seenIds, setSeenIds] = useState<Set<string>>(() => readSeenIds(scope));
-  const [liveNotifications, setLiveNotifications] = useState<PanelNotification[]>([]);
+  useRestaurantRealtimeRefresh({ enabled: Boolean(restaurantId), restaurantId, scope: "notifications" });
 
   const allNotifications = useMemo(() => {
-    const byId = new Map<string, PanelNotification>();
-    for (const notification of notifications) {
-      byId.set(notification.id, notification);
-    }
-    for (const notification of liveNotifications) {
-      byId.set(notification.id, notification);
-    }
-    return Array.from(byId.values()).sort((first, second) => second.createdAt.localeCompare(first.createdAt)).slice(0, 20);
-  }, [liveNotifications, notifications]);
+    return [...notifications].sort((first, second) => second.createdAt.localeCompare(first.createdAt)).slice(0, 20);
+  }, [notifications]);
 
   const unreadCount = allNotifications.filter((notification) => !seenIds.has(notification.id)).length;
-
-  useEffect(() => {
-    if (!restaurantId) return;
-
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`panel-notifications-orders-${restaurantId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurantId}` }, (payload) => {
-        const notification = realtimeOrderNotification((payload.new ?? payload.old ?? {}) as RealtimeOrderRow, restaurantId);
-        if (!notification) return;
-
-        setLiveNotifications((current) => [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 12));
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [restaurantId]);
 
   function markVisibleAsSeen() {
     const nextSeenIds = new Set([...seenIds, ...allNotifications.map((notification) => notification.id)]);

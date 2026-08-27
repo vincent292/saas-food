@@ -24,6 +24,7 @@ import { useState } from "react";
 import { signOutAction } from "@/app/admin/actions";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { PanelNotificationBell } from "@/components/notifications/PanelNotificationBell";
+import { RestaurantRealtimeRefresh } from "@/components/realtime/RestaurantRealtimeRefresh";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils/cn";
 import type { PanelNotification } from "@/types/notification.types";
@@ -74,6 +75,7 @@ export function OwnerShellClient({
 
   return (
     <div className="min-h-screen bg-[var(--color-surface)] text-[var(--color-heading)]">
+      <RestaurantRealtimeRefresh scope="owner" />
       <div className={cn("fixed inset-0 z-40 bg-[var(--color-overlay)] backdrop-blur-sm lg:hidden", sidebarOpen ? "block" : "hidden")} onClick={() => setSidebarOpen(false)} />
 
       <aside

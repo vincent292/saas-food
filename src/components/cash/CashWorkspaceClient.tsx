@@ -2,7 +2,7 @@
 
 import { AlertTriangle, Banknote, Bike, Calculator, CheckCircle2, Clock3, Copy, CreditCard, ExternalLink, FileText, History, Maximize2, MessageCircle, PackageSearch, Printer, QrCode, ReceiptText, Search, ShoppingBag, Store, X, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import QRCode from "qrcode";
@@ -20,12 +20,12 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
 import { SectionTitle } from "@/components/ui/SectionTitle";
+import { useRestaurantRealtimeRefresh } from "@/lib/client/use-restaurant-realtime-refresh";
 import { businessCatalogLabelTitle, businessOrderStatusLabel, businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils/dates";
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
-import { createClient } from "@/lib/supabase/client";
 import type { CashAuditSnapshot, CashMovement, CashSessionReport, CashSummary } from "@/types/cash.types";
 import type { Order } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
@@ -33,10 +33,6 @@ import type { Restaurant, RestaurantPrintConnector, RestaurantSettings } from "@
 
 type CashTab = "venta" | "pedidos" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
 
-const CASH_REFRESH_FAST_INTERVAL_MS = 30000;
-const CASH_REFRESH_QUIET_INTERVAL_MS = 60000;
-const CASH_REALTIME_REFRESH_DEBOUNCE_MS = 250;
-const CASH_REFRESH_MIN_GAP_MS = 3000;
 const operationalTabs = new Set<CashTab>(["pedidos", "delivery", "recojo"]);
 
 function statusMessage(status: CashPageStatus, businessType: Restaurant["businessType"], kitchenEnabled = true) {
@@ -152,12 +148,9 @@ export function CashWorkspaceClient({
   const [copied, setCopied] = useState(false);
   const [trackingQrUrl, setTrackingQrUrl] = useState("");
   const [clientOrigin, setClientOrigin] = useState("");
-  const refreshTimeoutRef = useRef<number | null>(null);
-  const lastRefreshAtRef = useRef(0);
-  const realtimeConnectedRef = useRef(false);
+  useRestaurantRealtimeRefresh({ enabled: operationalTabs.has(activeTab), restaurantId: restaurant.id, scope: "cash" });
 
   useEffect(() => {
-    lastRefreshAtRef.current = Date.now();
     const timer = window.setTimeout(() => setClientOrigin(window.location.origin), 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -171,44 +164,6 @@ export function CashWorkspaceClient({
     const timer = window.setInterval(() => setNow(new Date()), 30000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    if (!operationalTabs.has(activeTab)) {
-      return;
-    }
-
-    const refresh = () => {
-      if (document.visibilityState === "hidden") {
-        return;
-      }
-
-      if (refreshTimeoutRef.current) {
-        window.clearTimeout(refreshTimeoutRef.current);
-      }
-
-      refreshTimeoutRef.current = window.setTimeout(() => {
-        lastRefreshAtRef.current = Date.now();
-        router.refresh();
-        refreshTimeoutRef.current = null;
-      }, CASH_REALTIME_REFRESH_DEBOUNCE_MS);
-    };
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`caja-despacho-${restaurant.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurant.id}` }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "order_delivery_links", filter: `restaurant_id=eq.${restaurant.id}` }, refresh)
-      .subscribe((status) => {
-        realtimeConnectedRef.current = status === "SUBSCRIBED";
-      });
-
-    return () => {
-      realtimeConnectedRef.current = false;
-      if (refreshTimeoutRef.current) {
-        window.clearTimeout(refreshTimeoutRef.current);
-      }
-      supabase.removeChannel(channel);
-    };
-  }, [activeTab, restaurant.id, router]);
 
   const todaysOrders = useMemo(() => orders.filter((order) => isSameBusinessDay(order.createdAt)), [orders]);
   const pendingOrders = useMemo(() => todaysOrders.filter((order) => order.status === "pending" && order.orderType !== "delivery" && order.orderType !== "pickup"), [todaysOrders]);
@@ -239,15 +194,6 @@ export function CashWorkspaceClient({
   const visiblePickupOrders = useMemo(() => pickupOrders.filter(matchesOrderSearch), [pickupOrders, matchesOrderSearch]);
   const activeDeliveryOrderCount = useMemo(() => deliveryOrders.filter((order) => order.status !== "delivered").length, [deliveryOrders]);
   const activePickupOrderCount = useMemo(() => pickupOrders.filter((order) => order.status !== "delivered").length, [pickupOrders]);
-  const activeOperationalOrderCount = useMemo(
-    () =>
-      pendingOrders.length +
-      activeTableOrders.length +
-      activeDeliveryOrderCount +
-      activePickupOrderCount,
-    [activeDeliveryOrderCount, activePickupOrderCount, activeTableOrders.length, pendingOrders.length],
-  );
-  const fallbackRefreshIntervalMs = operationalTabs.has(activeTab) && activeOperationalOrderCount > 0 ? CASH_REFRESH_FAST_INTERVAL_MS : CASH_REFRESH_QUIET_INTERVAL_MS;
   const ordersById = useMemo(() => new Map(todaysOrders.map((order) => [order.id, order])), [todaysOrders]);
   const latestReport = reports[0];
   const banner = statusMessage(status, restaurant.businessType, settings?.kitchenEnabled ?? true);
@@ -333,37 +279,6 @@ export function CashWorkspaceClient({
     { key: "cierre", label: "Cierre", icon: Calculator },
     { key: "reportes", label: "Reportes", icon: FileText, count: loadedTab === "reportes" ? reports.length : undefined },
   ];
-
-  useEffect(() => {
-    const refreshIfVisible = () => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-
-      const now = Date.now();
-      if (now - lastRefreshAtRef.current < CASH_REFRESH_MIN_GAP_MS) {
-        return;
-      }
-
-      lastRefreshAtRef.current = now;
-      router.refresh();
-    };
-
-    const refreshFallback = () => {
-      if (realtimeConnectedRef.current && Date.now() - lastRefreshAtRef.current < 120000) return;
-      refreshIfVisible();
-    };
-
-    const interval = window.setInterval(refreshFallback, fallbackRefreshIntervalMs);
-    window.addEventListener("focus", refreshIfVisible);
-    document.addEventListener("visibilitychange", refreshIfVisible);
-
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("focus", refreshIfVisible);
-      document.removeEventListener("visibilitychange", refreshIfVisible);
-    };
-  }, [fallbackRefreshIntervalMs, router]);
 
   function switchTab(nextTab: CashTab) {
     if (nextTab === activeTab) {

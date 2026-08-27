@@ -602,14 +602,14 @@ function BotSettingsModal({
                   label="Saludo"
                   maxLength={600}
                   name="greetingMessage"
-                  placeholder="Hola, soy el asistente de {{restaurant}}. Te ayudo con tu pedido."
+                  placeholder="Dejalo vacio para usar el saludo automatico con el nombre del local."
                 />
                 <BotTextField
                   defaultValue={settings.menuIntroMessage}
                   label="Menu"
                   maxLength={600}
                   name="menuIntroMessage"
-                  placeholder={"Estas en {{restaurant}}.\nMenu visual: {{menu_url}}"}
+                  placeholder="Dejalo vacio para mostrar favoritos y el menu visual automaticamente."
                 />
               </div>
               <BotTextField
@@ -633,7 +633,7 @@ function BotSettingsModal({
                   label="QR"
                   maxLength={400}
                   name="qrPaymentMessage"
-                  placeholder={"QR de {{restaurant}}\nTotal: Bs {{total}}"}
+                  placeholder="Dejalo vacio para enviar el QR del local con el total del pedido."
                 />
                 <BotTextField
                   defaultValue={settings.receiptRequestMessage}

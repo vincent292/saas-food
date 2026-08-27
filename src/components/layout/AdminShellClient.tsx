@@ -61,6 +61,7 @@ const restaurantNav: NavItem[] = [
 const superAdminNav: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: Shield },
   { label: "Restaurantes", href: "/admin/restaurantes", icon: Store },
+  { label: "WhatsApp global", href: "/admin/whatsapp", icon: MessageSquareText },
   { label: "Usuarios", href: "/admin/usuarios", icon: Users },
   { label: "Clientes app", href: "/admin/clientes", icon: Users },
   { label: "Mensajes", href: "/admin/mensajes", icon: MessageSquareText },

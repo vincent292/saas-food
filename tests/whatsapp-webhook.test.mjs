@@ -5,12 +5,17 @@ import test from "node:test";
 const webhookPath = new URL("../supabase/functions/whatsapp-webhook/index.ts", import.meta.url);
 const migrationPath = new URL("../supabase/migrations/0085_whatsapp_order_checkout.sql", import.meta.url);
 const botSettingsMigrationPath = new URL("../supabase/migrations/0087_restaurant_whatsapp_bot_settings.sql", import.meta.url);
+const platformSettingsMigrationPath = new URL("../supabase/migrations/0088_platform_whatsapp_settings.sql", import.meta.url);
 const whatsappReceiptRoutePath = new URL("../src/app/api/storage/whatsapp-receipts/[...key]/route.ts", import.meta.url);
 const privateReceiptRoutePath = new URL("../src/app/api/storage/private/[...key]/route.ts", import.meta.url);
 const receiptViewerPath = new URL("../src/components/payments/ReceiptViewerButton.tsx", import.meta.url);
 const crmServicePath = new URL("../src/lib/services/whatsapp-crm.service.ts", import.meta.url);
 const crmClientPath = new URL("../src/components/whatsapp/WhatsAppCrmClient.tsx", import.meta.url);
 const crmActionsPath = new URL("../src/app/admin/restaurantes/[restaurantId]/whatsapp/actions.ts", import.meta.url);
+const platformServicePath = new URL("../src/lib/services/platform-whatsapp.service.ts", import.meta.url);
+const platformPagePath = new URL("../src/app/admin/whatsapp/page.tsx", import.meta.url);
+const platformClientPath = new URL("../src/components/admin/PlatformWhatsAppSettingsClient.tsx", import.meta.url);
+const adminShellPath = new URL("../src/components/layout/AdminShellClient.tsx", import.meta.url);
 const settingsClientPath = new URL("../src/components/settings/RestaurantSettingsFormClient.tsx", import.meta.url);
 
 test("WhatsApp checkout reuses the canonical order RPC with a stable request id", async () => {
@@ -60,9 +65,25 @@ test("WhatsApp checkout can reuse recent customer delivery addresses", async () 
   assert.match(source, /Para usar una, responde Direccion: 1 o solo 1/);
   assert.match(source, /parseSavedDeliveryAddressSelection/);
   assert.match(source, /applySavedDeliveryAddressShortcut/);
+  assert.match(source, /customer_name: draft\.customer_name \?\? profile\.customerName/);
   assert.match(source, /customer_address: savedAddress\.address/);
   assert.match(source, /delivery_latitude: savedAddress\.latitude/);
   assert.match(source, /await continueAfterCompactCheckout\(supabase, row, conversation, updated, true\)/);
+});
+
+test("WhatsApp delivery address and reference are collected in one message", async () => {
+  const source = await readFile(webhookPath, "utf8");
+
+  assert.match(source, /sendDeliveryAddressRequest/);
+  assert.match(source, /Escribe calle y referencia en un solo mensaje/);
+  assert.match(source, /📍 Calle: Av\. Siempre Viva/);
+  assert.match(source, /🏠 Referencia: puerta negra, piso 2, casa verde/);
+  assert.match(source, /La referencia es necesaria para el repartidor/);
+  assert.match(source, /Falta la referencia para el repartidor/);
+  assert.match(source, /readTaggedSegment\(segments, \["calle", "direccion", "dir", "ubicacion"\]\)/);
+  assert.doesNotMatch(source, /Agrega una referencia para el repartidor/);
+  assert.doesNotMatch(source, /Volvimos a la referencia/);
+  assert.doesNotMatch(source, /Si no hay referencia/);
 });
 
 test("WhatsApp delivery distance can force QR after location is calculated", async () => {
@@ -156,6 +177,34 @@ test("WhatsApp webhook uses bot settings only for safe response copy", async () 
   assert.match(source, /create_public_order_transaction/);
 });
 
+test("WhatsApp has superadmin global settings before restaurant selection", async () => {
+  const [migration, webhook, service, page, client, shell, restaurantCrm] = await Promise.all([
+    readFile(platformSettingsMigrationPath, "utf8"),
+    readFile(webhookPath, "utf8"),
+    readFile(platformServicePath, "utf8"),
+    readFile(platformPagePath, "utf8"),
+    readFile(platformClientPath, "utf8"),
+    readFile(adminShellPath, "utf8"),
+    readFile(crmClientPath, "utf8"),
+  ]);
+
+  assert.match(migration, /create table if not exists platform_whatsapp_settings/);
+  assert.match(migration, /draft_timeout_minutes integer not null default 20/);
+  assert.match(migration, /superadmin manages platform whatsapp settings/);
+  assert.match(webhook, /getPlatformWhatsAppSettings/);
+  assert.match(webhook, /platformRestaurantPickerCopy/);
+  assert.match(webhook, /platformFallbackCopy/);
+  assert.match(webhook, /platformSettings\.draftTimeoutMinutes/);
+  assert.match(service, /platformWhatsAppService/);
+  assert.match(service, /saveSettings/);
+  assert.match(page, /PlatformWhatsAppSettingsClient/);
+  assert.match(client, /Mensajes globales/);
+  assert.match(client, /Los nombres de locales salen automaticamente desde cada ficha/);
+  assert.match(shell, /WhatsApp global/);
+  assert.match(restaurantCrm, /Dejalo vacio para usar el saludo automatico con el nombre del local/);
+  assert.doesNotMatch(restaurantCrm, /placeholder="Hola, soy el asistente de \{\{restaurant\}\}/);
+});
+
 test("WhatsApp restart keeps restaurant conversations visible in CRM", async () => {
   const source = await readFile(webhookPath, "utf8");
 
@@ -163,6 +212,26 @@ test("WhatsApp restart keeps restaurant conversations visible in CRM", async () 
   assert.match(source, /draft_restarted/);
   assert.match(source, /await updateConversationState\(supabase, conversation\.id, "browsing_menu", "draft_restarted", row\.message_id\)/);
   assert.match(source, /await sendRestaurantMenuIntro\(supabase, row\.from_phone, restaurant, await listTopProducts\(supabase, restaurant\.id\)\)/);
+});
+
+test("WhatsApp completed and stale drafts return to restaurant selection", async () => {
+  const source = await readFile(webhookPath, "utf8");
+  const resetBlock = source.match(/async function resetConversationForRestaurantSelection[\s\S]*?async function updateConversationState/)?.[0] ?? "";
+
+  assert.match(source, /const DEFAULT_DRAFT_TIMEOUT_MINUTES = 20/);
+  assert.match(source, /settings\.draftTimeoutMinutes \* 60 \* 1000/);
+  assert.match(source, /platformSettings\.draftTimeoutMinutes/);
+  assert.match(source, /created_order_id,updated_at/);
+  assert.match(source, /expireStaleOpenDraftIfNeeded/);
+  assert.match(source, /isOpenDraftExpired/);
+  assert.match(source, /status: "abandoned"/);
+  assert.match(source, /draft_expired/);
+  assert.match(source, /Tu pedido anterior quedo pausado mas de/);
+  assert.match(source, /await resetConversationForRestaurantSelection\(supabase, conversation\.id, "order_created", row\.message_id\)/);
+  assert.match(source, /conversation\.state === "choosing_restaurant"/);
+  assert.match(source, /resolveSelectedRestaurant\(supabase, \{ \.\.\.conversation, restaurant_id: null \}, command\.text\)/);
+  assert.match(resetBlock, /state: "choosing_restaurant"/);
+  assert.doesNotMatch(resetBlock, /restaurant_id/);
 });
 
 test("WhatsApp and settings support overnight business hours clearly", async () => {

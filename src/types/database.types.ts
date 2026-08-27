@@ -145,6 +145,20 @@ export type Database = {
         updated_by: string | null;
         updated_at: string;
       }>;
+      platform_whatsapp_settings: Row<{
+        id: string;
+        bot_enabled: boolean;
+        response_tone: "friendly" | "direct" | "formal";
+        welcome_message: string | null;
+        restaurant_picker_message: string | null;
+        fallback_message: string | null;
+        human_handoff_message: string | null;
+        draft_timeout_minutes: number;
+        created_by: string | null;
+        updated_by: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       restaurants: Row<{
         id: string;
         name: string;

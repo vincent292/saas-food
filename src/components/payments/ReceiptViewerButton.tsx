@@ -5,6 +5,46 @@ import { useState } from "react";
 import { buttonClasses } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
 
+const appStorageRoutePrefixes = ["/api/storage/private/", "/api/storage/whatsapp-receipts/"];
+
+function isAppStorageRoute(pathname: string) {
+  return appStorageRoutePrefixes.some((prefix) => pathname.startsWith(prefix));
+}
+
+function sameOriginReceiptUrl(url: string) {
+  if (typeof window === "undefined") {
+    return url;
+  }
+
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (isAppStorageRoute(parsed.pathname)) {
+      return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+
+    return parsed.href;
+  } catch {
+    return url;
+  }
+}
+
+function receiptDownloadUrl(url: string) {
+  if (typeof window === "undefined") {
+    return url;
+  }
+
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (isAppStorageRoute(parsed.pathname)) {
+      parsed.searchParams.set("download", "1");
+    }
+
+    return parsed.href;
+  } catch {
+    return url;
+  }
+}
+
 function fileNameFromUrl(url: string, fallback: string) {
   try {
     const parsed = new URL(url, window.location.origin);
@@ -35,7 +75,8 @@ export function ReceiptViewerButton({
   subtitle?: string;
   url?: string | null;
 }) {
-  const normalizedUrl = url?.trim() ?? "";
+  const normalizedUrl = sameOriginReceiptUrl(url?.trim() ?? "");
+  const downloadUrl = receiptDownloadUrl(normalizedUrl);
   const [open, setOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
@@ -46,23 +87,16 @@ export function ReceiptViewerButton({
   async function downloadReceipt() {
     setDownloading(true);
     try {
-      const response = await fetch(normalizedUrl, { cache: "no-store" });
-      if (!response.ok) {
-        throw new Error("download-failed");
-      }
-
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = objectUrl;
+      link.href = downloadUrl;
       link.download = fileNameFromUrl(normalizedUrl, "comprobante");
+      link.rel = "noopener noreferrer";
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      window.setTimeout(() => setDownloading(false), 500);
     } catch {
       window.open(normalizedUrl, "_blank", "noopener,noreferrer");
-    } finally {
       setDownloading(false);
     }
   }

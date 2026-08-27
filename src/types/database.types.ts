@@ -981,6 +981,23 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      restaurant_whatsapp_bot_settings: Row<{
+        restaurant_id: string;
+        bot_enabled: boolean;
+        response_tone: "friendly" | "direct" | "formal";
+        greeting_message: string | null;
+        menu_intro_message: string | null;
+        checkout_message: string | null;
+        location_request_message: string | null;
+        qr_payment_message: string | null;
+        receipt_request_message: string | null;
+        fallback_message: string | null;
+        human_handoff_message: string | null;
+        created_by: string | null;
+        updated_by: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       support_tickets: Row<{
         id: string;
         restaurant_id: string | null;

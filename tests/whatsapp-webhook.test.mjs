@@ -4,7 +4,14 @@ import test from "node:test";
 
 const webhookPath = new URL("../supabase/functions/whatsapp-webhook/index.ts", import.meta.url);
 const migrationPath = new URL("../supabase/migrations/0085_whatsapp_order_checkout.sql", import.meta.url);
-const receiptRoutePath = new URL("../src/app/api/storage/whatsapp-receipts/[...key]/route.ts", import.meta.url);
+const botSettingsMigrationPath = new URL("../supabase/migrations/0087_restaurant_whatsapp_bot_settings.sql", import.meta.url);
+const whatsappReceiptRoutePath = new URL("../src/app/api/storage/whatsapp-receipts/[...key]/route.ts", import.meta.url);
+const privateReceiptRoutePath = new URL("../src/app/api/storage/private/[...key]/route.ts", import.meta.url);
+const receiptViewerPath = new URL("../src/components/payments/ReceiptViewerButton.tsx", import.meta.url);
+const crmServicePath = new URL("../src/lib/services/whatsapp-crm.service.ts", import.meta.url);
+const crmClientPath = new URL("../src/components/whatsapp/WhatsAppCrmClient.tsx", import.meta.url);
+const crmActionsPath = new URL("../src/app/admin/restaurantes/[restaurantId]/whatsapp/actions.ts", import.meta.url);
+const settingsClientPath = new URL("../src/components/settings/RestaurantSettingsFormClient.tsx", import.meta.url);
 
 test("WhatsApp checkout reuses the canonical order RPC with a stable request id", async () => {
   const source = await readFile(webhookPath, "utf8");
@@ -80,16 +87,93 @@ test("WhatsApp QR receipts prefer Cloudflare R2 private storage with Supabase fa
 });
 
 test("WhatsApp checkout migration and private receipt route are present", async () => {
-  const [migration, route] = await Promise.all([
+  const [migration, whatsappRoute, privateRoute] = await Promise.all([
     readFile(migrationPath, "utf8"),
-    readFile(receiptRoutePath, "utf8"),
+    readFile(whatsappReceiptRoutePath, "utf8"),
+    readFile(privateReceiptRoutePath, "utf8"),
   ]);
 
   assert.match(migration, /add column if not exists checkout_step/);
   assert.match(migration, /add column if not exists pending_item jsonb/);
   assert.match(migration, /'whatsapp-payment-receipts'/);
   assert.match(migration, /false,\s*5242880/);
-  assert.match(route, /global_role === "superadmin"/);
-  assert.match(route, /restaurant_memberships/);
-  assert.match(route, /createSignedUrl/);
+  assert.match(whatsappRoute, /global_role === "superadmin"/);
+  assert.match(whatsappRoute, /restaurant_memberships/);
+  assert.match(whatsappRoute, /createSignedUrl/);
+  assert.match(privateRoute, /getPrivateFileSignedUrl\(path, \{/);
+  assert.match(privateRoute, /downloadFileName/);
+  assert.match(privateRoute, /canReadRestaurantStorage/);
+  assert.match(privateRoute, /restaurant_memberships/);
+  assert.match(privateRoute, /Cache-Control/);
+});
+
+test("receipt viewer serves app storage URLs from the current origin", async () => {
+  const source = await readFile(receiptViewerPath, "utf8");
+
+  assert.match(source, /appStorageRoutePrefixes/);
+  assert.match(source, /\/api\/storage\/private\//);
+  assert.match(source, /\/api\/storage\/whatsapp-receipts\//);
+  assert.match(source, /sameOriginReceiptUrl/);
+  assert.match(source, /window\.location\.origin/);
+  assert.match(source, /receiptDownloadUrl/);
+  assert.match(source, /searchParams\.set\("download", "1"\)/);
+});
+
+test("WhatsApp bot settings are configurable per restaurant from the CRM", async () => {
+  const [migration, service, client, actions] = await Promise.all([
+    readFile(botSettingsMigrationPath, "utf8"),
+    readFile(crmServicePath, "utf8"),
+    readFile(crmClientPath, "utf8"),
+    readFile(crmActionsPath, "utf8"),
+  ]);
+
+  assert.match(migration, /create table if not exists restaurant_whatsapp_bot_settings/);
+  assert.match(migration, /bot_enabled boolean not null default true/);
+  assert.match(migration, /response_tone text not null default 'friendly'/);
+  assert.match(migration, /alter table restaurant_whatsapp_bot_settings enable row level security/);
+  assert.match(migration, /members manage restaurant whatsapp bot settings/);
+  assert.match(service, /DEFAULT_WHATSAPP_BOT_SETTINGS/);
+  assert.match(service, /saveBotSettings/);
+  assert.match(client, /saveWhatsAppBotSettingsAction/);
+  assert.match(client, /Configurar bot de WhatsApp/);
+  assert.match(client, /BotSettingsModal/);
+  assert.match(actions, /botSettingsSchema/);
+  assert.match(actions, /botSaved/);
+});
+
+test("WhatsApp webhook uses bot settings only for safe response copy", async () => {
+  const source = await readFile(webhookPath, "utf8");
+
+  assert.match(source, /getWhatsAppBotSettings/);
+  assert.match(source, /restaurant_whatsapp_bot_settings/);
+  assert.match(source, /handoffIfBotDisabled/);
+  assert.match(source, /menuIntroCopy/);
+  assert.match(source, /checkoutIntroCopy/);
+  assert.match(source, /sendConfiguredLocationRequest/);
+  assert.match(source, /qrPaymentCopy/);
+  assert.match(source, /receiptRequestCopy/);
+  assert.match(source, /fallbackCopy/);
+  assert.match(source, /create_public_order_transaction/);
+});
+
+test("WhatsApp restart keeps restaurant conversations visible in CRM", async () => {
+  const source = await readFile(webhookPath, "utf8");
+
+  assert.match(source, /restartDraftForCurrentRestaurant/);
+  assert.match(source, /draft_restarted/);
+  assert.match(source, /await updateConversationState\(supabase, conversation\.id, "browsing_menu", "draft_restarted", row\.message_id\)/);
+  assert.match(source, /await sendRestaurantMenuIntro\(supabase, row\.from_phone, restaurant, await listTopProducts\(supabase, restaurant\.id\)\)/);
+});
+
+test("WhatsApp and settings support overnight business hours clearly", async () => {
+  const [webhook, settingsClient] = await Promise.all([
+    readFile(webhookPath, "utf8"),
+    readFile(settingsClientPath, "utf8"),
+  ]);
+
+  assert.match(webhook, /opens > closes && minutes >= opens/);
+  assert.match(webhook, /opens > closes && minutes <= closes/);
+  assert.match(settingsClient, /Cruza medianoche: cierra al dia siguiente/);
+  assert.match(settingsClient, /timeOptionLabel/);
+  assert.match(settingsClient, /period = hour < 12 \? "a\.m\." : "p\.m\."/);
 });

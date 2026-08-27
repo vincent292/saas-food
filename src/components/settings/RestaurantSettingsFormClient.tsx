@@ -159,6 +159,19 @@ function timeSelectOptions(value: string) {
   return timeOptions.includes(value) ? timeOptions : [value, ...timeOptions].filter(Boolean).sort();
 }
 
+function timeOptionLabel(value: string) {
+  const minutes = timeToMinutes(value);
+  if (minutes === null) {
+    return value;
+  }
+
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const hour12 = hour % 12 || 12;
+  const period = hour < 12 ? "a.m." : "p.m.";
+  return `${value} (${hour12}:${String(minute).padStart(2, "0")} ${period})`;
+}
+
 function BusinessHourTimeSelect({
   disabled,
   name,
@@ -174,7 +187,7 @@ function BusinessHourTimeSelect({
     <Select disabled={disabled} name={name} onChange={(event) => onChange(event.target.value)} value={value}>
       {timeSelectOptions(value).map((time) => (
         <option key={time} value={time}>
-          {time}
+          {timeOptionLabel(time)}
         </option>
       ))}
     </Select>

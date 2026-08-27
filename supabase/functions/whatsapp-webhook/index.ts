@@ -13,8 +13,9 @@ const RESTAURANT_TIME_ZONE = "America/La_Paz";
 const RECEIPT_BUCKET = "whatsapp-payment-receipts";
 const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
 const R2_DEFAULT_REGION = "auto";
+const DEFAULT_DRAFT_TIMEOUT_MINUTES = 20;
 const DRAFT_SELECT =
-  "id,conversation_id,customer_id,restaurant_id,status,items,checkout_step,pending_item,customer_name,customer_address,customer_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,delivery_fee,requires_prepayment,requested_fulfillment_at,order_type,payment_method,payment_receipt_url,payment_receipt_media_id,invoice_required,invoice_document_type,invoice_document_number,invoice_name,notes,created_order_id";
+  "id,conversation_id,customer_id,restaurant_id,status,items,checkout_step,pending_item,customer_name,customer_address,customer_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,delivery_fee,requires_prepayment,requested_fulfillment_at,order_type,payment_method,payment_receipt_url,payment_receipt_media_id,invoice_required,invoice_document_type,invoice_document_number,invoice_name,notes,created_order_id,updated_at";
 
 type JsonObject = Record<string, unknown>;
 
@@ -156,6 +157,7 @@ type WhatsAppOrderDraftRow = {
   invoice_name: string | null;
   notes: string | null;
   created_order_id: string | null;
+  updated_at: string | null;
 };
 
 type RestaurantSettingsRow = {
@@ -235,6 +237,77 @@ type SavedDeliveryAddress = {
 type SavedCheckoutProfile = {
   customerName: string | null;
   addresses: SavedDeliveryAddress[];
+};
+
+type WhatsAppBotTone = "friendly" | "direct" | "formal";
+
+type WhatsAppBotSettingsRow = {
+  bot_enabled: boolean | null;
+  response_tone: string | null;
+  greeting_message: string | null;
+  menu_intro_message: string | null;
+  checkout_message: string | null;
+  location_request_message: string | null;
+  qr_payment_message: string | null;
+  receipt_request_message: string | null;
+  fallback_message: string | null;
+  human_handoff_message: string | null;
+};
+
+type WhatsAppBotSettings = {
+  botEnabled: boolean;
+  responseTone: WhatsAppBotTone;
+  greetingMessage: string | null;
+  menuIntroMessage: string | null;
+  checkoutMessage: string | null;
+  locationRequestMessage: string | null;
+  qrPaymentMessage: string | null;
+  receiptRequestMessage: string | null;
+  fallbackMessage: string | null;
+  humanHandoffMessage: string | null;
+};
+
+type PlatformWhatsAppSettingsRow = {
+  bot_enabled: boolean;
+  response_tone: WhatsAppBotTone;
+  welcome_message: string | null;
+  restaurant_picker_message: string | null;
+  fallback_message: string | null;
+  human_handoff_message: string | null;
+  draft_timeout_minutes: number | string | null;
+};
+
+type PlatformWhatsAppSettings = {
+  botEnabled: boolean;
+  responseTone: WhatsAppBotTone;
+  welcomeMessage: string | null;
+  restaurantPickerMessage: string | null;
+  fallbackMessage: string | null;
+  humanHandoffMessage: string | null;
+  draftTimeoutMinutes: number;
+};
+
+const DEFAULT_WHATSAPP_BOT_SETTINGS: WhatsAppBotSettings = {
+  botEnabled: true,
+  responseTone: "friendly",
+  greetingMessage: null,
+  menuIntroMessage: null,
+  checkoutMessage: null,
+  locationRequestMessage: null,
+  qrPaymentMessage: null,
+  receiptRequestMessage: null,
+  fallbackMessage: null,
+  humanHandoffMessage: null,
+};
+
+const DEFAULT_PLATFORM_WHATSAPP_SETTINGS: PlatformWhatsAppSettings = {
+  botEnabled: true,
+  responseTone: "friendly",
+  welcomeMessage: null,
+  restaurantPickerMessage: null,
+  fallbackMessage: null,
+  humanHandoffMessage: null,
+  draftTimeoutMinutes: DEFAULT_DRAFT_TIMEOUT_MINUTES,
 };
 
 type ProductTextMatch = {
@@ -516,8 +589,13 @@ function extractMessageText(message: JsonObject) {
 
 async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createSupabaseAdminClient>, row: WhatsAppMessageRow) {
   const { customer, conversation } = await ensureWhatsAppConversation(supabase, row);
+  const platformSettings = await getPlatformWhatsAppSettings(supabase);
   const command = extractCommand(row);
   const normalized = normalizeForMatch(command.text);
+
+  if (await expireStaleOpenDraftIfNeeded(supabase, row, conversation, platformSettings)) {
+    return;
+  }
 
   if (command.kind === "restaurant_select" && command.value) {
     const restaurant = await findRestaurantById(supabase, command.value);
@@ -526,7 +604,10 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
         await abandonOpenDraft(supabase, conversation.id);
       }
       await setConversationRestaurant(supabase, conversation.id, restaurant.id, "browsing_menu", "restaurant_selected", row.message_id);
-      await sendRestaurantMenuIntro(row.from_phone, restaurant, await listTopProducts(supabase, restaurant.id));
+      if (await handoffIfBotDisabled(supabase, row, conversation, restaurant)) {
+        return;
+      }
+      await sendRestaurantMenuIntro(supabase, row.from_phone, restaurant, await listTopProducts(supabase, restaurant.id));
       return;
     }
   }
@@ -534,13 +615,32 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
   if (command.kind === "ACTION_CHANGE_RESTAURANT" || (conversation.state !== "drafting_order" && isChangeRestaurantIntent(normalized))) {
     await abandonOpenDraft(supabase, conversation.id);
     await clearConversationRestaurant(supabase, conversation.id, row.message_id);
-    await sendRestaurantPicker(supabase, row.from_phone);
+    await sendRestaurantPicker(supabase, row.from_phone, undefined, platformSettings);
     return;
   }
 
-  if (command.kind === "ACTION_ORDERS" || (conversation.state !== "drafting_order" && isRecentOrdersIntent(normalized))) {
-    await sendRecentOrders(supabase, row.from_phone, customer.phone);
-    await updateConversationState(supabase, conversation.id, "idle", "recent_orders", row.message_id);
+  if (conversation.state === "choosing_restaurant") {
+    if (command.kind === "ACTION_ORDERS" || isRecentOrdersIntent(normalized)) {
+      await sendRecentOrders(supabase, row.from_phone, customer.phone);
+      await resetConversationForRestaurantSelection(supabase, conversation.id, "recent_orders", row.message_id);
+      return;
+    }
+
+    const selectedRestaurant = await resolveSelectedRestaurant(supabase, { ...conversation, restaurant_id: null }, command.text);
+    if (selectedRestaurant) {
+      if (conversation.restaurant_id && conversation.restaurant_id !== selectedRestaurant.id) {
+        await abandonOpenDraft(supabase, conversation.id);
+      }
+      await setConversationRestaurant(supabase, conversation.id, selectedRestaurant.id, "browsing_menu", "restaurant_selected", row.message_id);
+      if (await handoffIfBotDisabled(supabase, row, conversation, selectedRestaurant)) {
+        return;
+      }
+      await sendRestaurantMenuIntro(supabase, row.from_phone, selectedRestaurant, await listTopProducts(supabase, selectedRestaurant.id));
+      return;
+    }
+
+    await resetConversationForRestaurantSelection(supabase, conversation.id, detectIntent(normalized), row.message_id);
+    await sendRestaurantPicker(supabase, row.from_phone);
     return;
   }
 
@@ -560,9 +660,7 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
   }
 
   if (command.kind === "DRAFT_RESTART" || isRestartIntent(normalized)) {
-    await abandonOpenDraft(supabase, conversation.id);
-    await clearConversationRestaurant(supabase, conversation.id, row.message_id);
-    await sendRestaurantPicker(supabase, row.from_phone);
+    await restartDraftForCurrentRestaurant(supabase, row, conversation);
     return;
   }
 
@@ -582,6 +680,19 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
     return;
   }
 
+  if (conversation.restaurant_id) {
+    const restaurant = await findRestaurantById(supabase, conversation.restaurant_id);
+    if (restaurant && (await handoffIfBotDisabled(supabase, row, conversation, restaurant))) {
+      return;
+    }
+  }
+
+  if (command.kind === "ACTION_ORDERS" || (conversation.state !== "drafting_order" && isRecentOrdersIntent(normalized))) {
+    await sendRecentOrders(supabase, row.from_phone, customer.phone);
+    await updateConversationState(supabase, conversation.id, "idle", "recent_orders", row.message_id);
+    return;
+  }
+
   if (command.kind?.startsWith("CATEGORY_PAGE:")) {
     const restaurant = await findRestaurantById(supabase, conversation.restaurant_id ?? "");
     if (restaurant) {
@@ -593,7 +704,7 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
   if (command.kind?.startsWith("CATEGORY:")) {
     const restaurant = await findRestaurantById(supabase, conversation.restaurant_id ?? "");
     if (!restaurant) {
-      await sendRestaurantPicker(supabase, row.from_phone);
+      await sendRestaurantPicker(supabase, row.from_phone, undefined, platformSettings);
       return;
     }
 
@@ -616,7 +727,7 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
 
     if (!restaurant) {
       await updateConversationState(supabase, conversation.id, "choosing_restaurant", "missing_restaurant", row.message_id);
-      await sendRestaurantPicker(supabase, row.from_phone);
+      await sendRestaurantPicker(supabase, row.from_phone, undefined, platformSettings);
       return;
     }
 
@@ -629,7 +740,7 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
     const [, quantityValue, productId] = command.kind.split(":");
 
     if (!restaurant || !productId) {
-      await sendRestaurantPicker(supabase, row.from_phone);
+      await sendRestaurantPicker(supabase, row.from_phone, undefined, platformSettings);
       return;
     }
 
@@ -668,7 +779,7 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
   if (command.kind === "DRAFT_ADD_MORE") {
     const restaurant = await findRestaurantById(supabase, conversation.restaurant_id ?? "");
     if (!restaurant) {
-      await sendRestaurantPicker(supabase, row.from_phone);
+      await sendRestaurantPicker(supabase, row.from_phone, undefined, platformSettings);
       return;
     }
     await updateOpenDraft(supabase, conversation.id, { checkout_step: "catalog", pending_item: null, status: "open" });
@@ -752,7 +863,10 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
       await abandonOpenDraft(supabase, conversation.id);
     }
     await setConversationRestaurant(supabase, conversation.id, selectedRestaurant.id, "browsing_menu", "restaurant_selected", row.message_id);
-    await sendRestaurantMenuIntro(row.from_phone, selectedRestaurant, await listTopProducts(supabase, selectedRestaurant.id));
+    if (await handoffIfBotDisabled(supabase, row, conversation, selectedRestaurant)) {
+      return;
+    }
+    await sendRestaurantMenuIntro(supabase, row.from_phone, selectedRestaurant, await listTopProducts(supabase, selectedRestaurant.id));
     return;
   }
 
@@ -765,7 +879,7 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
         await sendCategoryPicker(supabase, row.from_phone, restaurant);
       } else {
         await updateConversationState(supabase, conversation.id, "browsing_menu", detectIntent(normalized), row.message_id);
-        await sendRestaurantMenuIntro(row.from_phone, restaurant, await listTopProducts(supabase, restaurant.id));
+        await sendRestaurantMenuIntro(supabase, row.from_phone, restaurant, await listTopProducts(supabase, restaurant.id));
       }
       return;
     }
@@ -773,14 +887,16 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
 
   if (isMenuIntent(normalized) || isOrderIntent(normalized) || isGreetingIntent(normalized) || conversation.state === "choosing_restaurant") {
     await updateConversationState(supabase, conversation.id, "choosing_restaurant", detectIntent(normalized), row.message_id);
-    await sendRestaurantPicker(supabase, row.from_phone);
+    await sendRestaurantPicker(supabase, row.from_phone, undefined, platformSettings);
     return;
   }
 
+  const fallbackRestaurant = conversation.restaurant_id ? await findRestaurantById(supabase, conversation.restaurant_id) : null;
+  const fallbackSettings = await getWhatsAppBotSettings(supabase, fallbackRestaurant?.id ?? null);
   await updateConversationState(supabase, conversation.id, "idle", "fallback", row.message_id);
   await sendWhatsAppInteractiveButtons({
     to: row.from_phone,
-    body: "Hola, soy YoPido.shop. Puedo ayudarte a pedir, ver el menu o revisar tus ultimos pedidos.",
+    body: fallbackRestaurant ? fallbackCopy(fallbackSettings, fallbackRestaurant.name) : platformFallbackCopy(platformSettings),
     buttons: [
       { id: "ACTION_MENU", title: "Ver menu" },
       { id: "ACTION_ORDER", title: "Hacer pedido" },
@@ -1096,7 +1212,18 @@ async function sendProductSearchCandidates(
   });
 }
 
-async function sendRestaurantPicker(supabase: ReturnType<typeof createSupabaseAdminClient>, to: string) {
+async function sendRestaurantPicker(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  to: string,
+  body?: string,
+  platformSettings?: PlatformWhatsAppSettings,
+) {
+  const settings = platformSettings ?? (await getPlatformWhatsAppSettings(supabase));
+  if (!settings.botEnabled) {
+    await sendWhatsAppTextMessage({ to, body: platformHumanHandoffCopy(settings) });
+    return;
+  }
+
   const restaurants = await listActiveRestaurants(supabase);
 
   if (restaurants.length === 0) {
@@ -1107,18 +1234,21 @@ async function sendRestaurantPicker(supabase: ReturnType<typeof createSupabaseAd
     return;
   }
 
+  const defaultBody = platformRestaurantPickerCopy(settings, restaurants.length);
   if (restaurants.length === 1) {
     const restaurant = restaurants[0];
-    await sendRestaurantMenuIntro(to, restaurant, await listTopProducts(supabase, restaurant.id));
+    if (body) {
+      await sendWhatsAppTextMessage({ to, body });
+    } else {
+      await sendWhatsAppTextMessage({ to, body: defaultBody });
+    }
+    await sendRestaurantMenuIntro(supabase, to, restaurant, await listTopProducts(supabase, restaurant.id));
     return;
   }
 
   await sendWhatsAppListMessage({
     to,
-    body:
-      restaurants.length > 10
-        ? "Elige un restaurante de la lista o escribe su nombre para buscarlo."
-        : "Elige el restaurante donde quieres pedir.",
+    body: body ?? defaultBody,
     buttonText: "Ver restaurantes",
     sectionTitle: "Restaurantes",
     rows: restaurants.slice(0, 10).map((restaurant) => ({
@@ -1129,8 +1259,14 @@ async function sendRestaurantPicker(supabase: ReturnType<typeof createSupabaseAd
   });
 }
 
-async function sendRestaurantMenuIntro(to: string, restaurant: RestaurantRow, products: ProductSummaryRow[]) {
+async function sendRestaurantMenuIntro(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  to: string,
+  restaurant: RestaurantRow,
+  products: ProductSummaryRow[],
+) {
   const menuUrl = `${getSiteUrl()}/r/${restaurant.slug}?pedido=1`;
+  const botSettings = await getWhatsAppBotSettings(supabase, restaurant.id);
   const promoProducts = products.filter((product) => product.product_kind === "promotion" || product.is_featured).slice(0, 3);
   const regularProducts = products.filter((product) => !promoProducts.some((promo) => promo.id === product.id)).slice(0, 3);
   const visibleProducts = promoProducts.length ? promoProducts : regularProducts.length ? regularProducts : products.slice(0, 3);
@@ -1138,12 +1274,12 @@ async function sendRestaurantMenuIntro(to: string, restaurant: RestaurantRow, pr
     ? visibleProducts.map((product) => `${product.product_kind === "promotion" ? "Promo: " : ""}${product.name}: Bs ${formatMoney(product.price)}`).join("\n")
     : "El menu completo esta disponible en el enlace.";
   const heading = promoProducts.length ? "Promos y favoritos" : "Algunos favoritos";
+  const greeting = botSettings.greetingMessage ? `${greetingCopy(botSettings, restaurant.name)}\n\n` : "";
+  const intro = menuIntroCopy(botSettings, restaurant.name, menuUrl);
 
   await sendWhatsAppInteractiveButtons({
     to,
-    body:
-      `Estas en ${restaurant.name}.\n\n${heading}:\n${productLines}\n\n` +
-      `Puedes escribir directo: 2 hamburguesas, o abrir el menu visual:\n${menuUrl}`,
+    body: `${greeting}${intro}\n\n${heading}:\n${productLines}\n\nPuedes escribir directo: 2 hamburguesas.`,
     buttons: [
       { id: "ACTION_ORDER", title: "Hacer pedido" },
       { id: "ACTION_ORDERS", title: "Mis pedidos" },
@@ -1321,6 +1457,37 @@ async function getOpenDraft(supabase: ReturnType<typeof createSupabaseAdminClien
   }
 
   return data ? normalizeDraft(data) : null;
+}
+
+async function expireStaleOpenDraftIfNeeded(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  platformSettings: PlatformWhatsAppSettings,
+) {
+  const draft = await getOpenDraft(supabase, conversation.id);
+  if (!draft || !isOpenDraftExpired(draft, platformSettings)) {
+    return false;
+  }
+
+  await supabase.from("whatsapp_order_drafts").update({ status: "abandoned" }).eq("id", draft.id);
+  await resetConversationForRestaurantSelection(supabase, conversation.id, "draft_expired", row.message_id);
+  await sendRestaurantPicker(
+    supabase,
+    row.from_phone,
+    `Tu pedido anterior quedo pausado mas de ${platformSettings.draftTimeoutMinutes} min. Empecemos de nuevo: elige un restaurante.`,
+    platformSettings,
+  );
+  return true;
+}
+
+function isOpenDraftExpired(draft: WhatsAppOrderDraftRow, settings = DEFAULT_PLATFORM_WHATSAPP_SETTINGS, now = new Date()) {
+  const updatedAt = Date.parse(draft.updated_at ?? "");
+  if (!Number.isFinite(updatedAt)) {
+    return false;
+  }
+
+  return now.getTime() - updatedAt >= settings.draftTimeoutMinutes * 60 * 1000;
 }
 
 async function updateOpenDraft(supabase: ReturnType<typeof createSupabaseAdminClient>, conversationId: string, patch: JsonObject) {
@@ -1833,25 +2000,31 @@ async function beginDraftCheckout(
     return;
   }
 
+  const profile = await getSavedCheckoutProfile(supabase, row.from_phone, draft.restaurant_id);
   await updateOpenDraft(supabase, conversation.id, {
     checkout_step: "order_type",
     status: "open",
+    customer_name: draft.customer_name ?? profile.customerName,
     payment_method: null,
     payment_receipt_url: null,
     payment_receipt_media_id: null,
   });
   await updateConversationState(supabase, conversation.id, "drafting_order", "awaiting_order_type", row.message_id);
-  await sendCheckoutGuide(supabase, row.from_phone, settings, draft.restaurant_id);
+  await sendCheckoutGuide(supabase, row.from_phone, settings, draft.restaurant_id, profile);
 }
 
-function formatCheckoutGuide(settings: RestaurantSettingsRow, profile: SavedCheckoutProfile = { customerName: null, addresses: [] }) {
+function formatCheckoutGuide(
+  settings: RestaurantSettingsRow,
+  profile: SavedCheckoutProfile = { customerName: null, addresses: [] },
+  botSettings: WhatsAppBotSettings = DEFAULT_WHATSAPP_BOT_SETTINGS,
+) {
   const deliveryOptions = [
     ...(settings.delivery_enabled ? ["delivery"] : []),
     ...(settings.pickup_enabled ? ["recojo"] : []),
   ].join(" o ");
   const paymentOptions = settings.qr_payment_url?.trim() ? "efectivo o QR" : "efectivo";
   const lines = [
-    "Completemos tu pedido.",
+    checkoutIntroCopy(botSettings),
     "",
     "Responde copiando esto y elige entre:",
     `🛵 Entrega: ${deliveryOptions}`,
@@ -1862,7 +2035,7 @@ function formatCheckoutGuide(settings: RestaurantSettingsRow, profile: SavedChec
   ];
 
   if (settings.delivery_enabled) {
-    lines.push("", "Si es delivery agrega:", "📍 Direccion: Av. Siempre Viva 123", "🏠 Referencia: puerta negra");
+    lines.push("", "Si es delivery agrega:", "📍 Calle: Av. Siempre Viva", "🏠 Referencia: puerta negra");
   }
 
   if (settings.delivery_enabled && profile.addresses.length) {
@@ -1886,9 +2059,24 @@ async function sendCheckoutGuide(
   to: string,
   settings: RestaurantSettingsRow,
   restaurantId: string | null,
+  savedProfile?: SavedCheckoutProfile,
 ) {
-  const profile = restaurantId ? await getSavedCheckoutProfile(supabase, to, restaurantId) : { customerName: null, addresses: [] };
-  await sendWhatsAppTextMessage({ to, body: formatCheckoutGuide(settings, profile) });
+  const profile = savedProfile ?? (restaurantId ? await getSavedCheckoutProfile(supabase, to, restaurantId) : { customerName: null, addresses: [] });
+  const botSettings = await getWhatsAppBotSettings(supabase, restaurantId);
+  await sendWhatsAppTextMessage({ to, body: formatCheckoutGuide(settings, profile, botSettings) });
+}
+
+async function sendConfiguredLocationRequest(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  to: string,
+  restaurantId: string | null,
+  fallback: string,
+) {
+  const botSettings = await getWhatsAppBotSettings(supabase, restaurantId);
+  await sendWhatsAppLocationRequest({
+    to,
+    body: botSettings.locationRequestMessage ? botCopy(botSettings, "locationRequestMessage", fallback) : fallback || locationRequestCopy(botSettings),
+  });
 }
 
 function parseSavedDeliveryAddressSelection(value: string | null) {
@@ -1963,10 +2151,12 @@ async function applySavedDeliveryAddressShortcut(
   });
 
   if (!hasCoordinates) {
-    await sendWhatsAppLocationRequest({
-      to: row.from_phone,
-      body: "Listo, usare esa direccion. Ahora comparte tu ubicacion exacta desde WhatsApp para calcular el delivery.",
-    });
+    await sendConfiguredLocationRequest(
+      supabase,
+      row.from_phone,
+      draft.restaurant_id,
+      "Listo, usare esa direccion. Ahora comparte tu ubicacion exacta desde WhatsApp para calcular el delivery.",
+    );
     return true;
   }
 
@@ -2081,14 +2271,32 @@ async function continueAfterFulfillmentTime(
 ) {
   if (draft.order_type === "delivery") {
     await updateOpenDraft(supabase, conversation.id, { checkout_step: "location" });
-    await sendWhatsAppLocationRequest({
-      to: row.from_phone,
-      body: "Comparte tu ubicacion exacta desde WhatsApp. Asi calculamos delivery, distancia y si corresponde prepago QR.",
-    });
+    await sendConfiguredLocationRequest(
+      supabase,
+      row.from_phone,
+      draft.restaurant_id,
+      "Comparte tu ubicacion exacta desde WhatsApp. Asi calculamos delivery, distancia y si corresponde prepago QR.",
+    );
     return;
   }
 
   await askCustomerName(supabase, row.from_phone, conversation.id);
+}
+
+async function sendDeliveryAddressRequest(to: string, intro = "Perfecto, ya tengo tu ubicacion.") {
+  await sendWhatsAppInteractiveButtons({
+    to,
+    body:
+      `${intro}\n\n` +
+      "Escribe calle y referencia en un solo mensaje:\n" +
+      "📍 Calle: Av. Siempre Viva\n" +
+      "🏠 Referencia: puerta negra, piso 2, casa verde",
+    buttons: [
+      { id: "DRAFT_BACK", title: "Volver" },
+      { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
+      { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
+    ],
+  });
 }
 
 async function consumeDraftInput(
@@ -2107,7 +2315,12 @@ async function consumeDraftInput(
 
   if (draft.checkout_step === "location") {
     if (row.message_type !== "location") {
-      await sendWhatsAppLocationRequest({ to: row.from_phone, body: "Necesito que compartas la ubicacion usando el boton de WhatsApp para calcular el delivery." });
+      await sendConfiguredLocationRequest(
+        supabase,
+        row.from_phone,
+        draft.restaurant_id,
+        "Necesito que compartas la ubicacion usando el boton de WhatsApp para calcular el delivery.",
+      );
       return true;
     }
 
@@ -2129,21 +2342,16 @@ async function consumeDraftInput(
       await continueAfterCompactCheckout(supabase, row, conversation, updated, true);
       return true;
     }
-    await sendWhatsAppInteractiveButtons({
-      to: row.from_phone,
-      body: "Perfecto, ya tengo tu ubicacion. Ahora escribe la direccion: calle, numero y zona o barrio.",
-      buttons: [
-        { id: "DRAFT_BACK", title: "Volver" },
-        { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
-        { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
-      ],
-    });
+    await sendDeliveryAddressRequest(row.from_phone);
     return true;
   }
 
   if (draft.checkout_step === "receipt") {
     if (row.message_type !== "image" && row.message_type !== "document") {
-      await sendWhatsAppTextMessage({ to: row.from_phone, body: "Envia una foto, captura o PDF del comprobante QR." });
+      await sendWhatsAppTextMessage({
+        to: row.from_phone,
+        body: receiptRequestCopy(await getWhatsAppBotSettings(supabase, draft.restaurant_id)),
+      });
       return true;
     }
 
@@ -2206,27 +2414,26 @@ async function consumeDraftInput(
 
   if (draft.checkout_step === "address") {
     if (text.length < 5 || text.length > 240) {
-      await sendWhatsAppTextMessage({ to: row.from_phone, body: "Escribe una direccion un poco mas completa, por ejemplo calle, numero y zona." });
+      await sendWhatsAppTextMessage({ to: row.from_phone, body: "Escribe la calle un poco mas completa, por ejemplo Av. Siempre Viva." });
       return true;
     }
-    await updateOpenDraft(supabase, conversation.id, { customer_address: text, checkout_step: "address_detail" });
-    await sendWhatsAppInteractiveButtons({
+    await updateOpenDraft(supabase, conversation.id, { customer_address: truncate(text, 240), customer_address_detail: null, checkout_step: "address_detail" });
+    await sendWhatsAppTextMessage({
       to: row.from_phone,
-      body: "Agrega una referencia para el repartidor: piso, puerta, color de casa o indicacion. Si no hace falta, escribe NO.",
-      buttons: [
-        { id: "DRAFT_BACK", title: "Volver" },
-        { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
-        { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
-      ],
+      body: "Ahora manda una referencia para el repartidor: puerta, piso, color de casa o indicacion.",
     });
     return true;
   }
 
   if (draft.checkout_step === "address_detail") {
-    await updateOpenDraft(supabase, conversation.id, {
-      customer_address_detail: normalizeForMatch(text) === "no" ? null : truncate(text, 180),
+    if (text.length < 3 || normalizeOptionalText(text, 180) === null) {
+      await sendWhatsAppTextMessage({ to: row.from_phone, body: "La referencia es necesaria para el repartidor. Ejemplo: puerta negra, piso 2 o casa verde." });
+      return true;
+    }
+    const updated = await updateOpenDraft(supabase, conversation.id, {
+      customer_address_detail: truncate(text, 180),
     });
-    await askCustomerName(supabase, row.from_phone, conversation.id);
+    await continueAfterCompactCheckout(supabase, row, conversation, updated, true);
     return true;
   }
 
@@ -2436,26 +2643,26 @@ async function continueAfterCompactCheckout(
   if (draft.order_type === "delivery") {
     if (!hasValidCoordinates(draft.delivery_latitude, draft.delivery_longitude)) {
       await updateOpenDraft(supabase, conversation.id, { checkout_step: "location" });
-      await sendWhatsAppLocationRequest({
-        to: row.from_phone,
-        body: "Listo. Ahora comparte tu ubicacion exacta desde WhatsApp para calcular el delivery.",
-      });
+      await sendConfiguredLocationRequest(
+        supabase,
+        row.from_phone,
+        draft.restaurant_id,
+        "Listo. Ahora comparte tu ubicacion exacta desde WhatsApp para calcular el delivery.",
+      );
       return;
     }
 
     if (!draft.customer_address?.trim()) {
       await updateOpenDraft(supabase, conversation.id, { checkout_step: "address" });
-      await sendWhatsAppInteractiveButtons({
+      await sendDeliveryAddressRequest(row.from_phone, "Ya tengo tu GPS.");
+      return;
+    }
+
+    if (!draft.customer_address_detail?.trim()) {
+      await updateOpenDraft(supabase, conversation.id, { checkout_step: "address_detail" });
+      await sendWhatsAppTextMessage({
         to: row.from_phone,
-        body:
-          "Ya tengo tu GPS. Completa la direccion asi:\n" +
-          "📍 Direccion: Av. Siempre Viva 123\n" +
-          "🏠 Referencia: puerta negra",
-        buttons: [
-          { id: "DRAFT_BACK", title: "Volver" },
-          { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
-          { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
-        ],
+        body: "Falta la referencia para el repartidor. Ejemplo: puerta negra, piso 2 o casa verde.",
       });
       return;
     }
@@ -2580,30 +2787,18 @@ async function goBackInDraft(
 
   if (draft.checkout_step === "address_detail") {
     await updateOpenDraft(supabase, conversation.id, { checkout_step: "address", customer_address: null });
-    await sendWhatsAppInteractiveButtons({
-      to: row.from_phone,
-      body: "Volvimos a la direccion. Escribe calle, numero y zona o barrio.",
-      buttons: [
-        { id: "DRAFT_BACK", title: "Volver" },
-        { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
-        { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
-      ],
-    });
+    await sendDeliveryAddressRequest(row.from_phone, "Volvimos a la direccion.");
     return true;
   }
 
   if (draft.checkout_step === "name") {
     if (draft.order_type === "delivery") {
-      await updateOpenDraft(supabase, conversation.id, { checkout_step: "address_detail", customer_address_detail: null });
-      await sendWhatsAppInteractiveButtons({
-        to: row.from_phone,
-        body: "Volvimos a la referencia. Escribe una indicacion para el repartidor o NO.",
-        buttons: [
-          { id: "DRAFT_BACK", title: "Volver" },
-          { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
-          { id: "DRAFT_RESTART", title: "Empezar de nuevo" },
-        ],
+      await updateOpenDraft(supabase, conversation.id, {
+        checkout_step: "address",
+        customer_address: null,
+        customer_address_detail: null,
       });
+      await sendDeliveryAddressRequest(row.from_phone, "Volvimos a la direccion.");
       return true;
     }
     await updateOpenDraft(supabase, conversation.id, { checkout_step: "fulfillment", customer_name: null });
@@ -2760,7 +2955,13 @@ async function selectDraftPayment(
       requires_prepayment: quote.deliveryPolicy?.requiresQrPrepayment ?? false,
     });
     if (paymentMethod === "qr") {
-      await sendQrPaymentInstructions(row.from_phone, quote.settings.qr_payment_url ?? "", quote.total, quote.restaurant.name);
+      await sendQrPaymentInstructions(
+        row.from_phone,
+        quote.settings.qr_payment_url ?? "",
+        quote.total,
+        quote.restaurant.name,
+        await getWhatsAppBotSettings(supabase, quote.restaurant.id),
+      );
       return;
     }
     await showDraftConfirmation(supabase, row, conversation, updated);
@@ -2769,19 +2970,26 @@ async function selectDraftPayment(
   }
 }
 
-async function sendQrPaymentInstructions(to: string, qrUrl: string, total: number, restaurantName: string) {
+async function sendQrPaymentInstructions(
+  to: string,
+  qrUrl: string,
+  total: number,
+  restaurantName: string,
+  botSettings: WhatsAppBotSettings = DEFAULT_WHATSAPP_BOT_SETTINGS,
+) {
+  const qrMessage = qrPaymentCopy(botSettings, restaurantName, total);
   try {
-    await sendWhatsAppImageMessage({ to, imageUrl: qrUrl, caption: `QR de ${restaurantName}\nTotal: Bs ${formatMoney(total)}` });
+    await sendWhatsAppImageMessage({ to, imageUrl: qrUrl, caption: qrMessage });
   } catch {
     await sendWhatsAppTextMessage({
       to,
-      body: `Abre el QR de ${restaurantName} aqui:\n${qrUrl}\n\nTotal a pagar: Bs ${formatMoney(total)}`,
+      body: `${qrMessage}\n${qrUrl}`,
       previewUrl: true,
     });
   }
   await sendWhatsAppTextMessage({
     to,
-    body: `Paga exactamente Bs ${formatMoney(total)} y luego envia aqui la captura o el PDF del comprobante.`,
+    body: receiptRequestCopy(botSettings, total),
   });
 }
 
@@ -2922,7 +3130,7 @@ async function confirmDraftOrder(
       .from("whatsapp_order_drafts")
       .update({ status: "converted", created_order_id: createdOrder.id })
       .eq("id", draft.id);
-    await updateConversationState(supabase, conversation.id, "idle", "order_created", row.message_id);
+    await resetConversationForRestaurantSelection(supabase, conversation.id, "order_created", row.message_id);
 
     const trackingUrl = `${getSiteUrl()}/r/${quote.restaurant.slug}/pedido/${createdOrder.id}?token=${createdOrder.tracking_token}`;
     await sendWhatsAppTextMessage({
@@ -3137,6 +3345,245 @@ async function getRestaurantSettings(supabase: ReturnType<typeof createSupabaseA
     return null;
   }
   return data as RestaurantSettingsRow | null;
+}
+
+async function getWhatsAppBotSettings(supabase: ReturnType<typeof createSupabaseAdminClient>, restaurantId: string | null) {
+  if (!restaurantId) {
+    return DEFAULT_WHATSAPP_BOT_SETTINGS;
+  }
+
+  const { data, error } = await supabase
+    .from("restaurant_whatsapp_bot_settings")
+    .select("bot_enabled,response_tone,greeting_message,menu_intro_message,checkout_message,location_request_message,qr_payment_message,receipt_request_message,fallback_message,human_handoff_message")
+    .eq("restaurant_id", restaurantId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Could not read WhatsApp bot settings", { restaurantId, error });
+    return DEFAULT_WHATSAPP_BOT_SETTINGS;
+  }
+
+  return normalizeBotSettings(data as WhatsAppBotSettingsRow | null);
+}
+
+async function getPlatformWhatsAppSettings(supabase: ReturnType<typeof createSupabaseAdminClient>) {
+  const { data, error } = await supabase
+    .from("platform_whatsapp_settings")
+    .select("bot_enabled,response_tone,welcome_message,restaurant_picker_message,fallback_message,human_handoff_message,draft_timeout_minutes")
+    .eq("id", "default")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Could not read platform WhatsApp settings", { error });
+    return DEFAULT_PLATFORM_WHATSAPP_SETTINGS;
+  }
+
+  return normalizePlatformWhatsAppSettings(data as PlatformWhatsAppSettingsRow | null);
+}
+
+function normalizeBotSettings(row: WhatsAppBotSettingsRow | null): WhatsAppBotSettings {
+  if (!row) {
+    return DEFAULT_WHATSAPP_BOT_SETTINGS;
+  }
+
+  return {
+    botEnabled: row.bot_enabled ?? true,
+    responseTone: normalizeBotTone(row.response_tone),
+    greetingMessage: cleanBotText(row.greeting_message),
+    menuIntroMessage: cleanBotText(row.menu_intro_message),
+    checkoutMessage: cleanBotText(row.checkout_message),
+    locationRequestMessage: cleanBotText(row.location_request_message),
+    qrPaymentMessage: cleanBotText(row.qr_payment_message),
+    receiptRequestMessage: cleanBotText(row.receipt_request_message),
+    fallbackMessage: cleanBotText(row.fallback_message),
+    humanHandoffMessage: cleanBotText(row.human_handoff_message),
+  };
+}
+
+function normalizePlatformWhatsAppSettings(row: PlatformWhatsAppSettingsRow | null): PlatformWhatsAppSettings {
+  if (!row) {
+    return DEFAULT_PLATFORM_WHATSAPP_SETTINGS;
+  }
+
+  const timeout = Math.round(numberValue(row.draft_timeout_minutes) ?? DEFAULT_DRAFT_TIMEOUT_MINUTES);
+
+  return {
+    botEnabled: row.bot_enabled ?? true,
+    responseTone: normalizeBotTone(row.response_tone),
+    welcomeMessage: cleanBotText(row.welcome_message),
+    restaurantPickerMessage: cleanBotText(row.restaurant_picker_message),
+    fallbackMessage: cleanBotText(row.fallback_message),
+    humanHandoffMessage: cleanBotText(row.human_handoff_message),
+    draftTimeoutMinutes: Math.min(120, Math.max(5, timeout)),
+  };
+}
+
+function normalizeBotTone(value: string | null): WhatsAppBotTone {
+  return value === "direct" || value === "formal" ? value : "friendly";
+}
+
+function cleanBotText(value: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function renderBotText(value: string, variables: Record<string, string | number | null | undefined> = {}) {
+  return value.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key: string) => {
+    const replacement = variables[key];
+    return replacement === null || replacement === undefined ? "" : String(replacement);
+  });
+}
+
+function botCopy(settings: WhatsAppBotSettings, key: keyof Omit<WhatsAppBotSettings, "botEnabled" | "responseTone">, fallback: string, variables: Record<string, string | number | null | undefined> = {}) {
+  return renderBotText(settings[key] ?? fallback, variables);
+}
+
+function platformCopy(
+  settings: PlatformWhatsAppSettings,
+  key: keyof Omit<PlatformWhatsAppSettings, "botEnabled" | "responseTone" | "draftTimeoutMinutes">,
+  fallback: string,
+  variables: Record<string, string | number | null | undefined> = {},
+) {
+  return renderBotText(settings[key] ?? fallback, variables);
+}
+
+function platformWelcomeCopy(settings: PlatformWhatsAppSettings) {
+  const defaults: Record<WhatsAppBotTone, string> = {
+    friendly: "Hola, soy YoPido.shop. Te ayudo a elegir restaurante, pedir o revisar tus ultimos pedidos.",
+    direct: "YoPido.shop: elige restaurante, haz un pedido o revisa tus ultimos pedidos.",
+    formal: "Gracias por escribir a YoPido.shop. Podemos ayudarte a elegir restaurante, realizar pedidos y dar seguimiento.",
+  };
+  return platformCopy(settings, "welcomeMessage", defaults[settings.responseTone], { brand: "YoPido.shop" });
+}
+
+function platformRestaurantPickerCopy(settings: PlatformWhatsAppSettings, restaurantCount: number) {
+  const pickerDefault =
+    restaurantCount > 10
+      ? "Elige un restaurante de la lista o escribe su nombre para buscarlo."
+      : "Elige el restaurante donde quieres pedir.";
+  return `${platformWelcomeCopy(settings)}\n\n${platformCopy(settings, "restaurantPickerMessage", pickerDefault, { brand: "YoPido.shop" })}`;
+}
+
+function platformFallbackCopy(settings: PlatformWhatsAppSettings) {
+  const defaults: Record<WhatsAppBotTone, string> = {
+    friendly: "Puedo ayudarte a elegir restaurante, pedir o revisar tus ultimos pedidos.",
+    direct: "Elige una opcion: restaurante, pedido o ultimos pedidos.",
+    formal: "Podemos ayudarte con restaurantes, pedidos o seguimiento de pedidos anteriores.",
+  };
+  return platformCopy(settings, "fallbackMessage", defaults[settings.responseTone], { brand: "YoPido.shop" });
+}
+
+function platformHumanHandoffCopy(settings: PlatformWhatsAppSettings) {
+  const defaults: Record<WhatsAppBotTone, string> = {
+    friendly: "Ahora te atiende una persona del equipo de YoPido.shop.",
+    direct: "Te atiende el equipo de YoPido.shop.",
+    formal: "Un miembro del equipo de YoPido.shop continuara la atencion.",
+  };
+  return platformCopy(settings, "humanHandoffMessage", defaults[settings.responseTone], { brand: "YoPido.shop" });
+}
+
+function greetingCopy(settings: WhatsAppBotSettings, restaurantName?: string | null) {
+  const defaults: Record<WhatsAppBotTone, string> = {
+    friendly: restaurantName
+      ? "Hola, soy el asistente de {{restaurant}}. Te ayudo a pedir, ver el menu o revisar tus ultimos pedidos."
+      : "Hola, soy YoPido.shop. Te ayudo a pedir, ver el menu o revisar tus ultimos pedidos.",
+    direct: restaurantName
+      ? "{{restaurant}}: puedo tomar tu pedido, mostrar el menu o revisar tus ultimos pedidos."
+      : "Puedo tomar tu pedido, mostrar el menu o revisar tus ultimos pedidos.",
+    formal: restaurantName
+      ? "Gracias por escribir a {{restaurant}}. Podemos ayudarte con pedidos, menu y seguimiento."
+      : "Gracias por escribir a YoPido.shop. Podemos ayudarte con pedidos, menu y seguimiento.",
+  };
+  return botCopy(settings, "greetingMessage", defaults[settings.responseTone], { restaurant: restaurantName });
+}
+
+function menuIntroCopy(settings: WhatsAppBotSettings, restaurantName: string, menuUrl: string) {
+  const defaults: Record<WhatsAppBotTone, string> = {
+    friendly: "Estas en {{restaurant}}. Te dejo favoritos y tambien puedes abrir el menu visual:\n{{menu_url}}",
+    direct: "{{restaurant}}\nFavoritos y menu visual:\n{{menu_url}}",
+    formal: "Estas viendo el menu de {{restaurant}}. Tambien puedes revisar el menu visual aqui:\n{{menu_url}}",
+  };
+  return botCopy(settings, "menuIntroMessage", defaults[settings.responseTone], { restaurant: restaurantName, menu_url: menuUrl });
+}
+
+function checkoutIntroCopy(settings: WhatsAppBotSettings) {
+  const defaults: Record<WhatsAppBotTone, string> = {
+    friendly: "Completemos tu pedido.",
+    direct: "Completa estos datos.",
+    formal: "Completemos los datos de tu pedido.",
+  };
+  return botCopy(settings, "checkoutMessage", defaults[settings.responseTone]);
+}
+
+function locationRequestCopy(settings: WhatsAppBotSettings) {
+  const defaults: Record<WhatsAppBotTone, string> = {
+    friendly: "Comparte tu ubicacion exacta desde WhatsApp. Asi calculamos delivery, distancia y si corresponde prepago QR.",
+    direct: "Comparte tu ubicacion exacta desde WhatsApp para calcular delivery y pago.",
+    formal: "Por favor comparte tu ubicacion exacta desde WhatsApp para calcular el delivery.",
+  };
+  return botCopy(settings, "locationRequestMessage", defaults[settings.responseTone]);
+}
+
+function receiptRequestCopy(settings: WhatsAppBotSettings, total?: number) {
+  const defaults: Record<WhatsAppBotTone, string> = {
+    friendly: total ? "Paga exactamente Bs {{total}} y luego envia aqui la captura o el PDF del comprobante." : "Envia una foto, captura o PDF del comprobante QR.",
+    direct: total ? "Paga Bs {{total}} y envia la captura o PDF del comprobante." : "Envia la captura o PDF del comprobante QR.",
+    formal: total ? "Realiza el pago de Bs {{total}} y envia el comprobante por este chat." : "Por favor envia el comprobante QR por este chat.",
+  };
+  return botCopy(settings, "receiptRequestMessage", defaults[settings.responseTone], {
+    total: typeof total === "number" ? formatMoney(total) : null,
+  });
+}
+
+function qrPaymentCopy(settings: WhatsAppBotSettings, restaurantName: string, total: number) {
+  const defaults: Record<WhatsAppBotTone, string> = {
+    friendly: "QR de {{restaurant}}\nTotal: Bs {{total}}",
+    direct: "{{restaurant}}\nQR - Bs {{total}}",
+    formal: "QR de pago de {{restaurant}}\nTotal a pagar: Bs {{total}}",
+  };
+  return botCopy(settings, "qrPaymentMessage", defaults[settings.responseTone], {
+    restaurant: restaurantName,
+    total: formatMoney(total),
+  });
+}
+
+function fallbackCopy(settings: WhatsAppBotSettings, restaurantName?: string | null) {
+  const defaults: Record<WhatsAppBotTone, string> = {
+    friendly: "Hola, puedo ayudarte a pedir, ver el menu o revisar tus ultimos pedidos.",
+    direct: "Puedo ayudarte con menu, pedido o ultimos pedidos.",
+    formal: "Podemos ayudarte con el menu, un pedido o el seguimiento de tus ultimos pedidos.",
+  };
+  return botCopy(settings, "fallbackMessage", defaults[settings.responseTone], { restaurant: restaurantName });
+}
+
+function humanHandoffCopy(settings: WhatsAppBotSettings, restaurantName?: string | null) {
+  const defaults: Record<WhatsAppBotTone, string> = {
+    friendly: "Te atiende una persona del equipo en un momento.",
+    direct: "Un miembro del equipo te respondera pronto.",
+    formal: "Un miembro del equipo respondera tu mensaje en breve.",
+  };
+  return botCopy(settings, "humanHandoffMessage", defaults[settings.responseTone], { restaurant: restaurantName });
+}
+
+async function handoffIfBotDisabled(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  restaurant: RestaurantRow,
+) {
+  const settings = await getWhatsAppBotSettings(supabase, restaurant.id);
+  if (settings.botEnabled) {
+    return false;
+  }
+
+  await updateConversationState(supabase, conversation.id, "handoff", "bot_paused", row.message_id);
+  if (conversation.state !== "handoff") {
+    await sendWhatsAppTextMessage({
+      to: row.from_phone,
+      body: humanHandoffCopy(settings, restaurant.name),
+    });
+  }
+  return true;
 }
 
 async function listDeliveryZones(supabase: ReturnType<typeof createSupabaseAdminClient>, restaurantId: string) {
@@ -3459,6 +3906,29 @@ async function abandonOpenDraft(supabase: ReturnType<typeof createSupabaseAdminC
   await supabase.from("whatsapp_order_drafts").update({ status: "abandoned" }).eq("id", draft.id);
 }
 
+async function restartDraftForCurrentRestaurant(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+) {
+  await abandonOpenDraft(supabase, conversation.id);
+
+  if (conversation.restaurant_id) {
+    const restaurant = await findRestaurantById(supabase, conversation.restaurant_id);
+    if (restaurant) {
+      await updateConversationState(supabase, conversation.id, "browsing_menu", "draft_restarted", row.message_id);
+      if (await handoffIfBotDisabled(supabase, row, conversation, restaurant)) {
+        return;
+      }
+      await sendRestaurantMenuIntro(supabase, row.from_phone, restaurant, await listTopProducts(supabase, restaurant.id));
+      return;
+    }
+  }
+
+  await clearConversationRestaurant(supabase, conversation.id, row.message_id);
+  await sendRestaurantPicker(supabase, row.from_phone);
+}
+
 async function setConversationRestaurant(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   conversationId: string,
@@ -3477,6 +3947,18 @@ async function clearConversationRestaurant(supabase: ReturnType<typeof createSup
   await supabase
     .from("whatsapp_conversations")
     .update({ restaurant_id: null, state: "choosing_restaurant", last_intent: "change_restaurant", last_message_id: messageId })
+    .eq("id", conversationId);
+}
+
+async function resetConversationForRestaurantSelection(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  conversationId: string,
+  intent: string,
+  messageId: string,
+) {
+  await supabase
+    .from("whatsapp_conversations")
+    .update({ state: "choosing_restaurant", last_intent: intent, last_message_id: messageId })
     .eq("id", conversationId);
 }
 
@@ -3536,6 +4018,7 @@ function normalizeDraft(value: JsonObject): WhatsAppOrderDraftRow {
     invoice_name: stringValue(value.invoice_name),
     notes: stringValue(value.notes),
     created_order_id: stringValue(value.created_order_id),
+    updated_at: stringValue(value.updated_at),
   };
 }
 
@@ -3657,7 +4140,7 @@ function parseCompactCheckoutInput(text: string, draft?: WhatsAppOrderDraftRow):
   const invoiceRequired = invoiceFields ? true : parseInvoicePreferenceText(readTaggedSegment(segments, ["factura"]) ?? normalized);
   const fulfillment = parseFulfillmentText(taggedTime ?? normalized, scheduledLocalInput);
   const taggedName = readTaggedSegment(segments, ["cliente", "nombre cliente", "a nombre de"]);
-  const taggedAddress = readTaggedSegment(segments, ["direccion", "dir", "ubicacion"]);
+  const taggedAddress = readTaggedSegment(segments, ["calle", "direccion", "dir", "ubicacion"]);
   const taggedReference = readTaggedSegment(segments, ["referencia", "ref", "detalle", "indicacion"]);
   const targetOrderType = orderType ?? draft?.order_type ?? null;
   const leftovers = segments.filter((segment) => !isRecognizedCheckoutSegment(segment));
@@ -3828,7 +4311,7 @@ function isRecognizedCheckoutSegment(segment: string) {
     !normalized ||
     /\b(delivery|envio|enviar|domicilio|recojo|retiro|recoger|pickup|ahora|lo antes posible|programar|programado|efectivo|cash|qr|transferencia|sin factura|no factura|con factura|quiero factura)\b/.test(normalized) ||
     Boolean(parseScheduleInput(segment)) ||
-    /^(cliente|nombre cliente|a nombre de|direccion|dir|ubicacion|referencia|ref|detalle|indicacion|entrega|recibir|tipo de entrega|hora|cuando|tiempo|pago|forma de pago|factura|tipo|tipo documento|documento|numero|nro|nit|ci|nombre|razon social)\b/.test(normalized)
+    /^(cliente|nombre cliente|a nombre de|calle|direccion|dir|ubicacion|referencia|ref|detalle|indicacion|entrega|recibir|tipo de entrega|hora|cuando|tiempo|pago|forma de pago|factura|tipo|tipo documento|documento|numero|nro|nit|ci|nombre|razon social)\b/.test(normalized)
   );
 }
 

@@ -2,6 +2,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import type { Json } from "@/types/database.types";
 import type {
+  WhatsAppCrmBotSettings,
+  WhatsAppCrmBotTone,
   WhatsAppCrmConversation,
   WhatsAppCrmDraftSummary,
   WhatsAppCrmMessage,
@@ -75,6 +77,34 @@ type QuickReplyRow = {
   category: string;
   is_active: boolean;
   updated_at: string;
+};
+
+type BotSettingsRow = {
+  restaurant_id: string;
+  bot_enabled: boolean;
+  response_tone: WhatsAppCrmBotTone;
+  greeting_message: string | null;
+  menu_intro_message: string | null;
+  checkout_message: string | null;
+  location_request_message: string | null;
+  qr_payment_message: string | null;
+  receipt_request_message: string | null;
+  fallback_message: string | null;
+  human_handoff_message: string | null;
+  updated_at: string;
+};
+
+export const DEFAULT_WHATSAPP_BOT_SETTINGS: WhatsAppCrmBotSettings = {
+  botEnabled: true,
+  responseTone: "friendly",
+  greetingMessage: "",
+  menuIntroMessage: "",
+  checkoutMessage: "",
+  locationRequestMessage: "",
+  qrPaymentMessage: "",
+  receiptRequestMessage: "",
+  fallbackMessage: "",
+  humanHandoffMessage: "",
 };
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -156,6 +186,31 @@ function mapOrder(row: OrderRow): WhatsAppCrmOrderSummary {
   };
 }
 
+function mapBotSettings(row?: BotSettingsRow | null): WhatsAppCrmBotSettings {
+  if (!row) {
+    return DEFAULT_WHATSAPP_BOT_SETTINGS;
+  }
+
+  return {
+    botEnabled: row.bot_enabled,
+    responseTone: row.response_tone,
+    greetingMessage: row.greeting_message ?? "",
+    menuIntroMessage: row.menu_intro_message ?? "",
+    checkoutMessage: row.checkout_message ?? "",
+    locationRequestMessage: row.location_request_message ?? "",
+    qrPaymentMessage: row.qr_payment_message ?? "",
+    receiptRequestMessage: row.receipt_request_message ?? "",
+    fallbackMessage: row.fallback_message ?? "",
+    humanHandoffMessage: row.human_handoff_message ?? "",
+    updatedAt: row.updated_at,
+  };
+}
+
+function emptyToNull(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 function normalizePhone(value: string) {
   return value.replace(/\D/g, "");
 }
@@ -198,6 +253,7 @@ export const whatsappCrmService = {
         conversations: [],
         messages: [],
         quickReplies: [],
+        botSettings: DEFAULT_WHATSAPP_BOT_SETTINGS,
         stats: { activeConversations: 0, needsReply: 0, whatsappOrders: 0, todayRevenue: 0 },
         whatsappConfigured,
       };
@@ -209,12 +265,13 @@ export const whatsappCrmService = {
         conversations: [],
         messages: [],
         quickReplies: [],
+        botSettings: DEFAULT_WHATSAPP_BOT_SETTINGS,
         stats: { activeConversations: 0, needsReply: 0, whatsappOrders: 0, todayRevenue: 0 },
         whatsappConfigured: false,
       };
     }
 
-    const [{ data: conversationRows }, { data: quickReplyRows }, { data: todayOrderRows }] = await Promise.all([
+    const [conversationsResult, quickRepliesResult, todayOrdersResult, botSettingsResult] = await Promise.all([
       admin
         .from("whatsapp_conversations")
         .select("id,customer_id,from_phone,restaurant_id,state,last_intent,last_message_id,last_message_at,created_at,updated_at")
@@ -234,8 +291,17 @@ export const whatsappCrmService = {
         .eq("restaurant_id", restaurantId)
         .eq("order_origin", "phone_whatsapp")
         .gte("created_at", startOfBoliviaDayIso()),
+      admin
+        .from("restaurant_whatsapp_bot_settings")
+        .select("restaurant_id,bot_enabled,response_tone,greeting_message,menu_intro_message,checkout_message,location_request_message,qr_payment_message,receipt_request_message,fallback_message,human_handoff_message,updated_at")
+        .eq("restaurant_id", restaurantId)
+        .maybeSingle(),
     ]);
 
+    const conversationRows = conversationsResult.data;
+    const quickReplyRows = quickRepliesResult.data;
+    const todayOrderRows = todayOrdersResult.data;
+    const botSettings = botSettingsResult.error ? DEFAULT_WHATSAPP_BOT_SETTINGS : mapBotSettings(botSettingsResult.data as BotSettingsRow | null);
     const conversationsRaw = (conversationRows ?? []) as ConversationRow[];
     const phones = conversationsRaw.map((conversation) => conversation.from_phone);
     const customerIds = conversationsRaw.map((conversation) => conversation.customer_id);
@@ -365,6 +431,7 @@ export const whatsappCrmService = {
         category: reply.category,
         updatedAt: reply.updated_at,
       })),
+      botSettings,
       stats: {
         activeConversations: conversations.length,
         needsReply: conversations.filter((conversation) => conversation.needsReply).length,
@@ -486,6 +553,50 @@ export const whatsappCrmService = {
       .eq("restaurant_id", restaurantId);
 
     return error ? { ok: false, error: error.code || "handoff-failed" } : { ok: true };
+  },
+
+  async saveBotSettings({
+    restaurantId,
+    botEnabled,
+    responseTone,
+    greetingMessage,
+    menuIntroMessage,
+    checkoutMessage,
+    locationRequestMessage,
+    qrPaymentMessage,
+    receiptRequestMessage,
+    fallbackMessage,
+    humanHandoffMessage,
+    userId,
+  }: WhatsAppCrmBotSettings & {
+    restaurantId: string;
+    userId?: string;
+  }) {
+    const admin = createAdminClient();
+    if (!admin) {
+      return { ok: false, error: "supabase-not-configured" };
+    }
+
+    const { error } = await admin.from("restaurant_whatsapp_bot_settings").upsert(
+      {
+        restaurant_id: restaurantId,
+        bot_enabled: botEnabled,
+        response_tone: responseTone,
+        greeting_message: emptyToNull(greetingMessage),
+        menu_intro_message: emptyToNull(menuIntroMessage),
+        checkout_message: emptyToNull(checkoutMessage),
+        location_request_message: emptyToNull(locationRequestMessage),
+        qr_payment_message: emptyToNull(qrPaymentMessage),
+        receipt_request_message: emptyToNull(receiptRequestMessage),
+        fallback_message: emptyToNull(fallbackMessage),
+        human_handoff_message: emptyToNull(humanHandoffMessage),
+        updated_by: userId ?? null,
+        created_by: userId ?? null,
+      },
+      { onConflict: "restaurant_id" },
+    );
+
+    return error ? { ok: false, error: error.code || "bot-settings-save-failed" } : { ok: true };
   },
 
   async saveQuickReply({

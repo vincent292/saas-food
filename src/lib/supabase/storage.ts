@@ -154,7 +154,7 @@ export async function deletePublicFileUrl(url?: string | null) {
   );
 }
 
-export async function getPrivateFileSignedUrl(path: string) {
+export async function getPrivateFileSignedUrl(path: string, options?: { downloadFileName?: string }) {
   const r2 = getR2Client();
   if (!r2) {
     return null;
@@ -165,6 +165,7 @@ export async function getPrivateFileSignedUrl(path: string) {
     new GetObjectCommand({
       Bucket: r2.config.privateBucket,
       Key: path,
+      ...(options?.downloadFileName ? { ResponseContentDisposition: attachmentDisposition(options.downloadFileName) } : {}),
     }),
     { expiresIn: 60 * 5 },
   );
@@ -185,6 +186,12 @@ async function putR2Object(client: S3Client, bucket: string, path: string, file:
 
 function privateObjectUrl(path: string) {
   return `${privateUrlPrefix}/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function attachmentDisposition(fileName: string) {
+  const safeName = (fileName || "comprobante").replace(/["\\\r\n]/g, "_");
+  const asciiName = safeName.replace(/[^\x20-\x7e]/g, "_");
+  return `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`;
 }
 
 async function listStoragePaths(folder: string): Promise<string[]> {

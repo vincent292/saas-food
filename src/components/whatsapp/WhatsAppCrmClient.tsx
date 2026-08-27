@@ -13,14 +13,17 @@ import {
   MessageSquareReply,
   Phone,
   Plus,
+  Save,
   Search,
   Send,
+  Settings2,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
   Tag,
   Trash2,
   UserRound,
+  X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
@@ -29,16 +32,17 @@ import {
   sendWhatsAppCrmLocationAction,
   sendWhatsAppCrmMenuAction,
   sendWhatsAppCrmMessageAction,
+  saveWhatsAppBotSettingsAction,
   saveWhatsAppQuickReplyAction,
   takeWhatsAppCrmConversationAction,
 } from "@/app/admin/restaurantes/[restaurantId]/whatsapp/actions";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Input, Textarea } from "@/components/ui/Input";
+import { Input, Select, Textarea } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
 import type { Restaurant } from "@/types/restaurant.types";
-import type { WhatsAppCrmConversation, WhatsAppCrmMessage, WhatsAppCrmWorkspace } from "@/types/whatsapp-crm.types";
+import type { WhatsAppCrmBotSettings, WhatsAppCrmConversation, WhatsAppCrmMessage, WhatsAppCrmWorkspace } from "@/types/whatsapp-crm.types";
 
 type ConversationTab = "all" | "needsReply" | "orders" | "handoff";
 
@@ -59,6 +63,13 @@ const feedbackMessages: Record<string, string> = {
   released: "Bot reactivado para esta conversacion.",
   replySaved: "Respuesta rapida guardada.",
   replyDeleted: "Respuesta rapida eliminada.",
+  botSaved: "Configuracion del bot guardada.",
+};
+
+const toneLabels = {
+  friendly: "Cercano",
+  direct: "Directo",
+  formal: "Formal",
 };
 
 function formatMoney(value: number) {
@@ -218,7 +229,8 @@ export function WhatsAppCrmClient({
   ];
 
   const feedbackText = feedback ? feedbackMessages[feedback] ?? `No se pudo completar la accion: ${feedback}.` : "";
-  const isPositiveFeedback = feedback === "sent" || feedback === "handoff" || feedback === "released" || feedback === "replySaved" || feedback === "replyDeleted";
+  const isPositiveFeedback = feedback === "sent" || feedback === "handoff" || feedback === "released" || feedback === "replySaved" || feedback === "replyDeleted" || feedback === "botSaved";
+  const [botSettingsOpen, setBotSettingsOpen] = useState(false);
 
   return (
     <div className="flex h-auto min-h-[calc(100dvh-9rem)] flex-col gap-3 lg:h-[calc(100dvh-8.25rem)] lg:min-h-0">
@@ -238,7 +250,14 @@ export function WhatsAppCrmClient({
             {feedbackText}
           </span>
         ) : null}
-        <Link className={buttonClasses("secondary", "ml-auto min-h-9 px-3 text-xs")} href={`/admin/restaurantes/${restaurant.id}/pedidos?pos=1`} prefetch={false}>
+        <span className="ml-auto inline-flex min-h-9 items-center gap-2 rounded-full bg-[var(--color-surface)] px-3 text-xs font-black text-[var(--color-heading)]">
+          <Bot className="h-3.5 w-3.5 text-[var(--primary)]" />
+          {workspace.botSettings.botEnabled ? "Bot automatico" : "Solo humano"}
+        </span>
+        <button aria-label="Configurar bot de WhatsApp" className={buttonClasses("secondary", "h-9 min-h-9 w-9 px-0")} onClick={() => setBotSettingsOpen(true)} title="Configurar bot" type="button">
+          <Settings2 className="h-4 w-4" />
+        </button>
+        <Link className={buttonClasses("secondary", "min-h-9 px-3 text-xs")} href={`/admin/restaurantes/${restaurant.id}/pedidos?pos=1`} prefetch={false}>
           <ShoppingBag className="h-4 w-4" />
           POS
         </Link>
@@ -518,6 +537,172 @@ export function WhatsAppCrmClient({
           ) : null}
         </Card>
       </div>
+      {botSettingsOpen ? (
+        <BotSettingsModal
+          conversationId={selected?.id}
+          onClose={() => setBotSettingsOpen(false)}
+          restaurantId={restaurant.id}
+          settings={workspace.botSettings}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function BotSettingsModal({
+  conversationId,
+  onClose,
+  restaurantId,
+  settings,
+}: {
+  conversationId?: string;
+  onClose: () => void;
+  restaurantId: string;
+  settings: WhatsAppCrmBotSettings;
+}) {
+  return (
+    <div aria-label="Configuracion del bot de WhatsApp" aria-modal="true" className="fixed inset-0 z-[95] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4" role="dialog">
+      <button aria-label="Cerrar configuracion" className="absolute inset-0" onClick={onClose} type="button" />
+      <form action={saveWhatsAppBotSettingsAction} className="relative z-10 flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:rounded-[var(--radius-card)]">
+        <input name="restaurantId" type="hidden" value={restaurantId} />
+        <input name="conversationId" type="hidden" value={conversationId ?? ""} />
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-black">Bot de WhatsApp</h3>
+            <p className="mt-0.5 text-[0.68rem] font-black uppercase text-[var(--color-secondary-text)]">
+              {settings.botEnabled ? "Automatico" : "Solo humano"} - {toneLabels[settings.responseTone]}
+            </p>
+          </div>
+          <button aria-label="Cerrar" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-body)] hover:bg-[var(--color-neutral-200)]" onClick={onClose} type="button">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="admin-scrollbar flex-1 overflow-y-auto p-4">
+          <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)]">
+            <div className="space-y-3">
+              <label className="flex min-h-11 items-center gap-2 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--color-input)] px-3 text-sm font-black text-[var(--color-heading)]">
+                <input className="h-4 w-4 accent-[var(--primary)]" defaultChecked={settings.botEnabled} name="botEnabled" type="checkbox" />
+                Activo
+              </label>
+              <label className="grid gap-1 text-xs font-black text-[var(--color-secondary-text)]">
+                Tono
+                <Select className="min-h-10 px-3 text-sm" defaultValue={settings.responseTone} name="responseTone">
+                  <option value="friendly">Cercano</option>
+                  <option value="direct">Directo</option>
+                  <option value="formal">Formal</option>
+                </Select>
+              </label>
+            </div>
+
+            <div className="grid gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <BotTextField
+                  defaultValue={settings.greetingMessage}
+                  label="Saludo"
+                  maxLength={600}
+                  name="greetingMessage"
+                  placeholder="Dejalo vacio para usar el saludo automatico con el nombre del local."
+                />
+                <BotTextField
+                  defaultValue={settings.menuIntroMessage}
+                  label="Menu"
+                  maxLength={600}
+                  name="menuIntroMessage"
+                  placeholder="Dejalo vacio para mostrar favoritos y el menu visual automaticamente."
+                />
+              </div>
+              <BotTextField
+                defaultValue={settings.checkoutMessage}
+                label="Checkout"
+                maxLength={240}
+                name="checkoutMessage"
+                placeholder="Completemos tu pedido."
+                small
+              />
+              <BotTextField
+                defaultValue={settings.locationRequestMessage}
+                label="Ubicacion"
+                maxLength={400}
+                name="locationRequestMessage"
+                placeholder="Comparte tu ubicacion exacta desde WhatsApp para calcular el delivery."
+              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <BotTextField
+                  defaultValue={settings.qrPaymentMessage}
+                  label="QR"
+                  maxLength={400}
+                  name="qrPaymentMessage"
+                  placeholder="Dejalo vacio para enviar el QR del local con el total del pedido."
+                />
+                <BotTextField
+                  defaultValue={settings.receiptRequestMessage}
+                  label="Comprobante"
+                  maxLength={300}
+                  name="receiptRequestMessage"
+                  placeholder="Envia una foto, captura o PDF del comprobante."
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <BotTextField
+                  defaultValue={settings.fallbackMessage}
+                  label="No entiende"
+                  maxLength={600}
+                  name="fallbackMessage"
+                  placeholder="Puedo ayudarte a pedir, ver el menu o revisar tus ultimos pedidos."
+                />
+                <BotTextField
+                  defaultValue={settings.humanHandoffMessage}
+                  label="Solo humano"
+                  maxLength={600}
+                  name="humanHandoffMessage"
+                  placeholder="Te atiende una persona del equipo en un momento."
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-col gap-2 border-t border-[var(--border)] bg-[var(--surface)] p-4 sm:flex-row sm:justify-end">
+          <button className={buttonClasses("ghost", "min-h-10 px-4")} onClick={onClose} type="button">
+            <X className="h-4 w-4" />
+            Cancelar
+          </button>
+          <button className={buttonClasses("primary", "min-h-10 px-4")} type="submit">
+            <Save className="h-4 w-4" />
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function BotTextField({
+  defaultValue,
+  label,
+  maxLength,
+  name,
+  placeholder,
+  small = false,
+}: {
+  defaultValue: string;
+  label: string;
+  maxLength: number;
+  name: string;
+  placeholder: string;
+  small?: boolean;
+}) {
+  return (
+    <label className="grid gap-1 text-xs font-black text-[var(--color-secondary-text)]">
+      {label}
+      <Textarea
+        className={cn("px-3 py-2 text-xs", small ? "min-h-12" : "min-h-16")}
+        defaultValue={defaultValue}
+        maxLength={maxLength}
+        name={name}
+        placeholder={placeholder}
+      />
+    </label>
   );
 }

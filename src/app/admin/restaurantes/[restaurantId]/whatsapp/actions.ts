@@ -31,6 +31,21 @@ const quickReplyIdSchema = z.object({
   quickReplyId: z.string().uuid(),
 });
 
+const botSettingsSchema = z.object({
+  restaurantId: z.string().uuid(),
+  conversationId: z.string().uuid().optional().or(z.literal("")),
+  botEnabled: z.boolean(),
+  responseTone: z.enum(["friendly", "direct", "formal"]),
+  greetingMessage: z.string().trim().max(600),
+  menuIntroMessage: z.string().trim().max(600),
+  checkoutMessage: z.string().trim().max(240),
+  locationRequestMessage: z.string().trim().max(400),
+  qrPaymentMessage: z.string().trim().max(400),
+  receiptRequestMessage: z.string().trim().max(300),
+  fallbackMessage: z.string().trim().max(600),
+  humanHandoffMessage: z.string().trim().max(600),
+});
+
 function crmPath(restaurantId: string, conversationId?: string, suffix = "") {
   const params = conversationId ? `?conversation=${conversationId}${suffix}` : suffix ? `?${suffix.replace(/^[?&]/, "")}` : "";
   return `/admin/restaurantes/${restaurantId}/whatsapp${params}`;
@@ -171,6 +186,47 @@ export async function releaseWhatsAppCrmConversationAction(formData: FormData) {
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/whatsapp`);
   redirect(crmPath(parsed.data.restaurantId, parsed.data.conversationId, result.ok ? "&released=1" : `&error=${result.error}`));
+}
+
+export async function saveWhatsAppBotSettingsAction(formData: FormData) {
+  const parsed = botSettingsSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    conversationId: formData.get("conversationId") || "",
+    botEnabled: formData.get("botEnabled") === "on",
+    responseTone: formData.get("responseTone"),
+    greetingMessage: formData.get("greetingMessage") ?? "",
+    menuIntroMessage: formData.get("menuIntroMessage") ?? "",
+    checkoutMessage: formData.get("checkoutMessage") ?? "",
+    locationRequestMessage: formData.get("locationRequestMessage") ?? "",
+    qrPaymentMessage: formData.get("qrPaymentMessage") ?? "",
+    receiptRequestMessage: formData.get("receiptRequestMessage") ?? "",
+    fallbackMessage: formData.get("fallbackMessage") ?? "",
+    humanHandoffMessage: formData.get("humanHandoffMessage") ?? "",
+  });
+
+  if (!parsed.success) {
+    redirect("/admin?error=invalid-whatsapp-bot-settings");
+  }
+
+  const conversationId = parsed.data.conversationId || undefined;
+  await requireRestaurantCrmAccess(parsed.data.restaurantId, conversationId);
+  const result = await whatsappCrmService.saveBotSettings({
+    restaurantId: parsed.data.restaurantId,
+    botEnabled: parsed.data.botEnabled,
+    responseTone: parsed.data.responseTone,
+    greetingMessage: parsed.data.greetingMessage,
+    menuIntroMessage: parsed.data.menuIntroMessage,
+    checkoutMessage: parsed.data.checkoutMessage,
+    locationRequestMessage: parsed.data.locationRequestMessage,
+    qrPaymentMessage: parsed.data.qrPaymentMessage,
+    receiptRequestMessage: parsed.data.receiptRequestMessage,
+    fallbackMessage: parsed.data.fallbackMessage,
+    humanHandoffMessage: parsed.data.humanHandoffMessage,
+    userId: await currentUserId(),
+  });
+
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/whatsapp`);
+  redirect(crmPath(parsed.data.restaurantId, conversationId, result.ok ? "&botSaved=1" : `&error=${result.error}`));
 }
 
 export async function saveWhatsAppQuickReplyAction(formData: FormData) {

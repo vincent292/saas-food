@@ -60,6 +60,22 @@ export type WhatsAppCrmQuickReply = {
   updatedAt: string;
 };
 
+export type WhatsAppCrmBotTone = "friendly" | "direct" | "formal";
+
+export type WhatsAppCrmBotSettings = {
+  botEnabled: boolean;
+  responseTone: WhatsAppCrmBotTone;
+  greetingMessage: string;
+  menuIntroMessage: string;
+  checkoutMessage: string;
+  locationRequestMessage: string;
+  qrPaymentMessage: string;
+  receiptRequestMessage: string;
+  fallbackMessage: string;
+  humanHandoffMessage: string;
+  updatedAt?: string;
+};
+
 export type WhatsAppCrmStats = {
   activeConversations: number;
   needsReply: number;
@@ -72,6 +88,7 @@ export type WhatsAppCrmWorkspace = {
   selectedConversation?: WhatsAppCrmConversation;
   messages: WhatsAppCrmMessage[];
   quickReplies: WhatsAppCrmQuickReply[];
+  botSettings: WhatsAppCrmBotSettings;
   stats: WhatsAppCrmStats;
   whatsappConfigured: boolean;
 };

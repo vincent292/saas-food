@@ -58,6 +58,7 @@ type RestaurantRow = {
 
 type ProductSummaryRow = {
   id: string;
+  restaurant_id?: string | null;
   name: string;
   price: number | string;
   category_id: string | null;
@@ -75,6 +76,10 @@ type ProductSummaryRow = {
 type CategoryRow = {
   id: string;
   name: string;
+};
+
+type GlobalCategoryRow = CategoryRow & {
+  restaurant_id: string;
 };
 
 type ProductVariantRow = {
@@ -310,11 +315,43 @@ const DEFAULT_PLATFORM_WHATSAPP_SETTINGS: PlatformWhatsAppSettings = {
   draftTimeoutMinutes: DEFAULT_DRAFT_TIMEOUT_MINUTES,
 };
 
+const GLOBAL_CATALOG_PRODUCT_LIMIT = 300;
+const GLOBAL_CATALOG_DISCOVERY_ROWS = [
+  { id: "GLOBAL_SEARCH:promociones", title: "Promociones", description: "Ofertas y combos disponibles" },
+  { id: "GLOBAL_SEARCH:pizza", title: "Pizzas", description: "Pizzas de todos los restaurantes" },
+  { id: "GLOBAL_SEARCH:hamburguesa", title: "Hamburguesas", description: "Opciones disponibles ahora" },
+  { id: "GLOBAL_SEARCH:pollo", title: "Pollo", description: "Combos, platos y favoritos" },
+  { id: "GLOBAL_SEARCH:galleta", title: "Galletas", description: "Dulces y postres disponibles" },
+  { id: "GLOBAL_SEARCH:bebida", title: "Bebidas", description: "Refrescos, jugos y mas" },
+  { id: "GLOBAL_SEARCH:barato", title: "Algo barato", description: "Opciones ordenadas por precio" },
+  { id: "BROWSE_RESTAURANTS", title: "Restaurantes", description: "Ver todos los locales" },
+  { id: "ACTION_ORDERS", title: "Mis pedidos", description: "Revisar pedidos recientes" },
+];
+
 type ProductTextMatch = {
   product: ProductSummaryRow | null;
   quantity: number | null;
   candidates: ProductSummaryRow[];
 };
+
+type GlobalCatalogSearchRequest = {
+  query: string;
+  quantity: number | null;
+  wantsPromotions: boolean;
+  wantsCheap: boolean;
+  includeRestaurantName: boolean;
+  hasExplicitCatalogSignal: boolean;
+};
+
+type GlobalCatalogMatch = {
+  product: ProductSummaryRow & { restaurant_id: string };
+  restaurant: RestaurantRow;
+  categoryName: string | null;
+  score: number;
+  quantity: number | null;
+};
+
+type WhatsAppSafetyBlockReason = "sensitive_request" | "off_topic";
 
 type CompactCheckoutInput = {
   hasSignal: boolean;
@@ -615,14 +652,81 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
   if (command.kind === "ACTION_CHANGE_RESTAURANT" || (conversation.state !== "drafting_order" && isChangeRestaurantIntent(normalized))) {
     await abandonOpenDraft(supabase, conversation.id);
     await clearConversationRestaurant(supabase, conversation.id, row.message_id);
-    await sendRestaurantPicker(supabase, row.from_phone, undefined, platformSettings);
+    await sendRestaurantListPicker(supabase, row.from_phone, undefined, platformSettings);
     return;
+  }
+
+  if (command.kind === "BROWSE_RESTAURANTS") {
+    await updateConversationState(supabase, conversation.id, "choosing_restaurant", "browse_restaurants", row.message_id);
+    await sendRestaurantListPicker(supabase, row.from_phone, undefined, platformSettings);
+    return;
+  }
+
+  if (command.kind?.startsWith("GLOBAL_SEARCH:")) {
+    await sendGlobalCatalogResults(supabase, row, conversation, command.kind.replace("GLOBAL_SEARCH:", ""), platformSettings);
+    return;
+  }
+
+  if (command.kind?.startsWith("GLOBAL_PRODUCT:")) {
+    const [, restaurantId, productId, quantityValue] = command.kind.split(":");
+    const restaurant = await findRestaurantById(supabase, restaurantId ?? "");
+
+    if (!restaurant || !productId) {
+      await updateConversationState(supabase, conversation.id, "choosing_restaurant", "global_product_missing", row.message_id);
+      await sendRestaurantPicker(supabase, row.from_phone, undefined, platformSettings);
+      return;
+    }
+
+    if (conversation.restaurant_id && conversation.restaurant_id !== restaurant.id) {
+      await abandonOpenDraft(supabase, conversation.id);
+    }
+    await setConversationRestaurant(supabase, conversation.id, restaurant.id, "drafting_order", "global_product_selected", row.message_id);
+    if (await handoffIfBotDisabled(supabase, row, { ...conversation, restaurant_id: restaurant.id }, restaurant)) {
+      return;
+    }
+    await beginProductConfiguration(
+      supabase,
+      row,
+      { ...conversation, restaurant_id: restaurant.id, state: "drafting_order" },
+      customer,
+      restaurant,
+      productId,
+      normalizeQuantity(Number(quantityValue)),
+    );
+    return;
+  }
+
+  if (row.message_type === "text") {
+    const safetyBlockReason = whatsAppSafetyBlockReason(normalized, conversation.state);
+    if (safetyBlockReason) {
+      await sendWhatsAppSafetyBlock(supabase, row, conversation, safetyBlockReason);
+      return;
+    }
   }
 
   if (conversation.state === "choosing_restaurant") {
     if (command.kind === "ACTION_ORDERS" || isRecentOrdersIntent(normalized)) {
       await sendRecentOrders(supabase, row.from_phone, customer.phone);
       await resetConversationForRestaurantSelection(supabase, conversation.id, "recent_orders", row.message_id);
+      return;
+    }
+
+    const exactSelectedRestaurant = await resolveSelectedRestaurant(supabase, { ...conversation, restaurant_id: null }, command.text, {
+      exactOnly: true,
+    });
+    if (exactSelectedRestaurant) {
+      if (conversation.restaurant_id && conversation.restaurant_id !== exactSelectedRestaurant.id) {
+        await abandonOpenDraft(supabase, conversation.id);
+      }
+      await setConversationRestaurant(supabase, conversation.id, exactSelectedRestaurant.id, "browsing_menu", "restaurant_selected", row.message_id);
+      if (await handoffIfBotDisabled(supabase, row, conversation, exactSelectedRestaurant)) {
+        return;
+      }
+      await sendRestaurantMenuIntro(supabase, row.from_phone, exactSelectedRestaurant, await listTopProducts(supabase, exactSelectedRestaurant.id));
+      return;
+    }
+
+    if (row.message_type === "text" && (await trySendGlobalCatalogSearch(supabase, row, conversation, command.text, platformSettings))) {
       return;
     }
 
@@ -640,7 +744,7 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
     }
 
     await resetConversationForRestaurantSelection(supabase, conversation.id, detectIntent(normalized), row.message_id);
-    await sendRestaurantPicker(supabase, row.from_phone);
+    await sendRestaurantPicker(supabase, row.from_phone, undefined, platformSettings);
     return;
   }
 
@@ -856,6 +960,10 @@ async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createS
     return;
   }
 
+  if (!conversation.restaurant_id && row.message_type === "text" && (await trySendGlobalCatalogSearch(supabase, row, conversation, command.text, platformSettings))) {
+    return;
+  }
+
   const selectedRestaurant = await resolveSelectedRestaurant(supabase, conversation, command.text);
 
   if (selectedRestaurant) {
@@ -1012,13 +1120,14 @@ async function resolveSelectedRestaurant(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   conversation: WhatsAppConversationRow,
   text: string,
+  options: { exactOnly?: boolean } = {},
 ) {
   if (!text.trim()) {
     return conversation.restaurant_id ? findRestaurantById(supabase, conversation.restaurant_id) : null;
   }
 
   const restaurants = await listActiveRestaurants(supabase);
-  if (restaurants.length === 1) {
+  if (restaurants.length === 1 && !options.exactOnly) {
     return restaurants[0];
   }
 
@@ -1027,8 +1136,13 @@ async function resolveSelectedRestaurant(
     return null;
   }
 
+  const exactRestaurant = restaurants.find((restaurant) => normalizeForMatch(restaurant.name) === normalizedText) ?? null;
+  if (options.exactOnly) {
+    return exactRestaurant;
+  }
+
   return (
-    restaurants.find((restaurant) => normalizeForMatch(restaurant.name) === normalizedText) ??
+    exactRestaurant ??
     restaurants.find((restaurant) => normalizeForMatch(restaurant.name).includes(normalizedText) || normalizedText.includes(normalizeForMatch(restaurant.name))) ??
     null
   );
@@ -1135,6 +1249,164 @@ async function listProducts(
   return ((data ?? []) as ProductSummaryRow[]).filter((product) => isProductCurrentlyOrderable(product));
 }
 
+async function listGlobalCatalogProducts(supabase: ReturnType<typeof createSupabaseAdminClient>) {
+  const restaurants = await listActiveRestaurants(supabase);
+  const restaurantIds = restaurants.map((restaurant) => restaurant.id);
+  if (restaurantIds.length === 0) {
+    return [];
+  }
+
+  const [productsResult, categoriesResult] = await Promise.all([
+    supabase
+      .from("products")
+      .select("id,restaurant_id,name,price,category_id,description,image_url,is_featured,product_kind,available_from,available_until,available_days,available_start_time,available_end_time")
+      .in("restaurant_id", restaurantIds)
+      .eq("is_available", true)
+      .order("is_featured", { ascending: false })
+      .order("product_kind", { ascending: true })
+      .order("sort_order", { ascending: true })
+      .limit(GLOBAL_CATALOG_PRODUCT_LIMIT),
+    supabase
+      .from("categories")
+      .select("id,restaurant_id,name")
+      .in("restaurant_id", restaurantIds)
+      .eq("is_active", true)
+      .limit(200),
+  ]);
+
+  if (productsResult.error) {
+    console.error("Could not list WhatsApp global products", productsResult.error);
+    return [];
+  }
+  if (categoriesResult.error) {
+    console.error("Could not list WhatsApp global categories", categoriesResult.error);
+  }
+
+  const restaurantById = new Map(restaurants.map((restaurant) => [restaurant.id, restaurant]));
+  const categoryById = new Map(((categoriesResult.data ?? []) as GlobalCategoryRow[]).map((category) => [category.id, category.name]));
+  return ((productsResult.data ?? []) as Array<ProductSummaryRow & { restaurant_id: string }>)
+    .filter((product) => product.restaurant_id && restaurantById.has(product.restaurant_id) && isProductCurrentlyOrderable(product))
+    .map((product) => ({
+      product,
+      restaurant: restaurantById.get(product.restaurant_id)!,
+      categoryName: product.category_id ? categoryById.get(product.category_id) ?? null : null,
+    }));
+}
+
+async function searchGlobalCatalog(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  request: GlobalCatalogSearchRequest,
+): Promise<GlobalCatalogMatch[]> {
+  if (!request.query && !request.wantsPromotions && !request.wantsCheap) {
+    return [];
+  }
+
+  const catalog = await listGlobalCatalogProducts(supabase);
+  const scored = catalog
+    .filter((item) => !request.wantsPromotions || isPromotionProduct(item.product))
+    .map((item) => ({
+      ...item,
+      score: scoreGlobalCatalogMatch(request, item),
+      quantity: request.quantity,
+    }))
+    .filter((item) => item.score >= (request.query ? 55 : 1))
+    .sort((left, right) => {
+      if (request.wantsCheap) {
+        return Number(left.product.price) - Number(right.product.price) || right.score - left.score;
+      }
+      return (
+        right.score - left.score ||
+        Number(right.product.is_featured) - Number(left.product.is_featured) ||
+        Number(left.product.price) - Number(right.product.price)
+      );
+    });
+
+  return scored.slice(0, 10);
+}
+
+async function trySendGlobalCatalogSearch(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  text: string,
+  platformSettings: PlatformWhatsAppSettings,
+) {
+  const request = parseGlobalCatalogSearchInput(text);
+  if (!shouldAttemptGlobalCatalogSearch(normalizeForMatch(text), request)) {
+    return false;
+  }
+
+  const matches = await searchGlobalCatalog(supabase, request);
+  if (matches.length === 0 && !request.hasExplicitCatalogSignal) {
+    return false;
+  }
+
+  await deliverGlobalCatalogResults(supabase, row, conversation, request, matches, platformSettings);
+  return true;
+}
+
+async function sendGlobalCatalogResults(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  text: string,
+  platformSettings: PlatformWhatsAppSettings,
+) {
+  const request = parseGlobalCatalogSearchInput(text);
+  const matches = await searchGlobalCatalog(supabase, request);
+  await deliverGlobalCatalogResults(supabase, row, conversation, request, matches, platformSettings);
+}
+
+async function deliverGlobalCatalogResults(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  request: GlobalCatalogSearchRequest,
+  matches: GlobalCatalogMatch[],
+  platformSettings: PlatformWhatsAppSettings,
+) {
+  if (!platformSettings.botEnabled) {
+    await updateConversationState(supabase, conversation.id, "handoff", "bot_paused", row.message_id);
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: platformHumanHandoffCopy(platformSettings) });
+    return;
+  }
+
+  await updateConversationState(
+    supabase,
+    conversation.id,
+    "choosing_restaurant",
+    matches.length ? "global_catalog_search" : "global_catalog_empty",
+    row.message_id,
+  );
+
+  if (matches.length === 0) {
+    await sendWhatsAppInteractiveButtons({
+      to: row.from_phone,
+      body: `No encontre ${globalCatalogSearchLabel(request)} disponible ahora. Puedes probar con otra palabra o ver los restaurantes.`,
+      buttons: [
+        { id: "GLOBAL_SEARCH:promociones", title: "Promociones" },
+        { id: "BROWSE_RESTAURANTS", title: "Restaurantes" },
+        { id: "ACTION_ORDERS", title: "Mis pedidos" },
+      ],
+    });
+    return;
+  }
+
+  await sendWhatsAppListMessage({
+    to: row.from_phone,
+    body: `Encontre ${globalCatalogSearchLabel(request)} en YoPido. Elige una opcion y seguimos con el restaurante que la vende.`,
+    buttonText: "Elegir",
+    sectionTitle: request.wantsPromotions ? "Promociones" : "Resultados",
+    rows: matches.map((item) => ({
+      id: item.quantity
+        ? `GLOBAL_PRODUCT:${item.restaurant.id}:${item.product.id}:${item.quantity}`
+        : `GLOBAL_PRODUCT:${item.restaurant.id}:${item.product.id}`,
+      title: truncate(`${isPromotionProduct(item.product) ? "Promo: " : ""}${item.product.name}`, 24),
+      description: truncate(formatGlobalCatalogMatchDescription(item), 72),
+    })),
+  });
+}
+
 async function tryBeginProductFromText(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   row: WhatsAppMessageRow,
@@ -1165,23 +1437,33 @@ async function resolveProductFromText(
   restaurantId: string,
   text: string,
 ): Promise<ProductTextMatch> {
-  const request = parseProductSearchInput(text);
-  if (!request.query) {
+  const request = parseGlobalCatalogSearchInput(text);
+  if (!request.query && !request.wantsPromotions && !request.wantsCheap) {
     return { product: null, quantity: request.quantity, candidates: [] };
   }
 
-  const products = await listProducts(supabase, restaurantId, "all");
+  const [products, categories] = await Promise.all([listProducts(supabase, restaurantId, "all"), listCategories(supabase, restaurantId)]);
+  const categoryById = new Map(categories.map((category) => [category.id, category.name]));
   const scored = products
-    .map((product) => ({ product, score: scoreProductMatch(request.query, product) }))
-    .filter((item) => item.score >= 55)
-    .sort((left, right) => right.score - left.score || Number(left.product.price) - Number(right.product.price));
+    .filter((product) => !request.wantsPromotions || isPromotionProduct(product))
+    .map((product) => ({
+      product,
+      score: scoreLocalCatalogMatch(request, product, product.category_id ? categoryById.get(product.category_id) ?? null : null),
+    }))
+    .filter((item) => item.score >= (request.query ? 55 : 1))
+    .sort((left, right) => {
+      if (request.wantsCheap) {
+        return Number(left.product.price) - Number(right.product.price) || right.score - left.score;
+      }
+      return right.score - left.score || Number(left.product.price) - Number(right.product.price);
+    });
 
   if (scored.length === 0) {
     return { product: null, quantity: request.quantity, candidates: [] };
   }
 
   const [best, second] = scored;
-  const exactEnough = best.score >= 96 || !second || best.score - second.score >= 12;
+  const exactEnough = !request.wantsCheap && (best.score >= 96 || !second || best.score - second.score >= 12);
   if (exactEnough) {
     return { product: best.product, quantity: request.quantity, candidates: [] };
   }
@@ -1249,6 +1531,46 @@ async function sendRestaurantPicker(
   await sendWhatsAppListMessage({
     to,
     body: body ?? defaultBody,
+    buttonText: "Explorar",
+    sectionTitle: "Que buscas",
+    rows: GLOBAL_CATALOG_DISCOVERY_ROWS,
+  });
+}
+
+async function sendRestaurantListPicker(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  to: string,
+  body?: string,
+  platformSettings?: PlatformWhatsAppSettings,
+) {
+  const settings = platformSettings ?? (await getPlatformWhatsAppSettings(supabase));
+  if (!settings.botEnabled) {
+    await sendWhatsAppTextMessage({ to, body: platformHumanHandoffCopy(settings) });
+    return;
+  }
+
+  const restaurants = await listActiveRestaurants(supabase);
+
+  if (restaurants.length === 0) {
+    await sendWhatsAppTextMessage({
+      to,
+      body: "Todavia no tengo restaurantes activos para mostrarte. Escribenos en unos minutos o revisa https://yopido.shop.",
+    });
+    return;
+  }
+
+  if (restaurants.length === 1) {
+    const restaurant = restaurants[0];
+    if (body) {
+      await sendWhatsAppTextMessage({ to, body });
+    }
+    await sendRestaurantMenuIntro(supabase, to, restaurant, await listTopProducts(supabase, restaurant.id));
+    return;
+  }
+
+  await sendWhatsAppListMessage({
+    to,
+    body: body ?? "Estos son los restaurantes disponibles. Tambien puedes volver y escribir algo como: promos de pizza.",
     buttonText: "Ver restaurantes",
     sectionTitle: "Restaurantes",
     rows: restaurants.slice(0, 10).map((restaurant) => ({
@@ -3458,17 +3780,17 @@ function platformWelcomeCopy(settings: PlatformWhatsAppSettings) {
 
 function platformRestaurantPickerCopy(settings: PlatformWhatsAppSettings, restaurantCount: number) {
   const pickerDefault =
-    restaurantCount > 10
-      ? "Elige un restaurante de la lista o escribe su nombre para buscarlo."
-      : "Elige el restaurante donde quieres pedir.";
+    restaurantCount > 1
+      ? "Que se te antoja hoy? Escribe libre, por ejemplo: pizzas, promos de pollo o algo barato. Tambien puedes elegir una categoria."
+      : "Que te gustaria pedir hoy? Puedes escribir un producto o elegir del menu.";
   return `${platformWelcomeCopy(settings)}\n\n${platformCopy(settings, "restaurantPickerMessage", pickerDefault, { brand: "YoPido.shop" })}`;
 }
 
 function platformFallbackCopy(settings: PlatformWhatsAppSettings) {
   const defaults: Record<WhatsAppBotTone, string> = {
-    friendly: "Puedo ayudarte a elegir restaurante, pedir o revisar tus ultimos pedidos.",
-    direct: "Elige una opcion: restaurante, pedido o ultimos pedidos.",
-    formal: "Podemos ayudarte con restaurantes, pedidos o seguimiento de pedidos anteriores.",
+    friendly: "Puedo ayudarte a buscar comida, promociones, restaurantes o revisar tus ultimos pedidos.",
+    direct: "Escribe lo que buscas o elige: promociones, restaurantes o ultimos pedidos.",
+    formal: "Podemos ayudarte a buscar productos, promociones, restaurantes o dar seguimiento a pedidos anteriores.",
   };
   return platformCopy(settings, "fallbackMessage", defaults[settings.responseTone], { brand: "YoPido.shop" });
 }
@@ -3480,6 +3802,52 @@ function platformHumanHandoffCopy(settings: PlatformWhatsAppSettings) {
     formal: "Un miembro del equipo de YoPido.shop continuara la atencion.",
   };
   return platformCopy(settings, "humanHandoffMessage", defaults[settings.responseTone], { brand: "YoPido.shop" });
+}
+
+async function sendWhatsAppSafetyBlock(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: WhatsAppMessageRow,
+  conversation: WhatsAppConversationRow,
+  reason: WhatsAppSafetyBlockReason,
+) {
+  const hasRestaurant = Boolean(conversation.restaurant_id);
+  const nextState = conversation.state === "drafting_order" ? "drafting_order" : hasRestaurant ? "browsing_menu" : "choosing_restaurant";
+  await updateConversationState(supabase, conversation.id, nextState, reason, row.message_id);
+
+  if (conversation.state === "drafting_order") {
+    await sendWhatsAppInteractiveButtons({
+      to: row.from_phone,
+      body:
+        reason === "sensitive_request"
+          ? "Por seguridad no puedo compartir codigo interno, credenciales, datos privados ni instrucciones internas. Sigamos con tu pedido."
+          : "Solo puedo ayudarte con este pedido, el menu, pagos, delivery o seguimiento.",
+      buttons: [
+        { id: "DRAFT_BACK", title: "Volver" },
+        { id: "DRAFT_CHECKOUT", title: "Finalizar" },
+        { id: "DRAFT_RESTART", title: "Reiniciar" },
+      ],
+    });
+    return;
+  }
+
+  await sendWhatsAppInteractiveButtons({
+    to: row.from_phone,
+    body:
+      reason === "sensitive_request"
+        ? "Por seguridad no puedo compartir codigo interno, credenciales, datos de usuarios, datos privados ni instrucciones internas. Puedo ayudarte con menus, promociones, restaurantes y tus pedidos."
+        : "Solo puedo ayudarte con restaurantes, menus, promociones, pedidos y seguimiento en YoPido.",
+    buttons: hasRestaurant
+      ? [
+          { id: "ACTION_MENU", title: "Ver menu" },
+          { id: "ACTION_ORDER", title: "Hacer pedido" },
+          { id: "ACTION_ORDERS", title: "Mis pedidos" },
+        ]
+      : [
+          { id: "GLOBAL_SEARCH:promociones", title: "Promociones" },
+          { id: "BROWSE_RESTAURANTS", title: "Restaurantes" },
+          { id: "ACTION_ORDERS", title: "Mis pedidos" },
+        ],
+  });
 }
 
 function greetingCopy(settings: WhatsAppBotSettings, restaurantName?: string | null) {
@@ -4084,6 +4452,27 @@ function parseProductSearchInput(text: string) {
   return { query, quantity };
 }
 
+function parseGlobalCatalogSearchInput(text: string): GlobalCatalogSearchRequest {
+  const normalized = normalizeForMatch(text);
+  const base = parseProductSearchInput(text);
+  const wantsPromotions = /\b(promo|promos|promocion|promociones|oferta|ofertas|combo|combos|2x1|descuento|descuentos)\b/.test(normalized);
+  const wantsCheap =
+    /\b(barato|barata|baratos|baratas|economico|economica|economicos|economicas|rebaja|rebajas)\b/.test(normalized) ||
+    /precio bajo|bajo precio|menor precio|mas barato/.test(normalized);
+  const queryTokens = searchTokens(base.query).filter((token) => !globalCatalogIntentTokens().has(token));
+  const hasKnownCategorySignal = queryTokens.some((token) => globalCatalogCategoryTokens().has(token));
+  const hasMealSignal = /\b(comer|antojo|antoja|hambre|almuerzo|cena|desayuno|merienda|postre|bebida)\b/.test(normalized);
+
+  return {
+    query: queryTokens.join(" "),
+    quantity: base.quantity,
+    wantsPromotions,
+    wantsCheap,
+    includeRestaurantName: wantsPromotions || wantsCheap || /\b(de|del|en)\b/.test(normalized),
+    hasExplicitCatalogSignal: wantsPromotions || wantsCheap || hasKnownCategorySignal || hasMealSignal,
+  };
+}
+
 function scoreProductMatch(query: string, product: ProductSummaryRow) {
   const normalizedQuery = normalizeForMatch(query);
   const normalizedName = normalizeForMatch(product.name);
@@ -4116,6 +4505,137 @@ function scoreProductMatch(query: string, product: ProductSummaryRow) {
   const descriptionTokens = searchTokens(product.description ?? "");
   const descriptionMatches = queryTokens.filter((queryToken) => descriptionTokens.includes(queryToken)).length;
   return descriptionMatches === queryTokens.length ? 40 + descriptionMatches : 0;
+}
+
+function shouldAttemptGlobalCatalogSearch(normalizedText: string, request: GlobalCatalogSearchRequest) {
+  if (
+    !normalizedText ||
+    isGreetingIntent(normalizedText) ||
+    isMenuIntent(normalizedText) ||
+    isRecentOrdersIntent(normalizedText) ||
+    isChangeRestaurantIntent(normalizedText)
+  ) {
+    return false;
+  }
+
+  return Boolean(request.query || request.wantsPromotions || request.wantsCheap);
+}
+
+function scoreLocalCatalogMatch(request: GlobalCatalogSearchRequest, product: ProductSummaryRow, categoryName: string | null) {
+  return scoreWithCatalogIntent(baseCatalogProductScore(request, product, categoryName), request, product);
+}
+
+function scoreGlobalCatalogMatch(
+  request: GlobalCatalogSearchRequest,
+  item: { product: ProductSummaryRow; restaurant: RestaurantRow; categoryName: string | null },
+) {
+  const score = Math.max(
+    baseCatalogProductScore(request, item.product, item.categoryName),
+    scoreTextMatch(request.query, item.restaurant.public_category ?? ""),
+    request.includeRestaurantName ? scoreTextMatch(request.query, item.restaurant.name) : 0,
+  );
+  return scoreWithCatalogIntent(score, request, item.product);
+}
+
+function baseCatalogProductScore(request: GlobalCatalogSearchRequest, product: ProductSummaryRow, categoryName: string | null) {
+  if (!request.query) {
+    return scoreCatalogWithoutQuery(request, product);
+  }
+  return Math.max(scoreProductMatch(request.query, product), scoreTextMatch(request.query, categoryName ?? ""));
+}
+
+function scoreCatalogWithoutQuery(request: GlobalCatalogSearchRequest, product: ProductSummaryRow) {
+  if (request.wantsPromotions) {
+    return isPromotionProduct(product) ? 90 : 0;
+  }
+  if (request.wantsCheap) {
+    return 30;
+  }
+  return 0;
+}
+
+function scoreWithCatalogIntent(score: number, request: GlobalCatalogSearchRequest, product: ProductSummaryRow) {
+  if (score <= 0) {
+    return 0;
+  }
+
+  let adjusted = score;
+  if (request.wantsPromotions && isPromotionProduct(product)) {
+    adjusted += 18;
+  } else if (isPromotionProduct(product)) {
+    adjusted += 4;
+  }
+  if (request.wantsCheap) {
+    adjusted += 4;
+  }
+  return Math.min(120, adjusted);
+}
+
+function scoreTextMatch(query: string, text: string) {
+  const normalizedQuery = normalizeForMatch(query);
+  const normalizedText = normalizeForMatch(text);
+  const queryTokens = searchTokens(normalizedQuery);
+  const textTokens = searchTokens(normalizedText);
+  if (queryTokens.length === 0 || textTokens.length === 0) {
+    return 0;
+  }
+
+  if (normalizedText === normalizedQuery) {
+    return 100;
+  }
+  if (normalizedText.includes(normalizedQuery)) {
+    return 92;
+  }
+  if (normalizedQuery.includes(normalizedText) && normalizedText.length >= 4) {
+    return 88;
+  }
+
+  const matched = queryTokens.filter((queryToken) =>
+    textTokens.some((textToken) => textToken === queryToken || textToken.includes(queryToken) || queryToken.includes(textToken)),
+  ).length;
+  if (matched === queryTokens.length) {
+    return 72 + matched;
+  }
+  if (matched > 0 && queryTokens.length <= 2) {
+    return 45 + matched * 8;
+  }
+  return 0;
+}
+
+function isPromotionProduct(product: ProductSummaryRow) {
+  if (product.product_kind === "promotion" || product.is_featured) {
+    return true;
+  }
+  const promoTokens = new Set(["promo", "promocion", "oferta", "combo", "2x1", "descuento"]);
+  return searchTokens(`${product.name} ${product.description ?? ""}`).some((token) => promoTokens.has(token));
+}
+
+function formatGlobalCatalogMatchDescription(item: GlobalCatalogMatch) {
+  return [
+    `Bs ${formatMoney(item.product.price)}`,
+    isPromotionProduct(item.product) ? "Promo" : null,
+    item.restaurant.name,
+    item.categoryName,
+    item.restaurant.city,
+  ]
+    .filter(Boolean)
+    .join(" - ");
+}
+
+function globalCatalogSearchLabel(request: GlobalCatalogSearchRequest) {
+  if (request.wantsPromotions && request.query) {
+    return `promociones de ${request.query}`;
+  }
+  if (request.wantsPromotions) {
+    return "promociones";
+  }
+  if (request.wantsCheap && request.query) {
+    return `${request.query} a buen precio`;
+  }
+  if (request.wantsCheap) {
+    return "opciones baratas";
+  }
+  return request.query ? `opciones de ${request.query}` : "opciones";
 }
 
 function parseCompactCheckoutInput(text: string, draft?: WhatsAppOrderDraftRow): CompactCheckoutInput {
@@ -4344,6 +4864,57 @@ function singularizeSearchToken(token: string) {
 
 function productSearchStopWords() {
   return new Set(["de", "del", "la", "el", "los", "las", "con", "sin", "para", "por", "favor", "un", "una", "uno"]);
+}
+
+function globalCatalogIntentTokens() {
+  return new Set([
+    "promo",
+    "promocion",
+    "oferta",
+    "combo",
+    "descuento",
+    "barato",
+    "barata",
+    "economico",
+    "economica",
+    "rebaja",
+    "algo",
+    "opcion",
+    "comida",
+    "antojo",
+    "antoja",
+    "menu",
+    "carta",
+    "ver",
+    "mostrar",
+    "busco",
+    "buscando",
+    "hay",
+    "tiene",
+    "tienen",
+  ]);
+}
+
+function globalCatalogCategoryTokens() {
+  return new Set([
+    "pizza",
+    "pizzeria",
+    "hamburguesa",
+    "burger",
+    "pollo",
+    "galleta",
+    "postre",
+    "bebida",
+    "refresco",
+    "jugo",
+    "cafe",
+    "saltena",
+    "almuerzo",
+    "desayuno",
+    "sushi",
+    "taco",
+    "empanada",
+  ]);
 }
 
 function checkoutSignalTokens() {
@@ -4743,6 +5314,65 @@ function isRestartIntent(value: string) {
 
 function isConfirmIntent(value: string) {
   return /\b(confirmar|confirmo|enviar pedido|finalizar|listo)\b/.test(value);
+}
+
+function whatsAppSafetyBlockReason(value: string, conversationState: string): WhatsAppSafetyBlockReason | null {
+  if (!value) {
+    return null;
+  }
+
+  if (isSensitiveWhatsAppRequest(value)) {
+    return "sensitive_request";
+  }
+
+  if (conversationState !== "drafting_order" && isOutOfScopeWhatsAppRequest(value)) {
+    return "off_topic";
+  }
+
+  return null;
+}
+
+function isSensitiveWhatsAppRequest(value: string) {
+  const asksForDisclosure = /\b(dame|mostrar|muestra|muestrame|lista|listar|ver|lee|leer|obtener|entrega|ensena|revela|exporta|descarga|comparte|pasame|envia|extrae)\b/.test(value);
+  const promptInjection =
+    /\b(ignora|olvida|omite|salta|rompe|cambia)\b.{0,80}\b(instrucciones|reglas|sistema|prompt|seguridad)\b/.test(value) ||
+    /\b(system prompt|prompt interno|developer mode|modo desarrollador|jailbreak|instrucciones internas|reglas internas)\b/.test(value);
+  const secrets =
+    /\b(api key|apikey|service role|jwt|secret|secreto|clave privada|contrasena|password|variable de entorno|variables de entorno|\.env)\b/.test(value) ||
+    (/\b(token|clave)\b/.test(value) && /\b(api|acceso|interna|interno|whatsapp|supabase|vercel|admin|servicio|secreta|secreto)\b/.test(value));
+  const internalSystem =
+    /\b(codigo fuente|codigo interno|repositorio|github|base de datos|schema|sql|tabla|rpc|funcion interna|logs|log interno|stack trace|error interno)\b/.test(value);
+  const privateData =
+    /\b(usuarios|usuario admin|clientes|telefonos|telefonos de clientes|direcciones|correos|emails|pedidos de otros|ventas internas|ingresos|duenos|dueno|administradores)\b/.test(value);
+
+  return promptInjection || secrets || (asksForDisclosure && (internalSystem || privateData));
+}
+
+function isOutOfScopeWhatsAppRequest(value: string) {
+  if (hasWhatsAppOrderingSignal(value)) {
+    return false;
+  }
+
+  const asksAssistant = /\b(dime|cuentame|explica|haz|hace|crea|genera|escribe|resuelve|calcula|busca|traduce|resume|quien|cual|porque|como)\b/.test(value);
+  const offTopic =
+    /\b(chiste|poema|cuento|historia|tarea|matematica|programacion|javascript|python|noticia|noticias|futbol|clima|horoscopo|receta|politica|presidente|bitcoin|crypto|bolsa|inversion)\b/.test(
+      value,
+    ) || /\bcodigo en\b/.test(value);
+
+  return asksAssistant && offTopic;
+}
+
+function hasWhatsAppOrderingSignal(value: string) {
+  return (
+    isGreetingIntent(value) ||
+    isMenuIntent(value) ||
+    isOrderIntent(value) ||
+    isRecentOrdersIntent(value) ||
+    isChangeRestaurantIntent(value) ||
+    /\b(restaurante|restaurant|local|pedido|orden|pedir|comprar|menu|carta|catalogo|producto|promocion|promo|oferta|combo|delivery|envio|domicilio|recojo|retiro|qr|factura|pago|precio|cuanto|hamburguesa|burger|pizza|pizzeria|pollo|galleta|postre|bebida|refresco|jugo|cafe|saltena|almuerzo|desayuno|cena|sushi|taco|empanada)\b/.test(
+      value,
+    )
+  );
 }
 
 function detectIntent(value: string) {

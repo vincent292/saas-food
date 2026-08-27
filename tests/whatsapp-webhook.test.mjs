@@ -205,6 +205,38 @@ test("WhatsApp has superadmin global settings before restaurant selection", asyn
   assert.doesNotMatch(restaurantCrm, /placeholder="Hola, soy el asistente de \{\{restaurant\}\}/);
 });
 
+test("WhatsApp platform catalog supports conversational category and promotion search", async () => {
+  const source = await readFile(webhookPath, "utf8");
+
+  assert.match(source, /GLOBAL_SEARCH:pizza/);
+  assert.match(source, /GLOBAL_SEARCH:promociones/);
+  assert.match(source, /BROWSE_RESTAURANTS/);
+  assert.match(source, /GLOBAL_PRODUCT:\$\{item\.restaurant\.id\}:\$\{item\.product\.id\}/);
+  assert.match(source, /listGlobalCatalogProducts/);
+  assert.match(source, /searchGlobalCatalog/);
+  assert.match(source, /parseGlobalCatalogSearchInput/);
+  assert.match(source, /promos de pollo/);
+  assert.match(source, /isPromotionProduct/);
+  assert.match(source, /categoryName/);
+  assert.match(source, /restaurant_id,name,price,category_id/);
+});
+
+test("WhatsApp bot refuses sensitive and off-topic AI prompts", async () => {
+  const source = await readFile(webhookPath, "utf8");
+
+  assert.match(source, /whatsAppSafetyBlockReason/);
+  assert.match(source, /sendWhatsAppSafetyBlock/);
+  assert.match(source, /sensitive_request/);
+  assert.match(source, /off_topic/);
+  assert.match(source, /codigo interno/);
+  assert.match(source, /credenciales/);
+  assert.match(source, /datos de usuarios/);
+  assert.match(source, /instrucciones internas/);
+  assert.match(source, /prompt interno/);
+  assert.match(source, /hasWhatsAppOrderingSignal/);
+  assert.match(source, /Solo puedo ayudarte con restaurantes, menus, promociones, pedidos y seguimiento/);
+});
+
 test("WhatsApp restart keeps restaurant conversations visible in CRM", async () => {
   const source = await readFile(webhookPath, "utf8");
 

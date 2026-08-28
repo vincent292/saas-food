@@ -7,7 +7,6 @@ import {
   rejectRiderOffer,
   setRiderAvailability,
 } from "@/lib/services/rider-dispatch.service";
-import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type ServiceResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
@@ -953,7 +952,7 @@ export async function updateMobileRiderDeliveryStatus(
   session: MobileRiderSession,
   orderId: string,
   status: "arrived" | "delivered",
-): Promise<ServiceResult<{ order: MobileRiderOrder; status: "arrived" | "delivered" }>> {
+): Promise<ServiceResult<{ order: MobileRiderOrder; status: "arrived" | "delivered"; statusChanged: boolean }>> {
   const riderIds = session.activeRiders.map((rider) => rider.id);
   const { data: link } = await session.admin
     .from("order_delivery_links")
@@ -980,16 +979,7 @@ export async function updateMobileRiderDeliveryStatus(
     return { ok: false, error: error.message || "delivery-status-failed", status: 400 };
   }
 
-  const payload = data as { order_id?: string; restaurant_id?: string } | null;
-  if (payload?.order_id) {
-    await sendOrderStatusPush({
-      eventType: "delivery_status",
-      orderId: payload.order_id,
-      status,
-    }).catch((pushError) => {
-      console.error("rider-mobile-delivery-push-failed", pushError);
-    });
-  }
+  const payload = data as { order_id?: string; restaurant_id?: string; status_changed?: boolean } | null;
 
   const result = await getMobileRiderOrder(session, orderId);
   if (!result.ok) return result;
@@ -999,6 +989,7 @@ export async function updateMobileRiderDeliveryStatus(
     data: {
       order: result.data.order,
       status,
+      statusChanged: payload?.status_changed !== false,
     },
   };
 }

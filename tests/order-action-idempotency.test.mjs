@@ -56,11 +56,14 @@ test("charging and status transitions are idempotent under duplicate submissions
 });
 
 test("WhatsApp order status messages do not block operational actions", async () => {
-  const [actions, notifications, riderOrderRoute, riderOfferRoute] = await Promise.all([
+  const [actions, notifications, riderOrderRoute, riderOfferRoute, riderStatusRoute, deliveryActions, deliveryMigration] = await Promise.all([
     readFile(new URL("src/app/admin/actions.ts", root), "utf8"),
     readFile(new URL("src/lib/services/order-whatsapp-notification.service.ts", root), "utf8"),
     readFile(new URL("src/app/api/mobile/riders/orders/[orderId]/accept/route.ts", root), "utf8"),
     readFile(new URL("src/app/api/mobile/riders/offers/[offerId]/accept/route.ts", root), "utf8"),
+    readFile(new URL("src/app/api/mobile/riders/orders/[orderId]/status/route.ts", root), "utf8"),
+    readFile(new URL("src/app/delivery/actions.ts", root), "utf8"),
+    readFile(new URL("supabase/migrations/0093_idempotent_delivery_status_notifications.sql", root), "utf8"),
   ]);
 
   assert.match(actions, /sendOrderWhatsAppNotification\(\{ event: status, orderId \}\)/);
@@ -69,7 +72,14 @@ test("WhatsApp order status messages do not block operational actions", async ()
   assert.match(notifications, /Tiempo estimado:/);
   assert.match(notifications, /Ya puedes pasar a recogerlo/);
   assert.match(notifications, /delivery_dispatched/);
+  assert.match(notifications, /event === "arrived"/);
+  assert.match(notifications, /event === "delivered"/);
   assert.match(notifications, /Siguelo aqui/);
   assert.match(riderOrderRoute, /after\(async/);
   assert.match(riderOfferRoute, /delivery_dispatched/);
+  assert.match(riderStatusRoute, /sendOrderWhatsAppNotification\(\{ event: parsed\.data\.status, orderId \}\)/);
+  assert.match(deliveryActions, /scheduleDeliveryCustomerNotifications/);
+  assert.match(deliveryActions, /payload\.status_changed !== false/);
+  assert.match(deliveryMigration, /'status_changed', v_status_changed/);
+  assert.match(deliveryMigration, /for update/);
 });

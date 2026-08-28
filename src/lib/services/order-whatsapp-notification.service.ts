@@ -3,7 +3,7 @@ import { getSiteUrl } from "@/lib/seo/site-url";
 import type { Json } from "@/types/database.types";
 import type { OrderStatus } from "@/types/order.types";
 
-type OrderNotificationEvent = Extract<OrderStatus, "accepted" | "ready"> | "delivery_dispatched";
+type OrderNotificationEvent = Extract<OrderStatus, "accepted" | "ready" | "delivered"> | "arrived" | "delivery_dispatched";
 
 type OrderNotificationRow = {
   customer_phone: string | null;
@@ -52,6 +52,14 @@ function notificationBody({
 
   if (event === "delivery_dispatched") {
     return `Tu pedido ${order.order_number} ya fue asignado a delivery y esta en camino.\n\nSiguelo aqui:\n${trackingUrl}`;
+  }
+
+  if (event === "arrived") {
+    return `El repartidor ya llego a tu ubicacion con el pedido ${order.order_number}. Por favor, preparate para recibirlo.\n\nSigue el pedido aqui:\n${trackingUrl}`;
+  }
+
+  if (event === "delivered") {
+    return `Tu pedido ${order.order_number} fue marcado como entregado. Gracias por pedir en YoPido.shop.`;
   }
 
   return order.order_type === "delivery"

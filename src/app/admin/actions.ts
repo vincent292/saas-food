@@ -1947,7 +1947,7 @@ function scheduleOrderStatusSideEffects({
       }),
     ];
 
-    if (status === "accepted" || status === "ready") {
+    if (status === "accepted" || status === "ready" || status === "delivered") {
       tasks.push(sendOrderWhatsAppNotification({ event: status, orderId }).catch((error) => {
         console.error("order-status-whatsapp-failed", error);
       }));

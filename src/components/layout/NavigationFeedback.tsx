@@ -152,11 +152,11 @@ export function NavigationFeedback() {
   if (!pending) return null;
 
   return (
-    <div aria-busy="true" aria-live="polite" className="fixed inset-0 z-[150] cursor-wait bg-[rgb(8_36_65_/_0.24)] backdrop-blur-[1px]" role="status">
-      <div className="absolute inset-x-0 top-0 h-1 overflow-hidden bg-[var(--primary-light)]">
-        <div className="h-full w-full animate-pulse bg-[var(--accent)]" />
+    <div aria-busy="true" aria-live="polite" className="pointer-events-none fixed inset-x-0 top-0 z-[150]" role="status">
+      <div className="h-1 overflow-hidden bg-[var(--primary-light)]">
+        <div className="h-full w-2/3 animate-pulse rounded-r-full bg-[var(--accent)]" />
       </div>
-      <div className="absolute left-1/2 top-[calc(0.9rem+env(safe-area-inset-top))] flex min-h-12 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-3 rounded-full bg-[var(--primary)] px-4 text-sm font-black text-white shadow-[0_18px_48px_rgb(8_36_65_/_0.28)] ring-1 ring-white/14">
+      <div className="absolute left-1/2 top-[calc(0.65rem+env(safe-area-inset-top))] flex min-h-10 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-full bg-[var(--primary)] px-3 text-xs font-black text-white shadow-[0_12px_32px_rgb(8_36_65_/_0.22)] ring-1 ring-white/14">
         <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--accent)]" />
         <span className="truncate">{pending.label}</span>
       </div>

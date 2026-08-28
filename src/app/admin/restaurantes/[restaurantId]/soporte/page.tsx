@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createSupportTicketAction } from "@/app/admin/actions";
-import { AdminLayout } from "@/components/layout/AdminLayout";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { SupportAiAssistantClient } from "@/components/support/SupportAiAssistantClient";
 import { SupportManualsPanel } from "@/components/support/SupportManualsPanel";
@@ -10,8 +9,6 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
-import { modulesForAdminLayout } from "@/lib/modules";
-import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { superadminService } from "@/lib/services/superadmin.service";
 
@@ -42,8 +39,6 @@ export default async function RestaurantSupportPage({
     notFound();
   }
 
-  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/soporte`);
-
   const [{ tab, ticket, error }, tickets] = await Promise.all([
     searchParams,
     superadminService.listSupportTickets(50, restaurant.id),
@@ -56,14 +51,7 @@ export default async function RestaurantSupportPage({
   const feedbackTone = error ? "danger" : "success";
 
   return (
-    <AdminLayout
-      active="soporte"
-      enabledModules={modulesForAdminLayout(restaurant)}
-      restaurantId={restaurant.id}
-      restaurantName={restaurant.name}
-      restaurantStatus={restaurant.status}
-      title="Soporte"
-    >
+    <>
       <div className="space-y-6">
         <SectionTitle description="Tickets, manuales y guias operativas para el equipo." title="Soporte del restaurante" />
 
@@ -152,7 +140,7 @@ export default async function RestaurantSupportPage({
           </>
         )}
       </div>
-    </AdminLayout>
+    </>
   );
 }
 

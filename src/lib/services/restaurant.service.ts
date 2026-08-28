@@ -7,6 +7,7 @@ import { inferRestaurantCategory, normalizeRestaurantBusinessType, normalizeRest
 import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import { perfLog, perfNow } from "@/lib/utils/perf";
 import type { PlanKey, Restaurant, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
+import { cache } from "react";
 
 const legacyGreenBrandColors = new Set(["#1d8844", "#146333", "#15803d", "#22c55e"]);
 
@@ -382,7 +383,7 @@ export const restaurantService = {
     return restaurant;
   },
 
-  async getById(restaurantId: string) {
+  getById: cache(async (restaurantId: string) => {
     if (!hasSupabaseEnv()) {
       return null;
     }
@@ -418,9 +419,9 @@ export const restaurantService = {
 
     const [restaurant] = await enrichRestaurants([mapRestaurant(data)]);
     return restaurant;
-  },
+  }),
 
-  async getWorkspaceById(restaurantId: string) {
+  getWorkspaceById: cache(async (restaurantId: string) => {
     if (!hasSupabaseEnv()) {
       return null;
     }
@@ -450,7 +451,7 @@ export const restaurantService = {
     };
     perfLog("[restaurantService.getWorkspaceById] total", totalStartedAt, { restaurantId, found: true });
     return restaurant;
-  },
+  }),
 
   async getSettings(restaurantId: string) {
     if (!hasSupabaseEnv()) {

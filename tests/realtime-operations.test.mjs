@@ -18,10 +18,12 @@ test("restaurant operations use Supabase Realtime with optimistic order reconcil
   assert.match(hook, /if \(!connectedRef\.current\)/);
   assert.match(hook, /60_000/);
   assert.match(hook, /onChangeRef\.current/);
+  assert.match(hook, /handledLocally !== true/);
   assert.match(liveOrders, /updateOperationalOrderStatusAction/);
   assert.match(liveOrders, /pendingChangesRef/);
   assert.match(liveOrders, /patchOrderFromRealtime/);
   assert.match(liveOrders, /pendingChange\.previousOrder/);
+  assert.match(liveOrders, /return true/);
   assert.match(orders, /scope: "orders"/);
   assert.match(kitchen, /scope: "kitchen"/);
   assert.match(cash, /scope: "cash"/);

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { Bell, CheckCircle2, CircleAlert, Clock3, Info, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { stopOrderAlertSound } from "@/lib/client/order-notification-sound";
 import { useRestaurantRealtimeRefresh } from "@/lib/client/use-restaurant-realtime-refresh";
+import type { RestaurantRealtimeChange } from "@/lib/client/use-restaurant-realtime-refresh";
 import { cn } from "@/lib/utils/cn";
 import { formatShortDate, formatShortTime } from "@/lib/utils/dates";
 import type { PanelNotification, PanelNotificationTone } from "@/types/notification.types";
@@ -49,11 +50,57 @@ export function PanelNotificationBell({
 }) {
   const [open, setOpen] = useState(false);
   const [seenIds, setSeenIds] = useState<Set<string>>(() => readSeenIds(scope));
-  useRestaurantRealtimeRefresh({ enabled: Boolean(restaurantId), restaurantId, scope: "notifications" });
+  const [realtimeOrders, setRealtimeOrders] = useState<{
+    notifications: PanelNotification[];
+    suppressedIds: Set<string>;
+  }>(() => ({ notifications: [], suppressedIds: new Set() }));
+  const handleRealtimeChange = useCallback((change: RestaurantRealtimeChange) => {
+    if (change.table !== "orders") return false;
+
+    const record = change.eventType === "DELETE" ? change.oldRecord : change.newRecord;
+    const orderId = typeof record.id === "string" ? record.id : "";
+    if (!orderId) return false;
+
+    setRealtimeOrders((current) => {
+      const notificationsWithoutOrder = current.notifications.filter((notification) => !notification.id.startsWith(`order:${orderId}:`));
+      const suppressedIds = new Set(current.suppressedIds);
+      const status = typeof record.status === "string" ? record.status : "";
+      const orderType = typeof record.order_type === "string" ? record.order_type : "";
+      if (change.eventType === "DELETE" || status !== "pending" || !["table", "delivery", "pickup"].includes(orderType)) {
+        suppressedIds.add(orderId);
+        return { notifications: notificationsWithoutOrder, suppressedIds };
+      }
+
+      suppressedIds.delete(orderId);
+      const createdAt = typeof record.created_at === "string" ? record.created_at : new Date().toISOString();
+      const orderNumber = typeof record.order_number === "string" ? record.order_number : "Nuevo";
+      const origin = record.order_origin === "phone_whatsapp" ? "WhatsApp " : "";
+      const typeLabel = orderType === "delivery" ? "delivery" : orderType === "pickup" ? "recojo" : "mesa";
+      const total = Number(record.total ?? 0);
+      return {
+        notifications: [{
+          createdAt,
+          description: `${origin}${typeLabel} por Bs ${Number.isFinite(total) ? total.toFixed(2) : "0.00"}. Requiere aprobacion.`,
+          href: `/admin/restaurantes/${restaurantId}/pedidos?tab=nuevos`,
+          id: `order:${orderId}:${createdAt}`,
+          title: `Pedido ${orderNumber} pendiente`,
+          tone: "danger" as const,
+        }, ...notificationsWithoutOrder].slice(0, 20),
+        suppressedIds,
+      };
+    });
+    return true;
+  }, [restaurantId]);
+  useRestaurantRealtimeRefresh({ enabled: Boolean(restaurantId), onChange: handleRealtimeChange, restaurantId, scope: "notifications" });
 
   const allNotifications = useMemo(() => {
-    return [...notifications].sort((first, second) => second.createdAt.localeCompare(first.createdAt)).slice(0, 20);
-  }, [notifications]);
+    const serverNotifications = notifications.filter((notification) => {
+      if (!notification.id.startsWith("order:")) return true;
+      const orderId = notification.id.split(":")[1];
+      return !realtimeOrders.suppressedIds.has(orderId) && !realtimeOrders.notifications.some((item) => item.id.startsWith(`order:${orderId}:`));
+    });
+    return [...realtimeOrders.notifications, ...serverNotifications].sort((first, second) => second.createdAt.localeCompare(first.createdAt)).slice(0, 20);
+  }, [notifications, realtimeOrders]);
 
   const unreadCount = allNotifications.filter((notification) => !seenIds.has(notification.id)).length;
 

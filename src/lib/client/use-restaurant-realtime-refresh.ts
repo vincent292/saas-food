@@ -31,7 +31,7 @@ export function useRestaurantRealtimeRefresh({
   scope,
 }: {
   enabled?: boolean;
-  onChange?: (change: RestaurantRealtimeChange) => void;
+  onChange?: (change: RestaurantRealtimeChange) => boolean | void;
   restaurantId?: string;
   scope: RealtimeScope;
 }) {
@@ -70,13 +70,15 @@ export function useRestaurantRealtimeRefresh({
           ...(restaurantId ? { filter: `restaurant_id=eq.${restaurantId}` } : {}),
         },
         (payload) => {
-          onChangeRef.current?.({
+          const handledLocally = onChangeRef.current?.({
             eventType: payload.eventType,
             newRecord: payload.new as Record<string, unknown>,
             oldRecord: payload.old as Record<string, unknown>,
             table,
           });
-          refreshIfVisible();
+          if (handledLocally !== true) {
+            refreshIfVisible();
+          }
         },
       );
     }

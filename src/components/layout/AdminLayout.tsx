@@ -6,6 +6,7 @@ import { membershipService } from "@/lib/services/membership.service";
 import { orderService } from "@/lib/services/order.service";
 import { ownerBillingService } from "@/lib/services/owner-billing.service";
 import { panelNotificationsService } from "@/lib/services/panel-notifications.service";
+import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import type { ModuleKey, RestaurantStatus } from "@/types/restaurant.types";
 
 export async function AdminLayout({
@@ -15,14 +16,14 @@ export async function AdminLayout({
   restaurantStatus,
   enabledModules,
   title,
-  active = "dashboard",
+  active,
 }: {
   children: ReactNode;
   restaurantId?: string;
   restaurantName?: string;
   restaurantStatus?: RestaurantStatus;
   enabledModules?: ModuleKey[];
-  title: string;
+  title?: string;
   active?: string;
 }) {
   const profile = await authService.getCurrentProfile();
@@ -72,6 +73,7 @@ export async function AdminLayout({
     ? await Promise.all([
         orderService.listPendingAlerts(restaurantId),
         panelNotificationsService.listForRestaurant(restaurantId),
+        profile.globalRole !== "superadmin" ? restaurantAccessService.claim(restaurantId) : Promise.resolve(null),
       ])
     : [[], []];
   const canSwitchBranches = memberships.length > 1;
@@ -87,9 +89,9 @@ export async function AdminLayout({
       restaurantId={restaurantId}
       restaurantName={restaurantName}
       restaurantStatus={restaurantStatus}
+      title={title}
       pendingOrderAlerts={pendingOrderAlerts}
       panelNotifications={panelNotifications}
-      title={title}
     >
       {children}
     </AdminShellClient>

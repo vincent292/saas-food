@@ -110,16 +110,16 @@ export function useLiveOrders({
   }, [initialOrders]);
 
   const handleRealtimeChange = useCallback((change: RestaurantRealtimeChange) => {
-    if (change.table !== "orders") return;
+    if (change.table !== "orders") return false;
     const record = change.eventType === "DELETE" ? change.oldRecord : change.newRecord;
     const orderId = typeof record.id === "string" ? record.id : "";
-    if (!orderId) return;
+    if (!orderId) return false;
 
     if (change.eventType === "DELETE") {
       pendingChangesRef.current.delete(orderId);
       setPendingOrderIds(new Set(pendingChangesRef.current.keys()));
       commitOrders((current) => current.filter((order) => order.id !== orderId));
-      return;
+      return true;
     }
 
     const incomingStatus = typeof record.status === "string" ? (record.status as OrderStatus) : undefined;
@@ -132,6 +132,7 @@ export function useLiveOrders({
     commitOrders((current) =>
       current.map((order) => (order.id === orderId ? patchOrderFromRealtime(order, record) : order)),
     );
+    return true;
   }, [commitOrders]);
 
   useRestaurantRealtimeRefresh({

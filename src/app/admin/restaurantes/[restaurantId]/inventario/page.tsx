@@ -1,10 +1,8 @@
 import { notFound } from "next/navigation";
 import { InventoryWorkspaceClient } from "@/components/inventory/InventoryWorkspaceClient";
-import { AdminLayout } from "@/components/layout/AdminLayout";
-import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
+import { hasRestaurantModule } from "@/lib/modules";
 import { inventoryService } from "@/lib/services/inventory.service";
 import { productService } from "@/lib/services/product.service";
-import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
 function getExpiringBeforeDate() {
@@ -27,7 +25,6 @@ export default async function InventoryPage({
     notFound();
   }
 
-  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/inventario`);
   const expiringBeforeDate = getExpiringBeforeDate();
 
   const [items, suppliers, ingredients, movements, openCount, countReports, products, categories, zones, itemZones, productSuppliers, lots, branchTargets, branchTransfers] = await Promise.all([
@@ -48,34 +45,25 @@ export default async function InventoryPage({
   ]);
 
   return (
-    <AdminLayout
-      active="inventario"
-      enabledModules={modulesForAdminLayout(restaurant)}
+    <InventoryWorkspaceClient
+      countReports={countReports}
+      categories={categories}
+      ingredients={ingredients}
+      initialTab={status.tab}
+      itemZones={itemZones}
+      items={items}
+      branchTargets={branchTargets}
+      branchTransfers={branchTransfers}
+      expiringBeforeDate={expiringBeforeDate}
+      lots={lots}
+      movements={movements}
+      openCount={openCount}
+      productSuppliers={productSuppliers}
+      products={products}
       restaurantId={restaurant.id}
       restaurantName={restaurant.name}
-      restaurantStatus={restaurant.status}
-      title="Inventario"
-    >
-      <InventoryWorkspaceClient
-        countReports={countReports}
-        categories={categories}
-        ingredients={ingredients}
-        initialTab={status.tab}
-        itemZones={itemZones}
-        items={items}
-        branchTargets={branchTargets}
-        branchTransfers={branchTransfers}
-        expiringBeforeDate={expiringBeforeDate}
-        lots={lots}
-        movements={movements}
-        openCount={openCount}
-        productSuppliers={productSuppliers}
-        products={products}
-        restaurantId={restaurant.id}
-        restaurantName={restaurant.name}
-        suppliers={suppliers}
-        zones={zones}
-      />
-    </AdminLayout>
+      suppliers={suppliers}
+      zones={zones}
+    />
   );
 }

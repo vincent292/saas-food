@@ -1,15 +1,13 @@
 import { notFound } from "next/navigation";
 import { createCategoryAction } from "@/app/admin/actions";
-import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FormSubmitButton } from "@/components/ui/FormSubmitButton";
 import { Input, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
-import { hasRestaurantModule, modulesForAdminLayout } from "@/lib/modules";
+import { hasRestaurantModule } from "@/lib/modules";
 import { authService } from "@/lib/services/auth.service";
 import { categoryService } from "@/lib/services/category.service";
-import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 
 const categoryErrorMessages: Record<string, string> = {
@@ -35,20 +33,11 @@ export default async function CategoriesPage({
     notFound();
   }
 
-  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/categorias`);
-
   const [categories, currentProfile] = await Promise.all([categoryService.listByRestaurant(restaurant.id), authService.getCurrentProfile()]);
   const canManageCatalog = currentProfile?.globalRole === "superadmin" || currentProfile?.id === restaurant.ownerUserId;
 
   return (
-    <AdminLayout
-      active="categorias"
-      enabledModules={modulesForAdminLayout(restaurant)}
-      restaurantId={restaurant.id}
-      restaurantName={restaurant.name}
-      restaurantStatus={restaurant.status}
-      title="Categorias"
-    >
+    <>
       <SectionTitle
         title="Categorias"
         description={canManageCatalog ? "Crea categorias reales para ordenar el menu publico." : "Categorias en modo consulta. Los cambios del catalogo los realiza el dueno de la cuenta."}
@@ -95,6 +84,6 @@ export default async function CategoriesPage({
           rows={categories.map((category) => [category.name, category.description, category.sortOrder, category.isActive ? "Si" : "No"])}
         />
       </div>
-    </AdminLayout>
+    </>
   );
 }

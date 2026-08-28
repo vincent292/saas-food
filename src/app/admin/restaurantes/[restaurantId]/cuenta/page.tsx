@@ -4,7 +4,6 @@ import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { CreditCard, ExternalLink, ReceiptText, ShieldCheck, Store, WalletCards } from "lucide-react";
 import { approveOwnerBillingPaymentAction, resolveOwnerBranchCapacityAction, setOwnerAccountStatusAction, updateOwnerBillingSettingsAction, updateOwnerBranchEntitlementAction } from "@/app/admin/actions";
-import { AdminLayout } from "@/components/layout/AdminLayout";
 import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Badge } from "@/components/ui/Badge";
@@ -16,7 +15,6 @@ import { Input, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { authService } from "@/lib/services/auth.service";
 import { clientAccountService } from "@/lib/services/client-account.service";
-import { modulesForAdminLayout } from "@/lib/modules";
 import type { OwnerBillingCycle } from "@/lib/services/owner-billing.service";
 import { listOwnerBranchCapacityRequests } from "@/lib/services/owner-dashboard.service";
 import { formatMoney } from "@/lib/utils/money";
@@ -65,14 +63,7 @@ export default async function ClientAccountPage({
   const ownerBilling = account.billing;
 
   return (
-    <AdminLayout
-      active="/admin/restaurantes"
-      enabledModules={modulesForAdminLayout(baseRestaurant)}
-      restaurantId={baseRestaurant.id}
-      restaurantName={baseRestaurant.name}
-      restaurantStatus={baseRestaurant.status}
-      title="Cuenta del cliente"
-    >
+    <>
       <div className="space-y-6">
         <SectionTitle
           action={
@@ -385,7 +376,7 @@ export default async function ClientAccountPage({
           />
         </section>
       </div>
-    </AdminLayout>
+    </>
   );
 }
 

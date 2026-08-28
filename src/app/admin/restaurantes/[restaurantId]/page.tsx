@@ -1,14 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { restaurantBusinessTypeLabel, restaurantCategoryLabel } from "@/lib/restaurant-directory-options";
-import { modulesForAdminLayout } from "@/lib/modules";
-import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { superadminService } from "@/lib/services/superadmin.service";
 import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils/dates";
@@ -23,7 +20,6 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
     notFound();
   }
 
-  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}`);
   const control = await superadminService.getRestaurantControl(restaurant.id);
 
   if (!control) {
@@ -34,14 +30,7 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
   const paidOrders = todaysOrders.filter((order) => order.paymentStatus === "paid");
 
   return (
-    <AdminLayout
-      active="dashboard"
-      enabledModules={modulesForAdminLayout(restaurant)}
-      restaurantId={restaurant.id}
-      restaurantName={restaurant.name}
-      restaurantStatus={restaurant.status}
-      title={restaurant.name}
-    >
+    <>
       <div className="space-y-6">
         <SectionTitle
           action={
@@ -160,7 +149,7 @@ export default async function RestaurantOverviewPage({ params }: { params: Promi
           />
         </section>
       </div>
-    </AdminLayout>
+    </>
   );
 }
 

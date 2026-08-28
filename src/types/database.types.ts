@@ -1401,6 +1401,10 @@ export type Database = {
         };
         Returns: Json;
       };
+      get_restaurant_dashboard_snapshot: {
+        Args: { p_restaurant_id: string };
+        Returns: Json;
+      };
       get_delivery_order: {
         Args: {
           p_delivery_token: string;

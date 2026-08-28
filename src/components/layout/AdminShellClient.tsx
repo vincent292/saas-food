@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   Boxes,
@@ -73,6 +74,21 @@ const superAdminNav: NavItem[] = [
   { label: "Restauración", href: "/admin/restauracion", icon: RotateCcw },
 ];
 
+const restaurantModuleTitles: Record<string, string> = {
+  caja: "Caja / POS",
+  categorias: "Categorias",
+  cocina: "Cocina",
+  configuracion: "Configuracion",
+  cuenta: "Cuenta",
+  dashboard: "Dashboard",
+  inventario: "Inventario",
+  mesas: "Mesas",
+  pedidos: "Pedidos",
+  productos: "Productos",
+  soporte: "Soporte",
+  whatsapp: "CRM WhatsApp",
+};
+
 export function AdminShellClient({
   children,
   restaurantId = "",
@@ -83,8 +99,8 @@ export function AdminShellClient({
   canSwitchBranches = false,
   panelNotifications = [],
   pendingOrderAlerts = [],
-  title,
-  active = "dashboard",
+  title: titleOverride,
+  active: activeOverride,
 }: {
   children: ReactNode;
   restaurantId?: string;
@@ -96,11 +112,21 @@ export function AdminShellClient({
   enabledModules?: ModuleKey[];
   panelNotifications?: PanelNotification[];
   pendingOrderAlerts?: Order[];
-  title: string;
+  title?: string;
   active?: string;
 }) {
+  const pathname = usePathname();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState({ fromPathname: "", module: "" });
   const nav = restaurantId ? restaurantNav : superAdminNav;
+  const restaurantModule = restaurantId
+    ? pathname.split(`/admin/restaurantes/${restaurantId}/`)[1]?.split("/")[0] || "dashboard"
+    : "";
+  const active = restaurantId ? restaurantModule : activeOverride ?? pathname;
+  const title = restaurantId
+    ? restaurantModuleTitles[restaurantModule] ?? restaurantName ?? "Panel administrativo"
+    : titleOverride ?? superAdminNav.find((item) => item.href === pathname)?.label ?? "Panel administrativo";
   const statusLabel = restaurantStatus === "active" ? "Activo" : restaurantStatus === "suspended" ? "Suspendido" : restaurantStatus === "inactive" ? "Inactivo" : "";
 
   return (
@@ -133,7 +159,8 @@ export function AdminShellClient({
         <nav className="admin-scrollbar mt-5 flex-1 space-y-1 overflow-y-auto pr-1">
           {nav.map((item) => {
             const href = restaurantId ? `/admin/restaurantes/${restaurantId}/${item.href}` : item.href;
-            const selected = active === item.href;
+            const pendingModule = pendingNavigation.fromPathname === pathname ? pendingNavigation.module : "";
+            const selected = (pendingModule || active) === item.href;
 
             return (
               <Link
@@ -143,7 +170,15 @@ export function AdminShellClient({
                 )}
                 href={href}
                 key={item.href}
-                onClick={() => setSidebarOpen(false)}
+                onClick={() => {
+                  setPendingNavigation({ fromPathname: pathname, module: item.href });
+                  window.setTimeout(() => {
+                    setPendingNavigation((current) => current.fromPathname === pathname && current.module === item.href ? { fromPathname: "", module: "" } : current);
+                  }, 9000);
+                  setSidebarOpen(false);
+                }}
+                onFocus={() => router.prefetch(href)}
+                onPointerEnter={() => router.prefetch(href)}
                 prefetch={false}
               >
                 <item.icon className="h-4 w-4 shrink-0" />

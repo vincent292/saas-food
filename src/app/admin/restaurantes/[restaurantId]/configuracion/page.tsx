@@ -1,14 +1,11 @@
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
-import { AdminLayout } from "@/components/layout/AdminLayout";
 import { RestaurantSettingsFormClient } from "@/components/settings/RestaurantSettingsFormClient";
-import { modulesForAdminLayout } from "@/lib/modules";
 import { authService } from "@/lib/services/auth.service";
 import { announcementService } from "@/lib/services/announcement.service";
 import { orderService } from "@/lib/services/order.service";
 import { printConnectorService } from "@/lib/services/print-connector.service";
 import { riderService } from "@/lib/services/rider.service";
-import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { settingsService } from "@/lib/services/settings.service";
 
@@ -58,8 +55,6 @@ export default async function SettingsPage({
     notFound();
   }
 
-  await restaurantAccessService.claimOrRedirect(restaurant.id, `/admin/restaurantes/${restaurant.id}/configuracion`);
-
   const invoiceFilters = {
     dateFrom: normalizeInvoiceDateFilter(invoiceFrom),
     dateTo: normalizeInvoiceDateFilter(invoiceTo),
@@ -80,15 +75,7 @@ export default async function SettingsPage({
   const riderInviteUrl = riderInvite ? `${await currentOrigin()}/riders/${riderInvite.invite_token}` : "";
 
   return (
-    <AdminLayout
-      active="configuracion"
-      enabledModules={modulesForAdminLayout(restaurant)}
-      restaurantId={restaurant.id}
-      restaurantName={restaurant.name}
-      restaurantStatus={restaurant.status}
-      title="Configuración"
-    >
-      <RestaurantSettingsFormClient
+    <RestaurantSettingsFormClient
         key={`${restaurant.id}-${invoiceFilters.dateFrom ?? ""}-${invoiceFilters.dateTo ?? ""}-${invoiceFilters.status}`}
         businessHours={businessHours}
         announcements={announcements}
@@ -116,7 +103,6 @@ export default async function SettingsPage({
         settings={settings}
         zoneSaved={zone}
         deliveryZones={deliveryZones}
-      />
-    </AdminLayout>
+    />
   );
 }

@@ -3,7 +3,7 @@
 import { ChevronDown, Clock3, MapPin, Navigation, ReceiptText, WalletCards } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { chargeOrderAction, rejectCashOrderAction } from "@/app/admin/actions";
+import { rejectCashOrderAction } from "@/app/admin/actions";
 import { groupReceiptLinksFromNotes, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
 import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
@@ -37,12 +37,16 @@ export function PendingOrderReviewCard({
   context,
   disabled = false,
   businessType = "food",
+  isApproving = false,
+  onApprove,
 }: {
   order: Order;
   restaurantSlug: string;
   context: PendingOrderContext;
   disabled?: boolean;
   businessType?: BusinessType;
+  isApproving?: boolean;
+  onApprove: (orderId: string, formData: FormData) => Promise<boolean>;
 }) {
   const [paymentMethod, setPaymentMethod] = useState<Order["paymentMethod"]>(order.paymentMethod);
   const [showReject, setShowReject] = useState(false);
@@ -154,7 +158,7 @@ export function PendingOrderReviewCard({
 
           {!disabled ? null : <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para aprobar y sumar este pedido al turno actual.</div>}
 
-          <form action={chargeOrderAction} className="grid gap-3 rounded-2xl border border-[var(--border)] p-3">
+          <form action={async (formData) => { await onApprove(order.id, formData); }} className="grid gap-3 rounded-2xl border border-[var(--border)] p-3">
             <input name="restaurantId" type="hidden" value={order.restaurantId} />
             <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
             <input name="orderId" type="hidden" value={order.id} />
@@ -180,7 +184,7 @@ export function PendingOrderReviewCard({
                 )}
               </>
             ) : null}
-            <PendingSubmitButton disabled={disabled} pendingLabel="Aprobando y cobrando...">
+            <PendingSubmitButton disabled={disabled || isApproving} pendingLabel="Aprobando y cobrando...">
               Aprobar y cobrar
             </PendingSubmitButton>
           </form>

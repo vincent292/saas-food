@@ -25,6 +25,7 @@ import { membershipService } from "@/lib/services/membership.service";
 import { analyzeMenuFileWithGemini, normalizeMenuImportDraft, validateMenuImportFile } from "@/lib/services/menu-import-ai.service";
 import { answerSupportQuestionWithAi } from "@/lib/services/support-ai.service";
 import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
+import { sendOrderWhatsAppNotification } from "@/lib/services/order-whatsapp-notification.service";
 import { getBranchRequestPaymentSettings, getOwnerBranchLimit } from "@/lib/services/owner-dashboard.service";
 import { moduleCatalog } from "@/lib/modules";
 import { clearRateLimit, consumeRateLimit } from "@/lib/security/rate-limit";
@@ -1940,15 +1941,25 @@ function scheduleOrderStatusSideEffects({
   status: OrderStatus;
 }) {
   after(async () => {
-    await sendOrderStatusPush({ orderId, status }).catch((error) => {
-      console.error("order-status-push-failed", error);
-    });
+    const tasks: Promise<unknown>[] = [
+      sendOrderStatusPush({ orderId, status }).catch((error) => {
+        console.error("order-status-push-failed", error);
+      }),
+    ];
+
+    if (status === "accepted" || status === "ready") {
+      tasks.push(sendOrderWhatsAppNotification({ event: status, orderId }).catch((error) => {
+        console.error("order-status-whatsapp-failed", error);
+      }));
+    }
 
     if (status === "ready" && isDelivery) {
-      await offerNextRiderForOrder(orderId).catch((error) => {
+      tasks.push(offerNextRiderForOrder(orderId).catch((error) => {
         console.error("rider-auto-dispatch-failed", error);
-      });
+      }));
     }
+
+    await Promise.all(tasks);
   });
 }
 
@@ -7211,6 +7222,87 @@ export async function registerCashMovementAction(formData: FormData) {
 
 export async function registerCashExpenseAction(formData: FormData) {
   return registerCashMovementAction(formData);
+}
+
+export async function approvePendingOrderAction(formData: FormData) {
+  const parsed = chargeOrderSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    orderId: formData.get("orderId"),
+    restaurantSlug: formData.get("restaurantSlug") || undefined,
+    paymentMethod: formData.get("paymentMethod") || "cash",
+    paymentReceiptReference: formData.get("paymentReceiptReference") || undefined,
+    source: formData.get("source") || "caja",
+  });
+  if (!parsed.success) return { error: "invalid-charge", ok: false as const };
+
+  const { supabase } = await requireUser();
+  await requireRestaurantAccess(parsed.data.restaurantId, orderDecisionRedirectPath(parsed.data.restaurantId, parsed.data.source));
+
+  const { data: previousOrder } = await supabase
+    .from("orders")
+    .select("status,order_type")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("id", parsed.data.orderId)
+    .maybeSingle();
+  if (!previousOrder) return { error: "order-not-found", ok: false as const };
+
+  let uploadedReceiptUrl: string | null = null;
+  try {
+    const receiptFile = formData.get("paymentReceiptFile") as File | null;
+    uploadedReceiptUrl = receiptFile && receiptFile.size > 0
+      ? await uploadPrivateFile(receiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
+      : null;
+  } catch (error) {
+    console.error("order-receipt-upload-failed", error);
+    return { error: "receipt-upload-failed", ok: false as const };
+  }
+
+  const { error } = await supabase.rpc("charge_order_with_cash_movement", {
+    p_restaurant_id: parsed.data.restaurantId,
+    p_order_id: parsed.data.orderId,
+    p_payment_method: parsed.data.paymentMethod,
+    p_receipt_url: uploadedReceiptUrl,
+    p_receipt_reference: parsed.data.paymentReceiptReference ?? null,
+  });
+  if (error) return { error: cashErrorKey(error, "charge-order"), ok: false as const };
+
+  const changedAt = new Date().toISOString();
+  const usesKitchen = await restaurantUsesKitchenFlow(supabase, parsed.data.restaurantId);
+  let resultingStatus: OrderStatus = previousOrder.status as OrderStatus;
+  if (previousOrder.status === "pending") resultingStatus = "accepted";
+
+  if (!usesKitchen) {
+    const { data: readyOrder, error: readyError } = await supabase
+      .from("orders")
+      .update({ accepted_at: changedAt, ready_at: changedAt, status: "ready" })
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .eq("id", parsed.data.orderId)
+      .in("status", ["accepted", "preparing"])
+      .select("id")
+      .maybeSingle();
+    if (readyError) return { error: cashErrorKey(readyError, "order-status-update"), ok: false as const };
+    if (readyOrder?.id) resultingStatus = "ready";
+  }
+
+  if (previousOrder.status === "pending") {
+    scheduleOrderStatusSideEffects({
+      isDelivery: previousOrder.order_type === "delivery",
+      orderId: parsed.data.orderId,
+      status: resultingStatus,
+    });
+  }
+  after(async () => {
+    await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
+  });
+
+  return {
+    changedAt,
+    ok: true as const,
+    paymentMethod: parsed.data.paymentMethod,
+    paymentReceiptReference: parsed.data.paymentReceiptReference,
+    paymentReceiptUrl: uploadedReceiptUrl,
+    status: resultingStatus,
+  };
 }
 
 export async function chargeOrderAction(formData: FormData) {

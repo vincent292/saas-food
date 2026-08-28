@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { updateOperationalOrderStatusAction } from "@/app/admin/actions";
+import { approvePendingOrderAction, updateOperationalOrderStatusAction } from "@/app/admin/actions";
 import {
   useRestaurantRealtimeRefresh,
   type RealtimeScope,
@@ -14,7 +14,7 @@ type OperationalOrderStatus = "preparing" | "ready" | "delivered";
 type PendingStatusChange = {
   changedAt: string;
   previousOrder: Order;
-  status: OperationalOrderStatus;
+  status: OrderStatus;
 };
 
 function patchOrderStatus(order: Order, status: OrderStatus, changedAt?: string) {
@@ -25,6 +25,15 @@ function patchOrderStatus(order: Order, status: OrderStatus, changedAt?: string)
   if (status === "delivered") nextOrder.deliveredAt = changedAt;
   if (status === "cancelled") nextOrder.cancelledAt = changedAt;
   return nextOrder;
+}
+
+function patchApprovedOrder(order: Order, formData: FormData, changedAt: string) {
+  return {
+    ...patchOrderStatus(order, "accepted", changedAt),
+    paymentMethod: String(formData.get("paymentMethod") || "cash") as Order["paymentMethod"],
+    paymentStatus: "paid" as const,
+    paymentReceiptReference: String(formData.get("paymentReceiptReference") || "") || order.paymentReceiptReference,
+  };
 }
 
 function patchOrderFromRealtime(order: Order, record: Record<string, unknown>) {
@@ -48,6 +57,9 @@ function statusErrorMessage(error: string) {
   if (error === "invalid-order-transition") return "Otro usuario ya cambio este pedido. La pantalla se actualizara con el estado correcto.";
   if (error === "order-not-found") return "No encontramos el pedido. Actualiza la pantalla e intenta nuevamente.";
   if (error === "invalid-order-status") return "Ese cambio de estado no esta permitido.";
+  if (error === "receipt-upload-failed") return "No se pudo subir el comprobante. Revisa el archivo e intenta nuevamente.";
+  if (error.includes("no-open-session")) return "La caja se cerro antes de aprobar el pedido. Abre una caja e intenta nuevamente.";
+  if (error.includes("receipt-required")) return "Para aprobar el pago QR debes adjuntar el comprobante o su referencia.";
   return "No se pudo guardar el cambio. El pedido volvio a su estado anterior.";
 }
 
@@ -129,6 +141,49 @@ export function useLiveOrders({
     scope,
   });
 
+  const approveOrder = useCallback(async (orderId: string, formData: FormData) => {
+    const previousOrder = ordersRef.current.find((order) => order.id === orderId);
+    if (!previousOrder || previousOrder.status !== "pending" || pendingChangesRef.current.has(orderId)) return false;
+
+    const changedAt = new Date().toISOString();
+    pendingChangesRef.current.set(orderId, { changedAt, previousOrder, status: "accepted" });
+    setPendingOrderIds(new Set(pendingChangesRef.current.keys()));
+    setStatusError("");
+    commitOrders((current) => current.map((order) => (
+      order.id === orderId ? patchApprovedOrder(order, formData, changedAt) : order
+    )));
+
+    try {
+      const result = await approvePendingOrderAction(formData);
+      if (!result.ok) throw new Error(result.error);
+
+      pendingChangesRef.current.delete(orderId);
+      setPendingOrderIds(new Set(pendingChangesRef.current.keys()));
+      commitOrders((current) => current.map((order) => {
+        if (order.id !== orderId) return order;
+        return {
+          ...patchOrderStatus(order, result.status, result.changedAt),
+          paymentMethod: result.paymentMethod,
+          paymentReceiptReference: result.paymentReceiptReference || order.paymentReceiptReference,
+          paymentReceiptUrl: result.paymentReceiptUrl || order.paymentReceiptUrl,
+          paymentStatus: "paid",
+        };
+      }));
+      return true;
+    } catch (error) {
+      const pendingChange = pendingChangesRef.current.get(orderId);
+      pendingChangesRef.current.delete(orderId);
+      setPendingOrderIds(new Set(pendingChangesRef.current.keys()));
+      if (pendingChange) {
+        commitOrders((current) => current.map((order) => (
+          order.id === orderId ? pendingChange.previousOrder : order
+        )));
+      }
+      setStatusError(statusErrorMessage(error instanceof Error ? error.message : "charge-order"));
+      return false;
+    }
+  }, [commitOrders]);
+
   const updateStatus = useCallback(async (orderId: string, status: OperationalOrderStatus) => {
     const previousOrder = ordersRef.current.find((order) => order.id === orderId);
     if (!previousOrder || pendingChangesRef.current.has(orderId)) return false;
@@ -183,6 +238,7 @@ export function useLiveOrders({
   }, [commitOrders, restaurantId, restaurantSlug]);
 
   return {
+    approveOrder,
     clearStatusError: () => setStatusError(""),
     orders,
     pendingOrderIds,

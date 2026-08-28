@@ -149,6 +149,7 @@ export function CashWorkspaceClient({
   const [trackingQrUrl, setTrackingQrUrl] = useState("");
   const [clientOrigin, setClientOrigin] = useState("");
   const {
+    approveOrder,
     clearStatusError,
     orders: liveOrders,
     pendingOrderIds,
@@ -621,7 +622,7 @@ export function CashWorkspaceClient({
           ) : visiblePendingOrders.length || visibleActiveTableOrders.length ? (
             <div className="grid gap-3">
               {visiblePendingOrders.map((order) => (
-                <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
+                <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} isApproving={pendingOrderIds.has(order.id)} key={order.id} onApprove={approveOrder} order={order} restaurantSlug={restaurant.slug} />
               ))}
               {visibleActiveTableOrders.map((order) => (
                 <TableServiceOrderCard businessType={restaurant.businessType} isUpdating={pendingOrderIds.has(order.id)} key={order.id} now={now} onStatusChange={updateStatus} order={order} restaurantSlug={restaurant.slug} />
@@ -642,7 +643,7 @@ export function CashWorkspaceClient({
             <div className="grid gap-3">
               {visibleDeliveryOrders.map((order) =>
                 order.status === "pending" ? (
-                  <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
+                  <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} isApproving={pendingOrderIds.has(order.id)} key={order.id} onApprove={approveOrder} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
                   <DeliveryOrderCard businessType={restaurant.businessType} isUpdating={pendingOrderIds.has(order.id)} key={order.id} now={now} onStatusChange={updateStatus} order={order} restaurantSlug={restaurant.slug} />
                 ),
@@ -663,7 +664,7 @@ export function CashWorkspaceClient({
             <div className="grid gap-3">
               {visiblePickupOrders.map((order) =>
                 order.status === "pending" ? (
-                  <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
+                  <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} isApproving={pendingOrderIds.has(order.id)} key={order.id} onApprove={approveOrder} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
                   <PickupOrderCard businessType={restaurant.businessType} isUpdating={pendingOrderIds.has(order.id)} key={order.id} now={now} onStatusChange={updateStatus} order={order} restaurantSlug={restaurant.slug} />
                 ),

@@ -23,8 +23,11 @@ test("order action buttons isolate pending forms and optimistic status changes",
   assert.match(cash, /pendingOrderIds\.has/);
   assert.match(cash, /Guardando\.\.\./);
   assert.match(liveOrders, /updateOperationalOrderStatusAction/);
+  assert.match(liveOrders, /approvePendingOrderAction/);
+  assert.match(liveOrders, /patchApprovedOrder/);
   assert.match(liveOrders, /pendingChangesRef\.current\.has/);
   assert.match(pendingOrder, /Aprobando y cobrando\.\.\./);
+  assert.match(pendingOrder, /onApprove\(order\.id, formData\)/);
   assert.match(delivery, /Confirmando entrega\.\.\./);
   assert.doesNotMatch(pos, /BrandLoadingOverlay/);
 });
@@ -48,4 +51,25 @@ test("charging and status transitions are idempotent under duplicate submissions
   assert.match(statusMigration, /security invoker/);
   assert.match(actions, /update_operational_order_status/);
   assert.match(actions, /scheduleOrderStatusSideEffects/);
+  assert.match(actions, /export async function approvePendingOrderAction/);
+  assert.match(actions, /after\(async \(\) => \{[\s\S]*revalidateOrderDecisionPaths/);
+});
+
+test("WhatsApp order status messages do not block operational actions", async () => {
+  const [actions, notifications, riderOrderRoute, riderOfferRoute] = await Promise.all([
+    readFile(new URL("src/app/admin/actions.ts", root), "utf8"),
+    readFile(new URL("src/lib/services/order-whatsapp-notification.service.ts", root), "utf8"),
+    readFile(new URL("src/app/api/mobile/riders/orders/[orderId]/accept/route.ts", root), "utf8"),
+    readFile(new URL("src/app/api/mobile/riders/offers/[offerId]/accept/route.ts", root), "utf8"),
+  ]);
+
+  assert.match(actions, /sendOrderWhatsAppNotification\(\{ event: status, orderId \}\)/);
+  assert.match(notifications, /order\.order_origin !== "phone_whatsapp"/);
+  assert.match(notifications, /get_public_order_queue_state/);
+  assert.match(notifications, /Tiempo estimado:/);
+  assert.match(notifications, /Ya puedes pasar a recogerlo/);
+  assert.match(notifications, /delivery_dispatched/);
+  assert.match(notifications, /Siguelo aqui/);
+  assert.match(riderOrderRoute, /after\(async/);
+  assert.match(riderOfferRoute, /delivery_dispatched/);
 });

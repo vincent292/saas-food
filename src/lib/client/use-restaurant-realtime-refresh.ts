@@ -6,7 +6,14 @@ import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/types/database.types";
 
 type RealtimeTable = keyof Database["public"]["Tables"] & string;
-type RealtimeScope = "cash" | "dashboard" | "kitchen" | "notifications" | "orders" | "owner";
+export type RealtimeScope = "cash" | "dashboard" | "kitchen" | "notifications" | "orders" | "owner";
+
+export type RestaurantRealtimeChange = {
+  eventType: "DELETE" | "INSERT" | "UPDATE";
+  newRecord: Record<string, unknown>;
+  oldRecord: Record<string, unknown>;
+  table: RealtimeTable;
+};
 
 const tablesByScope: Record<RealtimeScope, readonly RealtimeTable[]> = {
   orders: ["orders"],
@@ -19,16 +26,23 @@ const tablesByScope: Record<RealtimeScope, readonly RealtimeTable[]> = {
 
 export function useRestaurantRealtimeRefresh({
   enabled = true,
+  onChange,
   restaurantId,
   scope,
 }: {
   enabled?: boolean;
+  onChange?: (change: RestaurantRealtimeChange) => void;
   restaurantId?: string;
   scope: RealtimeScope;
 }) {
   const router = useRouter();
   const connectedRef = useRef(false);
+  const onChangeRef = useRef(onChange);
   const refreshTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -55,7 +69,15 @@ export function useRestaurantRealtimeRefresh({
           table,
           ...(restaurantId ? { filter: `restaurant_id=eq.${restaurantId}` } : {}),
         },
-        refreshIfVisible,
+        (payload) => {
+          onChangeRef.current?.({
+            eventType: payload.eventType,
+            newRecord: payload.new as Record<string, unknown>,
+            oldRecord: payload.old as Record<string, unknown>,
+            table,
+          });
+          refreshIfVisible();
+        },
       );
     }
     channel.subscribe((status) => {

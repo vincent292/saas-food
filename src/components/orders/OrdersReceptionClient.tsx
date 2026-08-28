@@ -1,21 +1,21 @@
 "use client";
 
-import { ChefHat, CheckCircle2, Clock, ExternalLink, Printer, RefreshCw, ShoppingCart, Truck, Utensils, X } from "lucide-react";
+import { ChefHat, CheckCircle2, Clock, ExternalLink, LoaderCircle, Printer, RefreshCw, ShoppingCart, Truck, Utensils, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { refundOrderAction, updateOrderStatusAction } from "@/app/admin/actions";
+import { refundOrderAction } from "@/app/admin/actions";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { elapsedLabel, groupReceiptLinksFromNotes, minutesSince, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
 import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { printOrderTicket, type PrintFormat } from "@/components/orders/printOrder";
-import { buttonClasses } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Textarea } from "@/components/ui/Input";
 import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
-import { useRestaurantRealtimeRefresh } from "@/lib/client/use-restaurant-realtime-refresh";
+import { useLiveOrders } from "@/lib/client/use-live-orders";
 import { cn } from "@/lib/utils/cn";
 import { isSameBusinessDay } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
@@ -146,9 +146,20 @@ export function OrdersReceptionClient({
   const [activeTab, setActiveTab] = useState<ReceptionTab>(() => normalizeReceptionTab(status.tab));
   const [blockedAutoPrintOrderId, setBlockedAutoPrintOrderId] = useState("");
   const [posOpen, setPosOpen] = useState(false);
-  useRestaurantRealtimeRefresh({ restaurantId: restaurant.id, scope: "orders" });
+  const {
+    clearStatusError,
+    orders: liveOrders,
+    pendingOrderIds,
+    statusError,
+    updateStatus,
+  } = useLiveOrders({
+    initialOrders: orders,
+    restaurantId: restaurant.id,
+    restaurantSlug: restaurant.slug,
+    scope: "orders",
+  });
 
-  const todayOrders = useMemo(() => orders.filter((order) => isSameBusinessDay(order.createdAt)), [orders]);
+  const todayOrders = useMemo(() => liveOrders.filter((order) => isSameBusinessDay(order.createdAt)), [liveOrders]);
   const groups = useMemo(
     () => ({
       todos: todayOrders,
@@ -170,7 +181,7 @@ export function OrdersReceptionClient({
       return;
     }
 
-    const order = orders.find((item) => item.id === status.charged);
+    const order = liveOrders.find((item) => item.id === status.charged);
     if (!order) {
       return;
     }
@@ -194,9 +205,9 @@ export function OrdersReceptionClient({
     } else {
       window.setTimeout(() => setBlockedAutoPrintOrderId(order.id), 0);
     }
-  }, [hasDirectPrintConnector, orders, restaurant.id, restaurant.logoUrl, restaurant.name, settings?.autoPrintKitchen, settings?.printFormat, settings?.printLogo, status.charged]);
+  }, [hasDirectPrintConnector, liveOrders, restaurant.id, restaurant.logoUrl, restaurant.name, settings?.autoPrintKitchen, settings?.printFormat, settings?.printLogo, status.charged]);
 
-  const blockedAutoPrintOrder = blockedAutoPrintOrderId ? orders.find((order) => order.id === blockedAutoPrintOrderId) : undefined;
+  const blockedAutoPrintOrder = blockedAutoPrintOrderId ? liveOrders.find((order) => order.id === blockedAutoPrintOrderId) : undefined;
 
   return (
     <div className="space-y-6">
@@ -246,6 +257,15 @@ export function OrdersReceptionClient({
         <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>{banner.text}</div>
       ) : null}
 
+      {statusError ? (
+        <div className="flex items-center justify-between gap-3 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">
+          <span>{statusError}</span>
+          <button aria-label="Cerrar aviso" className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-[var(--surface)]" onClick={clearStatusError} title="Cerrar aviso" type="button">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+
       {blockedAutoPrintOrder ? (
         <div className="flex flex-col gap-3 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-semibold text-[var(--color-warning-strong)] sm:flex-row sm:items-center sm:justify-between">
           <span>El navegador bloqueo la ventana de impresion automatica del pedido {blockedAutoPrintOrder.orderNumber}.</span>
@@ -293,7 +313,16 @@ export function OrdersReceptionClient({
                 order.status === "pending" ? (
                   <PendingOrderReviewCard businessType={restaurant.businessType} context="pedidos" disabled={!hasOpenSession} key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
-                  <ReceptionOrderCard defaultPrintFormat={settings?.printFormat ?? "thermal_80"} hasKitchenFlow={hasKitchenFlow} key={order.id} order={order} printLogo={settings?.printLogo ?? true} restaurant={restaurant} />
+                  <ReceptionOrderCard
+                    defaultPrintFormat={settings?.printFormat ?? "thermal_80"}
+                    hasKitchenFlow={hasKitchenFlow}
+                    isUpdating={pendingOrderIds.has(order.id)}
+                    key={order.id}
+                    onStatusChange={updateStatus}
+                    order={order}
+                    printLogo={settings?.printLogo ?? true}
+                    restaurant={restaurant}
+                  />
                 ),
               )}
         </section>
@@ -375,12 +404,16 @@ function ReceptionOrderCard({
   defaultPrintFormat,
   printLogo,
   hasKitchenFlow,
+  isUpdating,
+  onStatusChange,
 }: {
   order: Order;
   restaurant: Restaurant;
   defaultPrintFormat: PrintFormat;
   printLogo: boolean;
   hasKitchenFlow: boolean;
+  isUpdating: boolean;
+  onStatusChange: (orderId: string, status: "preparing" | "ready" | "delivered") => Promise<boolean>;
 }) {
   const minutes = minutesSince(order.createdAt, new Date());
   const nextKitchenStatus = !hasKitchenFlow && order.status === "accepted" ? "ready" : order.status === "accepted" ? "preparing" : order.status === "preparing" ? "ready" : null;
@@ -438,19 +471,17 @@ function ReceptionOrderCard({
           </div>
 
           {nextKitchenStatus ? (
-            <form action={updateOrderStatusAction} className="rounded-2xl border border-[var(--border)] p-3">
-              <input name="restaurantId" type="hidden" value={order.restaurantId} />
-              <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
-              <input name="orderId" type="hidden" value={order.id} />
-              <input name="source" type="hidden" value="pedidos" />
+            <div className="rounded-2xl border border-[var(--border)] p-3">
               <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">{hasKitchenFlow ? "Avance rapido para locales sin pantalla de cocina separada." : "Avance rapido para alistar y marcar pedidos listos desde recepcion."}</p>
-              <PendingSubmitButton className="w-full" name="status" pendingLabel="Actualizando..." value={nextKitchenStatus}>
-                {order.status === "accepted" ? <ChefHat className="h-4 w-4" /> : <Utensils className="h-4 w-4" />}
-                {nextKitchenLabel}
-              </PendingSubmitButton>
-            </form>
+              <Button className="w-full" disabled={isUpdating} onClick={() => void onStatusChange(order.id, nextKitchenStatus)} type="button">
+                {isUpdating ? <LoaderCircle className="h-4 w-4 animate-spin" /> : order.status === "accepted" ? <ChefHat className="h-4 w-4" /> : <Utensils className="h-4 w-4" />}
+                {isUpdating ? "Guardando..." : nextKitchenLabel}
+              </Button>
+            </div>
           ) : order.status === "ready" ? (
-            <div className="rounded-2xl bg-[var(--primary-light)] p-3 text-center text-sm font-black text-[var(--primary-dark)]">{readyLabel}</div>
+            <div className="rounded-2xl bg-[var(--primary-light)] p-3 text-center text-sm font-black text-[var(--primary-dark)]">
+              {isUpdating ? "Guardando estado..." : readyLabel}
+            </div>
           ) : null}
           {order.paymentStatus === "paid" ? (
             <details className="rounded-2xl border border-[var(--color-danger-soft)] p-3">

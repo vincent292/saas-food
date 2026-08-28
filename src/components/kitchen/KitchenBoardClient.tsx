@@ -16,7 +16,7 @@ import {
 import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useRestaurantRealtimeRefresh } from "@/lib/client/use-restaurant-realtime-refresh";
+import { useLiveOrders } from "@/lib/client/use-live-orders";
 import { cn } from "@/lib/utils/cn";
 import type { Order } from "@/types/order.types";
 import type { Restaurant } from "@/types/restaurant.types";
@@ -50,7 +50,12 @@ export function KitchenBoardClient({
   const [activeView, setActiveView] = useState<KitchenView>("operacion");
   const [now, setNow] = useState(() => new Date());
   const [focusMode, setFocusMode] = useState(false);
-  useRestaurantRealtimeRefresh({ restaurantId: restaurant.id, scope: "kitchen" });
+  const { orders: liveOrders } = useLiveOrders({
+    initialOrders: orders,
+    restaurantId: restaurant.id,
+    restaurantSlug: restaurant.slug,
+    scope: "kitchen",
+  });
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
@@ -58,16 +63,16 @@ export function KitchenBoardClient({
   }, []);
 
   const groups = useMemo(() => {
-    const activeOrders = orders.filter((order) => order.status === "accepted" || order.status === "preparing");
+    const activeOrders = liveOrders.filter((order) => order.status === "accepted" || order.status === "preparing");
     const sortByDueTime = (left: Order, right: Order) => kitchenDueDate(left).getTime() - kitchenDueDate(right).getTime();
     const sortByReadyTime = (left: Order, right: Order) => new Date(left.readyAt ?? kitchenStartDate(left)).getTime() - new Date(right.readyAt ?? kitchenStartDate(right)).getTime();
     return {
       cocina: activeOrders.filter((order) => minutesUntil(kitchenDueDate(order), now) > 0).sort(sortByDueTime),
       vencidos: activeOrders.filter((order) => minutesUntil(kitchenDueDate(order), now) <= 0).sort(sortByDueTime),
-      despacho: orders.filter((order) => order.status === "ready").sort(sortByReadyTime),
-      historial: orders.filter((order) => order.status === "delivered").slice(0, 40),
+      despacho: liveOrders.filter((order) => order.status === "ready").sort(sortByReadyTime),
+      historial: liveOrders.filter((order) => order.status === "delivered").slice(0, 40),
     };
-  }, [now, orders]);
+  }, [liveOrders, now]);
 
   const activeOrdersCount = groups.cocina.length + groups.vencidos.length + groups.despacho.length;
 

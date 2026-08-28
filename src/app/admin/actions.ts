@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -496,6 +497,14 @@ const updateOrderStatusSchema = z.object({
   source: z.enum(["admin", "kitchen", "pedidos", "caja"]).default("admin"),
   tab: z.enum(["delivery", "recojo", "pedidos"]).optional(),
   reason: z.string().optional(),
+});
+
+const updateOperationalOrderStatusSchema = z.object({
+  restaurantId: z.string().uuid(),
+  restaurantSlug: z.string().min(1),
+  orderId: z.string().uuid(),
+  expectedStatus: z.enum(["accepted", "preparing", "ready"]),
+  status: z.enum(["preparing", "ready", "delivered"]),
 });
 
 const createDeliveryLinkSchema = z.object({
@@ -1919,6 +1928,28 @@ async function revalidateOrderDecisionPaths(restaurantId: string, restaurantSlug
     revalidatePath(`/r/${restaurantSlug}`);
     revalidatePath(`/r/${restaurantSlug}/seguimiento`);
   }
+}
+
+function scheduleOrderStatusSideEffects({
+  isDelivery,
+  orderId,
+  status,
+}: {
+  isDelivery: boolean;
+  orderId: string;
+  status: OrderStatus;
+}) {
+  after(async () => {
+    await sendOrderStatusPush({ orderId, status }).catch((error) => {
+      console.error("order-status-push-failed", error);
+    });
+
+    if (status === "ready" && isDelivery) {
+      await offerNextRiderForOrder(orderId).catch((error) => {
+        console.error("rider-auto-dispatch-failed", error);
+      });
+    }
+  });
 }
 
 async function createOrderCancellationReview({
@@ -6570,6 +6601,61 @@ export async function deleteTableAction(formData: FormData) {
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/mesas?deleted=1`);
 }
 
+export async function updateOperationalOrderStatusAction(input: {
+  expectedStatus: OrderStatus;
+  orderId: string;
+  restaurantId: string;
+  restaurantSlug: string;
+  status: OrderStatus;
+}) {
+  const parsed = updateOperationalOrderStatusSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: "invalid-order-status", ok: false as const };
+  }
+
+  const validTransitions: Record<"accepted" | "preparing" | "ready", OrderStatus[]> = {
+    accepted: ["preparing", "ready"],
+    preparing: ["ready"],
+    ready: ["delivered"],
+  };
+  if (!validTransitions[parsed.data.expectedStatus].includes(parsed.data.status)) {
+    return { error: "invalid-order-transition", ok: false as const };
+  }
+
+  const supabase = await createClient();
+  const { data, error: updateError } = await supabase.rpc("update_operational_order_status", {
+    p_expected_status: parsed.data.expectedStatus,
+    p_next_status: parsed.data.status,
+    p_order_id: parsed.data.orderId,
+    p_restaurant_id: parsed.data.restaurantId,
+  });
+
+  if (updateError) {
+    const error = updateError.message.includes("invalid-order-transition")
+      ? "invalid-order-transition"
+      : cashErrorKey(updateError, "order-status-update");
+    return { error, ok: false as const };
+  }
+
+  const updatedOrder = data?.[0];
+  if (!updatedOrder) {
+    return { error: "invalid-order-transition", ok: false as const };
+  }
+
+  if (updatedOrder.status_changed) {
+    scheduleOrderStatusSideEffects({
+      isDelivery: updatedOrder.resulting_order_type === "delivery",
+      orderId: updatedOrder.order_id,
+      status: parsed.data.status,
+    });
+    after(async () => {
+      await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
+    });
+  }
+
+  return { changedAt: updatedOrder.changed_at, ok: true as const, status: updatedOrder.resulting_status };
+}
+
 export async function updateOrderStatusAction(formData: FormData) {
   const parsed = updateOrderStatusSchema.safeParse({
     restaurantId: formData.get("restaurantId"),
@@ -6704,18 +6790,11 @@ export async function updateOrderStatusAction(formData: FormData) {
   }
 
   if (statusChanged) {
-    await sendOrderStatusPush({
+    scheduleOrderStatusSideEffects({
+      isDelivery: order.order_type === "delivery",
       orderId: parsed.data.orderId,
       status: nextStatus,
-    }).catch((error) => {
-      console.error("order-status-push-failed", error);
     });
-
-    if (nextStatus === "ready" && order.order_type === "delivery") {
-      await offerNextRiderForOrder(parsed.data.orderId).catch((error) => {
-        console.error("rider-auto-dispatch-failed", error);
-      });
-    }
   }
 
   revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/pedidos`);
@@ -7188,18 +7267,11 @@ export async function chargeOrderAction(formData: FormData) {
       .maybeSingle();
 
     if (readyOrder?.id) {
-      await sendOrderStatusPush({
+      scheduleOrderStatusSideEffects({
+        isDelivery: readyOrder.order_type === "delivery",
         orderId: readyOrder.id,
         status: "ready",
-      }).catch((pushError) => {
-        console.error("charge-order-ready-push-failed", pushError);
       });
-
-      if (readyOrder.order_type === "delivery") {
-        await offerNextRiderForOrder(readyOrder.id).catch((dispatchError) => {
-          console.error("charge-order-rider-auto-dispatch-failed", dispatchError);
-        });
-      }
     }
   }
 
@@ -7257,11 +7329,10 @@ export async function rejectCashOrderAction(formData: FormData) {
     paymentStatusAtCancellation: orderBeforeReject?.payment_status as "pending" | "paid" | "cancelled" | "refunded" | undefined,
   });
 
-  await sendOrderStatusPush({
+  scheduleOrderStatusSideEffects({
+    isDelivery: false,
     orderId: parsed.data.orderId,
     status: "cancelled",
-  }).catch((pushError) => {
-    console.error("reject-cash-order-push-failed", pushError);
   });
 
   await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);

@@ -1238,6 +1238,21 @@ export type Database = {
         };
         Returns: string;
       };
+      update_operational_order_status: {
+        Args: {
+          p_expected_status: Database["public"]["Enums"]["order_status"];
+          p_next_status: Database["public"]["Enums"]["order_status"];
+          p_order_id: string;
+          p_restaurant_id: string;
+        };
+        Returns: {
+          changed_at: string;
+          order_id: string;
+          resulting_order_type: "table" | "delivery" | "pickup" | "pos";
+          resulting_status: Database["public"]["Enums"]["order_status"];
+          status_changed: boolean;
+        }[];
+      };
       close_cash_session_atomic: {
         Args: {
           p_counted_amount: number;

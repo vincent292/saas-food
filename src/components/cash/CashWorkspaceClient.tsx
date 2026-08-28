@@ -1,12 +1,12 @@
 "use client";
 
-import { AlertTriangle, Banknote, Bike, Calculator, CheckCircle2, Clock3, Copy, CreditCard, ExternalLink, FileText, History, Maximize2, MessageCircle, PackageSearch, Printer, QrCode, ReceiptText, Search, ShoppingBag, Store, X, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Banknote, Bike, Calculator, CheckCircle2, Clock3, Copy, CreditCard, ExternalLink, FileText, History, LoaderCircle, Maximize2, MessageCircle, PackageSearch, Printer, QrCode, ReceiptText, Search, ShoppingBag, Store, X, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import QRCode from "qrcode";
-import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, updateOrderStatusAction } from "@/app/admin/actions";
+import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction } from "@/app/admin/actions";
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
@@ -18,9 +18,8 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input, Select, Textarea } from "@/components/ui/Input";
-import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
 import { SectionTitle } from "@/components/ui/SectionTitle";
-import { useRestaurantRealtimeRefresh } from "@/lib/client/use-restaurant-realtime-refresh";
+import { useLiveOrders } from "@/lib/client/use-live-orders";
 import { businessCatalogLabelTitle, businessOrderStatusLabel, businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils/dates";
 import { cn } from "@/lib/utils/cn";
@@ -32,6 +31,7 @@ import type { Category, Product, ProductConfiguration } from "@/types/product.ty
 import type { Restaurant, RestaurantPrintConnector, RestaurantSettings } from "@/types/restaurant.types";
 
 type CashTab = "venta" | "pedidos" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
+type OrderStatusChangeHandler = (orderId: string, status: "preparing" | "ready" | "delivered") => Promise<boolean>;
 
 const operationalTabs = new Set<CashTab>(["pedidos", "delivery", "recojo"]);
 
@@ -148,7 +148,19 @@ export function CashWorkspaceClient({
   const [copied, setCopied] = useState(false);
   const [trackingQrUrl, setTrackingQrUrl] = useState("");
   const [clientOrigin, setClientOrigin] = useState("");
-  useRestaurantRealtimeRefresh({ enabled: operationalTabs.has(activeTab), restaurantId: restaurant.id, scope: "cash" });
+  const {
+    clearStatusError,
+    orders: liveOrders,
+    pendingOrderIds,
+    statusError,
+    updateStatus,
+  } = useLiveOrders({
+    enabled: operationalTabs.has(activeTab),
+    initialOrders: orders,
+    restaurantId: restaurant.id,
+    restaurantSlug: restaurant.slug,
+    scope: "cash",
+  });
 
   useEffect(() => {
     const timer = window.setTimeout(() => setClientOrigin(window.location.origin), 0);
@@ -165,7 +177,7 @@ export function CashWorkspaceClient({
     return () => window.clearInterval(timer);
   }, []);
 
-  const todaysOrders = useMemo(() => orders.filter((order) => isSameBusinessDay(order.createdAt)), [orders]);
+  const todaysOrders = useMemo(() => liveOrders.filter((order) => isSameBusinessDay(order.createdAt)), [liveOrders]);
   const pendingOrders = useMemo(() => todaysOrders.filter((order) => order.status === "pending" && order.orderType !== "delivery" && order.orderType !== "pickup"), [todaysOrders]);
   const activeTableOrders = useMemo(() => todaysOrders.filter((order) => order.orderType === "table" && ["accepted", "preparing", "ready"].includes(order.status)), [todaysOrders]);
   const deliveryOrders = useMemo(
@@ -409,6 +421,15 @@ export function CashWorkspaceClient({
         <div className={cn("rounded-2xl p-3 text-sm font-semibold", banner.tone === "success" ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>{banner.text}</div>
       ) : null}
 
+      {statusError ? (
+        <div className="flex items-center justify-between gap-3 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">
+          <span>{statusError}</span>
+          <button aria-label="Cerrar aviso" className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-[var(--surface)]" onClick={clearStatusError} title="Cerrar aviso" type="button">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+
       {blockedAutoPrintOrder ? (
         <div className="flex flex-col gap-3 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-semibold text-[var(--color-warning-strong)] sm:flex-row sm:items-center sm:justify-between">
           <span>El navegador bloqueo la ventana de impresion automatica del pedido {blockedAutoPrintOrder.orderNumber}.</span>
@@ -603,7 +624,7 @@ export function CashWorkspaceClient({
                 <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
               ))}
               {visibleActiveTableOrders.map((order) => (
-                <TableServiceOrderCard businessType={restaurant.businessType} key={order.id} now={now} order={order} restaurantSlug={restaurant.slug} />
+                <TableServiceOrderCard businessType={restaurant.businessType} isUpdating={pendingOrderIds.has(order.id)} key={order.id} now={now} onStatusChange={updateStatus} order={order} restaurantSlug={restaurant.slug} />
               ))}
             </div>
           ) : (
@@ -623,7 +644,7 @@ export function CashWorkspaceClient({
                 order.status === "pending" ? (
                   <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
-                  <DeliveryOrderCard businessType={restaurant.businessType} key={order.id} now={now} order={order} restaurantSlug={restaurant.slug} />
+                  <DeliveryOrderCard businessType={restaurant.businessType} isUpdating={pendingOrderIds.has(order.id)} key={order.id} now={now} onStatusChange={updateStatus} order={order} restaurantSlug={restaurant.slug} />
                 ),
               )}
             </div>
@@ -644,7 +665,7 @@ export function CashWorkspaceClient({
                 order.status === "pending" ? (
                   <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} key={order.id} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
-                  <PickupOrderCard businessType={restaurant.businessType} key={order.id} now={now} order={order} restaurantSlug={restaurant.slug} />
+                  <PickupOrderCard businessType={restaurant.businessType} isUpdating={pendingOrderIds.has(order.id)} key={order.id} now={now} onStatusChange={updateStatus} order={order} restaurantSlug={restaurant.slug} />
                 ),
               )}
             </div>
@@ -849,7 +870,7 @@ function CashSessionControl({
   );
 }
 
-function DeliveryOrderCard({ order, restaurantSlug, businessType, now }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"]; now: Date }) {
+function DeliveryOrderCard({ order, restaurantSlug, businessType, now, isUpdating, onStatusChange }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"]; now: Date; isUpdating: boolean; onStatusChange: OrderStatusChangeHandler }) {
   const isReady = order.status === "ready";
   const isActive = order.status === "accepted" || order.status === "preparing";
   const dispatchStatus = order.status === "delivered" ? "delivered" : order.deliveryDispatch?.status;
@@ -866,7 +887,7 @@ function DeliveryOrderCard({ order, restaurantSlug, businessType, now }: { order
         ) : isReady ? (
           <DeliveryDispatchPanel compact order={order} restaurantSlug={restaurantSlug} />
         ) : isActive ? (
-          <OrderReadyActionPanel now={now} order={order} restaurantSlug={restaurantSlug} tab="delivery" />
+          <OrderReadyActionPanel isUpdating={isUpdating} now={now} onStatusChange={onStatusChange} order={order} />
         ) : (
           <div className="rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-bold text-[var(--color-warning-strong)]">
             {hasKitchenFlow ? "Aun esta en cocina." : "Aun esta en preparacion."} El QR de moto se habilita cuando el pedido este listo.
@@ -886,7 +907,7 @@ function DispatchStatusPanel({ label, tone, value }: { label: string; tone: "inf
   );
 }
 
-function PickupOrderCard({ order, restaurantSlug, businessType, now }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"]; now: Date }) {
+function PickupOrderCard({ order, businessType, now, isUpdating, onStatusChange }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"]; now: Date; isUpdating: boolean; onStatusChange: OrderStatusChangeHandler }) {
   const isActive = order.status === "accepted" || order.status === "preparing";
 
   return (
@@ -894,19 +915,15 @@ function PickupOrderCard({ order, restaurantSlug, businessType, now }: { order: 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start">
         <OrderOperationalSummary businessType={businessType} now={now} order={order} title="Recojo" />
         {isActive ? (
-          <OrderReadyActionPanel now={now} order={order} restaurantSlug={restaurantSlug} tab="recojo" />
+          <OrderReadyActionPanel isUpdating={isUpdating} now={now} onStatusChange={onStatusChange} order={order} />
         ) : order.status === "ready" ? (
-          <form action={updateOrderStatusAction} className="rounded-2xl border border-[var(--border)] p-3">
-            <input name="restaurantId" type="hidden" value={order.restaurantId} />
-            <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
-            <input name="orderId" type="hidden" value={order.id} />
-            <input name="source" type="hidden" value="caja" />
-            <input name="tab" type="hidden" value="recojo" />
+          <div className="rounded-2xl border border-[var(--border)] p-3">
             <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">Confirma cuando el cliente ya retiro el pedido del local.</p>
-            <PendingSubmitButton className="w-full" name="status" pendingLabel="Confirmando recojo..." value="delivered">
-              Marcar retirado
-            </PendingSubmitButton>
-          </form>
+            <Button className="w-full" disabled={isUpdating} onClick={() => void onStatusChange(order.id, "delivered")} type="button">
+              {isUpdating ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {isUpdating ? "Guardando..." : "Marcar retirado"}
+            </Button>
+          </div>
         ) : order.status === "delivered" ? (
           <DispatchStatusPanel label="Retirado" tone="success" value={order.deliveredAt} />
         ) : (
@@ -919,7 +936,7 @@ function PickupOrderCard({ order, restaurantSlug, businessType, now }: { order: 
   );
 }
 
-function TableServiceOrderCard({ order, restaurantSlug, businessType, now }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"]; now: Date }) {
+function TableServiceOrderCard({ order, businessType, now, isUpdating, onStatusChange }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"]; now: Date; isUpdating: boolean; onStatusChange: OrderStatusChangeHandler }) {
   const isActive = order.status === "accepted" || order.status === "preparing";
 
   return (
@@ -927,19 +944,15 @@ function TableServiceOrderCard({ order, restaurantSlug, businessType, now }: { o
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start">
         <OrderOperationalSummary businessType={businessType} now={now} order={order} title="Mesa" />
         {isActive ? (
-          <OrderReadyActionPanel now={now} order={order} restaurantSlug={restaurantSlug} tab="pedidos" />
+          <OrderReadyActionPanel isUpdating={isUpdating} now={now} onStatusChange={onStatusChange} order={order} />
         ) : order.status === "ready" ? (
-          <form action={updateOrderStatusAction} className="rounded-2xl border border-[var(--border)] p-3">
-            <input name="restaurantId" type="hidden" value={order.restaurantId} />
-            <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
-            <input name="orderId" type="hidden" value={order.id} />
-            <input name="source" type="hidden" value="caja" />
-            <input name="tab" type="hidden" value="pedidos" />
+          <div className="rounded-2xl border border-[var(--border)] p-3">
             <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">Cuando el pedido ya fue entregado a la mesa, marcalo como servido para cerrar el seguimiento.</p>
-            <PendingSubmitButton className="w-full" name="status" pendingLabel="Marcando servido..." value="delivered">
-              Marcar servido
-            </PendingSubmitButton>
-          </form>
+            <Button className="w-full" disabled={isUpdating} onClick={() => void onStatusChange(order.id, "delivered")} type="button">
+              {isUpdating ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {isUpdating ? "Guardando..." : "Marcar servido"}
+            </Button>
+          </div>
         ) : (
           <div className="rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-bold text-[var(--color-warning-strong)]">
             {businessTypeSupportsKitchen(businessType) ? "Aun esta en cocina." : "Aun esta en preparacion."} Cuando quede listo podras marcarlo como servido.
@@ -950,27 +963,22 @@ function TableServiceOrderCard({ order, restaurantSlug, businessType, now }: { o
   );
 }
 
-function OrderReadyActionPanel({ order, restaurantSlug, tab, now }: { order: Order; restaurantSlug: string; tab: "delivery" | "recojo" | "pedidos"; now: Date }) {
+function OrderReadyActionPanel({ order, now, isUpdating, onStatusChange }: { order: Order; now: Date; isUpdating: boolean; onStatusChange: OrderStatusChangeHandler }) {
   const dueAt = kitchenDueDate(order);
   const remainingMinutes = minutesUntil(dueAt, now);
   const overdue = remainingMinutes <= 0;
 
   return (
-    <form action={updateOrderStatusAction} className={cn("rounded-2xl border p-3", overdue ? "border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)]" : "border-[var(--border)]")}>
-      <input name="restaurantId" type="hidden" value={order.restaurantId} />
-      <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
-      <input name="orderId" type="hidden" value={order.id} />
-      <input name="source" type="hidden" value="caja" />
-      <input name="tab" type="hidden" value={tab} />
+    <div className={cn("rounded-2xl border p-3", overdue ? "border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)]" : "border-[var(--border)]")}>
       <div className={cn("mb-3 flex items-start gap-2 text-xs font-bold leading-5", overdue ? "text-[var(--color-danger-strong)]" : "text-[var(--muted)]")}>
         {overdue ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />}
         <p>{overdue ? `Tiempo cumplido hace ${elapsedLabel(Math.abs(remainingMinutes))}.` : `Meta ${orderPrepMinutes(order)} min, objetivo ${formatShortTime(dueAt)}.`} Marca listo solo cuando cocina avise el numero.</p>
       </div>
-      <PendingSubmitButton className="w-full" name="status" pendingLabel="Marcando listo..." value="ready">
-        <CheckCircle2 className="h-4 w-4" />
-        Marcar listo
-      </PendingSubmitButton>
-    </form>
+      <Button className="w-full" disabled={isUpdating} onClick={() => void onStatusChange(order.id, "ready")} type="button">
+        {isUpdating ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+        {isUpdating ? "Guardando..." : "Marcar listo"}
+      </Button>
+    </div>
   );
 }
 

@@ -4,9 +4,10 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("restaurant operations use Supabase Realtime with disconnected-only fallback", async () => {
-  const [hook, orders, kitchen, cash, dashboard] = await Promise.all([
+test("restaurant operations use Supabase Realtime with optimistic order reconciliation", async () => {
+  const [hook, liveOrders, orders, kitchen, cash, dashboard] = await Promise.all([
     readFile(new URL("src/lib/client/use-restaurant-realtime-refresh.ts", root), "utf8"),
+    readFile(new URL("src/lib/client/use-live-orders.ts", root), "utf8"),
     readFile(new URL("src/components/orders/OrdersReceptionClient.tsx", root), "utf8"),
     readFile(new URL("src/components/kitchen/KitchenBoardClient.tsx", root), "utf8"),
     readFile(new URL("src/components/cash/CashWorkspaceClient.tsx", root), "utf8"),
@@ -16,6 +17,11 @@ test("restaurant operations use Supabase Realtime with disconnected-only fallbac
   assert.match(hook, /postgres_changes/);
   assert.match(hook, /if \(!connectedRef\.current\)/);
   assert.match(hook, /60_000/);
+  assert.match(hook, /onChangeRef\.current/);
+  assert.match(liveOrders, /updateOperationalOrderStatusAction/);
+  assert.match(liveOrders, /pendingChangesRef/);
+  assert.match(liveOrders, /patchOrderFromRealtime/);
+  assert.match(liveOrders, /pendingChange\.previousOrder/);
   assert.match(orders, /scope: "orders"/);
   assert.match(kitchen, /scope: "kitchen"/);
   assert.match(cash, /scope: "cash"/);

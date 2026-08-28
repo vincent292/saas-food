@@ -4,11 +4,12 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("order action buttons disable only themselves while a form is pending", async () => {
-  const [button, reception, cash, pendingOrder, delivery, pos] = await Promise.all([
+test("order action buttons isolate pending forms and optimistic status changes", async () => {
+  const [button, reception, cash, liveOrders, pendingOrder, delivery, pos] = await Promise.all([
     readFile(new URL("src/components/ui/PendingSubmitButton.tsx", root), "utf8"),
     readFile(new URL("src/components/orders/OrdersReceptionClient.tsx", root), "utf8"),
     readFile(new URL("src/components/cash/CashWorkspaceClient.tsx", root), "utf8"),
+    readFile(new URL("src/lib/client/use-live-orders.ts", root), "utf8"),
     readFile(new URL("src/components/orders/PendingOrderReviewCard.tsx", root), "utf8"),
     readFile(new URL("src/app/delivery/[token]/page.tsx", root), "utf8"),
     readFile(new URL("src/components/cash/POSProductGrid.tsx", root), "utf8"),
@@ -18,15 +19,20 @@ test("order action buttons disable only themselves while a form is pending", asy
   assert.match(button, /disabled=\{disabled \|\| pending\}/);
   assert.match(button, /LoaderCircle/);
   assert.match(reception, /PendingSubmitButton/);
-  assert.match(cash, /PendingSubmitButton/);
+  assert.match(reception, /pendingOrderIds\.has/);
+  assert.match(cash, /pendingOrderIds\.has/);
+  assert.match(cash, /Guardando\.\.\./);
+  assert.match(liveOrders, /updateOperationalOrderStatusAction/);
+  assert.match(liveOrders, /pendingChangesRef\.current\.has/);
   assert.match(pendingOrder, /Aprobando y cobrando\.\.\./);
   assert.match(delivery, /Confirmando entrega\.\.\./);
   assert.doesNotMatch(pos, /BrandLoadingOverlay/);
 });
 
 test("charging and status transitions are idempotent under duplicate submissions", async () => {
-  const [migration, actions] = await Promise.all([
+  const [migration, statusMigration, actions] = await Promise.all([
     readFile(new URL("supabase/migrations/0090_idempotent_order_charging.sql", root), "utf8"),
+    readFile(new URL("supabase/migrations/0092_fast_operational_order_status.sql", root), "utf8"),
     readFile(new URL("src/app/admin/actions.ts", root), "utf8"),
   ]);
 
@@ -36,4 +42,10 @@ test("charging and status transitions are idempotent under duplicate submissions
   assert.match(actions, /\.eq\("status", order\.status\)/);
   assert.match(actions, /currentOrder\?\.status === nextStatus/);
   assert.match(actions, /statusChanged = false/);
+  assert.match(statusMigration, /update orders as target/);
+  assert.match(statusMigration, /target\.status = p_expected_status/);
+  assert.match(statusMigration, /current_order\.status = p_next_status/);
+  assert.match(statusMigration, /security invoker/);
+  assert.match(actions, /update_operational_order_status/);
+  assert.match(actions, /scheduleOrderStatusSideEffects/);
 });

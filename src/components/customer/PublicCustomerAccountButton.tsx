@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/Input";
 import {
   createPublicCustomerAddress,
   customerErrorMessage,
-  fetchPublicCustomerAccount,
   notifyCustomerAccountChanged,
   registerPublicCustomer,
   signInPublicCustomer,
@@ -24,6 +23,7 @@ import { cn } from "@/lib/utils/cn";
 import { formatShortDate } from "@/lib/utils/dates";
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
+import { usePublicCustomerStore } from "@/stores/public-customer-store";
 
 type ButtonTone = "onPrimary" | "surface" | "plain";
 type CustomerAuthMode = "login" | "register";
@@ -49,27 +49,13 @@ export function PublicCustomerAccountButton({
   tone?: ButtonTone;
 }) {
   const [open, setOpen] = useState(initialOpen);
-  const [account, setAccount] = useState<PublicCustomerAccount>({ profile: null, addresses: [], orders: [] });
-  const [sessionEmail, setSessionEmail] = useState("");
-  const [sessionName, setSessionName] = useState("");
-  const [mustChangePassword, setMustChangePassword] = useState(false);
-  const [loading, setLoading] = useState(!initialOpen);
+  const account = usePublicCustomerStore((state) => state.account);
+  const sessionEmail = usePublicCustomerStore((state) => state.sessionEmail);
+  const sessionName = usePublicCustomerStore((state) => state.sessionName);
+  const mustChangePassword = usePublicCustomerStore((state) => state.mustChangePassword);
+  const loading = usePublicCustomerStore((state) => state.loading);
+  const refreshAccount = usePublicCustomerStore((state) => state.refreshCustomerAccount);
   const closeModal = useCallback(() => setOpen(false), []);
-
-  async function refreshAccount() {
-    setLoading(true);
-    try {
-      const supabase = createCustomerClient();
-      const { data } = await supabase.auth.getSession();
-      const metadata = data.session?.user.user_metadata as { full_name?: string; name?: string; must_change_password?: boolean } | undefined;
-      setSessionEmail(data.session?.user.email ?? "");
-      setSessionName(metadata?.full_name?.trim() || metadata?.name?.trim() || "");
-      setMustChangePassword(metadata?.must_change_password === true);
-      setAccount(data.session ? await fetchPublicCustomerAccount() : { profile: null, addresses: [], orders: [] });
-    } finally {
-      setLoading(false);
-    }
-  }
 
   useEffect(() => {
     const initialRefresh = window.setTimeout(() => {
@@ -85,7 +71,7 @@ export function PublicCustomerAccountButton({
       data.subscription.unsubscribe();
       window.removeEventListener("yopido:customer-account-changed", refreshAccount);
     };
-  }, []);
+  }, [refreshAccount]);
 
   const label = account.profile?.fullName?.split(" ")[0] || sessionEmail.split("@")[0] || "Mi Yopido";
   const defaultButtonClassName = cn(

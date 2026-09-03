@@ -12,10 +12,9 @@ import { Button } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input } from "@/components/ui/Input";
 import { businessCatalogItemsLabel, businessCatalogLabel } from "@/lib/restaurant-directory-options";
-import { customerAccountChangedEvent, fetchPublicCustomerAccount, type PublicCustomerAccount } from "@/lib/client/customer-account";
+import { customerAccountChangedEvent, type PublicCustomerAccount } from "@/lib/client/customer-account";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { createCustomerClient } from "@/lib/supabase/customer-client";
-import { readCart, writeCart } from "@/lib/utils/cart";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatBusinessHour, getBusinessStatus, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
@@ -24,24 +23,15 @@ import { productAvailabilityLabels } from "@/lib/utils/product-availability";
 import { productImageFitStyle, type ProductImageFit } from "@/lib/utils/product-image-fit";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
+import { usePublicOrderStore, type PublicCartItem, type PublicOrderType } from "@/stores/public-order-store";
+import { usePublicCustomerStore } from "@/stores/public-customer-store";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductStockAvailability, ProductVariant } from "@/types/product.types";
 import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
-type PublicOrderType = "delivery" | "pickup";
 type SelectedOptions = Record<string, string[]>;
 export type ProductConfigMap = Record<string, { variants: ProductVariant[]; optionGroups: ProductOptionGroup[] }>;
 
-type CartItem = {
-  cartId: string;
-  productId: string;
-  variantId?: string;
-  optionIds?: string[];
-  name: string;
-  price: number;
-  quantity: number;
-  imageUrl: string;
-  notes?: string;
-};
+type CartItem = PublicCartItem;
 
 const defaultImage = defaultProductImage;
 const dismissedAnnouncementStoragePrefix = "yopido:dismissed-announcement";
@@ -120,8 +110,13 @@ export function PublicRestaurantOrderClient({
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [productQuery, setProductQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [cartHydrated, setCartHydrated] = useState(false);
+  const cart = usePublicOrderStore((state) => state.carts[restaurant.slug] ?? []);
+  const hydrateCart = usePublicOrderStore((state) => state.hydrateCart);
+  const addCartItem = usePublicOrderStore((state) => state.addCartItem);
+  const changeCartItemQuantity = usePublicOrderStore((state) => state.changeCartItemQuantity);
+  const checkoutPreferences = usePublicOrderStore((state) => state.checkoutPreferences[restaurant.slug]);
+  const initializeCheckout = usePublicOrderStore((state) => state.initializeCheckout);
+  const setCheckoutPreferences = usePublicOrderStore((state) => state.setCheckoutPreferences);
   const [drawerOpen, setDrawerOpen] = useState(initialOrderOpen);
   const [drawerClosing, setDrawerClosing] = useState(false);
   const [shareState, setShareState] = useState<"idle" | "copied">("idle");
@@ -138,10 +133,20 @@ export function PublicRestaurantOrderClient({
     return dismissedId === firstAnnouncementId ? "" : firstAnnouncementId;
   });
   const businessStatus = useMemo(() => getBusinessStatus(businessHours, new Date(), DEFAULT_RESTAURANT_TIME_ZONE), [businessHours]);
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "qr">("cash");
-  const [requiresInvoice, setRequiresInvoice] = useState(false);
-  const [fulfillmentMode, setFulfillmentMode] = useState<"now" | "scheduled">(() => (businessStatus.hasSchedule && !businessStatus.isOpen ? "scheduled" : "now"));
-  const [orderType, setOrderType] = useState<PublicOrderType>(() => (settings?.pickupEnabled === false && settings?.deliveryEnabled ? "delivery" : "pickup"));
+  const checkoutDefaults = useMemo(() => ({
+    paymentMethod: "cash" as const,
+    requiresInvoice: false,
+    fulfillmentMode: businessStatus.hasSchedule && !businessStatus.isOpen ? "scheduled" as const : "now" as const,
+    orderType: (settings?.pickupEnabled === false && settings?.deliveryEnabled ? "delivery" : "pickup") as PublicOrderType,
+  }), [businessStatus.hasSchedule, businessStatus.isOpen, settings?.deliveryEnabled, settings?.pickupEnabled]);
+  const paymentMethod = checkoutPreferences?.paymentMethod ?? checkoutDefaults.paymentMethod;
+  const requiresInvoice = checkoutPreferences?.requiresInvoice ?? checkoutDefaults.requiresInvoice;
+  const fulfillmentMode = checkoutPreferences?.fulfillmentMode ?? checkoutDefaults.fulfillmentMode;
+  const orderType = checkoutPreferences?.orderType ?? checkoutDefaults.orderType;
+  const setPaymentMethod = useCallback((paymentMethod: "cash" | "qr") => setCheckoutPreferences(restaurant.slug, { paymentMethod }), [restaurant.slug, setCheckoutPreferences]);
+  const setRequiresInvoice = useCallback((requiresInvoice: boolean) => setCheckoutPreferences(restaurant.slug, { requiresInvoice }), [restaurant.slug, setCheckoutPreferences]);
+  const setFulfillmentMode = useCallback((fulfillmentMode: "now" | "scheduled") => setCheckoutPreferences(restaurant.slug, { fulfillmentMode }), [restaurant.slug, setCheckoutPreferences]);
+  const setOrderType = useCallback((orderType: PublicOrderType) => setCheckoutPreferences(restaurant.slug, { orderType }), [restaurant.slug, setCheckoutPreferences]);
   const activeClosure = announcements.find((announcement) => announcement.type === "closure");
   const visibleAnnouncement = announcements.find((announcement) => announcement.id === visibleAnnouncementId);
   const availabilityLabel = activeClosure
@@ -216,24 +221,15 @@ export function PublicRestaurantOrderClient({
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      setCart(readCart(restaurant.slug) as CartItem[]);
-      setCartHydrated(true);
+      hydrateCart(restaurant.slug);
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, [restaurant.slug]);
+  }, [hydrateCart, restaurant.slug]);
 
   useEffect(() => {
-    if (!cartHydrated) {
-      return;
-    }
-
-    writeCart(cart, {
-      restaurantId: restaurant.id,
-      restaurantName: restaurant.name,
-      restaurantSlug: restaurant.slug,
-    });
-  }, [cart, cartHydrated, restaurant.id, restaurant.name, restaurant.slug]);
+    initializeCheckout(restaurant.slug, checkoutDefaults);
+  }, [checkoutDefaults, initializeCheckout, restaurant.slug]);
 
   function addConfiguredProduct(product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) {
     const price = product.price + (variant?.priceDelta ?? 0) + selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
@@ -242,22 +238,15 @@ export function PublicRestaurantOrderClient({
     const name = variant ? `${product.name} - ${variant.name}` : product.name;
     const cartId = [product.id, variant?.id ?? "base", ...selectedOptions.map((option) => option.id).sort()].join(":");
 
-    setCart((current) => {
-      const existing = current.find((item) => item.cartId === cartId);
-      if (existing) {
-        return current.map((item) => (item.cartId === cartId ? { ...item, quantity: item.quantity + 1 } : item));
-      }
-      return [...current, { cartId, productId: product.id, variantId: variant?.id, optionIds: selectedOptions.map((option) => option.id), name, price, quantity: 1, imageUrl: product.imageUrl || defaultImage, notes: itemNotes }];
-    });
+    addCartItem(
+      { restaurantId: restaurant.id, restaurantName: restaurant.name, restaurantSlug: restaurant.slug },
+      { cartId, productId: product.id, variantId: variant?.id, optionIds: selectedOptions.map((option) => option.id), name, price, quantity: 1, imageUrl: product.imageUrl || defaultImage, notes: itemNotes },
+    );
     setSelectedProduct(null);
   }
 
   function changeQuantity(cartId: string, delta: number) {
-    setCart((current) =>
-      current
-        .map((item) => (item.cartId === cartId ? { ...item, quantity: item.quantity + delta } : item))
-        .filter((item) => item.quantity > 0),
-    );
+    changeCartItemQuantity({ restaurantId: restaurant.id, restaurantName: restaurant.name, restaurantSlug: restaurant.slug }, cartId, delta);
   }
 
   function openDrawer() {
@@ -1186,9 +1175,10 @@ function PublicOrderPanel({
   const [activeStep, setActiveStep] = useState<OrderStepKey>("fulfillment");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
-  const [customerAccount, setCustomerAccount] = useState<PublicCustomerAccount>({ profile: null, addresses: [] });
-  const [customerAccountLoaded, setCustomerAccountLoaded] = useState(false);
-  const [customerSessionEmail, setCustomerSessionEmail] = useState("");
+  const customerAccount = usePublicCustomerStore((state) => state.account);
+  const customerAccountLoaded = usePublicCustomerStore((state) => state.loaded);
+  const customerSessionEmail = usePublicCustomerStore((state) => state.sessionEmail);
+  const refreshCustomerAccount = usePublicCustomerStore((state) => state.refreshCustomerAccount);
   const [selectedCustomerAddressId, setSelectedCustomerAddressId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -1223,61 +1213,41 @@ function PublicOrderPanel({
   const canUseSavedCustomer = Boolean(customerAccount.profile && (orderType !== "delivery" || selectedCustomerAddress));
 
   useEffect(() => {
-    let active = true;
-
-    async function loadAccount() {
-      try {
-        const supabase = createCustomerClient();
-        const { data } = await supabase.auth.getSession();
-        if (!active) return;
-        const sessionEmail = data.session?.user.email ?? "";
-        setCustomerSessionEmail(sessionEmail);
-        if (sessionEmail) {
-          setCustomerEmail(sessionEmail);
-        }
-        if (!data.session) {
-          setCustomerAccount({ profile: null, addresses: [] });
-          setCustomerAccountLoaded(true);
-          setSelectedCustomerAddressId("");
-          return;
-        }
-
-        const account = await fetchPublicCustomerAccount();
-        if (!active) return;
-        setCustomerAccount(account);
-        setCustomerAccountLoaded(true);
-        if (account.profile) {
-          setCustomerName(account.profile.fullName);
-          setCustomerPhone(account.profile.phone);
-          setCustomerEmail(account.profile.email);
-        }
-        const preferredAddress = account.addresses.find((address) => address.isDefault) ?? account.addresses[0];
-        if (preferredAddress) {
-          applySavedCustomerAddress(preferredAddress);
-        } else {
-          setSelectedCustomerAddressId("");
-        }
-      } catch {
-        if (!active) return;
-        setCustomerSessionEmail("");
-        setCustomerAccount({ profile: null, addresses: [] });
-        setCustomerAccountLoaded(true);
-        setSelectedCustomerAddressId("");
-      }
-    }
-
-    void loadAccount();
+    const timer = window.setTimeout(() => void refreshCustomerAccount(), 0);
     const supabase = createCustomerClient();
     const { data } = supabase.auth.onAuthStateChange(() => {
-      void loadAccount();
+      void refreshCustomerAccount();
     });
-    window.addEventListener(customerAccountChangedEvent, loadAccount);
+    window.addEventListener(customerAccountChangedEvent, refreshCustomerAccount);
     return () => {
-      active = false;
+      window.clearTimeout(timer);
       data.subscription.unsubscribe();
-      window.removeEventListener(customerAccountChangedEvent, loadAccount);
+      window.removeEventListener(customerAccountChangedEvent, refreshCustomerAccount);
     };
-  }, [applySavedCustomerAddress]);
+  }, [refreshCustomerAccount]);
+
+  useEffect(() => {
+    if (!customerAccountLoaded) return;
+
+    const timer = window.setTimeout(() => {
+      if (customerSessionEmail) {
+        setCustomerEmail(customerSessionEmail);
+      }
+      if (customerAccount.profile) {
+        setCustomerName(customerAccount.profile.fullName);
+        setCustomerPhone(customerAccount.profile.phone);
+        setCustomerEmail(customerAccount.profile.email);
+      }
+      const preferredAddress = customerAccount.addresses.find((address) => address.isDefault) ?? customerAccount.addresses[0];
+      if (preferredAddress) {
+        applySavedCustomerAddress(preferredAddress);
+      } else {
+        setSelectedCustomerAddressId("");
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [applySavedCustomerAddress, customerAccount, customerAccountLoaded, customerSessionEmail]);
 
   const steps = useMemo<Array<{ key: OrderStepKey; label: string; icon: ReactNode }>>(
     () => [

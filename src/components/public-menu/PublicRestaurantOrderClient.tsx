@@ -1215,14 +1215,19 @@ function PublicOrderPanel({
   useEffect(() => {
     const timer = window.setTimeout(() => void refreshCustomerAccount(), 0);
     const supabase = createCustomerClient();
-    const { data } = supabase.auth.onAuthStateChange(() => {
-      void refreshCustomerAccount();
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      window.setTimeout(() => {
+        void refreshCustomerAccount(session);
+      }, 0);
     });
-    window.addEventListener(customerAccountChangedEvent, refreshCustomerAccount);
+    const handleCustomerAccountChanged = () => {
+      void refreshCustomerAccount();
+    };
+    window.addEventListener(customerAccountChangedEvent, handleCustomerAccountChanged);
     return () => {
       window.clearTimeout(timer);
       data.subscription.unsubscribe();
-      window.removeEventListener(customerAccountChangedEvent, refreshCustomerAccount);
+      window.removeEventListener(customerAccountChangedEvent, handleCustomerAccountChanged);
     };
   }, [refreshCustomerAccount]);
 

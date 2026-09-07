@@ -62,14 +62,19 @@ export function PublicCustomerAccountButton({
       void refreshAccount();
     }, 0);
     const supabase = createCustomerClient();
-    const { data } = supabase.auth.onAuthStateChange(() => {
-      void refreshAccount();
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      window.setTimeout(() => {
+        void refreshAccount(session);
+      }, 0);
     });
-    window.addEventListener("yopido:customer-account-changed", refreshAccount);
+    const handleCustomerAccountChanged = () => {
+      void refreshAccount();
+    };
+    window.addEventListener("yopido:customer-account-changed", handleCustomerAccountChanged);
     return () => {
       window.clearTimeout(initialRefresh);
       data.subscription.unsubscribe();
-      window.removeEventListener("yopido:customer-account-changed", refreshAccount);
+      window.removeEventListener("yopido:customer-account-changed", handleCustomerAccountChanged);
     };
   }, [refreshAccount]);
 

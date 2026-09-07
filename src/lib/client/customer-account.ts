@@ -128,8 +128,7 @@ export async function signOutPublicCustomer() {
   notifyCustomerAccountChanged();
 }
 
-export async function fetchPublicCustomerAccount(): Promise<PublicCustomerAccount> {
-  const token = await accessToken();
+export async function fetchPublicCustomerAccountWithToken(token: string): Promise<PublicCustomerAccount> {
   if (!token) return { profile: null, addresses: [], orders: [] };
 
   const response = await fetch("/api/customers/profile", {
@@ -140,6 +139,10 @@ export async function fetchPublicCustomerAccount(): Promise<PublicCustomerAccoun
     await parseApiError(response);
   }
   return (await response.json()) as PublicCustomerAccount;
+}
+
+export async function fetchPublicCustomerAccount(): Promise<PublicCustomerAccount> {
+  return fetchPublicCustomerAccountWithToken(await accessToken());
 }
 
 export async function updatePublicCustomerProfile(input: {

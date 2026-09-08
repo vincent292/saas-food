@@ -35,6 +35,7 @@ type CartItem = PublicCartItem;
 
 const defaultImage = defaultProductImage;
 const dismissedAnnouncementStoragePrefix = "yopido:dismissed-announcement";
+const emptyCart: CartItem[] = [];
 
 function isDisplayImage(value?: string | null) {
   return Boolean(value && (value.startsWith("http") || value.startsWith("/")) && !value.includes("imagendefault"));
@@ -110,7 +111,7 @@ export function PublicRestaurantOrderClient({
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [productQuery, setProductQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const cart = usePublicOrderStore((state) => state.carts[restaurant.slug] ?? []);
+  const cart = usePublicOrderStore((state) => state.carts[restaurant.slug] ?? emptyCart);
   const hydrateCart = usePublicOrderStore((state) => state.hydrateCart);
   const addCartItem = usePublicOrderStore((state) => state.addCartItem);
   const changeCartItemQuantity = usePublicOrderStore((state) => state.changeCartItemQuantity);

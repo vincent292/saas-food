@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/types/database.types";
@@ -37,6 +37,7 @@ export function useRestaurantRealtimeRefresh({
 }) {
   const router = useRouter();
   const connectedRef = useRef(false);
+  const channelId = useId().replaceAll(":", "");
   const onChangeRef = useRef(onChange);
   const refreshTimeoutRef = useRef<number | null>(null);
 
@@ -59,7 +60,7 @@ export function useRestaurantRealtimeRefresh({
     };
 
     const supabase = createClient();
-    let channel = supabase.channel(`yopido-${scope}-${restaurantId || "owner"}`);
+    let channel = supabase.channel(`yopido-${scope}-${restaurantId || "owner"}-${channelId}`);
     for (const table of tablesByScope[scope]) {
       channel = channel.on(
         "postgres_changes",
@@ -108,5 +109,5 @@ export function useRestaurantRealtimeRefresh({
       document.removeEventListener("visibilitychange", refreshIfVisible);
       void supabase.removeChannel(channel);
     };
-  }, [enabled, restaurantId, router, scope]);
+  }, [channelId, enabled, restaurantId, router, scope]);
 }

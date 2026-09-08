@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { NewOrderSoundAlert } from "@/components/orders/NewOrderSoundAlert";
 import { createClient } from "@/lib/supabase/client";
 import type { Order } from "@/types/order.types";
@@ -97,6 +97,7 @@ function realtimeOrder(row: RealtimeOrderRow): Order | null {
 
 export function GlobalOrderSoundAlert({ restaurantId, orders }: { restaurantId: string; orders: Order[] }) {
   const router = useRouter();
+  const channelId = useId().replaceAll(":", "");
   const realtimeConnectedRef = useRef(false);
   const [liveOrders, setLiveOrders] = useState<Order[]>([]);
 
@@ -154,7 +155,7 @@ export function GlobalOrderSoundAlert({ restaurantId, orders }: { restaurantId: 
     };
 
     const channel = supabase
-      .channel(`admin-global-orders-${restaurantId}`)
+      .channel(`admin-global-orders-${restaurantId}-${channelId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurantId}` }, (payload) => {
         const nextOrder = realtimeOrder((payload.new ?? payload.old ?? {}) as RealtimeOrderRow);
         if (nextOrder) {
@@ -194,7 +195,7 @@ export function GlobalOrderSoundAlert({ restaurantId, orders }: { restaurantId: 
       document.removeEventListener("visibilitychange", refreshOnFocus);
       void supabase.removeChannel(channel);
     };
-  }, [restaurantId]);
+  }, [channelId, restaurantId]);
 
   return (
     <NewOrderSoundAlert

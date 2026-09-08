@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { businessDayKey } from "@/lib/utils/dates";
 import type { Order } from "@/types/order.types";
@@ -61,6 +61,7 @@ export function useLiveOrderCounts({
   initialOrders?: Order[];
   restaurantId?: string;
 }) {
+  const channelId = useId().replaceAll(":", "");
   const initialCounts = useMemo(() => countsFromOrders(initialOrders), [initialOrders]);
   const [counts, setCounts] = useState<LiveOrderCounts>(initialCounts);
 
@@ -106,7 +107,7 @@ export function useLiveOrderCounts({
 
     const supabase = createClient();
     const channel = supabase
-      .channel(`yopido-order-counts-${restaurantId}`)
+      .channel(`yopido-order-counts-${restaurantId}-${channelId}`)
       .on(
         "postgres_changes",
         {
@@ -134,7 +135,7 @@ export function useLiveOrderCounts({
       document.removeEventListener("visibilitychange", refreshSafely);
       void supabase.removeChannel(channel);
     };
-  }, [enabled, refreshCounts, restaurantId]);
+  }, [channelId, enabled, refreshCounts, restaurantId]);
 
   return counts;
 }

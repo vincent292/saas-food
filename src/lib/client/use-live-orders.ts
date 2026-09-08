@@ -122,6 +122,10 @@ export function useLiveOrders({
       return true;
     }
 
+    if (!ordersRef.current.some((order) => order.id === orderId)) {
+      return false;
+    }
+
     const incomingStatus = typeof record.status === "string" ? (record.status as OrderStatus) : undefined;
     const pendingChange = pendingChangesRef.current.get(orderId);
     if (pendingChange && incomingStatus && incomingStatus !== pendingChange.previousOrder.status) {

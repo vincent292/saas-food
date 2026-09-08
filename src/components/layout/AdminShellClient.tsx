@@ -33,6 +33,7 @@ import { signOutAction } from "@/app/admin/actions";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { PanelNotificationBell } from "@/components/notifications/PanelNotificationBell";
 import { GlobalOrderSoundAlert } from "@/components/orders/GlobalOrderSoundAlert";
+import { useLiveOrderCounts } from "@/lib/client/use-live-order-counts";
 import { cn } from "@/lib/utils/cn";
 import type { Order } from "@/types/order.types";
 import type { PanelNotification } from "@/types/notification.types";
@@ -119,6 +120,11 @@ export function AdminShellClient({
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState({ fromPathname: "", module: "" });
+  const liveOrderCounts = useLiveOrderCounts({
+    enabled: Boolean(restaurantId),
+    initialOrders: pendingOrderAlerts,
+    restaurantId,
+  });
   const nav = restaurantId ? restaurantNav : superAdminNav;
   const restaurantModule = restaurantId
     ? pathname.split(`/admin/restaurantes/${restaurantId}/`)[1]?.split("/")[0] || "dashboard"
@@ -128,6 +134,14 @@ export function AdminShellClient({
     ? restaurantModuleTitles[restaurantModule] ?? restaurantName ?? "Panel administrativo"
     : titleOverride ?? superAdminNav.find((item) => item.href === pathname)?.label ?? "Panel administrativo";
   const statusLabel = restaurantStatus === "active" ? "Activo" : restaurantStatus === "suspended" ? "Suspendido" : restaurantStatus === "inactive" ? "Inactivo" : "";
+  const navCount = (href: string) => {
+    if (!restaurantId) return 0;
+    if (href === "pedidos") return liveOrderCounts.pendingReview + liveOrderCounts.tableActive;
+    if (href === "cocina") return liveOrderCounts.kitchenActive;
+    if (href === "caja") return liveOrderCounts.operationalTotal;
+    if (href === "mesas") return liveOrderCounts.tableActive;
+    return 0;
+  };
 
   return (
     <div className="admin-panel min-h-dvh bg-[var(--color-surface)] text-[var(--color-heading)]">
@@ -161,6 +175,7 @@ export function AdminShellClient({
             const href = restaurantId ? `/admin/restaurantes/${restaurantId}/${item.href}` : item.href;
             const pendingModule = pendingNavigation.fromPathname === pathname ? pendingNavigation.module : "";
             const selected = (pendingModule || active) === item.href;
+            const count = navCount(item.href);
 
             return (
               <Link
@@ -183,6 +198,11 @@ export function AdminShellClient({
               >
                 <item.icon className="h-4 w-4 shrink-0" />
                 <span className="truncate">{item.label}</span>
+                {count > 0 ? (
+                  <span className={cn("ml-auto grid min-w-6 place-items-center rounded-full px-2 py-0.5 text-[11px] font-black", selected ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]")}>
+                    {count}
+                  </span>
+                ) : null}
               </Link>
             );
           })}

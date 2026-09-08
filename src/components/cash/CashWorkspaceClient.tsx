@@ -19,6 +19,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { SectionTitle } from "@/components/ui/SectionTitle";
+import { useLiveOrderCounts } from "@/lib/client/use-live-order-counts";
 import { useLiveOrders } from "@/lib/client/use-live-orders";
 import { businessCatalogLabelTitle, businessOrderStatusLabel, businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils/dates";
@@ -162,6 +163,10 @@ export function CashWorkspaceClient({
     restaurantSlug: restaurant.slug,
     scope: "cash",
   });
+  const liveOrderCounts = useLiveOrderCounts({
+    initialOrders: orders,
+    restaurantId: restaurant.id,
+  });
 
   useEffect(() => {
     const timer = window.setTimeout(() => setClientOrigin(window.location.origin), 0);
@@ -205,12 +210,9 @@ export function CashWorkspaceClient({
   const visibleActiveTableOrders = useMemo(() => activeTableOrders.filter(matchesOrderSearch), [activeTableOrders, matchesOrderSearch]);
   const visibleDeliveryOrders = useMemo(() => deliveryOrders.filter(matchesOrderSearch), [deliveryOrders, matchesOrderSearch]);
   const visiblePickupOrders = useMemo(() => pickupOrders.filter(matchesOrderSearch), [pickupOrders, matchesOrderSearch]);
-  const activeDeliveryOrderCount = useMemo(() => deliveryOrders.filter((order) => order.status !== "delivered").length, [deliveryOrders]);
-  const activePickupOrderCount = useMemo(() => pickupOrders.filter((order) => order.status !== "delivered").length, [pickupOrders]);
   const ordersById = useMemo(() => new Map(todaysOrders.map((order) => [order.id, order])), [todaysOrders]);
   const latestReport = reports[0];
   const banner = statusMessage(status, restaurant.businessType, settings?.kitchenEnabled ?? true);
-  const hasOperationalCounts = loadedTab === "pedidos" || loadedTab === "delivery" || loadedTab === "recojo" || loadedTab === "movimientos";
   const activeTabIsLoaded = activeTab === loadedTab || (operationalTabs.has(activeTab) && operationalTabs.has(loadedTab));
   const hasFullCashSummary = loadedTab === "venta" || loadedTab === "movimientos" || loadedTab === "egresos" || loadedTab === "cierre" || loadedTab === "reportes";
   const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
@@ -284,9 +286,9 @@ export function CashWorkspaceClient({
 
   const tabs: { key: CashTab; label: string; icon: LucideIcon; count?: number }[] = [
     { key: "venta", label: "Venta POS", icon: Store },
-    { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: hasOperationalCounts ? pendingOrders.length + activeTableOrders.length : undefined },
-    { key: "delivery", label: "Delivery", icon: Bike, count: hasOperationalCounts ? deliveryOrders.length : undefined },
-    { key: "recojo", label: "Recojo", icon: ShoppingBag, count: hasOperationalCounts ? pickupOrders.length : undefined },
+    { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: liveOrderCounts.pendingReview + liveOrderCounts.tableActive },
+    { key: "delivery", label: "Delivery", icon: Bike, count: liveOrderCounts.deliveryActive },
+    { key: "recojo", label: "Recojo", icon: ShoppingBag, count: liveOrderCounts.pickupActive },
     { key: "movimientos", label: "Movimientos", icon: History, count: loadedTab === "movimientos" ? movements.length : undefined },
     { key: "egresos", label: "Caja chica", icon: CreditCard },
     { key: "cierre", label: "Cierre", icon: Calculator },
@@ -343,9 +345,9 @@ export function CashWorkspaceClient({
               </>
             ) : (
               <>
-                <CompactCountMetric count={pendingOrders.length + activeTableOrders.length} label="Pedidos" tone={summary.session ? "success" : "neutral"} />
-                <CompactCountMetric count={activeDeliveryOrderCount} label="Delivery" />
-                <CompactCountMetric count={activePickupOrderCount} label="Recojo" />
+                <CompactCountMetric count={liveOrderCounts.pendingReview + liveOrderCounts.tableActive} label="Pedidos" tone={summary.session ? "success" : "neutral"} />
+                <CompactCountMetric count={liveOrderCounts.deliveryActive} label="Delivery" />
+                <CompactCountMetric count={liveOrderCounts.pickupActive} label="Recojo" />
               </>
             )}
             <Button className="col-span-3 min-h-10 whitespace-nowrap px-4 text-sm sm:col-span-1 sm:min-h-12" onClick={() => switchTab("cierre")} type="button" variant={summary.session ? "secondary" : "primary"}>

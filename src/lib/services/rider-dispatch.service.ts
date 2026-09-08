@@ -618,25 +618,21 @@ export async function assignAcceptedRiderOffer(
 
   const token = existing?.delivery_token || `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
   const { data: rider } = await admin.from("restaurant_riders").select("full_name,phone").eq("id", input.riderId).maybeSingle();
-  const { error: linkError } = await admin.from("order_delivery_links").upsert(
-    {
-      assigned_at: new Date().toISOString(),
-      delivery_name: rider?.full_name ?? null,
-      delivery_phone: rider?.phone ?? null,
-      delivery_token: token,
-      dispatch_source: "rider_auto",
-      expires_at: endOfBusinessDayIso(),
-      order_id: offerRow.order_id,
-      restaurant_id: offerRow.restaurant_id,
-      restaurant_rider_id: input.riderId,
-      rider_offer_id: offerRow.id,
-      status: "active",
-    },
-    { onConflict: "order_id" },
-  );
+  const claim = await claimRiderDeliveryOrder(admin, {
+    deliveryName: rider?.full_name ?? null,
+    deliveryPhone: rider?.phone ?? null,
+    deliveryToken: token,
+    dispatchSource: "rider_auto",
+    expiresAt: endOfBusinessDayIso(),
+    orderId: offerRow.order_id,
+    restaurantId: offerRow.restaurant_id,
+    riderId: input.riderId,
+    riderOfferId: offerRow.id,
+  });
 
-  if (linkError) {
-    return { ok: false, error: "rider-offer-accept-failed", status: 409 } as const;
+  if (!claim.ok) {
+    await admin.from("rider_delivery_offers").update({ status: "cancelled", responded_at: new Date().toISOString(), response_reason: claim.error }).eq("id", offerRow.id);
+    return { ok: false, error: claim.error, status: claim.status } as const;
   }
 
   await Promise.all([
@@ -691,6 +687,45 @@ export async function rejectRiderOffer(
 
   const next = await offerNextRiderForOrder(offerRow.order_id);
   return { ok: true, data: { next, orderId: offerRow.order_id } } as const;
+}
+
+export async function claimRiderDeliveryOrder(
+  admin: AdminClient,
+  input: {
+    deliveryName?: string | null;
+    deliveryPhone?: string | null;
+    deliveryToken?: string | null;
+    dispatchSource: "rider_auto" | "rider_manual";
+    expiresAt: string;
+    orderId: string;
+    restaurantId: string;
+    riderId: string;
+    riderOfferId?: string | null;
+  },
+) {
+  const { data, error } = await admin.rpc("claim_rider_delivery_order", {
+    p_delivery_name: input.deliveryName ?? null,
+    p_delivery_phone: input.deliveryPhone ?? null,
+    p_delivery_token: input.deliveryToken ?? null,
+    p_dispatch_source: input.dispatchSource,
+    p_expires_at: input.expiresAt,
+    p_order_id: input.orderId,
+    p_restaurant_id: input.restaurantId,
+    p_restaurant_rider_id: input.riderId,
+    p_rider_offer_id: input.riderOfferId ?? null,
+  });
+
+  if (error) {
+    return { ok: false, error: "order-claim-failed", status: 409 } as const;
+  }
+
+  const result = data?.[0];
+  if (!result || result.status !== "claimed") {
+    const code = result?.status || "order-claim-failed";
+    return { ok: false, error: code, status: code === "order-not-available" ? 404 : 409 } as const;
+  }
+
+  return { ok: true, data: { linkId: result.link_id } } as const;
 }
 
 export async function listPendingRiderOffers(admin: AdminClient, riderIds: string[]) {

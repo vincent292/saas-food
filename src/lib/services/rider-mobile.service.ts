@@ -2,7 +2,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createPublicServerClient } from "@/lib/supabase/public-server";
 import {
   assignAcceptedRiderOffer,
+  claimRiderDeliveryOrder,
   listPendingRiderOffers,
+  offerNextRiderForOrder,
   registerRiderPushToken,
   rejectRiderOffer,
   setRiderAvailability,
@@ -755,18 +757,27 @@ export async function listMobileRiderOrders(
     const { data: pendingOffers } = orderIds.length
       ? await session.admin
           .from("rider_delivery_offers")
-          .select("order_id,restaurant_rider_id,expires_at")
+          .select("order_id,restaurant_rider_id,status,expires_at")
           .in("order_id", orderIds)
-          .eq("status", "pending")
-          .gt("expires_at", new Date().toISOString())
+          .in("status", ["pending", "rejected", "accepted"])
       : { data: [] };
-    const pendingOfferByOrder = new Map((pendingOffers ?? []).map((offer) => [offer.order_id, offer.restaurant_rider_id]));
+    const liveOfferByOrder = new Map(
+      (pendingOffers ?? [])
+        .filter((offer) => offer.status === "pending" && offer.expires_at > new Date().toISOString())
+        .map((offer) => [offer.order_id, offer.restaurant_rider_id]),
+    );
+    const rejectedOrderIds = new Set(
+      (pendingOffers ?? [])
+        .filter((offer) => offer.status === "rejected" && riderIds.includes(offer.restaurant_rider_id))
+        .map((offer) => offer.order_id),
+    );
+    const acceptedOrderIds = new Set((pendingOffers ?? []).filter((offer) => offer.status === "accepted").map((offer) => offer.order_id));
     const now = Date.now();
     const availableOrders = orderRows.filter((order) => {
       const link = linksByOrder.get(order.id);
-      const pendingOfferRiderId = pendingOfferByOrder.get(order.id);
+      const pendingOfferRiderId = liveOfferByOrder.get(order.id);
       const linkExpired = Boolean(link && new Date(link.expires_at).getTime() <= now);
-      return (!pendingOfferRiderId || riderIds.includes(pendingOfferRiderId)) && (!link || linkExpired || finalDispatchStatuses.has(link.status));
+      return !rejectedOrderIds.has(order.id) && !acceptedOrderIds.has(order.id) && (!pendingOfferRiderId || riderIds.includes(pendingOfferRiderId)) && (!link || linkExpired || finalDispatchStatuses.has(link.status));
     });
 
     return {
@@ -895,6 +906,17 @@ export async function acceptMobileRiderOrder(session: MobileRiderSession, orderI
     return { ok: false, error: "order-already-delivered", status: 409 };
   }
 
+  const { data: rejectedOffer } = await session.admin
+    .from("rider_delivery_offers")
+    .select("id")
+    .eq("order_id", orderId)
+    .eq("restaurant_rider_id", rider.id)
+    .eq("status", "rejected")
+    .maybeSingle();
+  if (rejectedOffer) {
+    return { ok: false, error: "order-not-available", status: 404 };
+  }
+
   const { data: pendingOffer } = await session.admin
     .from("rider_delivery_offers")
     .select("id,restaurant_rider_id")
@@ -938,14 +960,95 @@ export async function acceptMobileRiderOrder(session: MobileRiderSession, orderI
     expires_at: endOfBusinessDayIso(),
   };
 
-  const { error } = await session.admin.from("order_delivery_links").upsert(payload, { onConflict: "order_id" });
-  if (error) {
-    return { ok: false, error: error.code === "23505" ? "order-already-assigned" : "order-accept-failed", status: 409 };
+  const claim = await claimRiderDeliveryOrder(session.admin, {
+    deliveryName: payload.delivery_name,
+    deliveryPhone: payload.delivery_phone,
+    deliveryToken: token,
+    dispatchSource: "rider_manual",
+    expiresAt: payload.expires_at,
+    orderId: orderRow.id,
+    restaurantId: orderRow.restaurant_id,
+    riderId: rider.id,
+    riderOfferId: null,
+  });
+  if (!claim.ok) {
+    return { ok: false, error: claim.error, status: claim.status };
   }
 
   const { data: link } = await session.admin.from("order_delivery_links").select(deliveryLinkSelect).eq("order_id", orderId).maybeSingle();
   const [serialized] = await hydrateOrders(session.admin, [orderRow], link ? [link as DeliveryLinkRow] : []);
   return { ok: true, data: { order: serialized } };
+}
+
+export async function rejectMobileRiderOrder(
+  session: MobileRiderSession,
+  input: {
+    orderId: string;
+    reason?: string;
+  },
+): Promise<ServiceResult<{ orderId: string }>> {
+  const restaurantIds = Array.from(new Set(session.activeRiders.map((rider) => rider.restaurantId)));
+  const { data: order } = await session.admin
+    .from("orders")
+    .select("id,restaurant_id,order_type,status")
+    .eq("id", input.orderId)
+    .eq("order_type", "delivery")
+    .eq("status", "ready")
+    .in("restaurant_id", restaurantIds)
+    .maybeSingle();
+
+  if (!order) {
+    return { ok: false, error: "order-not-available", status: 404 };
+  }
+
+  const rider = session.activeRiders.find((candidate) => candidate.restaurantId === order.restaurant_id);
+  if (!rider) {
+    return { ok: false, error: "rider-restaurant-not-allowed", status: 403 };
+  }
+
+  const { data: existingOffer } = await session.admin
+    .from("rider_delivery_offers")
+    .select("id,status")
+    .eq("order_id", input.orderId)
+    .eq("restaurant_rider_id", rider.id)
+    .in("status", ["pending", "rejected", "accepted", "expired"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingOffer?.status === "pending") {
+    const rejected = await rejectRiderOffer(session.admin, {
+      offerId: existingOffer.id,
+      reason: input.reason,
+      riderId: rider.id,
+      riderUserId: session.user.id,
+    });
+    return rejected.ok ? { ok: true, data: { orderId: input.orderId } } : { ok: false, error: rejected.error, status: rejected.status };
+  }
+
+  if (existingOffer?.status === "rejected") {
+    return { ok: true, data: { orderId: input.orderId } };
+  }
+
+  const { error } = await session.admin.from("rider_delivery_offers").insert({
+    expires_at: new Date().toISOString(),
+    offer_round: 0,
+    order_id: input.orderId,
+    restaurant_id: order.restaurant_id,
+    restaurant_rider_id: rider.id,
+    rider_user_id: session.user.id,
+    responded_at: new Date().toISOString(),
+    response_reason: input.reason?.trim() || "rider-rejected-direct-order",
+    score: 0,
+    status: "rejected",
+  });
+
+  if (error) {
+    return { ok: false, error: "rider-order-reject-failed", status: 400 };
+  }
+
+  await offerNextRiderForOrder(input.orderId);
+  return { ok: true, data: { orderId: input.orderId } };
 }
 
 export async function updateMobileRiderDeliveryStatus(

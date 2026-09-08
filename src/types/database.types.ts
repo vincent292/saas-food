@@ -1184,6 +1184,23 @@ export type Database = {
           tracking_token: string;
         }[];
       };
+      claim_rider_delivery_order: {
+        Args: {
+          p_delivery_name?: string | null;
+          p_delivery_phone?: string | null;
+          p_delivery_token?: string | null;
+          p_dispatch_source?: string;
+          p_expires_at?: string | null;
+          p_order_id: string;
+          p_restaurant_id: string;
+          p_restaurant_rider_id: string;
+          p_rider_offer_id?: string | null;
+        };
+        Returns: {
+          link_id: string | null;
+          status: string;
+        }[];
+      };
       resolve_owner_branch_capacity_request: {
         Args: {
           p_approve: boolean;

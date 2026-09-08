@@ -1088,6 +1088,7 @@ export function ProductOptionModal({
 }
 
 type OrderStepKey = "fulfillment" | "customer" | "invoice" | "payment" | "review";
+type CustomerAddressMode = "saved" | "new";
 
 function PublicOrderPanel({
   restaurant,
@@ -1179,8 +1180,10 @@ function PublicOrderPanel({
   const customerAccount = usePublicCustomerStore((state) => state.account);
   const customerAccountLoaded = usePublicCustomerStore((state) => state.loaded);
   const customerSessionEmail = usePublicCustomerStore((state) => state.sessionEmail);
+  const customerSessionName = usePublicCustomerStore((state) => state.sessionName);
   const refreshCustomerAccount = usePublicCustomerStore((state) => state.refreshCustomerAccount);
   const [selectedCustomerAddressId, setSelectedCustomerAddressId] = useState("");
+  const [customerAddressMode, setCustomerAddressMode] = useState<CustomerAddressMode>("saved");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
@@ -1188,6 +1191,7 @@ function PublicOrderPanel({
   const [deliveryAddressDetail, setDeliveryAddressDetail] = useState("");
   const [deliveryMapsUrl, setDeliveryMapsUrl] = useState("");
   const applySavedCustomerAddress = useCallback((address: PublicCustomerAccount["addresses"][number]) => {
+    setCustomerAddressMode("saved");
     setSelectedCustomerAddressId(address.id);
     setCustomerAddress(address.address);
     setDeliveryMapsUrl(address.mapsUrl ?? "");
@@ -1196,9 +1200,21 @@ function PublicOrderPanel({
         latitude: address.latitude,
         longitude: address.longitude,
       });
+    } else {
+      setDeliveryCoordinates(undefined);
     }
   }, []);
+  const useNewCustomerAddress = useCallback(() => {
+    setCustomerAddressMode("new");
+    setSelectedCustomerAddressId("");
+    setCustomerAddress("");
+    setDeliveryAddressDetail("");
+    setDeliveryMapsUrl("");
+    setDeliveryCoordinates(undefined);
+  }, []);
   const handleDeliveryCoordinatesChange = useCallback(({ latitude, longitude, mapsUrl }: { latitude: number; longitude: number; mapsUrl: string }) => {
+    setCustomerAddressMode("new");
+    setSelectedCustomerAddressId("");
     setDeliveryCoordinates({ latitude, longitude });
     setDeliveryMapsUrl(mapsUrl);
     setCustomerAddress((currentAddress) => (currentAddress.trim() ? currentAddress : "Ubicacion marcada en el mapa"));
@@ -1211,7 +1227,7 @@ function PublicOrderPanel({
     () => customerAccount.addresses.find((address) => address.id === selectedCustomerAddressId) ?? null,
     [customerAccount.addresses, selectedCustomerAddressId],
   );
-  const canUseSavedCustomer = Boolean(customerAccount.profile && (orderType !== "delivery" || selectedCustomerAddress));
+  const canUseSavedCustomer = Boolean(customerAccount.profile && (orderType !== "delivery" || (customerAddressMode === "saved" && selectedCustomerAddress)));
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refreshCustomerAccount(), 0);
@@ -1239,21 +1255,25 @@ function PublicOrderPanel({
       if (customerSessionEmail) {
         setCustomerEmail(customerSessionEmail);
       }
+      if (customerSessionName) {
+        setCustomerName(customerSessionName);
+      }
       if (customerAccount.profile) {
         setCustomerName(customerAccount.profile.fullName);
         setCustomerPhone(customerAccount.profile.phone);
         setCustomerEmail(customerAccount.profile.email);
       }
       const preferredAddress = customerAccount.addresses.find((address) => address.isDefault) ?? customerAccount.addresses[0];
-      if (preferredAddress) {
+      if (preferredAddress && customerAddressMode === "saved") {
         applySavedCustomerAddress(preferredAddress);
-      } else {
+      } else if (!preferredAddress) {
+        setCustomerAddressMode("new");
         setSelectedCustomerAddressId("");
       }
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [applySavedCustomerAddress, customerAccount, customerAccountLoaded, customerSessionEmail]);
+  }, [applySavedCustomerAddress, customerAccount, customerAccountLoaded, customerAddressMode, customerSessionEmail, customerSessionName]);
 
   const steps = useMemo<Array<{ key: OrderStepKey; label: string; icon: ReactNode }>>(
     () => [
@@ -1482,9 +1502,9 @@ function PublicOrderPanel({
             <input name="customerName" type="hidden" value={customerName} />
             <input name="customerPhone" type="hidden" value={customerPhone} />
             <input name="customerEmail" type="hidden" value={customerEmail} />
-            <input name="customerAddress" type="hidden" value={customerAddress} />
-            <input name="deliveryAddressDetail" type="hidden" value={deliveryAddressDetail} />
-            {orderType === "delivery" && selectedCustomerAddress ? (
+            {orderType !== "delivery" || (customerAddressMode === "saved" && selectedCustomerAddress) ? <input name="customerAddress" type="hidden" value={customerAddress} /> : null}
+            {orderType !== "delivery" || (customerAddressMode === "saved" && selectedCustomerAddress) ? <input name="deliveryAddressDetail" type="hidden" value={deliveryAddressDetail} /> : null}
+            {orderType === "delivery" && customerAddressMode === "saved" && selectedCustomerAddress ? (
               <>
                 <input name="deliveryLatitude" type="hidden" value={selectedCustomerAddress.latitude ?? ""} />
                 <input name="deliveryLongitude" type="hidden" value={selectedCustomerAddress.longitude ?? ""} />
@@ -1499,6 +1519,7 @@ function PublicOrderPanel({
                 <div className="min-w-0">
                   <p className="truncate text-base font-black">{customerAccount.profile.fullName}</p>
                   <p className="truncate text-sm font-semibold text-[var(--muted)]">{customerAccount.profile.phone}</p>
+                  <p className="truncate text-xs font-semibold text-[var(--muted)]">{customerAccount.profile.email}</p>
                 </div>
                 <div className="ml-auto">
                   <PublicCustomerAccountButton compact tone="surface" />
@@ -1509,7 +1530,16 @@ function PublicOrderPanel({
               <div className="space-y-3">
                 {customerAccount.addresses.length ? (
                   <>
-                    <p className="text-sm font-black">Elige direccion de entrega</p>
+                    <div className="grid grid-cols-2 rounded-2xl bg-[var(--primary-light)] p-1">
+                      <button className={cn("min-h-11 rounded-full px-2 text-xs font-black text-[var(--muted)] min-[380px]:text-sm", customerAddressMode === "saved" && "bg-[var(--primary)] text-[var(--color-on-primary)]")} onClick={() => setCustomerAddressMode("saved")} type="button">
+                        Guardadas
+                      </button>
+                      <button className={cn("min-h-11 rounded-full px-2 text-xs font-black text-[var(--muted)] min-[380px]:text-sm", customerAddressMode === "new" && "bg-[var(--primary)] text-[var(--color-on-primary)]")} onClick={useNewCustomerAddress} type="button">
+                        Nueva direccion
+                      </button>
+                    </div>
+                    <p className="text-sm font-black">{customerAddressMode === "saved" ? "Elige direccion de entrega" : "Nueva direccion de entrega"}</p>
+                    {customerAddressMode === "saved" ? (
                     <div className="grid gap-2">
                       {customerAccount.addresses.map((address) => (
                         <button
@@ -1532,18 +1562,56 @@ function PublicOrderPanel({
                         </button>
                       ))}
                     </div>
+                    ) : (
+                      <div className="grid gap-3">
+                        <label className="block text-sm font-black">
+                          Direccion de entrega
+                          <Input className="mt-2" name="customerAddress" onChange={(event) => setCustomerAddress(event.target.value)} value={customerAddress} />
+                        </label>
+                        <GoogleLocationFields
+                          hideCoordinateInputs
+                          hideMapsUrlInput
+                          label="Ubicacion de entrega"
+                          latitudeName="deliveryLatitude"
+                          longitudeName="deliveryLongitude"
+                          mapHeightClassName="h-[320px]"
+                          mapsUrlName="deliveryMapsUrl"
+                          onCoordinatesChange={handleDeliveryCoordinatesChange}
+                          showMapByDefault
+                        />
+                      </div>
+                    )}
                     <label className="block text-sm font-black">
                       Numero de casa, apartamento o aclaracion
-                      <Input className="mt-2" onChange={(event) => setDeliveryAddressDetail(event.target.value)} value={deliveryAddressDetail} />
+                      <Input className="mt-2" name={customerAddressMode === "new" ? "deliveryAddressDetail" : undefined} onChange={(event) => setDeliveryAddressDetail(event.target.value)} value={deliveryAddressDetail} />
                     </label>
                   </>
                 ) : (
-                  <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-surface)] p-4">
-                    <p className="font-black">No tienes direccion guardada.</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Agrega una direccion en Mi Yopido para no volver a escribirla.</p>
-                    <div className="mt-3">
-                      <PublicCustomerAccountButton tone="plain" />
+                  <div className="grid gap-3 rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-surface)] p-4">
+                    <div>
+                      <p className="font-black">No tienes direccion guardada.</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Puedes marcar una nueva direccion ahora o guardarla luego en Mi Yopido.</p>
                     </div>
+                    <label className="block text-sm font-black">
+                      Direccion de entrega
+                      <Input className="mt-2" name="customerAddress" onChange={(event) => setCustomerAddress(event.target.value)} value={customerAddress} />
+                    </label>
+                    <label className="block text-sm font-black">
+                      Numero de casa, apartamento o aclaracion
+                      <Input className="mt-2" name="deliveryAddressDetail" onChange={(event) => setDeliveryAddressDetail(event.target.value)} value={deliveryAddressDetail} />
+                    </label>
+                    <GoogleLocationFields
+                      hideCoordinateInputs
+                      hideMapsUrlInput
+                      label="Ubicacion de entrega"
+                      latitudeName="deliveryLatitude"
+                      longitudeName="deliveryLongitude"
+                      mapHeightClassName="h-[320px]"
+                      mapsUrlName="deliveryMapsUrl"
+                      onCoordinatesChange={handleDeliveryCoordinatesChange}
+                      showMapByDefault
+                    />
+                    <PublicCustomerAccountButton tone="plain" />
                   </div>
                 )}
                 {deliveryPolicy.distanceKm != null ? (

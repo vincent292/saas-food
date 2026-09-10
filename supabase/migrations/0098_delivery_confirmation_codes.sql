@@ -5,7 +5,7 @@ volatile
 set search_path = public
 as $$
 declare
-  v_bytes bytea := gen_random_bytes(2);
+  v_bytes bytea := extensions.gen_random_bytes(2);
   v_number integer;
 begin
   v_number := (get_byte(v_bytes, 0) * 256 + get_byte(v_bytes, 1)) % 10000;

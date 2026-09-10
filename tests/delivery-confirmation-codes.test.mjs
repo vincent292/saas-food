@@ -10,7 +10,7 @@ async function read(path) {
 
 test("delivery confirmation codes replace token-only completion paths", async () => {
   const [migration, riderStatusRoute, riderMobileService, deliveryActions, deliveryPage, dispatchPanel, tracking] = await Promise.all([
-    read("supabase/migrations/0095_delivery_confirmation_codes.sql"),
+    read("supabase/migrations/0098_delivery_confirmation_codes.sql"),
     read("src/app/api/mobile/riders/orders/[orderId]/status/route.ts"),
     read("src/lib/services/rider-mobile.service.ts"),
     read("src/app/delivery/actions.ts"),

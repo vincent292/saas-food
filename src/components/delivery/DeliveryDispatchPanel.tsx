@@ -1,6 +1,6 @@
 "use client";
 
-import { Bike, CheckCircle2, Copy, Download, ExternalLink, MessageCircle, QrCode, Search } from "lucide-react";
+import { Bike, CheckCircle2, Copy, Download, ExternalLink, KeyRound, MessageCircle, QrCode, Search } from "lucide-react";
 import Image from "next/image";
 import QRCode from "qrcode";
 import { useEffect, useState, useTransition } from "react";
@@ -17,6 +17,7 @@ type DeliveryLinkResult =
       deliveryUrl: string;
       whatsappUrl: string;
       deliveryPhone: string;
+      pickupConfirmationCode?: string;
       expiresAt: string;
     }
   | {
@@ -52,6 +53,8 @@ export function DeliveryDispatchPanel({
   const [copied, setCopied] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [isDispatchPending, startDispatchTransition] = useTransition();
+  const assignedDispatch = order.deliveryDispatch;
+  const pickupCode = assignedDispatch?.pickupConfirmationCode;
 
   useEffect(() => {
     if (!result?.ok) {
@@ -133,6 +136,29 @@ export function DeliveryDispatchPanel({
           <Search className="h-4 w-4" />
           {isDispatchPending ? "Buscando rider cercano..." : "Buscar rider afiliado"}
         </Button>
+        {assignedDispatch ? (
+          <div className="rounded-2xl border border-[var(--color-info-soft)] bg-[var(--color-info-soft)] p-3 text-sm text-[var(--color-info-strong)]">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-[0.12em]">Rider asignado</p>
+                <p className="mt-1 text-base font-black">{assignedDispatch.deliveryName || "Repartidor"}</p>
+                {assignedDispatch.deliveryPhone ? <p className="mt-0.5 text-xs font-bold">{assignedDispatch.deliveryPhone}</p> : null}
+              </div>
+              <span className="shrink-0 rounded-full bg-[var(--surface)] px-2.5 py-1 text-xs font-black">
+                {assignedDispatch.status === "delivered" ? "Entregado" : assignedDispatch.status === "arrived" ? "Recogido" : "Asignado"}
+              </span>
+            </div>
+            {pickupCode ? (
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[var(--surface)] p-3">
+                <span className="flex min-w-0 items-center gap-2 text-xs font-black uppercase tracking-[0.12em]">
+                  <KeyRound className="h-4 w-4" />
+                  Codigo de recogida
+                </span>
+                <span className="shrink-0 font-mono text-2xl font-black tracking-[0.18em]">{assignedDispatch.pickupCodeVerifiedAt ? "OK" : pickupCode}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {dispatchResult ? (
           <div
             className={cn(
@@ -168,6 +194,15 @@ export function DeliveryDispatchPanel({
             <CheckCircle2 className="h-4 w-4" />
             QR listo para pedido {result.orderNumber}
           </div>
+          {result.pickupConfirmationCode ? (
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[var(--surface)] p-3">
+              <span className="flex min-w-0 items-center gap-2 text-xs font-black uppercase tracking-[0.12em]">
+                <KeyRound className="h-4 w-4" />
+                Codigo de recogida
+              </span>
+              <span className="shrink-0 font-mono text-2xl font-black tracking-[0.18em]">{result.pickupConfirmationCode}</span>
+            </div>
+          ) : null}
           <div className="mt-3 grid gap-3 sm:grid-cols-[128px_minmax(0,1fr)]">
             <div className="grid min-h-32 place-items-center rounded-2xl bg-[var(--surface)] p-2">
               {qrDataUrl ? (

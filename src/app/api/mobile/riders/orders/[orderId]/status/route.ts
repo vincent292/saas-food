@@ -6,6 +6,7 @@ import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
 import { sendOrderWhatsAppNotification } from "@/lib/services/order-whatsapp-notification.service";
 
 const statusSchema = z.object({
+  confirmationCode: z.string().regex(/^\d{4}$/),
   status: z.enum(["arrived", "delivered"]),
 });
 
@@ -28,7 +29,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
     return NextResponse.json({ error: session.error }, { status: session.status });
   }
 
-  const result = await updateMobileRiderDeliveryStatus(session.data, orderId, parsed.data.status);
+  const result = await updateMobileRiderDeliveryStatus(session.data, orderId, parsed.data.status, parsed.data.confirmationCode);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

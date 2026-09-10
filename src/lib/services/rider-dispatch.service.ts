@@ -89,7 +89,7 @@ type RiderDispatchCandidate = {
 
 export type RiderAutoDispatchResult =
   | { ok: true; status: "offered"; offerId: string; riderId: string; riderName: string; expiresAt: string }
-  | { ok: true; status: "already_assigned"; riderId?: string | null }
+  | { ok: true; status: "already_assigned"; riderId?: string | null; riderName?: string | null }
   | { ok: true; status: "pending_offer"; offerId: string; riderId: string; expiresAt: string }
   | { ok: true; status: "manual_fallback"; reason: string }
   | { ok: false; error: string };
@@ -427,10 +427,10 @@ export async function offerNextRiderForOrder(orderId: string): Promise<RiderAuto
     return { ok: true, status: "manual_fallback", reason: "order-not-ready-delivery" };
   }
 
-  const { data: link } = await admin.from("order_delivery_links").select("id,restaurant_rider_id,status").eq("order_id", order.id).maybeSingle();
-  const existingLink = link as Pick<DeliveryLinkRow, "id" | "restaurant_rider_id" | "status"> | null;
+  const { data: link } = await admin.from("order_delivery_links").select("id,restaurant_rider_id,status,delivery_name").eq("order_id", order.id).maybeSingle();
+  const existingLink = link as Pick<DeliveryLinkRow, "id" | "restaurant_rider_id" | "status" | "delivery_name"> | null;
   if (existingLink?.restaurant_rider_id && activeDispatchStatuses.has(existingLink.status)) {
-    return { ok: true, status: "already_assigned", riderId: existingLink.restaurant_rider_id };
+    return { ok: true, status: "already_assigned", riderId: existingLink.restaurant_rider_id, riderName: existingLink.delivery_name };
   }
 
   const { data: pendingOffer } = await admin

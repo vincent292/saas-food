@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { CheckCircle2, ChefHat, ClipboardCheck, MessageCircle, PackageCheck, Phone, ReceiptText, ShoppingBag, Store, Truck, XCircle } from "lucide-react";
+import { CheckCircle2, ChefHat, ClipboardCheck, KeyRound, MessageCircle, PackageCheck, Phone, ReceiptText, ShoppingBag, Store, Truck, XCircle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { SectionTitle } from "@/components/ui/SectionTitle";
@@ -479,6 +479,20 @@ export function OrderTrackingLiveRefresh({
               </div>
             ) : null}
           </div>
+          {order.deliveryDispatch.deliveryConfirmationCode && order.deliveryDispatch.status !== "delivered" ? (
+            <div className="mt-4 flex flex-col gap-3 rounded-2xl bg-[var(--accent-soft)] p-4 text-[var(--primary-dark)] sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[var(--accent)]">
+                  <KeyRound className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase tracking-[0.14em]">Codigo de entrega</p>
+                  <p className="mt-1 text-sm font-bold">Daselo al rider cuando recibas tu pedido.</p>
+                </div>
+              </div>
+              <span className="font-mono text-3xl font-black tracking-[0.18em]">{order.deliveryDispatch.deliveryConfirmationCode}</span>
+            </div>
+          ) : null}
         </Card>
       ) : null}
 

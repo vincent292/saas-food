@@ -9,6 +9,7 @@ import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
 import { sendOrderWhatsAppNotification } from "@/lib/services/order-whatsapp-notification.service";
 
 const deliveryTokenSchema = z.object({
+  confirmationCode: z.string().regex(/^\d{4}$/),
   token: z.string().min(20),
 });
 
@@ -34,6 +35,7 @@ function scheduleDeliveryCustomerNotifications(orderId: string, status: "arrived
 
 export async function markDeliveryArrivedAction(formData: FormData) {
   const parsed = deliveryTokenSchema.safeParse({
+    confirmationCode: formData.get("confirmationCode"),
     token: formData.get("token"),
   });
 
@@ -43,6 +45,7 @@ export async function markDeliveryArrivedAction(formData: FormData) {
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("mark_delivery_order_arrived", {
+    p_confirmation_code: parsed.data.confirmationCode,
     p_delivery_token: parsed.data.token,
   });
 
@@ -65,6 +68,7 @@ export async function markDeliveryArrivedAction(formData: FormData) {
 
 export async function markDeliveryDeliveredAction(formData: FormData) {
   const parsed = deliveryTokenSchema.safeParse({
+    confirmationCode: formData.get("confirmationCode"),
     token: formData.get("token"),
   });
 
@@ -74,6 +78,7 @@ export async function markDeliveryDeliveredAction(formData: FormData) {
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("mark_delivery_order_delivered", {
+    p_confirmation_code: parsed.data.confirmationCode,
     p_delivery_token: parsed.data.token,
   });
 

@@ -8,6 +8,8 @@ type DeliveryOrderPayload = {
   delivery_phone?: string | null;
   delivery_name?: string | null;
   link_status?: DeliveryOrder["linkStatus"];
+  pickup_code_verified_at?: string | null;
+  delivery_code_verified_at?: string | null;
   opened_at?: string | null;
   arrived_at?: string | null;
   link_delivered_at?: string | null;
@@ -65,6 +67,8 @@ function mapDeliveryOrder(payload: DeliveryOrderPayload): DeliveryOrder | null {
     deliveryToken: payload.delivery_token,
     deliveryPhone: payload.delivery_phone ?? undefined,
     deliveryName: payload.delivery_name ?? undefined,
+    pickupCodeVerifiedAt: payload.pickup_code_verified_at ?? undefined,
+    deliveryCodeVerifiedAt: payload.delivery_code_verified_at ?? undefined,
     linkStatus: payload.link_status ?? "active",
     openedAt: payload.opened_at ?? undefined,
     arrivedAt: payload.arrived_at ?? undefined,

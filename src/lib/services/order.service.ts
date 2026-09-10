@@ -68,6 +68,10 @@ type DeliveryLinkRow = {
   order_id: string;
   delivery_phone: string | null;
   delivery_name: string | null;
+  pickup_confirmation_code?: string | null;
+  delivery_confirmation_code?: string | null;
+  pickup_code_verified_at?: string | null;
+  delivery_code_verified_at?: string | null;
   status: OrderDeliveryDispatch["status"];
   created_at?: string | null;
   opened_at: string | null;
@@ -90,6 +94,9 @@ type PublicOrderPayload = OrderRow & {
   delivery_opened_at?: string | null;
   delivery_arrived_at?: string | null;
   delivery_delivered_at?: string | null;
+  delivery_confirmation_code?: string | null;
+  pickup_code_verified_at?: string | null;
+  delivery_code_verified_at?: string | null;
   rider_latitude?: number | null;
   rider_longitude?: number | null;
   rider_location_accuracy_m?: number | null;
@@ -139,6 +146,9 @@ type DeliveryTrackingStatusRow = {
   status: OrderDeliveryDispatch["status"];
   delivery_phone?: string | null;
   delivery_name?: string | null;
+  delivery_confirmation_code?: string | null;
+  pickup_code_verified_at?: string | null;
+  delivery_code_verified_at?: string | null;
   created_at?: string | null;
   opened_at: string | null;
   arrived_at: string | null;
@@ -175,6 +185,10 @@ function mapDeliveryLink(row?: DeliveryLinkRow | null): OrderDeliveryDispatch | 
     status: row.status,
     deliveryPhone: row.delivery_phone ?? undefined,
     deliveryName: row.delivery_name ?? undefined,
+    pickupConfirmationCode: row.pickup_confirmation_code ?? undefined,
+    deliveryConfirmationCode: row.delivery_confirmation_code ?? undefined,
+    pickupCodeVerifiedAt: row.pickup_code_verified_at ?? undefined,
+    deliveryCodeVerifiedAt: row.delivery_code_verified_at ?? undefined,
     dispatchedAt: row.created_at ?? undefined,
     openedAt: row.opened_at ?? undefined,
     arrivedAt: row.arrived_at ?? undefined,
@@ -197,6 +211,9 @@ function mapPublicDelivery(payload: PublicOrderPayload): OrderDeliveryDispatch |
     status: payload.delivery_dispatch_status,
     deliveryPhone: payload.delivery_dispatch_phone ?? undefined,
     deliveryName: payload.delivery_dispatch_name ?? undefined,
+    deliveryConfirmationCode: payload.delivery_confirmation_code ?? undefined,
+    pickupCodeVerifiedAt: payload.pickup_code_verified_at ?? undefined,
+    deliveryCodeVerifiedAt: payload.delivery_code_verified_at ?? undefined,
     dispatchedAt: payload.delivery_dispatched_at ?? undefined,
     openedAt: payload.delivery_opened_at ?? undefined,
     arrivedAt: payload.delivery_arrived_at ?? undefined,
@@ -310,6 +327,9 @@ function mapTrackingStatus(row: OrderTrackingStatusRow, deliveryDispatch?: Deliv
           status: deliveryDispatch.status,
           deliveryPhone: deliveryDispatch.delivery_phone ?? undefined,
           deliveryName: deliveryDispatch.delivery_name ?? undefined,
+          deliveryConfirmationCode: deliveryDispatch.delivery_confirmation_code ?? undefined,
+          pickupCodeVerifiedAt: deliveryDispatch.pickup_code_verified_at ?? undefined,
+          deliveryCodeVerifiedAt: deliveryDispatch.delivery_code_verified_at ?? undefined,
           dispatchedAt: deliveryDispatch.created_at ?? undefined,
           openedAt: deliveryDispatch.opened_at ?? undefined,
           arrivedAt: deliveryDispatch.arrived_at ?? undefined,
@@ -343,6 +363,9 @@ function mapOrderToTrackingStatus(order: Order): OrderTrackingStatus {
           status: order.deliveryDispatch.status,
           deliveryPhone: order.deliveryDispatch.deliveryPhone,
           deliveryName: order.deliveryDispatch.deliveryName,
+          deliveryConfirmationCode: order.deliveryDispatch.deliveryConfirmationCode,
+          pickupCodeVerifiedAt: order.deliveryDispatch.pickupCodeVerifiedAt,
+          deliveryCodeVerifiedAt: order.deliveryDispatch.deliveryCodeVerifiedAt,
           dispatchedAt: order.deliveryDispatch.dispatchedAt,
           openedAt: order.deliveryDispatch.openedAt,
           arrivedAt: order.deliveryDispatch.arrivedAt,
@@ -474,7 +497,7 @@ export const orderService = {
         }),
       supabase
         .from("order_delivery_links")
-        .select("order_id,delivery_phone,delivery_name,status,created_at,opened_at,arrived_at,delivered_at")
+        .select("order_id,delivery_phone,delivery_name,pickup_confirmation_code,delivery_confirmation_code,pickup_code_verified_at,delivery_code_verified_at,status,created_at,opened_at,arrived_at,delivered_at")
         .in("order_id", orderIds)
         .then((result) => {
           perfLog("[orderService.listCashWorkspaceOrders] delivery-links-query", deliveryLinksStartedAt, { restaurantId, rows: result.data?.length ?? 0, error: Boolean(result.error) });
@@ -636,7 +659,7 @@ export const orderService = {
 
     const { data: deliveryLink } = await supabase
       .from("order_delivery_links")
-      .select("status,delivery_phone,delivery_name,created_at,opened_at,arrived_at,delivered_at,updated_at,rider_latitude,rider_longitude,rider_location_accuracy_m,rider_location_heading,rider_location_speed_mps,rider_location_updated_at")
+      .select("status,delivery_phone,delivery_name,pickup_code_verified_at,delivery_code_verified_at,created_at,opened_at,arrived_at,delivered_at,updated_at,rider_latitude,rider_longitude,rider_location_accuracy_m,rider_location_heading,rider_location_speed_mps,rider_location_updated_at")
       .eq("order_id", order.id)
       .maybeSingle();
 
@@ -669,7 +692,7 @@ export const orderService = {
 
     const { data: deliveryLink } = await admin
       .from("order_delivery_links")
-      .select("status,delivery_phone,delivery_name,created_at,opened_at,arrived_at,delivered_at,updated_at,rider_latitude,rider_longitude,rider_location_accuracy_m,rider_location_heading,rider_location_speed_mps,rider_location_updated_at")
+      .select("status,delivery_phone,delivery_name,delivery_confirmation_code,pickup_code_verified_at,delivery_code_verified_at,created_at,opened_at,arrived_at,delivered_at,updated_at,rider_latitude,rider_longitude,rider_location_accuracy_m,rider_location_heading,rider_location_speed_mps,rider_location_updated_at")
       .eq("order_id", order.id)
       .maybeSingle();
 

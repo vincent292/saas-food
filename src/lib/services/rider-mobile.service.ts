@@ -87,6 +87,8 @@ type DeliveryLinkRow = {
   delivery_token: string;
   delivery_phone: string | null;
   delivery_name: string | null;
+  pickup_code_verified_at?: string | null;
+  delivery_code_verified_at?: string | null;
   status: "active" | "arrived" | "delivered" | "cancelled" | "expired";
   dispatch_source?: "manual_qr" | "rider_auto" | "rider_manual";
   rider_offer_id?: string | null;
@@ -166,6 +168,8 @@ export type MobileRiderOrder = {
     riderOfferId: string | null;
     deliveryPhone: string;
     deliveryName: string;
+    pickupCodeVerifiedAt: string | null;
+    deliveryCodeVerifiedAt: string | null;
     assignedAt: string | null;
     openedAt: string | null;
     arrivedAt: string | null;
@@ -651,6 +655,8 @@ function serializeOrder({
           riderOfferId: dispatch.rider_offer_id ?? null,
           deliveryPhone: dispatch.delivery_phone ?? "",
           deliveryName: dispatch.delivery_name ?? "",
+          pickupCodeVerifiedAt: dispatch.pickup_code_verified_at ?? null,
+          deliveryCodeVerifiedAt: dispatch.delivery_code_verified_at ?? null,
           assignedAt: dispatch.assigned_at ?? null,
           openedAt: dispatch.opened_at,
           arrivedAt: dispatch.arrived_at,
@@ -722,7 +728,7 @@ const orderSelect =
   "id,restaurant_id,order_number,customer_name,customer_phone,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,requested_fulfillment_at,status,payment_status,payment_method,subtotal,delivery_fee,discount_total,total,notes,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,created_at";
 
 const deliveryLinkSelect =
-  "id,restaurant_id,order_id,restaurant_rider_id,delivery_token,delivery_phone,delivery_name,status,dispatch_source,rider_offer_id,assigned_at,opened_at,arrived_at,delivered_at,expires_at,created_at,rider_latitude,rider_longitude,rider_location_accuracy_m,rider_location_heading,rider_location_speed_mps,rider_location_updated_at";
+  "id,restaurant_id,order_id,restaurant_rider_id,delivery_token,delivery_phone,delivery_name,pickup_code_verified_at,delivery_code_verified_at,status,dispatch_source,rider_offer_id,assigned_at,opened_at,arrived_at,delivered_at,expires_at,created_at,rider_latitude,rider_longitude,rider_location_accuracy_m,rider_location_heading,rider_location_speed_mps,rider_location_updated_at";
 
 export async function listMobileRiderOrders(
   session: MobileRiderSession,
@@ -1055,6 +1061,7 @@ export async function updateMobileRiderDeliveryStatus(
   session: MobileRiderSession,
   orderId: string,
   status: "arrived" | "delivered",
+  confirmationCode: string,
 ): Promise<ServiceResult<{ order: MobileRiderOrder; status: "arrived" | "delivered"; statusChanged: boolean }>> {
   const riderIds = session.activeRiders.map((rider) => rider.id);
   const { data: link } = await session.admin
@@ -1075,6 +1082,7 @@ export async function updateMobileRiderDeliveryStatus(
 
   const rpcName = status === "arrived" ? "mark_delivery_order_arrived" : "mark_delivery_order_delivered";
   const { data, error } = await session.admin.rpc(rpcName, {
+    p_confirmation_code: confirmationCode,
     p_delivery_token: linkRow.delivery_token,
   });
 

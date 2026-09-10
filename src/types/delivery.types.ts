@@ -14,6 +14,8 @@ export type DeliveryOrder = {
   deliveryToken: string;
   deliveryPhone?: string;
   deliveryName?: string;
+  pickupCodeVerifiedAt?: string;
+  deliveryCodeVerifiedAt?: string;
   linkStatus: "active" | "arrived" | "delivered" | "cancelled" | "expired";
   openedAt?: string;
   arrivedAt?: string;

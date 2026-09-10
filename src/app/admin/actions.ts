@@ -6923,6 +6923,12 @@ export async function createDeliveryLinkAction(input: {
     return { ok: false, error: `No se pudo generar el link: ${error.message}` };
   }
 
+  const { data: deliveryLink } = await supabase
+    .from("order_delivery_links")
+    .select("pickup_confirmation_code")
+    .eq("order_id", parsed.data.orderId)
+    .maybeSingle();
+
   await supabase
     .from("rider_delivery_offers")
     .update({
@@ -6967,6 +6973,7 @@ export async function createDeliveryLinkAction(input: {
     deliveryUrl,
     whatsappUrl,
     deliveryPhone,
+    pickupConfirmationCode: deliveryLink?.pickup_confirmation_code ?? undefined,
     expiresAt,
   };
 }
@@ -7001,7 +7008,7 @@ export async function requestRiderAutoDispatchAction(input: {
   }
 
   if (result.status === "already_assigned") {
-    return { ok: true, status: result.status, message: "El pedido ya tiene rider asignado." };
+    return { ok: true, status: result.status, message: result.riderName ? `${result.riderName} acepto este pedido.` : "El pedido ya tiene rider asignado." };
   }
 
   return { ok: true, status: result.status, message: "No hay riders activos disponibles. Usa QR o WhatsApp manual." };

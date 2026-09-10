@@ -33,6 +33,10 @@ export type OrderDeliveryDispatch = {
   status: OrderDeliveryDispatchStatus;
   deliveryPhone?: string;
   deliveryName?: string;
+  pickupConfirmationCode?: string;
+  deliveryConfirmationCode?: string;
+  pickupCodeVerifiedAt?: string;
+  deliveryCodeVerifiedAt?: string;
   dispatchedAt?: string;
   openedAt?: string;
   arrivedAt?: string;
@@ -134,6 +138,9 @@ export type OrderTrackingStatus = {
     | "status"
     | "deliveryPhone"
     | "deliveryName"
+    | "deliveryConfirmationCode"
+    | "pickupCodeVerifiedAt"
+    | "deliveryCodeVerifiedAt"
     | "dispatchedAt"
     | "openedAt"
     | "arrivedAt"

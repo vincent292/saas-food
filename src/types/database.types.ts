@@ -529,6 +529,12 @@ export type Database = {
         delivery_token: string;
         delivery_phone: string | null;
         delivery_name: string | null;
+        pickup_confirmation_code: string | null;
+        delivery_confirmation_code: string | null;
+        pickup_code_verified_at: string | null;
+        delivery_code_verified_at: string | null;
+        pickup_code_attempts: number;
+        delivery_code_attempts: number;
         status: "active" | "arrived" | "delivered" | "cancelled" | "expired";
         dispatch_source: "manual_qr" | "rider_auto" | "rider_manual";
         rider_offer_id: string | null;
@@ -1430,12 +1436,14 @@ export type Database = {
       };
       mark_delivery_order_delivered: {
         Args: {
+          p_confirmation_code: string;
           p_delivery_token: string;
         };
         Returns: Json;
       };
       mark_delivery_order_arrived: {
         Args: {
+          p_confirmation_code: string;
           p_delivery_token: string;
         };
         Returns: Json;

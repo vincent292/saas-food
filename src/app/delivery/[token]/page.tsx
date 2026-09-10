@@ -39,9 +39,10 @@ export default async function DeliveryOrderPage({
     notFound();
   }
 
-  const canMarkArrived = order.orderStatus !== "delivered" && order.linkStatus === "active";
-  const canMarkDelivered = order.orderStatus !== "delivered" && ["active", "arrived"].includes(order.linkStatus);
-  const deliveryStatusLabel = order.orderStatus === "delivered" ? "Entregado" : order.linkStatus === "arrived" ? "En ubicacion" : "En entrega";
+  const pickupVerified = Boolean(order.pickupCodeVerifiedAt);
+  const canMarkArrived = order.orderStatus !== "delivered" && order.linkStatus === "active" && !pickupVerified;
+  const canMarkDelivered = order.orderStatus !== "delivered" && order.linkStatus === "arrived" && pickupVerified && !order.deliveryCodeVerifiedAt;
+  const deliveryStatusLabel = order.orderStatus === "delivered" ? "Entregado" : pickupVerified ? "En entrega" : "Pendiente de recogida";
   const mapUrl = hasValidCoordinates(order.deliveryLatitude, order.deliveryLongitude)
     ? directionsToMapsUrl({
         address: order.customerAddress,
@@ -89,7 +90,7 @@ export default async function DeliveryOrderPage({
 
         {status.arrived || order.linkStatus === "arrived" ? (
           <div className="rounded-2xl bg-[var(--color-info-soft)] p-4 text-sm font-black text-[var(--color-info-strong)]">
-            Repartidor marcado en la ubicacion {order.arrivedAt ? `a las ${formatShortTime(order.arrivedAt)}` : ""}.
+            Recogida validada {order.arrivedAt ? `a las ${formatShortTime(order.arrivedAt)}` : ""}.
           </div>
         ) : null}
 
@@ -172,24 +173,28 @@ export default async function DeliveryOrderPage({
         </Card>
 
         <Card className="sticky bottom-3 z-10 bg-[var(--color-card-elevated)] shadow-xl backdrop-blur">
-          {canMarkDelivered ? (
-            <div className="grid gap-2 sm:grid-cols-2">
+          {canMarkArrived || canMarkDelivered ? (
+            <div className="grid gap-3">
               {canMarkArrived ? (
-                <form action={markDeliveryArrivedAction}>
+                <form action={markDeliveryArrivedAction} className="grid gap-3">
                   <input name="token" type="hidden" value={token} />
+                  <CodeInput label="Codigo del local" />
                   <PendingSubmitButton className="min-h-14 w-full text-base" pendingLabel="Marcando llegada..." variant="secondary">
                     <MapPinned className="h-5 w-5" />
-                    Llegue
+                    Validar recogida
                   </PendingSubmitButton>
                 </form>
               ) : null}
-              <form action={markDeliveryDeliveredAction} className={canMarkArrived ? "" : "sm:col-span-2"}>
-                <input name="token" type="hidden" value={token} />
-                <PendingSubmitButton className="min-h-14 w-full text-base" pendingLabel="Confirmando entrega...">
-                  <CheckCircle2 className="h-5 w-5" />
-                  Entregue
-                </PendingSubmitButton>
-              </form>
+              {canMarkDelivered ? (
+                <form action={markDeliveryDeliveredAction} className="grid gap-3">
+                  <input name="token" type="hidden" value={token} />
+                  <CodeInput label="Codigo del cliente" />
+                  <PendingSubmitButton className="min-h-14 w-full text-base" pendingLabel="Confirmando entrega...">
+                    <CheckCircle2 className="h-5 w-5" />
+                    Confirmar entrega
+                  </PendingSubmitButton>
+                </form>
+              ) : null}
             </div>
           ) : (
             <div className="rounded-2xl bg-[var(--color-success-soft)] p-4 text-center text-sm font-black text-[var(--color-success-strong)]">
@@ -199,6 +204,24 @@ export default async function DeliveryOrderPage({
         </Card>
       </div>
     </main>
+  );
+}
+
+function CodeInput({ label }: { label: string }) {
+  return (
+    <label className="grid gap-2 text-sm font-black text-[var(--text)]">
+      {label}
+      <input
+        autoComplete="one-time-code"
+        className="min-h-12 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 text-center font-mono text-2xl font-black tracking-[0.18em] outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[var(--primary-light)]"
+        inputMode="numeric"
+        maxLength={4}
+        name="confirmationCode"
+        pattern="[0-9]{4}"
+        placeholder="0000"
+        required
+      />
+    </label>
   );
 }
 

@@ -35,6 +35,11 @@ type RestaurantRow = {
   name: string;
   slug: string;
   city: string | null;
+  address: string | null;
+  address_reference: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+  maps_url: string | null;
   logo_url: string | null;
   whatsapp: string | null;
 };
@@ -133,6 +138,11 @@ export type MobileRiderOrder = {
     name: string;
     slug: string;
     city: string;
+    address: string;
+    addressReference: string;
+    latitude: number | null;
+    longitude: number | null;
+    mapsUrl: string;
     logoUrl: string;
     whatsapp: string;
   };
@@ -619,6 +629,11 @@ function serializeOrder({
       name: restaurant?.name ?? "Restaurante",
       slug: restaurant?.slug ?? "",
       city: restaurant?.city ?? "",
+      address: restaurant?.address ?? "",
+      addressReference: restaurant?.address_reference ?? "",
+      latitude: restaurant?.latitude == null ? null : Number(restaurant.latitude),
+      longitude: restaurant?.longitude == null ? null : Number(restaurant.longitude),
+      mapsUrl: restaurant?.maps_url ?? "",
       logoUrl: restaurant?.logo_url ?? "",
       whatsapp: restaurant?.whatsapp ?? "",
     },
@@ -701,7 +716,7 @@ async function hydrateOrders(admin: SupabaseClient, orders: OrderRow[], links: D
       .order("created_at", { ascending: true }),
     admin
       .from("restaurants")
-      .select("id,name,slug,city,logo_url,whatsapp")
+      .select("id,name,slug,city,address,address_reference,latitude,longitude,maps_url,logo_url,whatsapp")
       .in("id", restaurantIds),
   ]);
 

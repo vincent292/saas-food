@@ -7,6 +7,11 @@ type RestaurantRow = {
   name: string;
   slug: string;
   city: string | null;
+  address: string | null;
+  address_reference: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+  maps_url: string | null;
   logo_url: string | null;
   business_type: string | null;
   whatsapp: string | null;
@@ -97,7 +102,7 @@ export async function buildMobileOrderTrackingPayload({
   const [{ data: restaurant }, order, queue] = await Promise.all([
     supabase
       .from("restaurants")
-      .select("id,name,slug,city,logo_url,business_type,whatsapp")
+      .select("id,name,slug,city,address,address_reference,latitude,longitude,maps_url,logo_url,business_type,whatsapp")
       .eq("id", restaurantId)
       .eq("status", "active")
       .is("deleted_at", null)
@@ -118,6 +123,11 @@ export async function buildMobileOrderTrackingPayload({
       name: restaurantRow.name,
       slug: restaurantRow.slug,
       city: restaurantRow.city ?? "",
+      address: restaurantRow.address ?? "",
+      addressReference: restaurantRow.address_reference ?? "",
+      latitude: restaurantRow.latitude == null ? undefined : Number(restaurantRow.latitude),
+      longitude: restaurantRow.longitude == null ? undefined : Number(restaurantRow.longitude),
+      mapsUrl: restaurantRow.maps_url ?? "",
       logoUrl: restaurantRow.logo_url ?? "",
       businessType: restaurantRow.business_type ?? "food",
       whatsapp: restaurantRow.whatsapp ?? "",

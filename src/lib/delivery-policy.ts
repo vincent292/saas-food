@@ -1,4 +1,5 @@
 import { calculateDistanceKm, type GeoPoint } from "@/lib/utils/geo-distance";
+import { DEFAULT_DELIVERY_RATE_TIERS, findDeliveryRateTier, type DeliveryRateTier } from "@/lib/delivery-rates";
 import type { RestaurantDeliveryZone } from "@/types/restaurant.types";
 
 export const DEFAULT_QR_PREPAYMENT_DISTANCE_KM = 5;
@@ -16,6 +17,7 @@ type DeliveryPolicyInput = {
   qrPrepaymentEnabled?: boolean;
   freeDeliveryFrom?: number;
   farDeliveryDistanceKm?: number;
+  distanceRateTiers?: DeliveryRateTier[];
 };
 
 export type DeliveryPolicy = {
@@ -24,7 +26,9 @@ export type DeliveryPolicy = {
   minOrderAmount: number;
   requiresQrPrepayment: boolean;
   sameCity: boolean;
+  outOfCoverage: boolean;
   matchedZone?: RestaurantDeliveryZone;
+  matchedRateTier?: DeliveryRateTier;
 };
 
 function normalizeCity(value?: string) {
@@ -59,6 +63,7 @@ export function resolveDeliveryPolicy({
   qrPrepaymentEnabled = true,
   freeDeliveryFrom = 0,
   farDeliveryDistanceKm = DEFAULT_QR_PREPAYMENT_DISTANCE_KM,
+  distanceRateTiers = DEFAULT_DELIVERY_RATE_TIERS,
 }: DeliveryPolicyInput): DeliveryPolicy {
   const normalizedRestaurantCity = normalizeCity(restaurantCity);
   const normalizedDeliveryCity = normalizeCity(deliveryCity);
@@ -91,7 +96,8 @@ export function resolveDeliveryPolicy({
     .sort((left, right) => left.radiusKm - right.radiusKm);
 
   const matchedZone = matchingZones[0];
-  const configuredFee = matchedZone?.deliveryFee ?? baseDeliveryFee;
+  const matchedRateTier = !matchedZone && distanceKm != null ? findDeliveryRateTier(distanceKm, distanceRateTiers) : undefined;
+  const configuredFee = matchedZone?.deliveryFee ?? matchedRateTier?.deliveryFee ?? baseDeliveryFee;
   const deliveryFee = freeDeliveryFrom > 0 && subtotal >= freeDeliveryFrom ? 0 : configuredFee;
   const minOrderAmount = matchedZone?.minOrderAmount ?? baseMinOrderAmount;
   const safeFarDistance = Math.max(1, Number(farDeliveryDistanceKm) || DEFAULT_QR_PREPAYMENT_DISTANCE_KM);
@@ -102,6 +108,8 @@ export function resolveDeliveryPolicy({
     minOrderAmount,
     requiresQrPrepayment: qrPrepaymentEnabled && distanceKm != null && distanceKm >= safeFarDistance,
     sameCity,
+    outOfCoverage: distanceKm != null && !matchedZone && !matchedRateTier,
     matchedZone,
+    matchedRateTier,
   };
 }

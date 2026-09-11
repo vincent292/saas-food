@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMobileCustomerSession } from "@/lib/services/customer-account.service";
 import { subscribeOrderToMobilePush } from "@/lib/services/mobile-push.service";
+import { getRestaurantDeliveryQuote } from "@/lib/services/delivery-quote.service";
 import { DEFAULT_RESTAURANT_TIME_ZONE, getBusinessStatus } from "@/lib/utils/business-hours";
 
 const itemSchema = z.object({
@@ -224,7 +225,22 @@ export async function POST(request: Request) {
   }
 
   const subtotal = Number(items.reduce((sum, item) => sum + item.subtotal, 0).toFixed(2));
-  const deliveryFee = parsed.data.orderType === "delivery" ? Number(settings?.delivery_fee ?? 0) : 0;
+  const deliveryQuote =
+    parsed.data.orderType === "delivery" && parsed.data.deliveryLatitude != null && parsed.data.deliveryLongitude != null
+      ? await getRestaurantDeliveryQuote(supabase, {
+          restaurantId: parsed.data.restaurantId,
+          deliveryLatitude: parsed.data.deliveryLatitude,
+          deliveryLongitude: parsed.data.deliveryLongitude,
+          subtotal,
+        })
+      : null;
+  if (deliveryQuote?.outOfCoverage) {
+    return NextResponse.json({ error: "delivery-out-of-coverage" }, { status: 422 });
+  }
+  if (deliveryQuote && subtotal < deliveryQuote.minOrderAmount) {
+    return NextResponse.json({ error: "minimum-order" }, { status: 422 });
+  }
+  const deliveryFee = parsed.data.orderType === "delivery" ? deliveryQuote?.deliveryFee ?? Number(settings?.delivery_fee ?? 0) : 0;
   const total = Number((subtotal + deliveryFee).toFixed(2));
   const orderNumber = `P-${Date.now().toString().slice(-6)}`;
 
@@ -242,8 +258,8 @@ export async function POST(request: Request) {
       delivery_latitude: parsed.data.deliveryLatitude ?? null,
       delivery_longitude: parsed.data.deliveryLongitude ?? null,
       delivery_maps_url: parsed.data.deliveryMapsUrl ?? null,
-      delivery_distance_km: null,
-      requires_prepayment: false,
+      delivery_distance_km: deliveryQuote?.distanceKm ?? null,
+      requires_prepayment: deliveryQuote?.requiresQrPrepayment ?? false,
       requested_fulfillment_at: null,
       invoice_required: false,
       invoice_document_type: null,

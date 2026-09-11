@@ -1,10 +1,12 @@
 import { PlanEditor } from "@/components/admin/PlanEditor";
+import { DeliveryRateEditor } from "@/components/admin/DeliveryRateEditor";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { planService } from "@/lib/services/plan.service";
+import { deliveryRateService } from "@/lib/services/delivery-rate.service";
 
 export default async function PlansPage() {
-  const plans = await planService.listPlans();
+  const [plans, deliveryRates] = await Promise.all([planService.listPlans(), deliveryRateService.list()]);
 
   return (
     <AdminLayout active="/admin/planes" title="Tarifa">
@@ -13,6 +15,7 @@ export default async function PlansPage() {
         {plans.map((plan) => (
           <PlanEditor key={plan.id} plan={plan} />
         ))}
+        <DeliveryRateEditor rates={deliveryRates} />
       </div>
     </AdminLayout>
   );

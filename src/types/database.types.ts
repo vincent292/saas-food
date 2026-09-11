@@ -253,6 +253,16 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      platform_delivery_rate_tiers: Row<{
+        id: string;
+        min_distance_km: number;
+        max_distance_km: number;
+        delivery_fee: number;
+        is_active: boolean;
+        sort_order: number;
+        created_at: string;
+        updated_at: string;
+      }>;
       restaurant_rider_invites: Row<{
         id: string;
         restaurant_id: string;

@@ -2948,6 +2948,49 @@ export async function updatePlanAction(formData: FormData) {
   redirect("/admin/planes?plans=1");
 }
 
+export async function updatePlatformDeliveryRatesAction(formData: FormData) {
+  await requireSuperadmin();
+  const minDistances = formData.getAll("minDistanceKm");
+  const maxDistances = formData.getAll("maxDistanceKm");
+  const fees = formData.getAll("deliveryFee");
+  const sortOrders = formData.getAll("sortOrder");
+  const parsed = z.array(z.object({
+    minDistanceKm: z.coerce.number().min(0).max(200),
+    maxDistanceKm: z.coerce.number().min(0).max(200),
+    deliveryFee: z.coerce.number().min(0).max(10000),
+    sortOrder: z.coerce.number().int().min(0).max(10000),
+  }).refine((rate) => rate.maxDistanceKm >= rate.minDistanceKm)).min(1).max(50).safeParse(
+    minDistances.map((minDistanceKm, index) => ({
+      minDistanceKm,
+      maxDistanceKm: maxDistances[index],
+      deliveryFee: fees[index],
+      sortOrder: sortOrders[index],
+    })),
+  );
+
+  if (!parsed.success || parsed.data.some((rate, index, rates) => index > 0 && rate.minDistanceKm <= rates[index - 1].maxDistanceKm)) {
+    redirect("/admin/planes?error=invalid-delivery-rates");
+  }
+
+  const admin = createAdminClient();
+  if (!admin) redirect("/admin/planes?error=service-role-required");
+  const { error } = await admin.from("platform_delivery_rate_tiers").upsert(
+    parsed.data.map((rate) => ({
+      min_distance_km: rate.minDistanceKm,
+      max_distance_km: rate.maxDistanceKm,
+      delivery_fee: rate.deliveryFee,
+      is_active: true,
+      sort_order: rate.sortOrder,
+      updated_at: new Date().toISOString(),
+    })),
+    { onConflict: "min_distance_km,max_distance_km" },
+  );
+
+  if (error) redirect(`/admin/planes?error=${error.code}`);
+  revalidatePath("/admin/planes");
+  redirect("/admin/planes?deliveryRates=1");
+}
+
 export async function updateOwnerBranchEntitlementAction(formData: FormData) {
   const parsed = updateOwnerBranchEntitlementSchema.safeParse({
     ownerUserId: formData.get("ownerUserId"),

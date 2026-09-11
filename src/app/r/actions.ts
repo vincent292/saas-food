@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { announcementService } from "@/lib/services/announcement.service";
+import { deliveryRateService } from "@/lib/services/delivery-rate.service";
 import { uploadPrivateFile, uploadPublicImage } from "@/lib/supabase/storage";
 import { businessTypeSupportsTableQr, normalizeRestaurantBusinessType } from "@/lib/restaurant-directory-options";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
@@ -663,6 +664,7 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${failPath}?error=invoice-disabled`);
   }
 
+  const distanceRateTiers = await deliveryRateService.list();
   const deliveryPolicy =
     parsed.data.orderType === "delivery"
       ? resolveDeliveryPolicy({
@@ -683,11 +685,15 @@ export async function createPublicOrderAction(formData: FormData) {
           qrPrepaymentEnabled: settings.delivery_qr_prepayment_enabled ?? true,
           freeDeliveryFrom: Number(settings.free_delivery_from ?? 0),
           farDeliveryDistanceKm: Number(settings.far_delivery_distance_km ?? 5),
+          distanceRateTiers,
         })
       : null;
 
   if (deliveryPolicy && !deliveryPolicy.sameCity) {
     redirect(`${failPath}?error=different-city`);
+  }
+  if (deliveryPolicy?.outOfCoverage) {
+    redirect(`${failPath}?error=delivery-out-of-coverage`);
   }
 
   const effectiveMinOrderAmount = deliveryPolicy?.minOrderAmount ?? Number(settings.min_order_amount);
@@ -1612,6 +1618,7 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
 
   const subtotal = sourceItems.reduce((sum, item) => sum + Number(item.subtotal), 0);
 
+  const distanceRateTiers = await deliveryRateService.list();
   const deliveryPolicy =
     submitData.orderType === "delivery"
       ? resolveDeliveryPolicy({
@@ -1632,11 +1639,15 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
           qrPrepaymentEnabled: orderSettings.delivery_qr_prepayment_enabled ?? true,
           freeDeliveryFrom: Number(orderSettings.free_delivery_from ?? 0),
           farDeliveryDistanceKm: Number(orderSettings.far_delivery_distance_km ?? 5),
+          distanceRateTiers,
         })
       : null;
 
   if (deliveryPolicy && !deliveryPolicy.sameCity) {
     await redirectSubmitError("different-city");
+  }
+  if (deliveryPolicy?.outOfCoverage) {
+    await redirectSubmitError("delivery-out-of-coverage");
   }
 
   const effectiveMinOrderAmount = deliveryPolicy?.minOrderAmount ?? Number(orderSettings.min_order_amount);

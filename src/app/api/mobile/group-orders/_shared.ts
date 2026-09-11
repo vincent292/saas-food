@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { announcementService } from "@/lib/services/announcement.service";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
+import { deliveryRateService } from "@/lib/services/delivery-rate.service";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
 import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { Database } from "@/types/database.types";
@@ -437,7 +438,7 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
     throw new Error(errorCode);
   }
 
-  const [{ data: participants }, { data: items }, { data: settings }, { data: restaurant }, businessHours, deliveryZones] = await Promise.all([
+  const [{ data: participants }, { data: items }, { data: settings }, { data: restaurant }, businessHours, deliveryZones, distanceRateTiers] = await Promise.all([
     supabase.from("group_order_participants").select("*").eq("session_id", lockedSession.id).order("created_at", { ascending: true }),
     supabase.from("group_order_items").select("*").eq("session_id", lockedSession.id).order("created_at", { ascending: true }),
     supabase
@@ -448,6 +449,7 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
     supabase.from("restaurants").select("id,slug,city,latitude,longitude").eq("id", lockedSession.restaurant_id).eq("slug", payload.restaurantSlug).eq("status", "active").is("deleted_at", null).maybeSingle(),
     listBusinessHours(supabase, lockedSession.restaurant_id),
     listDeliveryZones(supabase, lockedSession.restaurant_id),
+    deliveryRateService.list(supabase),
   ]);
 
   if (!settings || !restaurant) await fail("settings");
@@ -510,10 +512,12 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
           qrPrepaymentEnabled: (orderSettings as PublicOrderSettings).delivery_qr_prepayment_enabled ?? true,
           freeDeliveryFrom: Number((orderSettings as PublicOrderSettings).free_delivery_from ?? 0),
           farDeliveryDistanceKm: Number((orderSettings as PublicOrderSettings).far_delivery_distance_km ?? 5),
+          distanceRateTiers,
         })
       : null;
 
   if (deliveryPolicy && !deliveryPolicy.sameCity) await fail("different-city");
+  if (deliveryPolicy?.outOfCoverage) await fail("delivery-out-of-coverage");
   if (subtotal < (deliveryPolicy?.minOrderAmount ?? Number((orderSettings as PublicOrderSettings).min_order_amount))) await fail("minimum");
   if (deliveryPolicy?.requiresQrPrepayment && payload.paymentMethod !== "qr") await fail("qr-required-distance");
   if (payload.paymentMethod === "qr" && !normalizeQrPaymentUrl((orderSettings as PublicOrderSettings).qr_payment_url)) await fail("qr-unavailable");

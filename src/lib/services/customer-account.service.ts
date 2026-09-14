@@ -501,39 +501,47 @@ export async function createCustomerAddress(
     isDefault?: boolean;
   },
 ): Promise<ServiceResult<CustomerAddressRecord[]>> {
+  return mutateCustomerAddress(request, "create", undefined, input);
+}
+
+export async function mutateCustomerAddress(
+  request: Request,
+  action: "create" | "update" | "delete" | "default",
+  addressId?: string,
+  address: Parameters<typeof createCustomerAddress>[1] | Record<string, never> = {},
+): Promise<ServiceResult<CustomerAddressRecord[]>> {
   const session = await getMobileCustomerSession(request);
   if (!session.ok) return session;
-
-  const { data: profile } = await session.admin.from("customer_profiles").select("id").eq("id", session.user.id).maybeSingle();
-  if (!profile) {
-    return { ok: false, error: "customer-profile-required", status: 409 };
-  }
-
-  if (input.isDefault) {
-    await session.admin.from("customer_addresses").update({ is_default: false }).eq("customer_id", session.user.id);
-  }
-
-  const { error } = await session.admin.from("customer_addresses").insert({
-    customer_id: session.user.id,
-    label: input.label.trim() || "Direccion",
-    address: input.address.trim(),
-    latitude: input.latitude ?? null,
-    longitude: input.longitude ?? null,
-    maps_url: input.mapsUrl ?? null,
-    city: input.city ?? null,
-    apartment: input.apartment?.trim() || null,
-    building_name: input.buildingName?.trim() || null,
-    reference: input.reference?.trim() || null,
-    is_default: Boolean(input.isDefault),
+  const { data, error } = await session.admin.rpc("manage_customer_address", {
+    p_customer_id: session.user.id, p_action: action, p_address_id: addressId, p_address: address,
   });
-
   if (error) {
+    if (error.message.includes("address-not-found")) return { ok: false, error: "address-not-found", status: 404 };
+    if (error.message.includes("customer-profile-required")) return { ok: false, error: "customer-profile-required", status: 409 };
     return { ok: false, error: "address-save-failed", status: 400 };
   }
+  return { ok: true, data: ((data ?? []) as CustomerAddressRow[]).map(mapAddress) };
+}
 
-  const { data: addresses } = await session.admin.from("customer_addresses").select("*").eq("customer_id", session.user.id).order("is_default", { ascending: false }).order("updated_at", { ascending: false });
-
-  return { ok: true, data: ((addresses ?? []) as CustomerAddressRow[]).map(mapAddress) };
+// Only a customer's own login can delete the account. Business and rider identities
+// share Auth, so reject those identities rather than cascading into another app.
+export async function deleteCustomerAccount(request: Request): Promise<ServiceResult<null>> {
+  const session = await getMobileCustomerSession(request);
+  if (!session.ok) return session;
+  const [profile, business, rider, orders] = await Promise.all([
+    session.admin.from("customer_profiles").select("id").eq("id", session.user.id).maybeSingle(),
+    session.admin.from("profiles").select("id").eq("id", session.user.id).maybeSingle(),
+    session.admin.from("restaurant_riders").select("id").eq("rider_user_id", session.user.id).limit(1),
+    session.admin.from("orders").select("id").eq("customer_id", session.user.id).not("status", "in", "(delivered,cancelled)").limit(1),
+  ]);
+  if (profile.error || business.error || rider.error || orders.error) return { ok: false, error: "account-delete-failed", status: 500 };
+  if (business.data || rider.data?.length || session.user.user_metadata?.account_type === "rider") return { ok: false, error: "account-has-business-role", status: 409 };
+  if (orders.data?.length) return { ok: false, error: "account-has-active-orders", status: 409 };
+  // Auth deletion cascades to the customer profile, addresses and favorites.
+  // Completed orders keep their purchase snapshot and lose their customer_id.
+  const { error } = await session.admin.auth.admin.deleteUser(session.user.id);
+  if (error) return { ok: false, error: "account-delete-failed", status: 500 };
+  return { ok: true, data: null };
 }
 
 export async function setCustomerFavorite(

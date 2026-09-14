@@ -1189,6 +1189,10 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      manage_customer_address: {
+        Args: { p_customer_id: string; p_action: string; p_address_id?: string; p_address?: Json };
+        Returns: Database["public"]["Tables"]["customer_addresses"]["Row"][];
+      };
       create_public_order_transaction: {
         Args: {
           p_items: Json;

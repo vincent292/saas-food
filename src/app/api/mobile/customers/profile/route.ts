@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getCustomerAccount, normalizeCustomerDocument, normalizeCustomerPhone, updateCustomerProfile } from "@/lib/services/customer-account.service";
+import { deleteCustomerAccount, getCustomerAccount, normalizeCustomerDocument, normalizeCustomerPhone, updateCustomerProfile } from "@/lib/services/customer-account.service";
 
 const profileSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
@@ -44,4 +44,12 @@ export async function PUT(request: Request) {
   }
 
   return NextResponse.json({ profile: result.data });
+}
+
+export async function DELETE(request: Request) {
+  const parsed = z.object({ confirmation: z.literal("ELIMINAR") }).safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "account-delete-confirmation-required" }, { status: 400 });
+  const result = await deleteCustomerAccount(request);
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+  return NextResponse.json({ ok: true });
 }

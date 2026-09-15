@@ -3787,7 +3787,7 @@ export async function createOwnerClientAction(
 
   revalidatePath("/admin");
   revalidatePath("/admin/restaurantes");
-  return { success: normalizedEmail, temporaryPassword };
+  return { success: normalizedEmail, temporaryPassword, values: ownerFormValues(formData) };
 }
 
 export async function updateOwnerProfileAction(formData: FormData) {

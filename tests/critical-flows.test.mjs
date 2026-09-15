@@ -86,6 +86,20 @@ test("owner provisioning recovers orphaned Auth users without accepting real dup
   assert.doesNotMatch(actions, /if \(!recoveredUser\?\.id \|\| message\.includes\("already"\)\)/);
 });
 
+test("owner provisioning visibly returns one-time credentials and enforces the first password change", () => {
+  const actions = read("src/app/admin/actions.ts");
+  const ownerForm = read("src/components/restaurants/NewOwnerFormClient.tsx");
+  const adminLayout = read("src/components/layout/AdminLayout.tsx");
+
+  assert.match(actions, /must_change_password: true/);
+  assert.match(actions, /return \{ success: normalizedEmail, temporaryPassword, values: ownerFormValues\(formData\) \}/);
+  assert.match(ownerForm, /if \(state\.success && state\.temporaryPassword\)/);
+  assert.match(ownerForm, /Dueno y acceso creados/);
+  assert.match(ownerForm, /Copiar datos de acceso/);
+  assert.match(ownerForm, /https:\/\/www\.yopido\.shop\/admin\/login/);
+  assert.match(adminLayout, /if \(profile\.mustChangePassword\)[\s\S]+redirect\("\/admin\/cambiar-contrasena"\)/);
+});
+
 test("owner capacity requests have owner and superadmin workflows", () => {
   const ownerPage = read("src/app/dueno/soporte/page.tsx");
   const accountPage = read("src/app/admin/restaurantes/[restaurantId]/cuenta/page.tsx");

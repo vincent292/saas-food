@@ -19,6 +19,7 @@ const errorMessages: Record<string, string> = {
   "responsible-profile-auth": "No se pudo cambiar el correo en Auth.",
   "responsible-profile-update": "No se pudo actualizar el perfil.",
   "service-role-required": "Falta la clave de servicio para administrar usuarios.",
+  "waiter-limit": "Esta sucursal ya tiene los 2 meseros gratuitos activos.",
 };
 
 export function ResponsibleAccessActionsClient({
@@ -27,26 +28,29 @@ export function ResponsibleAccessActionsClient({
   restaurantId,
   targetUserId,
   isActive,
+  role = "restaurant_admin",
 }: {
   email: string;
   fullName: string;
   restaurantId: string;
   targetUserId: string;
   isActive: boolean;
+  role?: string;
 }) {
   const [state, formAction, pending] = useActionState(manageResponsibleAccessAction, initialState);
+  const label = role === "waiter" ? "mesero" : "responsable";
 
   return (
     <div className="space-y-3">
       {state.error ? (
         <p className="rounded-[var(--radius-control)] bg-[var(--color-danger-soft)] p-3 text-xs font-bold text-[var(--color-danger-strong)]">
-          {errorMessages[state.error] ?? "No se pudo actualizar este acceso."}
+          {errorMessages[state.error] ?? `No se pudo actualizar el acceso del ${label}.`}
         </p>
       ) : null}
       {state.success === "profile-updated" ? <p className="rounded-[var(--radius-control)] bg-[var(--color-success-soft)] p-3 text-xs font-bold text-[var(--color-success-strong)]">Datos actualizados.</p> : null}
       {state.success === "password-reset" && state.temporaryPassword ? (
         <div className="rounded-[var(--radius-control)] bg-[var(--color-success-soft)] p-3 text-xs font-bold text-[var(--color-success-strong)]">
-          <p>Nueva contrasena temporal</p>
+          <p>Nueva contrasena temporal del {label}</p>
           <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <code className="block select-all break-all rounded-[0.75rem] bg-white/80 p-2 text-sm text-[var(--color-heading)]">{state.temporaryPassword}</code>
             <button

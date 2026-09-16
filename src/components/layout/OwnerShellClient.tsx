@@ -41,7 +41,7 @@ const ownerNav: OwnerNavItem[] = [
   { label: "Ventas y pedidos", href: "/dueno/reportes", icon: BarChart3 },
   { label: "Anulaciones", href: "/dueno/anulaciones", icon: ClipboardX },
   { label: "Inventario general", href: "/dueno/inventario", icon: Boxes },
-  { label: "Responsables", href: "/dueno/responsables", icon: Users },
+  { label: "Equipo", href: "/dueno/responsables", icon: Users },
   { label: "Riders", href: "/dueno/riders", icon: Bike },
   { label: "Tarifa", href: "/dueno/plan", icon: WalletCards },
   { label: "Soporte", href: "/dueno/soporte", icon: LifeBuoy },

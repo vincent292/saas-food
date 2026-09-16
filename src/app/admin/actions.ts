@@ -215,6 +215,12 @@ export type ResponsibleAccessFormState = {
   temporaryPassword?: string;
 };
 
+export type CreateWaiterFormState = {
+  error?: string;
+  success?: boolean;
+  temporaryPassword?: string;
+};
+
 export type SuperadminUserPasswordFormState = {
   error?: string;
   success?: "password-reset";
@@ -378,6 +384,12 @@ const manageResponsibleAccessSchema = z.object({
   intent: z.enum(["reset-password", "update-profile", "deactivate", "reactivate"]),
 });
 
+const createWaiterSchema = z.object({
+  fullName: z.string().trim().min(2).max(120),
+  email: z.string().trim().email(),
+  restaurantId: z.string().uuid(),
+});
+
 const resetSuperadminUserPasswordSchema = z.object({
   targetUserId: z.string().uuid(),
   password: z.string().trim().min(8).max(120).optional().or(z.literal("")),
@@ -460,6 +472,7 @@ const menuImportProductSchema = z.object({
 });
 
 const menuImportDraftSchema = z.object({
+  isMenu: z.boolean().optional().default(true),
   sourceName: z.string().trim().max(120).optional(),
   categories: z
     .array(
@@ -3524,6 +3537,91 @@ export async function resolveOwnerBranchCapacityAction(formData: FormData) {
   redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}saved=solicitud`);
 }
 
+export async function createWaiterAction(
+  _state: CreateWaiterFormState,
+  formData: FormData,
+): Promise<CreateWaiterFormState> {
+  const parsed = createWaiterSchema.safeParse({
+    fullName: formData.get("fullName"),
+    email: formData.get("email"),
+    restaurantId: formData.get("restaurantId"),
+  });
+
+  if (!parsed.success) return { error: "invalid" };
+
+  const { supabase, user } = await requireUser();
+  const admin = createAdminClient();
+  if (!admin) return { error: "service-role-required" };
+
+  const { data: restaurant } = await admin
+    .from("restaurants")
+    .select("id,owner_user_id")
+    .eq("id", parsed.data.restaurantId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (restaurant?.owner_user_id !== user.id) return { error: "owner-required" };
+
+  const { count } = await admin
+    .from("restaurant_memberships")
+    .select("id", { count: "exact", head: true })
+    .eq("restaurant_id", restaurant.id)
+    .eq("role", "waiter")
+    .eq("is_active", true);
+  if ((count ?? 0) >= 2) return { error: "waiter-limit" };
+
+  const email = parsed.data.email.toLowerCase();
+  if ((await findAuthUserIdsByEmail(admin, email)).length) return { error: "waiter-email-exists" };
+
+  const temporaryPassword = generateSecurePassword();
+  const { data: created, error: createError } = await admin.auth.admin.createUser({
+    email,
+    password: temporaryPassword,
+    email_confirm: true,
+    user_metadata: {
+      full_name: parsed.data.fullName,
+      must_change_password: true,
+      waiter_restaurant_id: restaurant.id,
+    },
+  });
+  const waiterId = created.user?.id;
+  if (createError || !waiterId) {
+    return { error: createError?.message.toLowerCase().includes("already") ? "waiter-email-exists" : "waiter-create" };
+  }
+
+  const { error: profileError } = await admin.from("profiles").upsert({
+    id: waiterId,
+    email,
+    full_name: parsed.data.fullName,
+    global_role: "waiter",
+  });
+  if (profileError) {
+    await admin.auth.admin.deleteUser(waiterId);
+    return { error: "waiter-profile" };
+  }
+
+  const { error: membershipError } = await admin.from("restaurant_memberships").insert({
+    restaurant_id: restaurant.id,
+    user_id: waiterId,
+    role: "waiter",
+    is_active: true,
+  });
+  if (membershipError) {
+    await admin.auth.admin.deleteUser(waiterId);
+    return { error: "waiter-membership" };
+  }
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: "waiter_created",
+    p_entity_type: "profile",
+    p_entity_id: waiterId,
+    p_restaurant_id: restaurant.id,
+    p_severity: "info",
+    p_metadata: { email },
+  });
+  revalidatePath("/dueno/responsables");
+  return { success: true, temporaryPassword };
+}
+
 export async function manageResponsibleAccessAction(
   _state: ResponsibleAccessFormState,
   formData: FormData,
@@ -3554,20 +3652,25 @@ export async function manageResponsibleAccessAction(
     admin.from("restaurants").select("owner_user_id").eq("id", parsed.data.restaurantId).is("deleted_at", null).maybeSingle(),
     admin
       .from("restaurant_memberships")
-      .select("user_id,is_active")
+      .select("user_id,is_active,role")
       .eq("restaurant_id", parsed.data.restaurantId)
       .eq("user_id", parsed.data.targetUserId)
       .maybeSingle(),
   ]);
 
-  if (restaurant?.owner_user_id !== user.id || !membership) {
+  if (restaurant?.owner_user_id !== user.id || !membership || !["restaurant_admin", "waiter"].includes(membership.role)) {
     return { error: "owner-required" };
   }
 
   const { data: targetUser } = await admin.auth.admin.getUserById(parsed.data.targetUserId);
-  if (targetUser.user?.user_metadata?.branch_restaurant_id !== parsed.data.restaurantId) {
+  const expectedRestaurantId = membership.role === "waiter"
+    ? targetUser.user?.user_metadata?.waiter_restaurant_id
+    : targetUser.user?.user_metadata?.branch_restaurant_id;
+  if (expectedRestaurantId !== parsed.data.restaurantId) {
     return { error: "responsible-account-required" };
   }
+
+  const subject = membership.role === "waiter" ? "waiter" : "branch_responsible";
 
   if (parsed.data.intent === "reset-password") {
     const temporaryPassword = generateSecurePassword();
@@ -3585,7 +3688,7 @@ export async function manageResponsibleAccessAction(
     }
 
     await supabase.rpc("write_admin_audit", {
-      p_action: "branch_responsible_password_reset",
+      p_action: `${subject}_password_reset`,
       p_entity_type: "profile",
       p_entity_id: parsed.data.targetUserId,
       p_restaurant_id: parsed.data.restaurantId,
@@ -3627,7 +3730,7 @@ export async function manageResponsibleAccessAction(
         id: parsed.data.targetUserId,
         email,
         full_name: fullName,
-        global_role: "restaurant_admin",
+        global_role: membership.role,
       });
 
     if (profileError) {
@@ -3635,7 +3738,7 @@ export async function manageResponsibleAccessAction(
     }
 
     await supabase.rpc("write_admin_audit", {
-      p_action: "branch_responsible_profile_updated",
+      p_action: `${subject}_profile_updated`,
       p_entity_type: "profile",
       p_entity_id: parsed.data.targetUserId,
       p_restaurant_id: parsed.data.restaurantId,
@@ -3648,6 +3751,15 @@ export async function manageResponsibleAccessAction(
   }
 
   const isActive = parsed.data.intent === "reactivate";
+  if (isActive && membership.role === "waiter") {
+    const { count } = await admin
+      .from("restaurant_memberships")
+      .select("id", { count: "exact", head: true })
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .eq("role", "waiter")
+      .eq("is_active", true);
+    if ((count ?? 0) >= 2) return { error: "waiter-limit" };
+  }
   const { error } = await admin
     .from("restaurant_memberships")
     .update({ is_active: isActive })
@@ -3659,7 +3771,7 @@ export async function manageResponsibleAccessAction(
   }
 
   await supabase.rpc("write_admin_audit", {
-    p_action: isActive ? "branch_responsible_reactivated" : "branch_responsible_deactivated",
+    p_action: `${subject}_${isActive ? "reactivated" : "deactivated"}`,
     p_entity_type: "restaurant_membership",
     p_entity_id: parsed.data.targetUserId,
     p_restaurant_id: parsed.data.restaurantId,

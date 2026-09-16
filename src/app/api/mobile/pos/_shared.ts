@@ -36,7 +36,7 @@ export async function session(request: Request) {
   const { data, error } = await client.auth.getUser(token);
   if (error || !data.user) throw new PosError("La sesion ha vencido.", 401);
   if (data.user.user_metadata.must_change_password === true) throw new PosError("Actualiza tu contrasena para continuar.", 403);
-  const profile = checked(await client.from("profiles").select("id,full_name,global_role").eq("id", data.user.id).maybeSingle());
+  const profile = checked(await client.from("profiles").select("id,email,full_name,global_role").eq("id", data.user.id).maybeSingle());
   if (!profile) throw new PosError("Esta cuenta no tiene acceso al POS.", 403);
   const memberships = checked(await client.from("restaurant_memberships").select("restaurant_id,role").eq("user_id", data.user.id).eq("is_active", true)) ?? [];
   let query = client.from("restaurants").select("id,name,slug,business_type").eq("status", "active").is("deleted_at", null).order("name");

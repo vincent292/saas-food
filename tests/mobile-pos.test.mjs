@@ -21,15 +21,22 @@ const requestId = "55555555-5555-4555-8555-555555555555";
 function clientFor(rows, user = { id: userId, user_metadata: {} }) {
   return {
     auth: { getUser: async () => ({ data: { user }, error: null }) },
+    rpc: async () => ({ data: "audit", error: null }),
     from(table) {
-      let data = rows[table] ?? [], single = false;
+      let data = rows[table] ?? [], single = false, updateValues = null, insertValues = null, head = false;
       const query = {
-        select() { return query; }, order() { return query; }, limit() { return query; },
+        select(_columns, options) { head = options?.head === true; return query; }, order() { return query; }, limit() { return query; },
+        update(values) { updateValues = values; return query; },
+        insert(values) { insertValues = Array.isArray(values) ? values : [values]; return query; },
         eq(key, value) { data = data.filter((r) => r[key] === value); return query; },
         is(key, value) { data = data.filter((r) => r[key] === value); return query; },
         in(key, values) { data = data.filter((r) => values.includes(r[key])); return query; },
         maybeSingle() { single = true; return query; }, single() { single = true; return query; },
-        then(resolve) { return Promise.resolve({ data: single ? data[0] ?? null : data, error: null }).then(resolve); },
+        then(resolve) {
+          if (updateValues) data.forEach((row) => Object.assign(row, updateValues));
+          if (insertValues) (rows[table] ??= []).push(...insertValues);
+          return Promise.resolve({ data: head ? null : single ? data[0] ?? null : data, count: head ? data.length : null, error: null }).then(resolve);
+        },
       };
       return query;
     },
@@ -45,9 +52,35 @@ function fixture(role = "waiter") {
     product_variants: [], product_options: [], product_option_groups: [],
     restaurant_settings: [{ restaurant_id: restaurantId, table_orders_enabled: true, min_order_amount: 0, qr_payment_url: null }],
     business_hours: [], orders: [],
+    admin_audit_logs: [{ actor_user_id: userId, restaurant_id: restaurantId, action: "waiter_shift_opened", created_at: new Date().toISOString() }],
   };
-  const client = clientFor(rows), calls = [];
-  const admin = { rpc: async (name, args) => { calls.push({ name, args }); return { data: [{ id: "created" }], error: null }; } };
+  const client = clientFor(rows), calls = [], rpcCalls = [];
+  client.rpc = async (name, args) => {
+    rpcCalls.push({ name, args });
+    if (name === "charge_order_with_cash_movement") {
+      const order = rows.orders.find((item) => item.id === args.p_order_id);
+      if (order) {
+        order.payment_status = "paid";
+        if (order.status === "pending") order.status = "accepted";
+      }
+      return { data: args.p_order_id, error: null };
+    }
+    if (name === "update_operational_order_status") {
+      const order = rows.orders.find((item) => item.id === args.p_order_id);
+      if (order?.status === args.p_expected_status) order.status = args.p_next_status;
+      return { data: order ? [{ status_changed: true }] : [], error: null };
+    }
+    if (name === "refund_order_atomic") {
+      const order = rows.orders.find((item) => item.id === args.p_order_id);
+      if (order) { order.status = "cancelled"; order.payment_status = "refunded"; }
+      return { data: args.p_order_id, error: null };
+    }
+    return { data: "audit", error: null };
+  };
+  const admin = {
+    from: (table) => client.from(table),
+    rpc: async (name, args) => { calls.push({ name, args }); return { data: [{ id: "created" }], error: null }; },
+  };
   const shared = load("src/app/api/mobile/pos/_shared.ts", { "@supabase/supabase-js": { createClient: () => client }, "@/lib/supabase/admin": { createAdminClient: () => admin } });
   const cart = load("src/app/api/mobile/pos/_cart.ts", { "./_shared": shared });
   const auth = { client, admin, profile: rows.profiles[0], restaurants: [{ ...rows.restaurants[0], role, canManage: role !== "waiter" }] };
@@ -60,7 +93,7 @@ function fixture(role = "waiter") {
     "@/lib/services/mobile-push.service": {}, "@/lib/services/order-whatsapp-notification.service": {}, "@/lib/services/rider-dispatch.service": {},
     "@/lib/utils/business-hours": { getBusinessStatus: () => ({ hasSchedule: false, isOpen: true }) },
   });
-  return { rows, shared, auth, route, cart, calls };
+  return { rows, shared, auth, route, cart, calls, rpcCalls };
 }
 const post = (route, body) => route.POST(new Request("http://localhost/api/mobile/pos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
 const tableOrder = { action: "table-order", restaurantId, requestId, tableCode: "M4", customerName: "Cliente", paymentMethod: "cash", items: [{ productId, quantity: 2, optionIds: [] }] };
@@ -84,8 +117,16 @@ test("table order uses authenticated waiter, resolved table and server prices", 
   assert.equal(order.order_type, "table");
   assert.equal(order.total, 50);
   assert.match(order.notes, /Ana Mesera/);
+  assert.match(order.notes, new RegExp(userId));
   assert.doesNotMatch(order.notes, /Forged/);
   assert.equal(items[0].unit_price, 25);
+  assert.equal(f.rows.tables[0].status, "occupied");
+});
+test("waiter must open a shift before creating a table order", async () => {
+  const f = fixture();
+  f.rows.admin_audit_logs.length = 0;
+  assert.equal((await post(f.route, tableOrder)).status, 409);
+  assert.equal(f.calls.length, 0);
 });
 test("table from another restaurant or disabled table is rejected", async () => {
   const f = fixture();
@@ -116,4 +157,38 @@ test("large cash shifts are not truncated at the database page limit", async () 
   const result = await shared.allRows(async (from, to) => ({ data: records.slice(from, to + 1), error: null }));
   assert.equal(result.length, 1205);
   assert.equal(result.at(-1).id, "1204");
+});
+
+test("cashier settles every active order before releasing the table", async () => {
+  const f = fixture("cashier");
+  f.rows.orders.push({
+    id: requestId, restaurant_id: restaurantId, table_id: tableId, order_number: "M-10", order_type: "table",
+    status: "pending", payment_status: "pending", payment_method: "cash", total: 50,
+  });
+  const response = await post(f.route, { action: "settle-table", restaurantId, tableId, paymentMethod: "cash" });
+  assert.equal(response.status, 200);
+  assert.equal(f.rows.orders[0].payment_status, "paid");
+  assert.equal(f.rows.orders[0].status, "delivered");
+  assert.equal(f.rows.tables[0].status, "available");
+  assert.ok(f.rpcCalls.some((call) => call.name === "charge_order_with_cash_movement"));
+});
+
+test("cashier cancellation keeps an owner review with actor and reason", async () => {
+  const f = fixture("cashier");
+  f.rows.order_items = [{ id: "line", order_id: requestId, product_name: "Almuerzo", quantity: 1, subtotal: 25 }];
+  f.rows.cash_movements = [];
+  f.rows.order_cancellation_reviews = [];
+  f.rows.orders.push({
+    id: requestId, restaurant_id: restaurantId, table_id: tableId, order_number: "M-11", order_type: "table",
+    status: "accepted", payment_status: "pending", payment_method: "cash", total: 25,
+    payment_receipt_url: null, payment_receipt_reference: null, payment_receipt_uploaded_at: null,
+    requested_fulfillment_at: null, accepted_at: new Date().toISOString(), ready_at: null, delivered_at: null,
+  });
+  const response = await post(f.route, { action: "cancel-order", restaurantId, orderId: requestId, reason: "Producto comandado por error" });
+  assert.equal(response.status, 200);
+  assert.equal(f.rows.orders[0].status, "cancelled");
+  assert.equal(f.rows.tables[0].status, "available");
+  assert.equal(f.rows.order_cancellation_reviews[0].cancelled_by, userId);
+  assert.equal(f.rows.order_cancellation_reviews[0].reason, "Producto comandado por error");
+  assert.equal(f.rows.order_cancellation_reviews[0].owner_review_status, "pending");
 });

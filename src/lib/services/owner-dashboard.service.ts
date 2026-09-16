@@ -241,6 +241,10 @@ export type OwnerResponsible = {
   email: string;
   fullName: string;
   isActive: boolean;
+  currentShiftOpenedAt?: string;
+  lastShiftOpenedAt?: string;
+  lastShiftClosedAt?: string;
+  ordersToday: number;
 };
 
 export function ownerMembershipsForUser(memberships: UserRestaurantMembership[], userId: string) {
@@ -897,7 +901,10 @@ export async function getOwnerProductPerformance(
   };
 }
 
-export async function listOwnerResponsibles(memberships: UserRestaurantMembership[]): Promise<OwnerResponsible[]> {
+export async function listOwnerResponsibles(
+  memberships: UserRestaurantMembership[],
+  roles: Array<"restaurant_admin" | "waiter"> = ["restaurant_admin"],
+): Promise<OwnerResponsible[]> {
   const restaurantIds = memberships.map((membership) => membership.restaurant.id);
 
   if (!restaurantIds.length) {
@@ -909,7 +916,7 @@ export async function listOwnerResponsibles(memberships: UserRestaurantMembershi
     .from("restaurant_memberships")
     .select("restaurant_id,user_id,role,is_active")
     .in("restaurant_id", restaurantIds)
-    .eq("role", "restaurant_admin");
+    .in("role", roles);
   const userIds = Array.from(new Set((membershipRows ?? []).map((membership) => membership.user_id)));
 
   if (!userIds.length) {
@@ -920,11 +927,13 @@ export async function listOwnerResponsibles(memberships: UserRestaurantMembershi
   const profileById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
   const authUserById = await getAuthUsersById(userIds);
   const restaurantById = new Map(memberships.map((membership) => [membership.restaurant.id, membership.restaurant.name]));
+  const activityByMembership = await getWaiterActivity(userIds, restaurantIds);
 
   return (membershipRows ?? []).map((membership) => {
     const profile = profileById.get(membership.user_id);
     const authUser = authUserById.get(membership.user_id);
     const metadataName = typeof authUser?.user_metadata?.full_name === "string" ? authUser.user_metadata.full_name : "";
+    const activity = activityByMembership.get(`${membership.restaurant_id}:${membership.user_id}`);
 
     return {
       restaurantId: membership.restaurant_id,
@@ -934,8 +943,68 @@ export async function listOwnerResponsibles(memberships: UserRestaurantMembershi
       email: profile?.email || authUser?.email || "Sin correo",
       fullName: profile?.full_name || metadataName || authUser?.email || "Responsable",
       isActive: membership.is_active,
+      currentShiftOpenedAt: activity?.currentShiftOpenedAt,
+      lastShiftOpenedAt: activity?.lastShiftOpenedAt,
+      lastShiftClosedAt: activity?.lastShiftClosedAt,
+      ordersToday: activity?.ordersToday ?? 0,
     };
   });
+}
+
+type WaiterActivity = {
+  currentShiftOpenedAt?: string;
+  lastShiftOpenedAt?: string;
+  lastShiftClosedAt?: string;
+  ordersToday: number;
+};
+
+async function getWaiterActivity(userIds: string[], restaurantIds: string[]) {
+  const activity = new Map<string, WaiterActivity>();
+  const admin = createAdminClient();
+
+  if (!admin || !userIds.length || !restaurantIds.length) {
+    return activity;
+  }
+
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/La_Paz",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const todayStart = new Date(`${today}T00:00:00-04:00`).toISOString();
+  const { data } = await admin
+    .from("admin_audit_logs")
+    .select("actor_user_id,restaurant_id,action,created_at")
+    .in("actor_user_id", userIds)
+    .in("restaurant_id", restaurantIds)
+    .in("action", ["waiter_shift_opened", "waiter_shift_closed", "waiter_order_created"])
+    .order("created_at", { ascending: false })
+    .limit(2000);
+
+  const latestShiftEvent = new Set<string>();
+  for (const row of data ?? []) {
+    if (!row.actor_user_id || !row.restaurant_id) continue;
+    const key = `${row.restaurant_id}:${row.actor_user_id}`;
+    const current = activity.get(key) ?? { ordersToday: 0 };
+
+    if (row.action === "waiter_order_created" && row.created_at >= todayStart) {
+      current.ordersToday += 1;
+    }
+    if (row.action === "waiter_shift_opened") {
+      current.lastShiftOpenedAt ??= row.created_at;
+    }
+    if (row.action === "waiter_shift_closed") {
+      current.lastShiftClosedAt ??= row.created_at;
+    }
+    if (!latestShiftEvent.has(key) && ["waiter_shift_opened", "waiter_shift_closed"].includes(row.action)) {
+      latestShiftEvent.add(key);
+      if (row.action === "waiter_shift_opened") current.currentShiftOpenedAt = row.created_at;
+    }
+    activity.set(key, current);
+  }
+
+  return activity;
 }
 
 async function getAuthUsersById(userIds: string[]) {

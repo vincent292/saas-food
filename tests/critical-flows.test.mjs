@@ -165,6 +165,13 @@ test("catalog changes are owner-only while branches keep read access", () => {
   assert.match(categoriesPage, /canManageCatalog/);
 });
 
+test("menu imports preserve the analyzed menu flag when the draft is saved", () => {
+  const actions = read("src/app/admin/actions.ts");
+
+  assert.match(actions, /const menuImportDraftSchema = z\.object\(\{[\s\S]+isMenu: z\.boolean\(\)\.optional\(\)\.default\(true\)/);
+  assert.match(actions, /const draft = normalizeMenuImportDraft\(parsed\.data\)/);
+});
+
 test("payment settings are owner-only and invoice requests are filterable", () => {
   const actions = read("src/app/admin/actions.ts");
   const settingsPage = read("src/app/admin/restaurantes/[restaurantId]/configuracion/page.tsx");

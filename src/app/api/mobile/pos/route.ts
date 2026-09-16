@@ -24,7 +24,115 @@ const schema = z.discriminatedUnion("action", [
   base.extend({ action: z.literal("status"), orderId: z.string().uuid(), expected: z.enum(["accepted", "preparing", "ready"]), next: z.enum(["preparing", "ready", "delivered"]) }),
   base.extend({ action: z.literal("open-cash"), amount: z.number().min(0).max(100000000), notes: z.string().max(500).optional() }),
   base.extend({ action: z.literal("close-cash"), sessionId: z.string().uuid(), amount: z.number().min(0).max(100000000), notes: z.string().max(500).optional() }),
+  base.extend({ action: z.literal("open-waiter-shift") }),
+  base.extend({ action: z.literal("close-waiter-shift") }),
+  base.extend({ action: z.literal("cancel-order"), orderId: z.string().uuid(), reason: z.string().trim().min(5).max(500) }),
+  base.extend({ action: z.literal("settle-table"), tableId: z.string().uuid(), paymentMethod: payment, reference: z.string().max(160).optional() }),
 ]);
+
+async function getWaiterShift(auth: Awaited<ReturnType<typeof session>>, restaurantId: string) {
+  const restaurant = auth.restaurants.find((item) => item.id === restaurantId);
+  if (restaurant?.role !== "waiter") return null;
+  const latest = checked(await auth.admin
+    .from("admin_audit_logs")
+    .select("action,created_at")
+    .eq("actor_user_id", auth.profile.id)
+    .eq("restaurant_id", restaurantId)
+    .in("action", ["waiter_shift_opened", "waiter_shift_closed"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle());
+  return {
+    active: latest?.action === "waiter_shift_opened",
+    openedAt: latest?.action === "waiter_shift_opened" ? latest.created_at : null,
+  };
+}
+
+async function writeWaiterAudit(
+  auth: Awaited<ReturnType<typeof session>>,
+  restaurantId: string,
+  action: "waiter_shift_opened" | "waiter_shift_closed" | "waiter_order_created",
+  metadata: Record<string, string> = {},
+) {
+  checked(await auth.client.rpc("write_admin_audit", {
+    p_action: action,
+    p_entity_type: action === "waiter_order_created" ? "order" : "waiter_shift",
+    p_entity_id: action === "waiter_order_created" && metadata.orderId ? metadata.orderId : auth.profile.id,
+    p_restaurant_id: restaurantId,
+    p_severity: "info",
+    p_metadata: metadata,
+  }));
+}
+
+async function releaseTableWhenEmpty(auth: Awaited<ReturnType<typeof session>>, restaurantId: string, tableId: string | null) {
+  if (!tableId) return;
+  const { count, error } = await auth.admin
+    .from("orders")
+    .select("id", { count: "exact", head: true })
+    .eq("restaurant_id", restaurantId)
+    .eq("table_id", tableId)
+    .in("status", ["pending", "accepted", "preparing", "ready"]);
+  if (error) throw new PosError(error.message);
+  if ((count ?? 0) === 0) {
+    checked(await auth.admin.from("tables").update({ status: "available" }).eq("restaurant_id", restaurantId).eq("id", tableId));
+  }
+}
+
+async function createCancellationReview(
+  auth: Awaited<ReturnType<typeof session>>,
+  restaurantId: string,
+  order: {
+    id: string;
+    order_number: string;
+    order_type: "table" | "delivery" | "pickup" | "pos";
+    status: "pending" | "accepted" | "preparing" | "ready" | "delivered" | "cancelled";
+    payment_status: "pending" | "paid" | "cancelled" | "refunded";
+    payment_method: "cash" | "qr" | "bank_transfer" | "card" | "other";
+    payment_receipt_url: string | null;
+    payment_receipt_reference: string | null;
+    payment_receipt_uploaded_at: string | null;
+    requested_fulfillment_at: string | null;
+    accepted_at: string | null;
+    ready_at: string | null;
+    delivered_at: string | null;
+    total: number;
+  },
+  reason: string,
+) {
+  const [itemsResult, movementResult] = await Promise.all([
+    auth.admin.from("order_items").select("id,order_id,product_id,product_name,unit_price,quantity,subtotal,prep_minutes,notes").eq("order_id", order.id).order("created_at"),
+    auth.admin.from("cash_movements").select("id,cash_session_id,amount,payment_method,description,created_at").eq("restaurant_id", restaurantId).eq("order_id", order.id).eq("type", "sale").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  const items = checked(itemsResult) ?? [];
+  const movement = checked(movementResult);
+  checked(await auth.admin.from("order_cancellation_reviews").insert({
+    restaurant_id: restaurantId,
+    order_id: order.id,
+    order_number: order.order_number,
+    order_status_at_cancellation: order.status,
+    payment_status_at_cancellation: order.payment_status,
+    order_type: order.order_type,
+    total: order.total,
+    payment_method: order.payment_method,
+    cancellation_kind: order.payment_status === "paid" ? "cancelled" : "rejected",
+    reason,
+    cancelled_by: auth.profile.id,
+    cancelled_by_name: auth.profile.full_name,
+    cancelled_by_email: auth.profile.email,
+    cancelled_at: new Date().toISOString(),
+    payment_receipt_url: order.payment_receipt_url,
+    payment_receipt_reference: order.payment_receipt_reference,
+    payment_receipt_uploaded_at: order.payment_receipt_uploaded_at,
+    requested_fulfillment_at: order.requested_fulfillment_at,
+    accepted_at: order.accepted_at,
+    ready_at: order.ready_at,
+    delivered_at: order.delivered_at,
+    cash_session_id: movement?.cash_session_id ?? null,
+    cash_movement_id: movement?.id ?? null,
+    owner_review_status: "pending",
+    snapshot: { order, items, cashMovement: movement ?? null },
+  }));
+}
 
 export async function GET(request: Request) {
   try {
@@ -48,11 +156,12 @@ export async function GET(request: Request) {
     // Keep every active order, including those created before today's shift.
     ordersQuery = ordersQuery.or(`status.in.(pending,accepted,preparing,ready),created_at.gte.${new Date(Date.now() - 86400000).toISOString()}`);
     if (!restaurant.canManage) ordersQuery = ordersQuery.eq("order_type", "table");
-    const [ordersResult, tablesResult, settingsResult, openResult] = await Promise.all([
+    const [ordersResult, tablesResult, settingsResult, openResult, waiterShift] = await Promise.all([
       allRows((from, to) => ordersQuery.range(from, to)),
       client.from("tables").select("id,name,code,status,capacity").eq("restaurant_id", id).eq("is_active", true).order("name"),
       client.from("restaurant_settings").select("currency,qr_payment_url,table_orders_enabled,kitchen_enabled").eq("restaurant_id", id).maybeSingle(),
       restaurant.canManage ? client.from("cash_sessions").select("*").eq("restaurant_id", id).eq("status", "open").maybeSingle() : Promise.resolve({ data: null, error: null }),
+      getWaiterShift(auth, id),
     ]);
     const cashSession = checked(openResult);
     const movements = cashSession ? await allRows((from, to) => client.from("cash_movements").select("*").eq("restaurant_id", id).eq("cash_session_id", cashSession.id).order("created_at", { ascending: false }).order("id").range(from, to)) : [];
@@ -70,7 +179,7 @@ export async function GET(request: Request) {
     }
     const settings = checked(settingsResult);
     if (!settings) throw new PosError("El restaurante no tiene configuracion de venta.", 409);
-    return json({ restaurant, orders: ordersResult, tables: checked(tablesResult), settings, cashSession, cashOpen, movements, products, categories, variants, groups, options });
+    return json({ restaurant, orders: ordersResult, tables: checked(tablesResult), settings, cashSession, cashOpen, movements, waiterShift, products, categories, variants, groups, options });
   } catch (error) { return failure(error); }
 }
 
@@ -92,15 +201,27 @@ export async function POST(request: Request) {
     const parsed = schema.safeParse(raw);
     if (!parsed.success) throw new PosError("Revisa los datos de la operacion.");
     const input = parsed.data;
-    const restaurant = restaurantAccess(auth, input.restaurantId, !["table-order", "receipt"].includes(input.action));
+    const waiterActions = ["table-order", "receipt", "open-waiter-shift", "close-waiter-shift"];
+    const restaurant = restaurantAccess(auth, input.restaurantId, !waiterActions.includes(input.action));
     const client = auth.client;
     const id = restaurant.id;
     const upload = () => uploadPrivateFile(file, `restaurants/${id}/payment-receipts`);
     let result: unknown = null;
 
-    if (input.action === "table-order") {
+    if (input.action === "open-waiter-shift" || input.action === "close-waiter-shift") {
+      if (restaurant.role !== "waiter") throw new PosError("Esta operacion es solo para meseros.", 403);
+      const current = await getWaiterShift(auth, id);
+      const opening = input.action === "open-waiter-shift";
+      if (opening !== current?.active) {
+        await writeWaiterAudit(auth, id, opening ? "waiter_shift_opened" : "waiter_shift_closed");
+      }
+      result = { active: opening, openedAt: opening ? current?.openedAt ?? new Date().toISOString() : null };
+    } else if (input.action === "table-order") {
       const existing = checked(await auth.client.from("orders").select("id,order_number").eq("restaurant_id", id).eq("public_request_id", input.requestId).maybeSingle());
       if (existing) return json(existing);
+      if (restaurant.role === "waiter" && !(await getWaiterShift(auth, id))?.active) {
+        throw new PosError("Abre tu turno antes de enviar pedidos.", 409);
+      }
       const table = checked(await client.from("tables").select("id,name,code").eq("restaurant_id", id).eq("code", input.tableCode.toUpperCase()).eq("is_active", true).maybeSingle());
       if (!table) throw new PosError("La mesa no pertenece a este restaurante.");
       const settings = checked(await client.from("restaurant_settings").select("table_orders_enabled,min_order_amount,qr_payment_url").eq("restaurant_id", id).single());
@@ -116,13 +237,20 @@ export async function POST(request: Request) {
       const receipt = await upload();
       const orderNumber = `M-${input.requestId.slice(0, 8).toUpperCase()}`;
       // Attribution is generated from the authenticated account, never from the payload.
-      const notes = `${table.name} (${table.code}) | Mesero: ${auth.profile.full_name || "Personal"}${input.notes ? ` | ${input.notes}` : ""}`;
+      const notes = `${table.name} (${table.code}) | Mesero: ${auth.profile.full_name || "Personal"} | Usuario: ${auth.profile.id}${input.notes ? ` | ${input.notes}` : ""}`;
       const created = await auth.admin.rpc("create_public_order_transaction", { p_request_id: input.requestId, p_order: { restaurant_id: id, table_id: table.id, order_number: orderNumber, customer_name: input.customerName || table.name, customer_phone: input.customerPhone || null, order_type: "table", order_origin: "table_qr", payment_method: input.paymentMethod, payment_receipt_url: receipt, payment_receipt_uploaded_at: receipt ? new Date().toISOString() : null, subtotal: total, total, delivery_fee: 0, discount_total: 0, notes }, p_items: items });
       if (created.error?.code === "23505") {
         const retry = checked(await client.from("orders").select("id,order_number").eq("restaurant_id", id).eq("public_request_id", input.requestId).maybeSingle());
         if (retry) return json(retry);
       }
-      result = { id: checked(created)?.[0]?.id, order_number: orderNumber };
+      const createdOrderId = checked(created)?.[0]?.id;
+      if (createdOrderId) {
+        checked(await auth.admin.from("tables").update({ status: "occupied" }).eq("restaurant_id", id).eq("id", table.id));
+        if (restaurant.role === "waiter") {
+          await writeWaiterAudit(auth, id, "waiter_order_created", { orderId: createdOrderId, orderNumber, tableId: table.id, tableName: table.name });
+        }
+      }
+      result = { id: createdOrderId, order_number: orderNumber };
     } else if (input.action === "open-cash" || input.action === "close-cash") {
       if (input.action === "close-cash") {
         const active = checked(await client.from("cash_sessions").select("id").eq("restaurant_id", id).eq("status", "open").maybeSingle());
@@ -148,6 +276,98 @@ export async function POST(request: Request) {
         checked(await client.from("orders").update({ status: "ready", ready_at: new Date().toISOString() }).eq("restaurant_id", id).eq("id", orderId).eq("status", "accepted"));
       }
       result = { id: orderId, order_number: orderNumber };
+    } else if (input.action === "cancel-order") {
+      const order = checked(await client
+        .from("orders")
+        .select("id,table_id,order_number,order_type,status,payment_status,payment_method,payment_receipt_url,payment_receipt_reference,payment_receipt_uploaded_at,requested_fulfillment_at,accepted_at,ready_at,delivered_at,total")
+        .eq("restaurant_id", id)
+        .eq("id", input.orderId)
+        .maybeSingle());
+      if (!order) throw new PosError("Pedido no encontrado.", 404);
+      if (["cancelled", "delivered"].includes(order.status)) throw new PosError("Este pedido ya no se puede anular.", 409);
+      if (order.payment_status === "paid") {
+        checked(await client.rpc("refund_order_atomic", { p_restaurant_id: id, p_order_id: order.id, p_reason: input.reason }));
+      } else {
+        const cancelled = checked(await client
+          .from("orders")
+          .update({ status: "cancelled", payment_status: "cancelled", cancelled_at: new Date().toISOString(), cancellation_reason: input.reason })
+          .eq("restaurant_id", id)
+          .eq("id", order.id)
+          .in("status", ["pending", "accepted", "preparing", "ready"])
+          .select("id")
+          .maybeSingle());
+        if (!cancelled) throw new PosError("El pedido cambio. Actualiza para continuar.", 409);
+      }
+      await createCancellationReview(auth, id, order, input.reason);
+      await releaseTableWhenEmpty(auth, id, order.table_id);
+      after(async () => {
+        await sendOrderStatusPush({ orderId: order.id, status: "cancelled" });
+      });
+      result = { id: order.id };
+    } else if (input.action === "settle-table") {
+      const table = checked(await client.from("tables").select("id,name").eq("restaurant_id", id).eq("id", input.tableId).eq("is_active", true).maybeSingle());
+      if (!table) throw new PosError("Mesa no encontrada.", 404);
+      const orders = checked(await client
+        .from("orders")
+        .select("id,status,payment_status")
+        .eq("restaurant_id", id)
+        .eq("table_id", table.id)
+        .in("status", ["pending", "accepted", "preparing", "ready"])
+        .order("created_at")) ?? [];
+      if (!orders.length) {
+        checked(await auth.admin.from("tables").update({ status: "available" }).eq("restaurant_id", id).eq("id", table.id));
+        result = { tableId: table.id, orders: 0 };
+      } else {
+        const receipt = await upload();
+        for (const order of orders) {
+          if (order.payment_status === "pending") {
+            checked(await client.rpc("charge_order_with_cash_movement", {
+              p_restaurant_id: id,
+              p_order_id: order.id,
+              p_payment_method: input.paymentMethod,
+              p_receipt_url: receipt,
+              p_receipt_reference: input.reference ?? null,
+            }));
+          }
+          let current = checked(await client.from("orders").select("status,payment_status").eq("restaurant_id", id).eq("id", order.id).maybeSingle());
+          if (!current || current.payment_status !== "paid") throw new PosError("No se pudo confirmar el pago completo de la mesa.", 409);
+          if (current.status === "pending") {
+            current = checked(await client
+              .from("orders")
+              .update({ status: "accepted", accepted_at: new Date().toISOString() })
+              .eq("restaurant_id", id)
+              .eq("id", order.id)
+              .eq("status", "pending")
+              .select("status,payment_status")
+              .maybeSingle());
+            if (!current) throw new PosError("El pedido cambio. Actualiza para continuar.", 409);
+          }
+          let status = current.status;
+          if (status === "accepted") {
+            checked(await client.rpc("update_operational_order_status", { p_restaurant_id: id, p_order_id: order.id, p_expected_status: "accepted", p_next_status: "ready" }));
+            status = "ready";
+          } else if (status === "preparing") {
+            checked(await client.rpc("update_operational_order_status", { p_restaurant_id: id, p_order_id: order.id, p_expected_status: "preparing", p_next_status: "ready" }));
+            status = "ready";
+          }
+          if (status === "ready") {
+            checked(await client.rpc("update_operational_order_status", { p_restaurant_id: id, p_order_id: order.id, p_expected_status: "ready", p_next_status: "delivered" }));
+          }
+        }
+        await releaseTableWhenEmpty(auth, id, table.id);
+        checked(await client.rpc("write_admin_audit", {
+          p_action: "table_settled",
+          p_entity_type: "restaurant_table",
+          p_entity_id: table.id,
+          p_restaurant_id: id,
+          p_severity: "info",
+          p_metadata: { orderCount: orders.length, tableName: table.name },
+        }));
+        after(async () => {
+          await Promise.allSettled(orders.map((order) => sendOrderStatusPush({ orderId: order.id, status: "delivered" })));
+        });
+        result = { tableId: table.id, orders: orders.length };
+      }
     } else {
       const order = checked(await client.from("orders").select("id,status,order_type,payment_status").eq("restaurant_id", id).eq("id", input.orderId).maybeSingle());
       if (!order) throw new PosError("Pedido no encontrado.", 404);

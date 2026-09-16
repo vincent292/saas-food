@@ -6,7 +6,7 @@ import { getPrivateFileSignedUrl, uploadPrivateFile } from "@/lib/supabase/stora
 import { announcementService } from "@/lib/services/announcement.service";
 import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
 import { sendOrderWhatsAppNotification } from "@/lib/services/order-whatsapp-notification.service";
-import { offerNextRiderForOrder } from "@/lib/services/rider-dispatch.service";
+import { claimRiderDeliveryOrder, offerNextRiderForOrder } from "@/lib/services/rider-dispatch.service";
 import { getBusinessStatus, DEFAULT_RESTAURANT_TIME_ZONE } from "@/lib/utils/business-hours";
 import { cartSchema, resolveCart } from "./_cart";
 import { allRows, checked, cors, failure, json, PosError, restaurantAccess, session } from "./_shared";
@@ -22,6 +22,9 @@ const schema = z.discriminatedUnion("action", [
   base.extend({ action: z.literal("charge"), orderId: z.string().uuid(), paymentMethod: payment, reference: z.string().max(160).optional() }),
   base.extend({ action: z.literal("receipt"), orderId: z.string().uuid() }),
   base.extend({ action: z.literal("status"), orderId: z.string().uuid(), expected: z.enum(["accepted", "preparing", "ready"]), next: z.enum(["preparing", "ready", "delivered"]) }),
+  base.extend({ action: z.literal("eta"), orderId: z.string().uuid(), adjustmentMinutes: z.number().int().min(0).max(180) }),
+  base.extend({ action: z.literal("dispatch-rider"), orderId: z.string().uuid() }),
+  base.extend({ action: z.literal("assign-rider"), orderId: z.string().uuid(), riderId: z.string().uuid() }),
   base.extend({ action: z.literal("open-cash"), amount: z.number().min(0).max(100000000), notes: z.string().max(500).optional() }),
   base.extend({ action: z.literal("close-cash"), sessionId: z.string().uuid(), amount: z.number().min(0).max(100000000), notes: z.string().max(500).optional() }),
   base.extend({ action: z.literal("open-waiter-shift") }),
@@ -152,7 +155,7 @@ export async function GET(request: Request) {
     }
     const client = auth.client;
     const catalog = params.get("catalog") !== "0";
-    let ordersQuery = client.from("orders").select("id,restaurant_id,table_id,order_number,order_type,status,payment_status,payment_method,payment_receipt_url,payment_receipt_reference,customer_name,customer_phone,total,notes,created_at,order_items(id,product_name,quantity,subtotal,notes)").eq("restaurant_id", id).order("created_at", { ascending: false }).order("id");
+    let ordersQuery = client.from("orders").select("id,restaurant_id,table_id,order_number,order_type,status,payment_status,payment_method,payment_receipt_url,payment_receipt_reference,customer_name,customer_phone,total,notes,created_at,eta_adjustment_minutes,order_items(id,product_name,quantity,subtotal,prep_minutes,notes)").eq("restaurant_id", id).order("created_at", { ascending: false }).order("id");
     // Keep every active order, including those created before today's shift.
     ordersQuery = ordersQuery.or(`status.in.(pending,accepted,preparing,ready),created_at.gte.${new Date(Date.now() - 86400000).toISOString()}`);
     if (!restaurant.canManage) ordersQuery = ordersQuery.eq("order_type", "table");
@@ -179,7 +182,28 @@ export async function GET(request: Request) {
     }
     const settings = checked(settingsResult);
     if (!settings) throw new PosError("El restaurante no tiene configuracion de venta.", 409);
-    return json({ restaurant, orders: ordersResult, tables: checked(tablesResult), settings, cashSession, cashOpen, movements, waiterShift, products, categories, variants, groups, options });
+    const orderIds = ordersResult.map((order) => order.id);
+    const [ridersResult, assignmentsResult] = restaurant.canManage
+      ? await Promise.all([
+          auth.admin
+            .from("restaurant_riders")
+            .select("id,full_name,phone,plate_number,status,membership_valid_until")
+            .eq("restaurant_id", id)
+            .eq("status", "active")
+            .gte("membership_valid_until", new Date().toISOString().slice(0, 10))
+            .order("full_name"),
+          orderIds.length
+            ? auth.admin
+                .from("order_delivery_links")
+                .select("order_id,restaurant_rider_id,delivery_name,delivery_phone,status,pickup_confirmation_code,pickup_code_verified_at,assigned_at")
+                .eq("restaurant_id", id)
+                .in("order_id", orderIds)
+            : Promise.resolve({ data: [], error: null }),
+        ])
+      : [{ data: [], error: null }, { data: [], error: null }];
+    const riders = checked(ridersResult) ?? [];
+    const deliveryAssignments = checked(assignmentsResult) ?? [];
+    return json({ restaurant, orders: ordersResult, tables: checked(tablesResult), settings, cashSession, cashOpen, movements, waiterShift, products, categories, variants, groups, options, riders, deliveryAssignments });
   } catch (error) { return failure(error); }
 }
 
@@ -276,6 +300,68 @@ export async function POST(request: Request) {
         checked(await client.from("orders").update({ status: "ready", ready_at: new Date().toISOString() }).eq("restaurant_id", id).eq("id", orderId).eq("status", "accepted"));
       }
       result = { id: orderId, order_number: orderNumber };
+    } else if (input.action === "eta") {
+      const order = checked(await client
+        .from("orders")
+        .update({
+          eta_adjustment_minutes: input.adjustmentMinutes,
+          eta_adjusted_at: new Date().toISOString(),
+          eta_adjusted_by: auth.profile.id,
+        })
+        .eq("restaurant_id", id)
+        .eq("id", input.orderId)
+        .in("status", ["pending", "accepted", "preparing"])
+        .select("id,eta_adjustment_minutes")
+        .maybeSingle());
+      if (!order) throw new PosError("El pedido ya no permite cambiar el tiempo.", 409);
+      checked(await client.rpc("write_admin_audit", {
+        p_action: "order_eta_adjusted",
+        p_entity_type: "order",
+        p_entity_id: input.orderId,
+        p_restaurant_id: id,
+        p_severity: "info",
+        p_metadata: { adjustmentMinutes: input.adjustmentMinutes },
+      }));
+      result = order;
+    } else if (input.action === "dispatch-rider") {
+      const order = checked(await client.from("orders").select("id,order_type,status").eq("restaurant_id", id).eq("id", input.orderId).maybeSingle());
+      if (!order || order.order_type !== "delivery") throw new PosError("Pedido delivery no encontrado.", 404);
+      if (order.status !== "ready") throw new PosError("Marca el pedido como listo antes de buscar rider.", 409);
+      const dispatch = await offerNextRiderForOrder(order.id);
+      if (!dispatch.ok) throw new PosError("No se pudo iniciar la busqueda de rider.", 409);
+      result = dispatch;
+    } else if (input.action === "assign-rider") {
+      const [order, rider] = await Promise.all([
+        client.from("orders").select("id,order_type,status").eq("restaurant_id", id).eq("id", input.orderId).maybeSingle(),
+        auth.admin
+          .from("restaurant_riders")
+          .select("id,full_name,phone,status,membership_valid_until")
+          .eq("restaurant_id", id)
+          .eq("id", input.riderId)
+          .maybeSingle(),
+      ]).then(([orderResult, riderResult]) => [checked(orderResult), checked(riderResult)] as const);
+      if (!order || order.order_type !== "delivery") throw new PosError("Pedido delivery no encontrado.", 404);
+      if (order.status !== "ready") throw new PosError("Marca el pedido como listo antes de asignar rider.", 409);
+      if (!rider || rider.status !== "active" || rider.membership_valid_until < new Date().toISOString().slice(0, 10)) {
+        throw new PosError("El rider no esta activo para esta sucursal.", 409);
+      }
+      const assigned = await claimRiderDeliveryOrder(auth.admin, {
+        deliveryName: rider.full_name,
+        deliveryPhone: rider.phone,
+        deliveryToken: `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`,
+        dispatchSource: "rider_manual",
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        orderId: order.id,
+        restaurantId: id,
+        riderId: rider.id,
+      });
+      if (!assigned.ok) throw new PosError("No se pudo asignar el rider. Actualiza e intenta otra vez.", assigned.status);
+      await auth.admin
+        .from("rider_delivery_offers")
+        .update({ status: "cancelled", responded_at: new Date().toISOString(), response_reason: "manual-rider-assigned" })
+        .eq("order_id", order.id)
+        .eq("status", "pending");
+      result = { ...assigned.data, riderId: rider.id, riderName: rider.full_name };
     } else if (input.action === "cancel-order") {
       const order = checked(await client
         .from("orders")

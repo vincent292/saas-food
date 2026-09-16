@@ -482,6 +482,9 @@ export type Database = {
         delivery_distance_km: number | null;
         requires_prepayment: boolean;
         requested_fulfillment_at: string | null;
+        eta_adjustment_minutes: number;
+        eta_adjusted_at: string | null;
+        eta_adjusted_by: string | null;
         invoice_required: boolean;
         invoice_document_type: string | null;
         invoice_document_number: string | null;

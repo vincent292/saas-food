@@ -719,6 +719,38 @@ export const orderService = {
       return null;
     }
 
-    return mapQueueState(payload);
+    const queue = mapQueueState(payload);
+    if (!queue || queue.estimatedMaxMinutes <= 0) {
+      return queue;
+    }
+
+    const admin = createAdminClient();
+    const { data: order } = admin
+      ? await admin
+          .from("orders")
+          .select("eta_adjustment_minutes")
+          .eq("restaurant_id", restaurantId)
+          .eq("id", orderId)
+          .eq("tracking_token", token)
+          .maybeSingle()
+      : { data: null };
+    const adjustment = Math.max(0, Number(order?.eta_adjustment_minutes ?? 0));
+    if (!adjustment) {
+      return queue;
+    }
+
+    const shiftTime = (value?: string) => {
+      if (!value) return undefined;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? value : new Date(date.getTime() + adjustment * 60_000).toISOString();
+    };
+
+    return {
+      ...queue,
+      estimatedMinMinutes: queue.estimatedMinMinutes + adjustment,
+      estimatedMaxMinutes: queue.estimatedMaxMinutes + adjustment,
+      estimatedReadyAtMin: shiftTime(queue.estimatedReadyAtMin),
+      estimatedReadyAtMax: shiftTime(queue.estimatedReadyAtMax),
+    };
   },
 };

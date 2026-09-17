@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMobileCustomerSession } from "@/lib/services/customer-account.service";
-import { subscribeOrderToMobilePush } from "@/lib/services/mobile-push.service";
+import { sendRestaurantNewOrderPush, subscribeOrderToMobilePush } from "@/lib/services/mobile-push.service";
 import { getRestaurantDeliveryQuote } from "@/lib/services/delivery-quote.service";
 import { DEFAULT_RESTAURANT_TIME_ZONE, getBusinessStatus } from "@/lib/utils/business-hours";
 
@@ -322,6 +323,10 @@ export async function POST(request: Request) {
       supabase,
     );
   }
+
+  after(async () => {
+    await sendRestaurantNewOrderPush(order.id);
+  });
 
   return NextResponse.json({
     orderId: order.id,

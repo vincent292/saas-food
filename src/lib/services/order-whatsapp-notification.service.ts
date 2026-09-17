@@ -1,9 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl } from "@/lib/seo/site-url";
+import { insideWhatsAppReplyWindow, metaGraphVersion, resolveWhatsAppSender } from "@/lib/services/whatsapp-connection.service";
 import type { Json } from "@/types/database.types";
 import type { OrderStatus } from "@/types/order.types";
 
-type OrderNotificationEvent = Extract<OrderStatus, "accepted" | "ready" | "delivered"> | "arrived" | "delivery_dispatched";
+type OrderNotificationEvent = Extract<OrderStatus, "accepted" | "ready" | "delivered"> | "arrived" | "delivery_dispatched" | "eta_updated";
 
 type OrderNotificationRow = {
   customer_phone: string | null;
@@ -50,6 +51,13 @@ function notificationBody({
     );
   }
 
+  if (event === "eta_updated") {
+    return (
+      `Actualizamos el tiempo estimado de tu pedido ${order.order_number}.\n` +
+      `Nuevo tiempo estimado: ${estimatedTime}\n\nSigue tu pedido aqui:\n${trackingUrl}`
+    );
+  }
+
   if (event === "delivery_dispatched") {
     return `Tu pedido ${order.order_number} ya fue asignado a delivery y esta en camino.\n\nSiguelo aqui:\n${trackingUrl}`;
   }
@@ -59,7 +67,7 @@ function notificationBody({
   }
 
   if (event === "delivered") {
-    return `Tu pedido ${order.order_number} fue marcado como entregado. Gracias por pedir en YoPido.shop.`;
+    return `Tu pedido ${order.order_number} fue marcado como entregado. Gracias por pedir en ${restaurantName}.`;
   }
 
   return order.order_type === "delivery"
@@ -75,9 +83,7 @@ export async function sendOrderWhatsAppNotification({
   orderId: string;
 }) {
   const admin = createAdminClient();
-  const token = process.env.WHATSAPP_TOKEN?.trim();
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
-  if (!admin || !token || !phoneNumberId) return { ok: false, error: "whatsapp-not-configured" } as const;
+  if (!admin) return { ok: false, error: "whatsapp-not-configured" } as const;
 
   const { data: rawOrder, error: orderError } = await admin
     .from("orders")
@@ -87,14 +93,28 @@ export async function sendOrderWhatsAppNotification({
   const order = rawOrder as OrderNotificationRow | null;
   if (orderError || !order) return { ok: false, error: "order-not-found" } as const;
 
-  // Free-form Cloud API messages are valid here because WhatsApp orders have an active customer conversation.
+  // Send from the original order channel, never from a different branch or a fallback number.
   if (order.order_origin !== "phone_whatsapp") return { ok: true, skipped: "not-whatsapp-order" } as const;
   const to = normalizePhone(order.customer_phone);
   if (!to) return { ok: true, skipped: "missing-phone" } as const;
+  const { data: orderChannel, error: channelError } = await admin.from("whatsapp_order_channels")
+    .select("conversation_id,channel_key").eq("order_id", order.id).eq("restaurant_id", order.restaurant_id).maybeSingle();
+  if (channelError) return { ok: false, error: "whatsapp-channel-unavailable" } as const;
+  let conversationQuery = admin.from("whatsapp_conversations")
+    .select("id,channel_key,last_customer_message_at").eq("from_phone", to);
+  conversationQuery = orderChannel?.conversation_id
+    ? conversationQuery.eq("id", orderChannel.conversation_id).eq("channel_key", orderChannel.channel_key)
+    : conversationQuery.eq("restaurant_id", order.restaurant_id).eq("channel_key", "platform");
+  const { data: conversation } = await conversationQuery.maybeSingle();
+  if (!conversation) return { ok: true, skipped: "missing-conversation" } as const;
+  if (!insideWhatsAppReplyWindow(conversation.last_customer_message_at)) return { ok: true, skipped: "whatsapp-window-closed" } as const;
+  const sender = await resolveWhatsAppSender(order.restaurant_id, conversation.channel_key);
+  if (!sender) return { ok: false, error: "whatsapp-not-configured" } as const;
+  const { token, phoneNumberId } = sender;
 
   const [{ data: restaurant }, queueResult] = await Promise.all([
     admin.from("restaurants").select("name,slug").eq("id", order.restaurant_id).maybeSingle(),
-    event === "accepted"
+    event === "accepted" || event === "eta_updated"
       ? admin.rpc("get_public_order_queue_state", {
           p_order_id: order.id,
           p_tracking_token: order.tracking_token,
@@ -111,7 +131,7 @@ export async function sendOrderWhatsAppNotification({
     restaurantName: restaurant.name,
     trackingUrl,
   });
-  const response = await fetch(`https://graph.facebook.com/v26.0/${phoneNumberId}/messages`, {
+  const response = await fetch(`https://graph.facebook.com/${metaGraphVersion}/${phoneNumberId}/messages`, {
     body: JSON.stringify({
       messaging_product: "whatsapp",
       text: { body, preview_url: true },
@@ -140,6 +160,7 @@ export async function sendOrderWhatsAppNotification({
       contact_name: null,
       from_phone: to,
       message_id: messageId,
+      conversation_id: conversation.id,
       message_text: body,
       message_type: "text",
       payload: {
@@ -158,14 +179,6 @@ export async function sendOrderWhatsAppNotification({
     { ignoreDuplicates: true, onConflict: "message_id" },
   );
 
-  const { data: conversation } = await admin
-    .from("whatsapp_conversations")
-    .select("id")
-    .eq("restaurant_id", order.restaurant_id)
-    .eq("from_phone", to)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
   if (conversation?.id) {
     await admin.from("whatsapp_conversations").update({
       last_intent: `order_${event}`,

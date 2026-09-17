@@ -4,7 +4,11 @@ import { z } from "zod";
 import { businessTypeSupportsKitchen, businessTypeSupportsTableQr } from "@/lib/restaurant-directory-options";
 import { getPrivateFileSignedUrl, uploadPrivateFile } from "@/lib/supabase/storage";
 import { announcementService } from "@/lib/services/announcement.service";
-import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
+import {
+  registerRestaurantPosPushToken,
+  sendOrderStatusPush,
+  sendRestaurantNewOrderPush,
+} from "@/lib/services/mobile-push.service";
 import { sendOrderWhatsAppNotification } from "@/lib/services/order-whatsapp-notification.service";
 import { claimRiderDeliveryOrder, offerNextRiderForOrder } from "@/lib/services/rider-dispatch.service";
 import { getBusinessStatus, DEFAULT_RESTAURANT_TIME_ZONE } from "@/lib/utils/business-hours";
@@ -19,12 +23,20 @@ const payment = z.enum(["cash", "qr", "bank_transfer", "card", "other"]);
 const schema = z.discriminatedUnion("action", [
   base.extend({ action: z.literal("table-order"), requestId: z.string().uuid(), tableCode: z.string().min(1).max(100), customerName: z.string().trim().max(120), customerPhone: z.string().max(40).optional(), notes: z.string().max(500).optional(), paymentMethod: payment, items: cartSchema }),
   base.extend({ action: z.literal("sale"), requestId: z.string().uuid(), customerName: z.string().trim().max(120), customerPhone: z.string().max(40).optional(), paymentMethod: payment, reference: z.string().max(160).optional(), items: cartSchema }),
+  base.extend({ action: z.literal("accept"), orderId: z.string().uuid() }),
   base.extend({ action: z.literal("charge"), orderId: z.string().uuid(), paymentMethod: payment, reference: z.string().max(160).optional() }),
   base.extend({ action: z.literal("receipt"), orderId: z.string().uuid() }),
   base.extend({ action: z.literal("status"), orderId: z.string().uuid(), expected: z.enum(["accepted", "preparing", "ready"]), next: z.enum(["preparing", "ready", "delivered"]) }),
   base.extend({ action: z.literal("eta"), orderId: z.string().uuid(), adjustmentMinutes: z.number().int().min(0).max(180) }),
   base.extend({ action: z.literal("dispatch-rider"), orderId: z.string().uuid() }),
   base.extend({ action: z.literal("assign-rider"), orderId: z.string().uuid(), riderId: z.string().uuid() }),
+  base.extend({
+    action: z.literal("register-pos-push"),
+    appVersion: z.string().trim().max(40).optional(),
+    deviceId: z.string().trim().max(160).optional(),
+    expoPushToken: z.string().trim().min(20).max(400),
+    platform: z.string().trim().max(40).optional(),
+  }),
   base.extend({ action: z.literal("open-cash"), amount: z.number().min(0).max(100000000), notes: z.string().max(500).optional() }),
   base.extend({ action: z.literal("close-cash"), sessionId: z.string().uuid(), amount: z.number().min(0).max(100000000), notes: z.string().max(500).optional() }),
   base.extend({ action: z.literal("open-waiter-shift") }),
@@ -273,6 +285,9 @@ export async function POST(request: Request) {
         if (restaurant.role === "waiter") {
           await writeWaiterAudit(auth, id, "waiter_order_created", { orderId: createdOrderId, orderNumber, tableId: table.id, tableName: table.name });
         }
+        after(async () => {
+          await sendRestaurantNewOrderPush(createdOrderId);
+        });
       }
       result = { id: createdOrderId, order_number: orderNumber };
     } else if (input.action === "open-cash" || input.action === "close-cash") {
@@ -300,6 +315,17 @@ export async function POST(request: Request) {
         checked(await client.from("orders").update({ status: "ready", ready_at: new Date().toISOString() }).eq("restaurant_id", id).eq("id", orderId).eq("status", "accepted"));
       }
       result = { id: orderId, order_number: orderNumber };
+    } else if (input.action === "register-pos-push") {
+      const registration = await registerRestaurantPosPushToken({
+        appVersion: input.appVersion,
+        deviceId: input.deviceId,
+        expoPushToken: input.expoPushToken,
+        platform: input.platform,
+        restaurantId: id,
+        userId: auth.profile.id,
+      }, auth.admin);
+      if (!registration.ok) throw new PosError("No se pudo registrar este dispositivo para notificaciones.", 400);
+      result = { ok: true };
     } else if (input.action === "eta") {
       const order = checked(await client
         .from("orders")
@@ -322,6 +348,9 @@ export async function POST(request: Request) {
         p_severity: "info",
         p_metadata: { adjustmentMinutes: input.adjustmentMinutes },
       }));
+      after(async () => {
+        await sendOrderWhatsAppNotification({ event: "eta_updated", orderId: input.orderId });
+      });
       result = order;
     } else if (input.action === "dispatch-rider") {
       const order = checked(await client.from("orders").select("id,order_type,status").eq("restaurant_id", id).eq("id", input.orderId).maybeSingle());
@@ -474,6 +503,29 @@ export async function POST(request: Request) {
           if (!businessTypeSupportsKitchen(restaurant.business_type) || settings?.kitchen_enabled === false) {
             const ready = checked(await client.from("orders").update({ status: "ready", ready_at: new Date().toISOString() }).eq("restaurant_id", id).eq("id", order.id).in("status", ["accepted", "preparing"]).select("id").maybeSingle());
             if (ready) { next = "ready"; changed = true; }
+          }
+        } else if (input.action === "accept") {
+          const accepted = checked(await client
+            .from("orders")
+            .update({ accepted_at: new Date().toISOString(), status: "accepted" })
+            .eq("restaurant_id", id)
+            .eq("id", order.id)
+            .eq("status", "pending")
+            .select("id")
+            .maybeSingle());
+          if (!accepted) throw new PosError("El pedido cambio. Actualiza para continuar.", 409);
+          changed = true;
+          const settings = checked(await client.from("restaurant_settings").select("kitchen_enabled").eq("restaurant_id", id).maybeSingle());
+          if (!businessTypeSupportsKitchen(restaurant.business_type) || settings?.kitchen_enabled === false) {
+            const ready = checked(await client
+              .from("orders")
+              .update({ ready_at: new Date().toISOString(), status: "ready" })
+              .eq("restaurant_id", id)
+              .eq("id", order.id)
+              .eq("status", "accepted")
+              .select("id")
+              .maybeSingle());
+            if (ready) next = "ready";
           }
         } else {
           if (input.next === "delivered" && order.order_type === "delivery") throw new PosError("La entrega se confirma desde el flujo del repartidor.");

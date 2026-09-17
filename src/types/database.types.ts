@@ -739,6 +739,20 @@ export type Database = {
         error_message: string | null;
         created_at: string;
       }>;
+      restaurant_pos_push_tokens: Row<{
+        id: string;
+        restaurant_id: string;
+        user_id: string | null;
+        expo_push_token: string;
+        device_id: string | null;
+        platform: string | null;
+        app_version: string | null;
+        is_enabled: boolean;
+        last_seen_at: string;
+        last_notified_at: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       restaurant_public_visits: Row<{
         id: string;
         restaurant_id: string;
@@ -1072,6 +1086,7 @@ export type Database = {
         created_at: string;
       }>;
       whatsapp_messages: Row<{
+        conversation_id: string | null;
         id: string;
         message_id: string;
         from_phone: string;
@@ -1094,8 +1109,41 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      restaurant_whatsapp_connections: Row<{
+        restaurant_id: string;
+        phone_number_id: string;
+        waba_id: string;
+        display_phone_number: string;
+        verified_name: string | null;
+        token_ciphertext: string | null;
+        token_expires_at: string | null;
+        status: 'pending' | 'connected' | 'disconnected' | 'needs_reconnect';
+        coexistence: boolean;
+        connected_by: string | null;
+        connected_at: string | null;
+        last_checked_at: string | null;
+        last_error: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      whatsapp_onboarding_sessions: Row<{
+        id: string;
+        restaurant_id: string;
+        user_id: string;
+        expires_at: string;
+        consumed_at: string | null;
+        created_at: string;
+      }>;
+      whatsapp_order_channels: Row<{
+        order_id: string;
+        conversation_id: string;
+        channel_key: string;
+        restaurant_id: string;
+      }>;
       whatsapp_conversations: Row<{
         id: string;
+        channel_key: string;
+        last_customer_message_at: string | null;
         customer_id: string;
         from_phone: string;
         restaurant_id: string | null;

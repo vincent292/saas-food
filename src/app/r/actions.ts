@@ -1,11 +1,13 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { announcementService } from "@/lib/services/announcement.service";
+import { sendRestaurantNewOrderPush } from "@/lib/services/mobile-push.service";
 import { deliveryRateService } from "@/lib/services/delivery-rate.service";
 import { uploadPrivateFile, uploadPublicImage } from "@/lib/supabase/storage";
 import { businessTypeSupportsTableQr, normalizeRestaurantBusinessType } from "@/lib/restaurant-directory-options";
@@ -789,6 +791,7 @@ export async function createPublicOrderAction(formData: FormData) {
       notes: item.notes ?? null,
     })),
   });
+  const createdNow = Boolean(createdOrders?.[0]);
   let order = createdOrders?.[0];
 
   if (!order && error?.code === "23505") {
@@ -816,6 +819,11 @@ export async function createPublicOrderAction(formData: FormData) {
   }
 
   const tableNotice = parsed.data.orderType === "table" ? "&tablePending=1" : "";
+  if (createdNow) {
+    after(async () => {
+      await sendRestaurantNewOrderPush(order.id);
+    });
+  }
   redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `pedido/${order.id}`)}?token=${order.tracking_token}${tableNotice}`);
 }
 
@@ -1819,6 +1827,10 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
     })
     .eq("id", session.id)
     .eq("status", "submitting");
+
+  after(async () => {
+    await sendRestaurantNewOrderPush(createdOrder.id);
+  });
 
   redirect(`${publicRestaurantPath(submitData.restaurantSlug, `pedido/${createdOrder.id}`)}?token=${createdOrder.tracking_token}&group=1`);
 }

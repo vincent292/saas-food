@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { insideWhatsAppReplyWindow, metaGraphVersion, resolveWhatsAppSender } from "@/lib/services/whatsapp-connection.service";
 import type { Json } from "@/types/database.types";
 import type {
   WhatsAppCrmBotSettings,
@@ -15,6 +16,8 @@ type JsonRecord = Record<string, unknown>;
 
 type ConversationRow = {
   id: string;
+  channel_key: string;
+  last_customer_message_at: string | null;
   customer_id: string;
   from_phone: string;
   restaurant_id: string | null;
@@ -34,6 +37,7 @@ type CustomerRow = {
 
 type MessageRow = {
   id: string;
+  conversation_id: string | null;
   message_id: string;
   from_phone: string;
   contact_name: string | null;
@@ -138,7 +142,7 @@ function mapMessage(row: MessageRow): WhatsAppCrmMessage {
   return {
     id: row.id,
     messageId: row.message_id,
-    conversationId: typeof payload.conversation_id === "string" ? payload.conversation_id : undefined,
+    conversationId: row.conversation_id ?? (typeof payload.conversation_id === "string" ? payload.conversation_id : undefined),
     phone: row.from_phone,
     direction: messageDirection(row),
     type: row.message_type,
@@ -232,7 +236,7 @@ function startOfBoliviaDayIso(date = new Date()) {
 async function getConversationForMessage(admin: NonNullable<ReturnType<typeof createAdminClient>>, restaurantId: string, conversationId: string) {
   const { data, error } = await admin
     .from("whatsapp_conversations")
-    .select("id,from_phone,restaurant_id,state")
+    .select("id,from_phone,restaurant_id,state,channel_key,last_customer_message_at")
     .eq("id", conversationId)
     .eq("restaurant_id", restaurantId)
     .maybeSingle();
@@ -246,7 +250,7 @@ async function getConversationForMessage(admin: NonNullable<ReturnType<typeof cr
 
 export const whatsappCrmService = {
   async getWorkspace(restaurantId: string, selectedConversationId?: string): Promise<WhatsAppCrmWorkspace> {
-    const whatsappConfigured = Boolean(process.env.WHATSAPP_TOKEN?.trim() && process.env.WHATSAPP_PHONE_NUMBER_ID?.trim());
+    let whatsappConfigured = Boolean(process.env.WHATSAPP_TOKEN?.trim() && process.env.WHATSAPP_PHONE_NUMBER_ID?.trim());
 
     if (!hasSupabaseEnv()) {
       return {
@@ -271,10 +275,10 @@ export const whatsappCrmService = {
       };
     }
 
-    const [conversationsResult, quickRepliesResult, todayOrdersResult, botSettingsResult] = await Promise.all([
+    const [conversationsResult, quickRepliesResult, todayOrdersResult, botSettingsResult, connectionResult] = await Promise.all([
       admin
         .from("whatsapp_conversations")
-        .select("id,customer_id,from_phone,restaurant_id,state,last_intent,last_message_id,last_message_at,created_at,updated_at")
+        .select("id,customer_id,from_phone,restaurant_id,state,last_intent,last_message_id,last_message_at,created_at,updated_at,channel_key,last_customer_message_at")
         .eq("restaurant_id", restaurantId)
         .order("updated_at", { ascending: false })
         .limit(80),
@@ -296,7 +300,9 @@ export const whatsappCrmService = {
         .select("restaurant_id,bot_enabled,response_tone,greeting_message,menu_intro_message,checkout_message,location_request_message,qr_payment_message,receipt_request_message,fallback_message,human_handoff_message,updated_at")
         .eq("restaurant_id", restaurantId)
         .maybeSingle(),
+      admin.from("restaurant_whatsapp_connections").select("status").eq("restaurant_id", restaurantId).maybeSingle(),
     ]);
+    whatsappConfigured ||= connectionResult.data?.status === "connected";
 
     const conversationRows = conversationsResult.data;
     const quickReplyRows = quickRepliesResult.data;
@@ -313,8 +319,8 @@ export const whatsappCrmService = {
       phones.length
         ? admin
             .from("whatsapp_messages")
-            .select("id,message_id,from_phone,contact_name,message_type,message_text,payload,whatsapp_timestamp,received_at")
-            .in("from_phone", phones)
+            .select("id,conversation_id,message_id,from_phone,contact_name,message_type,message_text,payload,whatsapp_timestamp,received_at")
+            .in("conversation_id", conversationsRaw.map((conversation) => conversation.id))
             .order("received_at", { ascending: false })
             .limit(Math.max(240, phones.length * 8))
         : Promise.resolve({ data: [] as MessageRow[] }),
@@ -341,18 +347,18 @@ export const whatsappCrmService = {
 
     const customersById = new Map(((customersResult.data ?? []) as CustomerRow[]).map((customer) => [customer.id, customer]));
     const messages = ((messagesResult.data ?? []) as MessageRow[]).map(mapMessage);
-    const latestMessageByPhone = new Map<string, WhatsAppCrmMessage>();
-    const contactNameByPhone = new Map<string, string>();
+    const latestMessageByConversation = new Map<string, WhatsAppCrmMessage>();
+    const contactNameByConversation = new Map<string, string>();
 
     for (const row of (messagesResult.data ?? []) as MessageRow[]) {
-      if (row.contact_name && !contactNameByPhone.has(row.from_phone)) {
-        contactNameByPhone.set(row.from_phone, row.contact_name);
+      if (row.contact_name && row.conversation_id && !contactNameByConversation.has(row.conversation_id)) {
+        contactNameByConversation.set(row.conversation_id, row.contact_name);
       }
     }
 
     for (const message of messages) {
-      if (!latestMessageByPhone.has(message.phone)) {
-        latestMessageByPhone.set(message.phone, message);
+      if (message.conversationId && !latestMessageByConversation.has(message.conversationId)) {
+        latestMessageByConversation.set(message.conversationId, message);
       }
     }
 
@@ -376,7 +382,7 @@ export const whatsappCrmService = {
       const customer = customersById.get(conversation.customer_id);
       const phone = normalizePhone(conversation.from_phone);
       const customerOrders = ordersByPhone.get(phone) ?? [];
-      const lastMessage = latestMessageByPhone.get(conversation.from_phone);
+      const lastMessage = latestMessageByConversation.get(conversation.id);
       const activeDraft = draftsByConversation.get(conversation.id);
       const tags = [
         activeDraft ? "Pedido abierto" : "",
@@ -389,7 +395,7 @@ export const whatsappCrmService = {
       return {
         id: conversation.id,
         phone: conversation.from_phone,
-        displayName: customer?.display_name || contactNameByPhone.get(conversation.from_phone) || activeDraft?.customerName || conversation.from_phone,
+        displayName: activeDraft?.customerName || contactNameByConversation.get(conversation.id) || (conversation.channel_key === "platform" ? customer?.display_name : null) || conversation.from_phone,
         state: conversation.state,
         lastIntent: conversation.last_intent ?? "",
         lastMessageAt: conversation.last_message_at ?? conversation.updated_at,
@@ -413,8 +419,8 @@ export const whatsappCrmService = {
     if (selectedConversation) {
       const { data } = await admin
         .from("whatsapp_messages")
-        .select("id,message_id,from_phone,contact_name,message_type,message_text,payload,whatsapp_timestamp,received_at")
-        .eq("from_phone", selectedConversation.phone)
+        .select("id,conversation_id,message_id,from_phone,contact_name,message_type,message_text,payload,whatsapp_timestamp,received_at")
+        .eq("conversation_id", selectedConversation.id)
         .order("received_at", { ascending: false })
         .limit(120);
       selectedMessages = ((data ?? []) as MessageRow[]).map(mapMessage).reverse();
@@ -454,10 +460,7 @@ export const whatsappCrmService = {
     source?: string;
   }) {
     const admin = createAdminClient();
-    const token = process.env.WHATSAPP_TOKEN?.trim();
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
-
-    if (!admin || !token || !phoneNumberId) {
+    if (!admin) {
       return { ok: false, error: "whatsapp-not-configured" };
     }
 
@@ -465,8 +468,11 @@ export const whatsappCrmService = {
     if (!conversation) {
       return { ok: false, error: "conversation-not-found" };
     }
-
-    const response = await fetch(`https://graph.facebook.com/v26.0/${phoneNumberId}/messages`, {
+    const sender = await resolveWhatsAppSender(restaurantId, conversation.channel_key);
+    if (!sender) return { ok: false, error: "whatsapp-not-configured" };
+    if (!insideWhatsAppReplyWindow(conversation.last_customer_message_at)) return { ok: false, error: "whatsapp-window-closed" };
+    const { token, phoneNumberId } = sender;
+    const response = await fetch(`https://graph.facebook.com/${metaGraphVersion}/${phoneNumberId}/messages`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -496,6 +502,7 @@ export const whatsappCrmService = {
     await admin.from("whatsapp_messages").upsert(
       {
         message_id: messageId,
+        conversation_id: conversationId,
         from_phone: conversation.from_phone,
         to_phone_number_id: phoneNumberId,
         to_display_phone: null,

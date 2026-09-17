@@ -55,6 +55,7 @@ const tabLabels: Record<ConversationTab, string> = {
 
 const feedbackMessages: Record<string, string> = {
   "whatsapp-not-configured": "Falta configurar WhatsApp Cloud API para responder desde el CRM.",
+  "whatsapp-window-closed": "Pasaron 24 horas desde el ultimo mensaje del cliente. Espera un nuevo mensaje o responde desde WhatsApp Business; el CRM no envia plantillas todavia.",
   "whatsapp-send-failed": "WhatsApp no acepto el envio. Revisa la ventana de 24 horas o usa plantilla aprobada.",
   "conversation-not-found": "No encontre esa conversacion para este restaurante.",
   "restaurant-not-found": "No encontre los datos del restaurante.",

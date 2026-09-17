@@ -298,7 +298,7 @@ test("WhatsApp restart keeps restaurant conversations visible in CRM", async () 
   assert.match(source, /await sendRestaurantMenuIntro\(supabase, row\.from_phone, restaurant, await listTopProducts\(supabase, restaurant\.id\)\)/);
 });
 
-test("WhatsApp completed and stale drafts return to restaurant selection", async () => {
+test("WhatsApp completed and stale drafts reset without changing the branch channel", async () => {
   const source = await readFile(webhookPath, "utf8");
   const resetBlock = source.match(/async function resetConversationForRestaurantSelection[\s\S]*?async function updateConversationState/)?.[0] ?? "";
 
@@ -314,7 +314,7 @@ test("WhatsApp completed and stale drafts return to restaurant selection", async
   assert.match(source, /await resetConversationForRestaurantSelection\(supabase, conversation\.id, "order_created", row\.message_id\)/);
   assert.match(source, /conversation\.state === "choosing_restaurant"/);
   assert.match(source, /resolveSelectedRestaurant\(supabase, \{ \.\.\.conversation, restaurant_id: null \}, command\.text\)/);
-  assert.match(resetBlock, /state: "choosing_restaurant"/);
+  assert.match(resetBlock, /state: branchRestaurantId\(\) \? "idle" : "choosing_restaurant"/);
   assert.doesNotMatch(resetBlock, /restaurant_id/);
 });
 

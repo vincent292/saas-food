@@ -26,6 +26,11 @@ type OrderPushRow = {
   customer_phone: string | null;
 };
 
+type RestaurantPosPushRow = {
+  expo_push_token: string;
+  user_id: string | null;
+};
+
 type ExpoPushTicket = {
   details?: { error?: string };
   id?: string;
@@ -77,6 +82,182 @@ function isExpoPushToken(token: string) {
 
 function uniqueTokens(rows: OrderPushRow[]) {
   return Array.from(new Set(rows.map((row) => row.expo_push_token).filter(isExpoPushToken)));
+}
+
+async function sendExpoMessages(
+  supabase: AdminClient,
+  input: {
+    body: string;
+    eventType: string;
+    messages: Array<Record<string, unknown> & { to: string }>;
+    orderId: string;
+    restaurantId: string;
+    status?: string;
+    title: string;
+  },
+) {
+  if (!input.messages.length) return { ok: true, sent: 0 };
+
+  try {
+    const response = await fetch(expoPushEndpoint, {
+      body: JSON.stringify(input.messages),
+      headers: {
+        Accept: "application/json",
+        "Accept-encoding": "gzip, deflate",
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const responsePayload = (await response.json().catch(() => null)) as Json;
+    const expoResponse = responsePayload as ExpoPushResponse | null;
+    const tickets = Array.isArray(expoResponse?.data) ? expoResponse.data : [];
+    const requestError = expoResponse?.errors
+      ?.map((error) => [error.code, error.message].filter(Boolean).join(": "))
+      .filter(Boolean)
+      .join(" | ");
+
+    await Promise.all(
+      input.messages.map((message, index) => {
+        const ticket = tickets[index] ?? null;
+        return logPushAttempt(supabase, {
+          body: input.body,
+          errorMessage: ticket?.message ?? requestError,
+          eventType: input.eventType,
+          orderId: input.orderId,
+          responsePayload,
+          responseStatus: ticket?.status ?? `http_${response.status}`,
+          restaurantId: input.restaurantId,
+          status: input.status,
+          ticketId: ticket?.id,
+          title: input.title,
+          token: message.to,
+        });
+      }),
+    );
+
+    const acceptedTokens = input.messages
+      .filter((_message, index) => tickets[index]?.status === "ok")
+      .map((message) => message.to);
+    return {
+      acceptedTokens,
+      ok: response.ok && acceptedTokens.length === input.messages.length,
+      sent: acceptedTokens.length,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "expo-push-failed";
+    await Promise.all(
+      input.messages.map((message) =>
+        logPushAttempt(supabase, {
+          body: input.body,
+          errorMessage,
+          eventType: input.eventType,
+          orderId: input.orderId,
+          restaurantId: input.restaurantId,
+          status: input.status,
+          title: input.title,
+          token: message.to,
+        }),
+      ),
+    );
+    return { acceptedTokens: [], ok: false, sent: 0 };
+  }
+}
+
+export async function registerRestaurantPosPushToken(
+  input: PushRegistration & { restaurantId: string; userId: string },
+  supabase = createAdminClient(),
+) {
+  if (!supabase || !isExpoPushToken(input.expoPushToken)) return { ok: false };
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("restaurant_pos_push_tokens").upsert(
+    {
+      app_version: input.appVersion ?? null,
+      device_id: input.deviceId ?? null,
+      expo_push_token: input.expoPushToken.trim(),
+      is_enabled: true,
+      last_seen_at: now,
+      platform: input.platform ?? null,
+      restaurant_id: input.restaurantId,
+      updated_at: now,
+      user_id: input.userId,
+    },
+    { onConflict: "restaurant_id,expo_push_token" },
+  );
+  return { ok: !error };
+}
+
+export async function sendRestaurantNewOrderPush(orderId: string) {
+  const supabase = createAdminClient();
+  if (!supabase) return { ok: false, sent: 0 };
+  const order = await getRestaurantAndOrder(supabase, orderId);
+  if (!order || order.order_type === "pos") return { ok: true, sent: 0 };
+  const { data } = await supabase
+    .from("restaurant_pos_push_tokens")
+    .select("expo_push_token,user_id")
+    .eq("restaurant_id", order.restaurant_id)
+    .eq("is_enabled", true)
+    .gte("last_seen_at", new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString());
+  const rows = (data ?? []) as RestaurantPosPushRow[];
+  const userIds = Array.from(
+    new Set(rows.map((row) => row.user_id).filter((value): value is string => Boolean(value))),
+  );
+  const [{ data: memberships }, { data: profiles }] = userIds.length
+    ? await Promise.all([
+        supabase
+          .from("restaurant_memberships")
+          .select("user_id")
+          .eq("restaurant_id", order.restaurant_id)
+          .eq("is_active", true)
+          .in("user_id", userIds),
+        supabase.from("profiles").select("id,global_role").in("id", userIds),
+      ])
+    : [{ data: [] }, { data: [] }];
+  const allowedUsers = new Set([
+    ...(memberships ?? []).map((membership) => membership.user_id),
+    ...(profiles ?? [])
+      .filter((profile) => profile.global_role === "superadmin")
+      .map((profile) => profile.id),
+  ]);
+  const tokens = Array.from(
+    new Set(
+      rows
+        .filter((row) => row.user_id && allowedUsers.has(row.user_id))
+        .map((row) => row.expo_push_token)
+        .filter(isExpoPushToken),
+    ),
+  );
+  const title = `Pedido nuevo ${order.order_number}`;
+  const body = `${order.restaurant?.name ?? "Tu negocio"}: hay un pedido nuevo esperando revision.`;
+  const result = await sendExpoMessages(supabase, {
+    body,
+    eventType: "pos_new_order",
+    messages: tokens.map((token) => ({
+      body,
+      channelId: "pos-orders",
+      data: {
+        orderId: order.id,
+        orderNumber: order.order_number,
+        restaurantId: order.restaurant_id,
+        type: "pos_new_order",
+      },
+      priority: "high",
+      sound: "notificaiones.mp3",
+      title,
+      to: token,
+    })),
+    orderId: order.id,
+    restaurantId: order.restaurant_id,
+    status: order.status,
+    title,
+  });
+  if (result.acceptedTokens?.length) {
+    await supabase
+      .from("restaurant_pos_push_tokens")
+      .update({ last_notified_at: new Date().toISOString() })
+      .eq("restaurant_id", order.restaurant_id)
+      .in("expo_push_token", result.acceptedTokens);
+  }
+  return result;
 }
 
 async function logPushAttempt(

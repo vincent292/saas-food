@@ -1,5 +1,40 @@
 // @ts-expect-error -- Supabase Edge Functions resolve remote Deno imports at deploy time.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.108.2";
+import { AsyncLocalStorage } from 'node:async_hooks';
+// @ts-expect-error -- Deno requires the .ts extension for local Edge Function imports.
+import { decryptWhatsAppToken } from '../_shared/whatsapp-credentials.ts';
+
+type WhatsAppChannel = { key: string; restaurantId: string | null; phoneNumberId: string; token: string };
+// Scoped to each asynchronous message, never mutable shared credentials.
+const channelContext = new AsyncLocalStorage<WhatsAppChannel>();
+function branchRestaurantId() { return channelContext.getStore()?.restaurantId ?? null; }
+function currentSender() {
+  const channel = channelContext.getStore();
+  if (channel) return channel;
+  const token = Deno.env.get('WHATSAPP_TOKEN');
+  const phoneNumberId = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID');
+  if (!token || !phoneNumberId) throw new Error('whatsapp-not-configured');
+  return { key: 'platform', restaurantId: null, token, phoneNumberId };
+}
+
+async function resolveInboundChannel(supabase: ReturnType<typeof createSupabaseAdminClient>, phoneNumberId: string | null): Promise<WhatsAppChannel | null> {
+  if (!phoneNumberId) return null;
+  if (phoneNumberId === Deno.env.get('WHATSAPP_PHONE_NUMBER_ID') && Deno.env.get('WHATSAPP_TOKEN')) {
+    return { key: 'platform', restaurantId: null, phoneNumberId, token: Deno.env.get('WHATSAPP_TOKEN')! };
+  }
+  const { data, error } = await supabase.from('restaurant_whatsapp_connections').select('*').eq('phone_number_id', phoneNumberId).maybeSingle();
+  if (error) throw new Error('whatsapp-channel-lookup-failed');
+  if (!data || data.status !== 'connected' || !data.token_ciphertext) return null;
+  if (data.token_expires_at && Date.parse(data.token_expires_at) <= Date.now()) {
+    await supabase.from('restaurant_whatsapp_connections').update({ status: 'needs_reconnect', last_error: 'La autorización de Meta venció. Vuelve a conectar.' }).eq('phone_number_id', phoneNumberId);
+    return null;
+  }
+  const key = Deno.env.get('WHATSAPP_CREDENTIALS_KEY');
+  if (!key) throw new Error('whatsapp-encryption-key-missing');
+  const { data: restaurant } = await supabase.from('restaurants').select('id').eq('id', data.restaurant_id).eq('status', 'active').is('deleted_at', null).maybeSingle();
+  if (!restaurant) return null;
+  return { key: phoneNumberId, restaurantId: data.restaurant_id, phoneNumberId, token: await decryptWhatsAppToken(data.token_ciphertext, key, data.restaurant_id) };
+}
 
 declare const Deno: {
   env: {
@@ -8,7 +43,7 @@ declare const Deno: {
   serve(handler: (request: Request) => Response | Promise<Response>): void;
 };
 
-const GRAPH_API_VERSION = "v26.0";
+const GRAPH_API_VERSION = Deno.env.get("META_GRAPH_API_VERSION") || "v26.0";
 const RESTAURANT_TIME_ZONE = "America/La_Paz";
 const RECEIPT_BUCKET = "whatsapp-payment-receipts";
 const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
@@ -433,7 +468,7 @@ Deno.serve(async (request) => {
     }
 
     if (request.method === "POST") {
-      return receiveWhatsAppWebhook(request);
+      return await receiveWhatsAppWebhook(request);
     }
 
     return jsonResponse({ error: "method_not_allowed" }, 405);
@@ -502,9 +537,18 @@ async function receiveWhatsAppWebhook(request: Request) {
   }
 
   const supabase = createSupabaseAdminClient();
+  // Resolve before deduplication: transient connection/secret errors must be
+  // retried by Meta, not acknowledged as already processed messages.
+  const channels = new Map<string, WhatsAppChannel>();
+  for (const destination of new Set(rows.map((row) => row.to_phone_number_id))) {
+    const channel = await resolveInboundChannel(supabase, destination);
+    if (channel && destination) channels.set(destination, channel);
+  }
+  const authorizedRows = rows.filter((row) => row.to_phone_number_id && channels.has(row.to_phone_number_id));
+  if (!authorizedRows.length) return jsonResponse({ ok: true, saved: 0 });
   const { data: insertedMessages, error } = await supabase
     .from("whatsapp_messages")
-    .upsert(rows, { onConflict: "message_id", ignoreDuplicates: true })
+    .upsert(authorizedRows, { onConflict: "message_id", ignoreDuplicates: true })
     .select("message_id");
 
   if (error) {
@@ -513,11 +557,12 @@ async function receiveWhatsAppWebhook(request: Request) {
   }
 
   const insertedIds = new Set((insertedMessages ?? []).map((message: { message_id: string }) => message.message_id));
-  const newRows = rows.filter((row) => insertedIds.has(row.message_id));
+  const newRows = authorizedRows.filter((row) => insertedIds.has(row.message_id));
 
   for (const row of newRows) {
     try {
-      await handleIncomingWhatsAppMessage(supabase, row);
+      const channel = channels.get(row.to_phone_number_id!);
+      if (channel) await channelContext.run(channel, () => handleIncomingWhatsAppMessage(supabase, row));
     } catch (error) {
       console.error(
         "Could not process WhatsApp reply",
@@ -535,9 +580,7 @@ async function receiveWhatsAppWebhook(request: Request) {
 
 async function hasValidMetaSignature(request: Request, rawBody: string) {
   const appSecret = Deno.env.get("META_APP_SECRET")?.trim();
-  if (!appSecret) {
-    return true;
-  }
+  if (!appSecret) return !Deno.env.get('WHATSAPP_CREDENTIALS_KEY');
 
   const signature = request.headers.get("x-hub-signature-256")?.trim().toLowerCase();
   if (!signature?.startsWith("sha256=")) {
@@ -581,13 +624,15 @@ function extractIncomingMessageRows(payload: JsonObject) {
 
     for (const change of changes) {
       const value = objectValue(change.value);
-      const messages = recordArray(value.messages);
+      const isBusinessEcho = change.field === 'smb_message_echoes';
+      if (change.field !== 'messages' && !isBusinessEcho) continue;
+      const messages = recordArray(isBusinessEcho ? value.message_echoes : value.messages);
       const contacts = recordArray(value.contacts);
       const metadata = objectValue(value.metadata);
 
       for (const message of messages) {
         const messageId = stringValue(message.id);
-        const fromPhone = stringValue(message.from);
+        const fromPhone = stringValue(isBusinessEcho ? message.to : message.from);
 
         if (!messageId || !fromPhone) {
           continue;
@@ -598,12 +643,14 @@ function extractIncomingMessageRows(payload: JsonObject) {
         rows.push({
           message_id: messageId,
           from_phone: fromPhone,
-          to_phone_number_id: stringValue(metadata.phone_number_id) ?? Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") ?? null,
+          to_phone_number_id: stringValue(metadata.phone_number_id),
           to_display_phone: stringValue(metadata.display_phone_number),
           contact_name: stringValue(objectValue(contact?.profile).name),
           message_type: stringValue(message.type) ?? "unknown",
           message_text: extractMessageText(message),
           payload: {
+            direction: isBusinessEcho ? 'outbound' : 'inbound',
+            source: isBusinessEcho ? 'business_app' : 'customer',
             object: payload.object ?? null,
             entry_id: entry.id ?? null,
             change_field: change.field ?? null,
@@ -671,9 +718,30 @@ function extractMessageText(message: JsonObject) {
 
 async function handleIncomingWhatsAppMessage(supabase: ReturnType<typeof createSupabaseAdminClient>, row: WhatsAppMessageRow) {
   const { customer, conversation } = await ensureWhatsAppConversation(supabase, row);
+  const fixedRestaurantId = branchRestaurantId();
+  // Business App echoes are outbound human messages, never bot commands.
+  if (row.payload.direction === 'outbound') {
+    await supabase.from('whatsapp_conversations').update({ state: 'handoff', last_intent: 'business_app_reply' }).eq('id', conversation.id);
+    return;
+  }
+  if (fixedRestaurantId && conversation.state === 'handoff') return;
+  if (fixedRestaurantId) {
+    const restaurant = await findRestaurantById(supabase, fixedRestaurantId);
+    if (!restaurant || await handoffIfBotDisabled(supabase, row, conversation, restaurant)) return;
+  }
   const platformSettings = await getPlatformWhatsAppSettings(supabase);
   const command = extractCommand(row);
   const normalized = normalizeForMatch(command.text);
+
+  if (fixedRestaurantId && (
+    command.kind === 'restaurant_select' || command.kind === 'ACTION_CHANGE_RESTAURANT' ||
+    command.kind === 'BROWSE_RESTAURANTS' || command.kind?.startsWith('GLOBAL_') ||
+    isChangeRestaurantIntent(normalized) || command.kind === 'ACTION_ADDRESSES' ||
+    command.kind?.includes('DELETE_ADDRESS') || command.kind?.startsWith('ADDRESS_MANAGE:') || isOwnAddressesIntent(normalized) || isDeleteOwnAddressIntent(normalized)
+  )) {
+    await sendRestaurantPicker(supabase, row.from_phone);
+    return;
+  }
 
   if (await expireStaleOpenDraftIfNeeded(supabase, row, conversation, platformSettings)) {
     return;
@@ -1133,6 +1201,7 @@ async function ensureWhatsAppConversation(supabase: ReturnType<typeof createSupa
     .from("whatsapp_conversations")
     .select("id,customer_id,from_phone,restaurant_id,state,last_intent")
     .eq("from_phone", row.from_phone)
+    .eq('channel_key', currentSender().key)
     .maybeSingle();
 
   if (readError) {
@@ -1141,10 +1210,13 @@ async function ensureWhatsAppConversation(supabase: ReturnType<typeof createSupa
   }
 
   if (existingConversation) {
+    if (branchRestaurantId() && existingConversation.restaurant_id !== branchRestaurantId()) throw new Error('whatsapp_branch_mismatch');
     const { data: updatedConversation, error: updateError } = await supabase
       .from("whatsapp_conversations")
       .update({
         customer_id: customer.id,
+        ...(branchRestaurantId() ? { restaurant_id: branchRestaurantId() } : {}),
+        ...(row.payload.direction !== 'outbound' ? { last_customer_message_at: row.whatsapp_timestamp ?? now } : {}),
         last_message_id: row.message_id,
         last_message_at: row.whatsapp_timestamp ?? now,
       })
@@ -1157,6 +1229,7 @@ async function ensureWhatsAppConversation(supabase: ReturnType<typeof createSupa
       throw new Error("whatsapp_conversation_update_failed");
     }
 
+    await supabase.from('whatsapp_messages').update({ conversation_id: updatedConversation.id }).eq('message_id', row.message_id);
     return {
       customer: customer as WhatsAppCustomerRow,
       conversation: updatedConversation as WhatsAppConversationRow,
@@ -1168,6 +1241,9 @@ async function ensureWhatsAppConversation(supabase: ReturnType<typeof createSupa
     .insert({
       customer_id: customer.id,
       from_phone: row.from_phone,
+      channel_key: currentSender().key,
+      restaurant_id: branchRestaurantId(),
+      last_customer_message_at: row.payload.direction === 'outbound' ? null : row.whatsapp_timestamp ?? now,
       state: "idle",
       last_message_id: row.message_id,
       last_message_at: row.whatsapp_timestamp ?? now,
@@ -1175,11 +1251,13 @@ async function ensureWhatsAppConversation(supabase: ReturnType<typeof createSupa
     .select("id,customer_id,from_phone,restaurant_id,state,last_intent")
     .single();
 
+  if (insertError?.code === '23505') return ensureWhatsAppConversation(supabase, row);
   if (insertError || !conversation) {
     console.error("Could not create WhatsApp conversation", insertError);
     throw new Error("whatsapp_conversation_insert_failed");
   }
 
+  await supabase.from('whatsapp_messages').update({ conversation_id: conversation.id }).eq('message_id', row.message_id);
   return {
     customer: customer as WhatsAppCustomerRow,
     conversation: conversation as WhatsAppConversationRow,
@@ -1218,6 +1296,7 @@ async function resolveSelectedRestaurant(
   text: string,
   options: { exactOnly?: boolean } = {},
 ) {
+  if (branchRestaurantId()) return null;
   if (!text.trim()) {
     return conversation.restaurant_id ? findRestaurantById(supabase, conversation.restaurant_id) : null;
   }
@@ -1245,6 +1324,11 @@ async function resolveSelectedRestaurant(
 }
 
 async function listActiveRestaurants(supabase: ReturnType<typeof createSupabaseAdminClient>) {
+  const fixedId = branchRestaurantId();
+  if (fixedId) {
+    const restaurant = await findRestaurantById(supabase, fixedId);
+    return restaurant ? [restaurant] : [];
+  }
   const { data, error } = await supabase
     .from("restaurants")
     .select("id,name,slug,city,public_category,address,latitude,longitude")
@@ -1262,6 +1346,7 @@ async function listActiveRestaurants(supabase: ReturnType<typeof createSupabaseA
 }
 
 async function findRestaurantById(supabase: ReturnType<typeof createSupabaseAdminClient>, restaurantId: string) {
+  if (branchRestaurantId() && branchRestaurantId() !== restaurantId) return null;
   if (!restaurantId) {
     return null;
   }
@@ -1596,6 +1681,12 @@ async function sendRestaurantPicker(
   body?: string,
   platformSettings?: PlatformWhatsAppSettings,
 ) {
+  const fixedId = branchRestaurantId();
+  if (fixedId) {
+    const restaurant = await findRestaurantById(supabase, fixedId);
+    if (restaurant) await sendRestaurantMenuIntro(supabase, to, restaurant, await listTopProducts(supabase, fixedId));
+    return;
+  }
   const settings = platformSettings ?? (await getPlatformWhatsAppSettings(supabase));
   if (!settings.botEnabled) {
     await sendWhatsAppTextMessage({ to, body: platformHumanHandoffCopy(settings) });
@@ -1639,6 +1730,7 @@ async function sendRestaurantListPicker(
   body?: string,
   platformSettings?: PlatformWhatsAppSettings,
 ) {
+  if (branchRestaurantId()) return sendRestaurantPicker(supabase, to);
   const settings = platformSettings ?? (await getPlatformWhatsAppSettings(supabase));
   if (!settings.botEnabled) {
     await sendWhatsAppTextMessage({ to, body: platformHumanHandoffCopy(settings) });
@@ -1774,6 +1866,7 @@ async function listRecentOrdersByPhone(
     .limit(limit);
 
   query = phoneFilters ? query.or(phoneFilters) : query.eq("customer_phone_normalized", normalizedPhone);
+  if (branchRestaurantId()) query = query.eq('restaurant_id', branchRestaurantId());
 
   const { data, error } = await query;
 
@@ -1822,6 +1915,7 @@ async function repeatPreviousOrder(
     )
     .eq("id", orderId);
   orderQuery = phoneFilters ? orderQuery.or(phoneFilters) : orderQuery.eq("customer_phone_normalized", normalizedPhone);
+  if (branchRestaurantId()) orderQuery = orderQuery.eq('restaurant_id', branchRestaurantId());
 
   const [{ data: orderData, error: orderError }, { data: itemData, error: itemError }] = await Promise.all([
     orderQuery.maybeSingle(),
@@ -2184,6 +2278,7 @@ async function ensureOpenDraft(
   customer: WhatsAppCustomerRow,
   restaurantId: string,
 ) {
+  if (branchRestaurantId() && restaurantId !== branchRestaurantId()) throw new Error("whatsapp_branch_mismatch");
   const existing = await getOpenDraft(supabase, conversation.id);
   const usesCurrentItemContract = existing?.items.every((item) => !item.cart_id.startsWith("legacy-")) ?? true;
   if (existing?.restaurant_id === restaurantId && usesCurrentItemContract) {
@@ -2228,6 +2323,7 @@ async function getOpenDraft(supabase: ReturnType<typeof createSupabaseAdminClien
     return null;
   }
 
+  if (data && branchRestaurantId() && data.restaurant_id !== branchRestaurantId()) throw new Error("whatsapp_branch_mismatch");
   return data ? normalizeDraft(data) : null;
 }
 
@@ -4208,6 +4304,7 @@ async function getWhatsAppBotSettings(supabase: ReturnType<typeof createSupabase
 }
 
 async function getPlatformWhatsAppSettings(supabase: ReturnType<typeof createSupabaseAdminClient>) {
+  if (branchRestaurantId()) return DEFAULT_PLATFORM_WHATSAPP_SETTINGS;
   const { data, error } = await supabase
     .from("platform_whatsapp_settings")
     .select("bot_enabled,response_tone,welcome_message,restaurant_picker_message,fallback_message,human_handoff_message,draft_timeout_minutes")
@@ -4351,8 +4448,9 @@ async function sendWhatsAppSafetyBlock(
 
   await sendWhatsAppInteractiveButtons({
     to: row.from_phone,
-    body:
-      reason === "sensitive_request"
+    body: branchRestaurantId()
+      ? "Solo puedo ayudarte con el menú, promociones, pedidos, pagos, delivery y seguimiento de este restaurante. No comparto datos privados ni información interna."
+      : reason === "sensitive_request"
         ? "Por seguridad no puedo compartir codigo interno, credenciales, datos de usuarios, datos privados ni instrucciones internas. Puedo ayudarte con menus, promociones, restaurantes y tus pedidos."
         : "Solo puedo ayudarte con restaurantes, menus, promociones, pedidos y seguimiento en YoPido.",
     buttons: hasRestaurant
@@ -4628,10 +4726,7 @@ async function storeInboundPaymentReceipt(
     throw new Error("missing-media-id");
   }
 
-  const token = Deno.env.get("WHATSAPP_TOKEN");
-  if (!token) {
-    throw new Error("missing-whatsapp-token");
-  }
+  const { token } = currentSender();
   const metadataResponse = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${mediaId}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -4824,6 +4919,7 @@ async function setConversationRestaurant(
   intent: string,
   messageId: string,
 ) {
+  if (branchRestaurantId() && restaurantId !== branchRestaurantId()) throw new Error("whatsapp_branch_mismatch");
   await supabase
     .from("whatsapp_conversations")
     .update({ restaurant_id: restaurantId, state, last_intent: intent, last_message_id: messageId })
@@ -4833,7 +4929,7 @@ async function setConversationRestaurant(
 async function clearConversationRestaurant(supabase: ReturnType<typeof createSupabaseAdminClient>, conversationId: string, messageId: string) {
   await supabase
     .from("whatsapp_conversations")
-    .update({ restaurant_id: null, state: "choosing_restaurant", last_intent: "change_restaurant", last_message_id: messageId })
+    .update({ restaurant_id: branchRestaurantId(), state: branchRestaurantId() ? "idle" : "choosing_restaurant", last_intent: "change_restaurant", last_message_id: messageId })
     .eq("id", conversationId);
 }
 
@@ -4845,7 +4941,7 @@ async function resetConversationForRestaurantSelection(
 ) {
   await supabase
     .from("whatsapp_conversations")
-    .update({ state: "choosing_restaurant", last_intent: intent, last_message_id: messageId })
+    .update({ state: branchRestaurantId() ? "idle" : "choosing_restaurant", last_intent: intent, last_message_id: messageId })
     .eq("id", conversationId);
 }
 
@@ -4856,6 +4952,7 @@ async function updateConversationState(
   intent: string,
   messageId: string,
 ) {
+  if (branchRestaurantId() && state === "choosing_restaurant") state = "idle";
   await supabase.from("whatsapp_conversations").update({ state, last_intent: intent, last_message_id: messageId }).eq("id", conversationId);
 }
 
@@ -6003,18 +6100,17 @@ export async function sendWhatsAppTextMessage({
   to,
   body,
   previewUrl = false,
-  phoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID"),
+  phoneNumberId,
 }: {
   to: string;
   body: string;
   previewUrl?: boolean;
   phoneNumberId?: string;
 }) {
-  const token = Deno.env.get("WHATSAPP_TOKEN");
-
-  if (!token || !phoneNumberId) {
-    throw new Error("WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID are required");
-  }
+  const sender = currentSender();
+  const token = sender.token;
+  if (phoneNumberId && phoneNumberId !== sender.phoneNumberId) throw new Error("whatsapp_sender_mismatch");
+  phoneNumberId = sender.phoneNumberId;
 
   const response = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`, {
     method: "POST",
@@ -6103,6 +6199,11 @@ async function sendWhatsAppInteractiveButtons({
   body: string;
   buttons: Array<{ id: string; title: string }>;
 }) {
+  if (branchRestaurantId()) {
+    buttons = buttons.map((button) => button.id === "ACTION_CHANGE_RESTAURANT"
+      ? { id: "ACTION_MENU", title: "Ver menu" } : button)
+      .filter((button, index, all) => all.findIndex((other) => other.id === button.id) === index);
+  }
   return sendMetaWhatsAppMessage({
     messaging_product: "whatsapp",
     to,
@@ -6165,12 +6266,7 @@ async function sendWhatsAppListMessage({
 }
 
 async function sendMetaWhatsAppMessage(body: JsonObject) {
-  const token = Deno.env.get("WHATSAPP_TOKEN");
-  const phoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
-
-  if (!token || !phoneNumberId) {
-    throw new Error("WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID are required");
-  }
+  const { token, phoneNumberId } = currentSender();
 
   const response = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`, {
     method: "POST",
@@ -6247,11 +6343,13 @@ async function rememberOutboundWhatsAppMessage({
       .from("whatsapp_conversations")
       .select("id,restaurant_id")
       .eq("from_phone", to)
+      .eq("channel_key", currentSender().key)
       .maybeSingle();
 
     await supabase.from("whatsapp_messages").upsert(
       {
         message_id: messageId,
+        conversation_id: conversation?.id ?? null,
         from_phone: to,
         to_phone_number_id: phoneNumberId,
         to_display_phone: null,

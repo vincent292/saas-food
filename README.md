@@ -112,4 +112,6 @@ values ('AUTH_USER_UUID', 'Superadmin', 'admin@tu-dominio.com', 'superadmin');
 
 ## Estado actual
 
+La integración de números propios por sucursal está documentada en [WhatsApp Business y coexistencia](docs/whatsapp-business-coexistence.md), incluyendo configuración de Meta, secretos, migración y pruebas de activación.
+
 No hay datos ficticios en runtime. Si Supabase no tiene datos, la UI muestra listas vacías o estados vacíos. Las fases siguientes deben mantener esta regla: todo dato operativo debe almacenarse en Supabase y pertenecer a un `restaurant_id`.

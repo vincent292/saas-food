@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { announcementService } from "@/lib/services/announcement.service";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { deliveryRateService } from "@/lib/services/delivery-rate.service";
+import { sendRestaurantNewOrderPush } from "@/lib/services/mobile-push.service";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
 import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { Database } from "@/types/database.types";
@@ -649,6 +651,10 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
     .select("order_number")
     .eq("id", finalOrder.id)
     .maybeSingle();
+
+  after(async () => {
+    await sendRestaurantNewOrderPush(finalOrder.id);
+  });
 
   return {
     orderId: finalOrder.id,

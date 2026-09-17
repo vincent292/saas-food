@@ -8,6 +8,7 @@ import { printConnectorService } from "@/lib/services/print-connector.service";
 import { riderService } from "@/lib/services/rider.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { settingsService } from "@/lib/services/settings.service";
+import { getWhatsAppConnectionStatus } from "@/lib/services/whatsapp-connection.service";
 
 const invoiceDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -60,7 +61,7 @@ export default async function SettingsPage({
     dateTo: normalizeInvoiceDateFilter(invoiceTo),
     status: normalizeInvoiceStatusFilter(invoiceStatus),
   };
-  const [settings, businessHours, profile, announcements, deliveryZones, invoiceRequests, printConnectorLink] = await Promise.all([
+  const [settings, businessHours, profile, announcements, deliveryZones, invoiceRequests, printConnectorLink, whatsappConnection] = await Promise.all([
     restaurantService.getSettings(restaurant.id),
     settingsService.listBusinessHours(restaurant.id),
     authService.getCurrentProfile(),
@@ -68,6 +69,7 @@ export default async function SettingsPage({
     restaurantService.listDeliveryZones(restaurant.id),
     orderService.listInvoiceRequests(restaurant.id, invoiceFilters),
     printConnectorService.getActiveForRestaurant(restaurant.id),
+    getWhatsAppConnectionStatus(restaurant.id),
   ]);
 
   const canManageOwnerSettings = profile?.globalRole === "superadmin" || profile?.id === restaurant.ownerUserId;
@@ -76,6 +78,7 @@ export default async function SettingsPage({
 
   return (
     <RestaurantSettingsFormClient
+        whatsappConnection={whatsappConnection}
         key={`${restaurant.id}-${invoiceFilters.dateFrom ?? ""}-${invoiceFilters.dateTo ?? ""}-${invoiceFilters.status}`}
         businessHours={businessHours}
         announcements={announcements}

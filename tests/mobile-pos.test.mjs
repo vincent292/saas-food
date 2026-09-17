@@ -54,7 +54,7 @@ function fixture(role = "waiter") {
     business_hours: [], orders: [],
     admin_audit_logs: [{ actor_user_id: userId, restaurant_id: restaurantId, action: "waiter_shift_opened", created_at: new Date().toISOString() }],
   };
-  const client = clientFor(rows), calls = [], rpcCalls = [];
+  const client = clientFor(rows), calls = [], rpcCalls = [], backgroundCalls = [], notificationCalls = [];
   client.rpc = async (name, args) => {
     rpcCalls.push({ name, args });
     if (name === "charge_order_with_cash_movement") {
@@ -86,14 +86,22 @@ function fixture(role = "waiter") {
   const auth = { client, admin, profile: rows.profiles[0], restaurants: [{ ...rows.restaurants[0], role, canManage: role !== "waiter" }] };
   const route = load("src/app/api/mobile/pos/route.ts", {
     "./_shared": { ...shared, session: async () => auth }, "./_cart": cart,
-    "next/server": { after: () => {} }, "next/cache": { revalidatePath: () => {} },
+    "next/server": { after: (callback) => backgroundCalls.push(callback) }, "next/cache": { revalidatePath: () => {} },
     "@/lib/restaurant-directory-options": { businessTypeSupportsTableQr: () => true, businessTypeSupportsKitchen: () => true },
     "@/lib/supabase/storage": { uploadPrivateFile: async () => null },
     "@/lib/services/announcement.service": { announcementService: { hasActiveClosure: async () => false } },
-    "@/lib/services/mobile-push.service": {}, "@/lib/services/order-whatsapp-notification.service": {}, "@/lib/services/rider-dispatch.service": {},
+    "@/lib/services/mobile-push.service": {
+      registerRestaurantPosPushToken: async (input) => { notificationCalls.push({ kind: "register", input }); return { ok: true }; },
+      sendOrderStatusPush: async (input) => { notificationCalls.push({ kind: "status", input }); },
+      sendRestaurantNewOrderPush: async (orderId) => { notificationCalls.push({ kind: "new-order", orderId }); },
+    },
+    "@/lib/services/order-whatsapp-notification.service": {
+      sendOrderWhatsAppNotification: async (input) => { notificationCalls.push({ kind: "whatsapp", input }); },
+    },
+    "@/lib/services/rider-dispatch.service": {},
     "@/lib/utils/business-hours": { getBusinessStatus: () => ({ hasSchedule: false, isOpen: true }) },
   });
-  return { rows, shared, auth, route, cart, calls, rpcCalls };
+  return { rows, shared, auth, route, cart, calls, rpcCalls, backgroundCalls, notificationCalls };
 }
 const post = (route, body) => route.POST(new Request("http://localhost/api/mobile/pos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
 const tableOrder = { action: "table-order", restaurantId, requestId, tableCode: "M4", customerName: "Cliente", paymentMethod: "cash", items: [{ productId, quantity: 2, optionIds: [] }] };
@@ -149,6 +157,76 @@ test("required variants and options cannot be bypassed", async () => {
   f.rows.product_option_groups.push({ id: tableId, product_id: productId, restaurant_id: restaurantId, is_active: true, name: "Guarnicion", is_required: true, min_choices: 1, max_choices: 1 });
   assert.equal((await post(f.route, tableOrder)).status, 400);
   assert.equal(f.calls.length, 0);
+});
+
+test("cashier registers the POS device for restaurant push notifications", async () => {
+  const f = fixture("cashier");
+  const response = await post(f.route, {
+    action: "register-pos-push",
+    expoPushToken: "ExpoPushToken[restaurant-device-token]",
+    platform: "android",
+    restaurantId,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(f.notificationCalls[0].kind, "register");
+  assert.equal(f.notificationCalls[0].input.expoPushToken, "ExpoPushToken[restaurant-device-token]");
+  assert.equal(f.notificationCalls[0].input.platform, "android");
+  assert.equal(f.notificationCalls[0].input.restaurantId, restaurantId);
+  assert.equal(f.notificationCalls[0].input.userId, userId);
+});
+
+test("cashier accepts a pending order without charging it", async () => {
+  const f = fixture("cashier");
+  f.rows.orders.push({
+    id: requestId,
+    restaurant_id: restaurantId,
+    order_number: "M-9",
+    order_type: "table",
+    payment_status: "pending",
+    status: "pending",
+  });
+  const response = await post(f.route, {
+    action: "accept",
+    orderId: requestId,
+    restaurantId,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(f.rows.orders[0].status, "accepted");
+  assert.equal(f.rows.orders[0].payment_status, "pending");
+  assert.ok(!f.rpcCalls.some((call) => call.name === "charge_order_with_cash_movement"));
+  await Promise.all(f.backgroundCalls.map((callback) => callback()));
+  assert.ok(f.notificationCalls.some((call) =>
+    call.kind === "status" &&
+    call.input.orderId === requestId &&
+    call.input.status === "accepted"
+  ));
+});
+
+test("ETA changes are stored and notify WhatsApp orders in the background", async () => {
+  const f = fixture("cashier");
+  f.rows.orders.push({
+    id: requestId,
+    restaurant_id: restaurantId,
+    order_number: "W-10",
+    order_origin: "phone_whatsapp",
+    order_type: "delivery",
+    status: "accepted",
+  });
+  const response = await post(f.route, {
+    action: "eta",
+    adjustmentMinutes: 15,
+    orderId: requestId,
+    restaurantId,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(f.rows.orders[0].eta_adjustment_minutes, 15);
+  assert.equal(f.rows.orders[0].eta_adjusted_by, userId);
+  await Promise.all(f.backgroundCalls.map((callback) => callback()));
+  assert.ok(f.notificationCalls.some((call) =>
+    call.kind === "whatsapp" &&
+    call.input.event === "eta_updated" &&
+    call.input.orderId === requestId
+  ));
 });
 
 test("large cash shifts are not truncated at the database page limit", async () => {

@@ -32,6 +32,8 @@ import { updateRestaurantConfigurationAction } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
+import { WhatsAppConnectionPanel } from "@/components/whatsapp/WhatsAppConnectionPanel";
+import type { WhatsAppConnectionStatus } from "@/types/whatsapp-connection.types";
 import { ModuleToggle } from "@/components/settings/ModuleToggle";
 import { BrandLoadingOverlay } from "@/components/ui/BrandLoadingOverlay";
 import { Button, buttonClasses } from "@/components/ui/Button";
@@ -73,6 +75,7 @@ const timeOptions = Array.from({ length: 24 * 12 }, (_, index) => {
 
 const tabs = [
   { key: "general", label: "General", icon: Store },
+  { key: "whatsapp", label: "WhatsApp Business", icon: Link2 },
   { key: "estilo", label: "Imagenes", icon: ImageIcon },
   { key: "pagos", label: "Pagos", icon: CreditCard },
   { key: "facturas", label: "Facturas", icon: ReceiptText },
@@ -283,7 +286,9 @@ export function RestaurantSettingsFormClient({
   canManagePayments,
   invoiceFilters,
   riderInviteUrl,
+  whatsappConnection,
 }: {
+  whatsappConnection: WhatsAppConnectionStatus;
   restaurant: Restaurant;
   settings: RestaurantSettings | null;
   businessHours: BusinessHour[];
@@ -422,6 +427,10 @@ export function RestaurantSettingsFormClient({
             {tab.label}
           </button>
         ))}
+      </div>
+
+      <div className={cn(activeTab === "whatsapp" ? "block" : "hidden")}>
+        <WhatsAppConnectionPanel key={restaurant.id} restaurantId={restaurant.id} restaurantName={restaurant.name} initialState={whatsappConnection} />
       </div>
 
       <div className={cn(activeTab === "general" ? "block" : "hidden")}>

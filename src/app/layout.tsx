@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   verification: {
     google: "lcx3d7H1jZZ18BQuha-t-VHS9m1E9pJv_1X4ZnGcErc",
     other: {
-      "facebook-domain-verification": "d1wed7w51ytxiufspeywi76nb4itdz",
+      "facebook-domain-verification": "wen9wj9rxb9079913cjwyh9nduijfw",
     },
   },
   appleWebApp: {

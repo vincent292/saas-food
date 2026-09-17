@@ -6,11 +6,12 @@ const r2Endpoint = process.env.R2_ENDPOINT;
 const r2AccountId = process.env.R2_ACCOUNT_ID;
 const contentSecurityPolicy = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""} https://maps.googleapis.com https://maps.gstatic.com`,
+  `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""} https://maps.googleapis.com https://maps.gstatic.com https://connect.facebook.net https://www.facebook.com https://web.facebook.com`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: https://fonts.gstatic.com",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://maps.googleapis.com https://maps.gstatic.com",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://maps.googleapis.com https://maps.gstatic.com https://graph.facebook.com https://connect.facebook.net https://www.facebook.com https://web.facebook.com",
+  "frame-src 'self' https://www.facebook.com https://web.facebook.com",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
   "form-action 'self'",

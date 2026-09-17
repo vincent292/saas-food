@@ -1,4 +1,4 @@
-const DEFAULT_SITE_URL = "https://yopido.shop";
+const DEFAULT_SITE_URL = "https://www.yopido.shop";
 
 export function getSiteUrl() {
   const value =

@@ -309,10 +309,10 @@ export function OrdersReceptionClient({
       {visibleOrders.length ? (
         <section className="grid gap-4">
           {activeTab === "nuevos"
-            ? groups.nuevos.map((order) => <PendingOrderReviewCard businessType={restaurant.businessType} context="pedidos" disabled={!hasOpenSession} isApproving={pendingOrderIds.has(order.id)} key={order.id} onApprove={approveOrder} order={order} restaurantSlug={restaurant.slug} />)
+            ? groups.nuevos.map((order) => <PendingOrderReviewCard businessType={restaurant.businessType} context="pedidos" disabled={order.orderType !== "table" && !hasOpenSession} isApproving={pendingOrderIds.has(order.id)} key={order.id} onApprove={approveOrder} order={order} restaurantSlug={restaurant.slug} />)
             : visibleOrders.map((order) =>
                 order.status === "pending" ? (
-                  <PendingOrderReviewCard businessType={restaurant.businessType} context="pedidos" disabled={!hasOpenSession} isApproving={pendingOrderIds.has(order.id)} key={order.id} onApprove={approveOrder} order={order} restaurantSlug={restaurant.slug} />
+                  <PendingOrderReviewCard businessType={restaurant.businessType} context="pedidos" disabled={order.orderType !== "table" && !hasOpenSession} isApproving={pendingOrderIds.has(order.id)} key={order.id} onApprove={approveOrder} order={order} restaurantSlug={restaurant.slug} />
                 ) : (
                   <ReceptionOrderCard
                     defaultPrintFormat={settings?.printFormat ?? "thermal_80"}

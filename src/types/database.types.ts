@@ -1263,6 +1263,18 @@ export type Database = {
         };
         Returns: undefined;
       };
+      approve_table_order_for_preparation: {
+        Args: {
+          p_order_id: string;
+          p_restaurant_id: string;
+        };
+        Returns: {
+          changed_at: string;
+          order_id: string;
+          resulting_status: Database["public"]["Enums"]["order_status"];
+          status_changed: boolean;
+        }[];
+      };
       create_default_inventory_zone: {
         Args: {
           p_restaurant_id: string;

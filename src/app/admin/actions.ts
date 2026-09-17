@@ -594,6 +594,12 @@ const settleTableSchema = z.object({
   paymentReceiptReference: z.string().trim().max(160).optional(),
 });
 
+const verifyTableQrPaymentSchema = z.object({
+  restaurantId: z.string().uuid(),
+  restaurantSlug: z.string().min(1).optional(),
+  orderId: z.string().uuid(),
+});
+
 const rejectCashOrderSchema = z.object({
   restaurantId: z.string().uuid(),
   orderId: z.string().uuid(),
@@ -7448,36 +7454,59 @@ export async function approvePendingOrderAction(formData: FormData) {
 
   const { data: previousOrder } = await supabase
     .from("orders")
-    .select("status,order_type")
+    .select("status,order_type,payment_status,payment_method,payment_receipt_url,payment_receipt_reference")
     .eq("restaurant_id", parsed.data.restaurantId)
     .eq("id", parsed.data.orderId)
     .maybeSingle();
   if (!previousOrder) return { error: "order-not-found", ok: false as const };
 
   let uploadedReceiptUrl: string | null = null;
-  try {
-    const receiptFile = formData.get("paymentReceiptFile") as File | null;
-    uploadedReceiptUrl = receiptFile && receiptFile.size > 0
-      ? await uploadPrivateFile(receiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
-      : null;
-  } catch (error) {
-    console.error("order-receipt-upload-failed", error);
-    return { error: "receipt-upload-failed", ok: false as const };
+  const changedAt = new Date().toISOString();
+  const isTableOrder = previousOrder.order_type === "table";
+  let paymentMethod = previousOrder.payment_method;
+  let paymentReceiptReference = previousOrder.payment_receipt_reference ?? undefined;
+  let paymentReceiptUrl = previousOrder.payment_receipt_url ?? null;
+  let paymentStatus = previousOrder.payment_status;
+  let resultingStatus: OrderStatus = previousOrder.status as OrderStatus;
+
+  if (isTableOrder) {
+    // A table approval is operational only: it sends the order to preparation.
+    // Payment remains pending until its QR is reviewed or the table is closed.
+    const { data: acceptedOrders, error: acceptError } = await supabase.rpc("approve_table_order_for_preparation", {
+      p_restaurant_id: parsed.data.restaurantId,
+      p_order_id: parsed.data.orderId,
+    });
+    if (acceptError) return { error: cashErrorKey(acceptError, "order-status-update"), ok: false as const };
+    if (!acceptedOrders?.[0]) return { error: "invalid-order-transition", ok: false as const };
+    resultingStatus = acceptedOrders[0].resulting_status as OrderStatus;
+  } else {
+    try {
+      const receiptFile = formData.get("paymentReceiptFile") as File | null;
+      uploadedReceiptUrl = receiptFile && receiptFile.size > 0
+        ? await uploadPrivateFile(receiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
+        : null;
+    } catch (error) {
+      console.error("order-receipt-upload-failed", error);
+      return { error: "receipt-upload-failed", ok: false as const };
+    }
+
+    const { error } = await supabase.rpc("charge_order_with_cash_movement", {
+      p_restaurant_id: parsed.data.restaurantId,
+      p_order_id: parsed.data.orderId,
+      p_payment_method: parsed.data.paymentMethod,
+      p_receipt_url: uploadedReceiptUrl,
+      p_receipt_reference: parsed.data.paymentReceiptReference ?? null,
+    });
+    if (error) return { error: cashErrorKey(error, "charge-order"), ok: false as const };
+
+    paymentMethod = parsed.data.paymentMethod;
+    paymentReceiptReference = parsed.data.paymentReceiptReference;
+    paymentReceiptUrl = uploadedReceiptUrl;
+    paymentStatus = "paid";
+    if (previousOrder.status === "pending") resultingStatus = "accepted";
   }
 
-  const { error } = await supabase.rpc("charge_order_with_cash_movement", {
-    p_restaurant_id: parsed.data.restaurantId,
-    p_order_id: parsed.data.orderId,
-    p_payment_method: parsed.data.paymentMethod,
-    p_receipt_url: uploadedReceiptUrl,
-    p_receipt_reference: parsed.data.paymentReceiptReference ?? null,
-  });
-  if (error) return { error: cashErrorKey(error, "charge-order"), ok: false as const };
-
-  const changedAt = new Date().toISOString();
   const usesKitchen = await restaurantUsesKitchenFlow(supabase, parsed.data.restaurantId);
-  let resultingStatus: OrderStatus = previousOrder.status as OrderStatus;
-  if (previousOrder.status === "pending") resultingStatus = "accepted";
 
   if (!usesKitchen) {
     const { data: readyOrder, error: readyError } = await supabase
@@ -7506,9 +7535,10 @@ export async function approvePendingOrderAction(formData: FormData) {
   return {
     changedAt,
     ok: true as const,
-    paymentMethod: parsed.data.paymentMethod,
-    paymentReceiptReference: parsed.data.paymentReceiptReference,
-    paymentReceiptUrl: uploadedReceiptUrl,
+    paymentMethod,
+    paymentReceiptReference,
+    paymentReceiptUrl,
+    paymentStatus,
     status: resultingStatus,
   };
 }
@@ -7622,8 +7652,56 @@ export async function settleTableAction(formData: FormData) {
   }
 
   await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
-  const settledCount = data?.[0]?.settled_order_count ?? 0;
-  redirect(`${redirectPath}&tableSettled=${settledCount}`);
+  const chargedCount = data?.[0]?.charged_order_count ?? 0;
+  redirect(`${redirectPath}&tableSettled=${chargedCount}`);
+}
+
+export async function verifyTableQrPaymentAction(formData: FormData) {
+  const parsed = verifyTableQrPaymentSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    restaurantSlug: formData.get("restaurantSlug") || undefined,
+    orderId: formData.get("orderId"),
+  });
+  const fallbackRestaurantId = String(formData.get("restaurantId") || "");
+  const fallbackPath = `/admin/restaurantes/${fallbackRestaurantId}/caja?tab=mesas`;
+
+  if (!parsed.success) {
+    redirect(`${fallbackPath}&error=invalid-table-qr-payment`);
+  }
+
+  const redirectPath = `/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=mesas`;
+  const { supabase } = await requireUser();
+  await requireRestaurantAccess(parsed.data.restaurantId, redirectPath);
+
+  const { data: order } = await supabase
+    .from("orders")
+    .select("order_type,payment_method,payment_status,payment_receipt_url,payment_receipt_reference")
+    .eq("restaurant_id", parsed.data.restaurantId)
+    .eq("id", parsed.data.orderId)
+    .maybeSingle();
+
+  if (!order || order.order_type !== "table" || order.payment_method !== "qr") {
+    redirect(`${redirectPath}&error=invalid-table-qr-payment`);
+  }
+  if (!order.payment_receipt_url && !order.payment_receipt_reference) {
+    redirect(`${redirectPath}&error=receipt-required`);
+  }
+
+  if (order.payment_status !== "paid") {
+    const { error } = await supabase.rpc("charge_order_with_cash_movement", {
+      p_restaurant_id: parsed.data.restaurantId,
+      p_order_id: parsed.data.orderId,
+      p_payment_method: "qr",
+      p_receipt_url: null,
+      p_receipt_reference: null,
+    });
+    if (error) {
+      redirect(`${redirectPath}&error=${cashErrorKey(error, "table-qr-payment")}`);
+    }
+  }
+
+  await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
+  redirect(`${redirectPath}&qrVerified=1`);
 }
 
 export async function rejectCashOrderAction(formData: FormData) {

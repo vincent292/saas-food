@@ -26,7 +26,7 @@ function whatsappHref(order: Order) {
   const digits = phone.replace(/\D/g, "");
   const message =
     order.orderType === "table" && order.status === "pending"
-      ? encodeURIComponent(`Hola ${order.customerName || ""}, tu pedido ${order.orderNumber} esta pendiente. Para que se procese, por favor acercate a caja y confirma el pago indicando tu numero de pedido.`)
+      ? encodeURIComponent(`Hola ${order.customerName || ""}, recibimos tu pedido ${order.orderNumber} de mesa y esta pendiente de aprobacion para prepararlo.`)
       : encodeURIComponent(`Hola, te escribimos por tu pedido ${order.orderNumber}. No pudimos aprobarlo. Escribenos para ayudarte.`);
   return digits ? `https://wa.me/${digits}?text=${message}` : "";
 }
@@ -50,8 +50,9 @@ export function PendingOrderReviewCard({
 }) {
   const [paymentMethod, setPaymentMethod] = useState<Order["paymentMethod"]>(order.paymentMethod);
   const [showReject, setShowReject] = useState(false);
+  const isTableOrder = order.orderType === "table";
   const whatsappUrl = whatsappHref(order);
-  const pendingLabel = context === "pedidos" ? "Pendiente por aprobar" : "Pendiente de caja";
+  const pendingLabel = isTableOrder ? "Pedido de mesa por aprobar" : context === "pedidos" ? "Pendiente por aprobar" : "Pendiente de caja";
   const hasReceiptEvidence = Boolean(order.paymentReceiptUrl || order.paymentReceiptReference);
   const groupReceipts = groupReceiptLinksFromNotes(order.notes);
   const preparationArea = businessPreparationAreaLabel(businessType);
@@ -67,7 +68,11 @@ export function PendingOrderReviewCard({
       })
     : "";
   const approvalCopy =
-    context === "pedidos"
+    isTableOrder
+      ? hasKitchenFlow
+        ? "Aprueba el pedido para enviarlo a cocina. No se cobrará todavía; el pago se confirma al cerrar la mesa."
+        : `Aprueba el pedido para enviarlo a ${preparationArea}. No se cobrará todavía; el pago se confirma al cerrar la mesa.`
+      : context === "pedidos"
       ? hasKitchenFlow
         ? "Aprueba aqui para enviarlo directo a cocina."
         : `Aprueba aqui para enviarlo a ${preparationArea}.`
@@ -88,7 +93,7 @@ export function PendingOrderReviewCard({
 
           <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <InfoChip icon={<WalletCards className="h-4 w-4" />} label="Total" value={formatMoney(order.total)} />
-            <InfoChip icon={<ReceiptText className="h-4 w-4" />} label="Pago" value={paymentMethodLabels[paymentMethod]} />
+            <InfoChip icon={<ReceiptText className="h-4 w-4" />} label="Pago" value={isTableOrder ? `${paymentMethodLabels[paymentMethod]} al cerrar mesa` : paymentMethodLabels[paymentMethod]} />
             <InfoChip icon={<Clock3 className="h-4 w-4" />} label="Creado" value={formatShortTime(order.createdAt)} />
           </div>
 
@@ -135,7 +140,7 @@ export function PendingOrderReviewCard({
 
         <div className="space-y-3">
           <div className="rounded-2xl bg-[var(--primary-light)] p-4">
-            <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Decision de caja</p>
+            <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">{isTableOrder ? "Decisión del pedido" : "Decisión de caja"}</p>
             <p className="mt-1 text-2xl font-black text-[var(--primary-dark)]">{formatMoney(order.total)}</p>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
               {approvalCopy}
@@ -163,29 +168,37 @@ export function PendingOrderReviewCard({
             <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
             <input name="orderId" type="hidden" value={order.id} />
             <input name="source" type="hidden" value={context} />
-            <Select name="paymentMethod" onChange={(event) => setPaymentMethod(event.target.value as Order["paymentMethod"])} value={paymentMethod}>
-              <option value="cash">Efectivo</option>
-              <option value="qr">QR</option>
-              <option value="bank_transfer">Transferencia</option>
-              <option value="card">Tarjeta</option>
-              <option value="other">Otro</option>
-            </Select>
-            {paymentMethod === "qr" ? (
+            {isTableOrder ? (
+              <div className="rounded-2xl bg-[var(--color-info-soft)] p-3 text-sm font-bold text-[var(--color-info-strong)]">
+                Este botón solo aprueba la preparación. El pedido seguirá pendiente de pago en la cuenta de la mesa.
+              </div>
+            ) : (
               <>
-                {hasReceiptEvidence ? (
-                  <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">
-                    Comprobante ya recibido. Solo revisa la referencia o abre la imagen antes de aprobar.
-                  </div>
-                ) : (
+                <Select name="paymentMethod" onChange={(event) => setPaymentMethod(event.target.value as Order["paymentMethod"])} value={paymentMethod}>
+                  <option value="cash">Efectivo</option>
+                  <option value="qr">QR</option>
+                  <option value="bank_transfer">Transferencia</option>
+                  <option value="card">Tarjeta</option>
+                  <option value="other">Otro</option>
+                </Select>
+                {paymentMethod === "qr" ? (
                   <>
-                    <Input name="paymentReceiptReference" placeholder="Número de comprobante o referencia QR" />
-                    <CompressedImageInput acceptPdf help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." label="Comprobante QR" name="paymentReceiptFile" required />
+                    {hasReceiptEvidence ? (
+                      <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">
+                        Comprobante ya recibido. Solo revisa la referencia o abre la imagen antes de aprobar.
+                      </div>
+                    ) : (
+                      <>
+                        <Input name="paymentReceiptReference" placeholder="Número de comprobante o referencia QR" />
+                        <CompressedImageInput acceptPdf help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." label="Comprobante QR" name="paymentReceiptFile" required />
+                      </>
+                    )}
                   </>
-                )}
+                ) : null}
               </>
-            ) : null}
-            <PendingSubmitButton disabled={disabled || isApproving} pendingLabel="Aprobando y cobrando...">
-              Aprobar y cobrar
+            )}
+            <PendingSubmitButton disabled={disabled || isApproving} pendingLabel={isTableOrder ? "Aprobando pedido..." : "Aprobando y cobrando..."}>
+              {isTableOrder ? "Aprobar pedido" : "Aprobar y cobrar"}
             </PendingSubmitButton>
           </form>
 

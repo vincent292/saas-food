@@ -82,6 +82,7 @@ export default async function CashPage({
         status.posCustomerPhone ?? "",
         status.rejected ?? "",
         status.tableSettled ?? "",
+        status.qrVerified ?? "",
       ].join(":")}
       categories={categories}
       cashAudit={cashAudit}

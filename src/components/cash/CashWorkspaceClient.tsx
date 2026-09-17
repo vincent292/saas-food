@@ -6,20 +6,23 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import QRCode from "qrcode";
-import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, settleTableAction } from "@/app/admin/actions";
+import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, settleTableAction, verifyTableQrPaymentAction } from "@/app/admin/actions";
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
 import { DeliveryDispatchPanel } from "@/components/delivery/DeliveryDispatchPanel";
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
-import { READY_PICKUP_WARNING_MINUTES, elapsedLabel, kitchenDueDate, minutesSince, minutesUntil, orderPrepMinutes } from "@/components/orders/orderPresentation";
+import { READY_PICKUP_WARNING_MINUTES, elapsedLabel, kitchenDueDate, minutesSince, minutesUntil, orderPrepMinutes, paymentMethodLabels } from "@/components/orders/orderPresentation";
 import { printOrderTicket } from "@/components/orders/printOrder";
+import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
+import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { FormSubmitButton } from "@/components/ui/FormSubmitButton";
+import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { useLiveOrderCounts } from "@/lib/client/use-live-order-counts";
 import { useLiveOrders } from "@/lib/client/use-live-orders";
@@ -28,6 +31,7 @@ import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
+import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { CashAuditSnapshot, CashMovement, CashSessionReport, CashSummary } from "@/types/cash.types";
 import type { Order, RestaurantTable } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
@@ -66,7 +70,10 @@ function statusMessage(status: CashPageStatus, businessType: Restaurant["busines
   }
   if (status.tableSettled) {
     const count = Number(status.tableSettled);
-    return { tone: "success", text: count ? `Cuenta de mesa cerrada: ${count} pedido${count === 1 ? "" : "s"} cobrado${count === 1 ? "" : "s"}.` : "Mesa liberada correctamente." };
+    return { tone: "success", text: count ? `Mesa cerrada. Se cobraron ahora ${count} pedido${count === 1 ? "" : "s"}; los pagos ya validados no se duplicaron.` : "Mesa cerrada y liberada. Todos los pedidos ya estaban pagados." };
+  }
+  if (status.qrVerified) {
+    return { tone: "success", text: "Pago QR validado. Ese pedido ya no se incluirá en el saldo restante de la mesa." };
   }
   if (!status.error) {
     return null;
@@ -91,6 +98,8 @@ function statusMessage(status: CashPageStatus, businessType: Restaurant["busines
     "pending-cancellation-review": "Hay anulaciones cobradas pendientes de aprobacion del dueno. Revisa Anulaciones antes de cerrar caja.",
     "table-not-found": "No encontramos esa mesa activa.",
     "invalid-table-settlement": "Revisa los datos de la mesa antes de cobrar.",
+    "invalid-table-qr-payment": "Ese pedido no corresponde a un pago QR pendiente de esta mesa.",
+    "column-reference-table-id-is-ambiguous": "La función de cierre de mesa está desactualizada. Aplica la migración 0103 e intenta nuevamente.",
   };
 
   if (status.error.startsWith("negative-stock")) {
@@ -111,6 +120,7 @@ export type CashPageStatus = {
   rejected?: string;
   updated?: string;
   tableSettled?: string;
+  qrVerified?: string;
   posOrderId?: string;
   posOrderNumber?: string;
   posTrackingToken?: string;
@@ -664,7 +674,16 @@ export function CashWorkspaceClient({
           ) : visibleTableAccounts.length ? (
             <div className="grid gap-3">
               {visibleTableAccounts.map(({ table, orders: tableOrders }) => (
-                <TableSettlementCard disabled={!summary.session} key={table.id} orders={tableOrders} restaurant={restaurant} table={table} />
+                <TableSettlementCard
+                  disabled={!summary.session}
+                  key={table.id}
+                  onApprove={approveOrder}
+                  orders={tableOrders}
+                  pendingOrderIds={pendingOrderIds}
+                  restaurant={restaurant}
+                  settings={settings}
+                  table={table}
+                />
               ))}
             </div>
           ) : (
@@ -980,17 +999,34 @@ function TableSettlementCard({
   table,
   orders,
   restaurant,
+  settings,
   disabled,
+  pendingOrderIds,
+  onApprove,
 }: {
   table: RestaurantTable;
   orders: Order[];
   restaurant: Restaurant;
+  settings: RestaurantSettings | null;
   disabled: boolean;
+  pendingOrderIds: Set<string>;
+  onApprove: (orderId: string, formData: FormData) => Promise<boolean>;
 }) {
   const [paymentMethod, setPaymentMethod] = useState<Order["paymentMethod"]>("cash");
+  const [cashReceived, setCashReceived] = useState("");
   const pendingOrders = orders.filter((order) => order.paymentStatus !== "paid");
-  const amountDue = pendingOrders.reduce((sum, order) => sum + order.total, 0);
+  const amountDue = Number(pendingOrders.reduce((sum, order) => sum + order.total, 0).toFixed(2));
+  const alreadyPaid = Number(orders.reduce((sum, order) => sum + (order.paymentStatus === "paid" ? order.total : 0), 0).toFixed(2));
   const orderNumbers = orders.map((order) => order.orderNumber).join(", ");
+  const parsedCashReceived = Number(cashReceived || 0);
+  const cashReceivedAmount = Number.isFinite(parsedCashReceived) && parsedCashReceived >= 0 ? parsedCashReceived : 0;
+  const cashShortfall = Number(Math.max(amountDue - cashReceivedAmount, 0).toFixed(2));
+  const changeDue = Number(Math.max(cashReceivedAmount - amountDue, 0).toFixed(2));
+  const needsCashAmount = pendingOrders.length > 0 && paymentMethod === "cash";
+  const cashAmountIsValid = !needsCashAmount || (cashReceived.trim() !== "" && cashReceivedAmount >= amountDue);
+  const qrAvailable = hasQrPaymentConfigured(settings);
+  const qrPaymentUrl = normalizeQrPaymentUrl(settings?.qrPaymentUrl);
+  const qrMethodIsValid = paymentMethod !== "qr" || qrAvailable;
 
   if (!orders.length) {
     return (
@@ -1022,18 +1058,80 @@ function TableSettlementCard({
             {orders.length} pedido{orders.length === 1 ? "" : "s"} activo{orders.length === 1 ? "" : "s"} · {table.capacity} persona{table.capacity === 1 ? "" : "s"}
           </p>
           <div className="mt-4 grid gap-2">
-            {orders.map((order) => (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[var(--color-surface)] p-3" key={order.id}>
-                <div className="min-w-0">
-                  <p className="font-black text-[var(--text)]">{order.orderNumber}</p>
-                  <p className="mt-0.5 truncate text-sm font-semibold text-[var(--muted)]">{order.customerName || "Cliente"} · {order.items.reduce((sum, item) => sum + item.quantity, 0)} producto{order.items.reduce((sum, item) => sum + item.quantity, 0) === 1 ? "" : "s"}</p>
+            {orders.map((order) => {
+              const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+              const hasQrEvidence = order.paymentMethod === "qr" && Boolean(order.paymentReceiptUrl || order.paymentReceiptReference);
+              const needsQrReview = order.paymentStatus !== "paid" && hasQrEvidence;
+              const isUpdating = pendingOrderIds.has(order.id);
+
+              return (
+                <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={order.id}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-black text-[var(--text)]">{order.orderNumber}</p>
+                        <span className={cn(
+                          "rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide",
+                          order.status === "pending"
+                            ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]"
+                            : "bg-[var(--color-info-soft)] text-[var(--color-info-strong)]",
+                        )}>
+                          {order.status === "pending" ? "Por aprobar" : businessOrderStatusLabel(order.status, restaurant.businessType)}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 truncate text-sm font-semibold text-[var(--muted)]">{order.customerName || "Cliente"} · {itemCount} producto{itemCount === 1 ? "" : "s"}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-black text-[var(--text)]">{formatMoney(order.total)}</p>
+                      <p className={cn("text-xs font-black", order.paymentStatus === "paid" ? "text-[var(--color-success-strong)]" : "text-[var(--color-warning-strong)]")}>
+                        {order.paymentStatus === "paid"
+                          ? `Cobrado por ${paymentMethodLabels[order.paymentMethod]}`
+                          : needsQrReview
+                            ? "QR por validar"
+                            : "Pendiente para el cierre"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {order.status === "pending" ? (
+                    <form action={async (formData) => { await onApprove(order.id, formData); }} className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                      <input name="restaurantId" type="hidden" value={restaurant.id} />
+                      <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
+                      <input name="orderId" type="hidden" value={order.id} />
+                      <input name="source" type="hidden" value="caja" />
+                      <p className="mb-2 text-xs font-bold text-[var(--muted)]">Aprobar solo lo envía a preparación; no registra ningún cobro.</p>
+                      <PendingSubmitButton className="w-full" disabled={isUpdating} pendingLabel="Aprobando pedido...">
+                        Aprobar pedido de mesa
+                      </PendingSubmitButton>
+                    </form>
+                  ) : null}
+
+                  {needsQrReview ? (
+                    <div className="mt-3 grid gap-3 rounded-2xl border border-[var(--color-warning-soft)] bg-[var(--color-warning-soft)] p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                      <div className="min-w-0">
+                        <p className="text-sm font-black text-[var(--color-warning-strong)]">Comprobante QR pendiente de validación</p>
+                        {order.paymentReceiptReference ? <p className="mt-1 text-xs font-bold text-[var(--color-warning-strong)]">Referencia: {order.paymentReceiptReference}</p> : null}
+                        {order.paymentReceiptUrl ? (
+                          <ReceiptViewerButton className="mt-2" label="Ver comprobante QR" receiptLabel={`Comprobante ${order.orderNumber}`} subtitle={formatMoney(order.total)} url={order.paymentReceiptUrl} />
+                        ) : null}
+                      </div>
+                      <form action={verifyTableQrPaymentAction}>
+                        <input name="restaurantId" type="hidden" value={restaurant.id} />
+                        <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
+                        <input name="orderId" type="hidden" value={order.id} />
+                        <PendingSubmitButton disabled={disabled} pendingLabel="Validando...">
+                          Aceptar pago QR
+                        </PendingSubmitButton>
+                      </form>
+                    </div>
+                  ) : order.paymentStatus !== "paid" && order.paymentMethod === "qr" ? (
+                    <p className="mt-3 rounded-2xl bg-[var(--color-neutral-100)] p-3 text-xs font-bold text-[var(--color-secondary-text)]">
+                      Se indicó pago QR, pero todavía no hay comprobante. Puedes cobrar este pedido con el resto de la mesa al cerrar.
+                    </p>
+                  ) : null}
                 </div>
-                <div className="text-right">
-                  <p className="font-black text-[var(--text)]">{formatMoney(order.total)}</p>
-                  <p className={cn("text-xs font-black", order.paymentStatus === "paid" ? "text-[var(--color-success-strong)]" : "text-[var(--color-warning-strong)]")}>{order.paymentStatus === "paid" ? "Ya cobrado" : "Pendiente"}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -1046,6 +1144,7 @@ function TableSettlementCard({
           <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
             {pendingOrders.length ? `Cobrarás ${pendingOrders.length} pedido${pendingOrders.length === 1 ? "" : "s"}.` : "Todos los pedidos ya están cobrados; solo liberarás la mesa."}
           </p>
+          {alreadyPaid > 0 ? <p className="mt-2 text-xs font-black text-[var(--color-success-strong)]">Ya validado: {formatMoney(alreadyPaid)} · no se volverá a cobrar</p> : null}
           <p className="mt-2 text-xs font-bold text-[var(--color-secondary-text)]">Pedidos: {orderNumbers}</p>
 
           {disabled ? <div className="mt-4 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para cerrar y cobrar una mesa.</div> : null}
@@ -1053,17 +1152,62 @@ function TableSettlementCard({
           <div className="mt-4 grid gap-3">
             <Select disabled={disabled || !pendingOrders.length} name="paymentMethod" onChange={(event) => setPaymentMethod(event.target.value as Order["paymentMethod"])} value={paymentMethod}>
               <option value="cash">Efectivo</option>
-              <option value="qr">QR</option>
+              <option disabled={!qrAvailable} value="qr">QR {qrAvailable ? "" : "(sin configurar)"}</option>
             </Select>
+
+            {paymentMethod === "cash" && pendingOrders.length ? (
+              <div className="grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Paga con</p>
+                    <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Escribe cuánto efectivo entregó el cliente.</p>
+                  </div>
+                  <Button className="min-h-9 px-3 text-xs" disabled={disabled} onClick={() => setCashReceived(amountDue.toFixed(2))} type="button" variant="secondary">
+                    Pago exacto
+                  </Button>
+                </div>
+                <Input
+                  disabled={disabled}
+                  min={amountDue}
+                  name="cashReceived"
+                  onChange={(event) => setCashReceived(event.target.value)}
+                  placeholder={`Mínimo ${formatMoney(amountDue)}`}
+                  required
+                  step="0.01"
+                  type="number"
+                  value={cashReceived}
+                />
+                <div className={cn(
+                  "rounded-2xl p-3",
+                  cashAmountIsValid ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]",
+                )}>
+                  <p className="text-xs font-black uppercase tracking-[0.12em]">{cashAmountIsValid ? "Cambio a devolver" : "Monto faltante"}</p>
+                  <p className="mt-1 text-2xl font-black">{formatMoney(cashAmountIsValid ? changeDue : cashShortfall)}</p>
+                  <p className="mt-1 text-xs font-bold">Total pendiente: {formatMoney(amountDue)} · recibido: {formatMoney(cashReceivedAmount)}</p>
+                </div>
+              </div>
+            ) : null}
+
             {paymentMethod === "qr" && pendingOrders.length ? (
               <>
+                {qrPaymentUrl ? (
+                  <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                    <QrPaymentViewer
+                      downloadFileName={`${restaurant.slug}-mesa-${table.code}-qr.png`}
+                      subtitle={`Saldo completo de ${table.name}: ${formatMoney(amountDue)}`}
+                      title={`Cobro QR · ${table.name}`}
+                      url={qrPaymentUrl}
+                    />
+                    <p className="mt-2 text-center text-xs font-bold text-[var(--muted)]">Al confirmar, todo el saldo pendiente se registrará como QR. No se calcula cambio.</p>
+                  </div>
+                ) : null}
                 <Input disabled={disabled} maxLength={160} name="paymentReceiptReference" placeholder="Referencia QR (opcional)" />
                 <CompressedImageInput acceptPdf className={disabled ? "pointer-events-none opacity-60" : ""} help="Opcional. Puedes cerrar la mesa sin subir comprobante." label="Comprobante QR (opcional)" name="paymentReceiptFile" />
               </>
             ) : null}
             <FormSubmitButton
               className="w-full"
-              disabled={disabled}
+              disabled={disabled || !cashAmountIsValid || !qrMethodIsValid}
               label={pendingOrders.length ? "Cobrar y cerrar mesa" : "Liberar mesa"}
               overlayDescription="Registrando el cobro y cerrando la cuenta de la mesa."
               overlayTitle="Cerrando cuenta"

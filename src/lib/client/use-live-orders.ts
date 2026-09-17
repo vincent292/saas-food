@@ -28,6 +28,10 @@ function patchOrderStatus(order: Order, status: OrderStatus, changedAt?: string)
 }
 
 function patchApprovedOrder(order: Order, formData: FormData, changedAt: string) {
+  if (order.orderType === "table") {
+    return patchOrderStatus(order, "accepted", changedAt);
+  }
+
   return {
     ...patchOrderStatus(order, "accepted", changedAt),
     paymentMethod: String(formData.get("paymentMethod") || "cash") as Order["paymentMethod"],
@@ -171,7 +175,7 @@ export function useLiveOrders({
           paymentMethod: result.paymentMethod,
           paymentReceiptReference: result.paymentReceiptReference || order.paymentReceiptReference,
           paymentReceiptUrl: result.paymentReceiptUrl || order.paymentReceiptUrl,
-          paymentStatus: "paid",
+          paymentStatus: result.paymentStatus as Order["paymentStatus"],
         };
       }));
       return true;

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { CreditCard, ExternalLink, ReceiptText, ShieldCheck, Store, WalletCards } from "lucide-react";
-import { approveOwnerBillingPaymentAction, resolveOwnerBranchCapacityAction, setOwnerAccountStatusAction, updateOwnerBillingSettingsAction, updateOwnerBranchEntitlementAction } from "@/app/admin/actions";
+import { approveOwnerBillingPaymentAction, resolveOwnerBranchCapacityAction, setOwnerAccountStatusAction, updateOwnerBillingSettingsAction, updateOwnerBranchEntitlementAction, updateRestaurantWaiterLimitAction } from "@/app/admin/actions";
 import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Badge } from "@/components/ui/Badge";
@@ -23,6 +23,7 @@ import type { RestaurantStatus } from "@/types/restaurant.types";
 
 const errorMessages: Record<string, string> = {
   "invalid-entitlement": "Revisa el numero de sucursales habilitadas.",
+  "invalid-waiter-limit": "El cupo de meseros debe estar entre 0 y 100.",
   "invalid-branch-request": "Revisa la solicitud y el nuevo limite aprobado.",
   "invalid-owner-account-status": "No se pudo cambiar el estado de la cuenta.",
   "invalid-owner-billing-cycle": "No se pudo resolver el ciclo de pago.",
@@ -347,10 +348,10 @@ export default async function ClientAccountPage({
         </section>
 
         <section className="space-y-3">
-          <SectionTitle description="Cada sucursal mantiene pedidos, caja, inventario y usuarios separados. El cobro se aprueba como mensualidad unica de la cuenta." title="Sucursales del cliente" />
+          <SectionTitle description="Cada sucursal mantiene pedidos, caja, inventario y usuarios separados. Por ahora los cupos de meseros no generan cobro mensual." title="Sucursales del cliente" />
           <DataTable
             emptyMessage="Este cliente todavia no tiene sucursales."
-            headers={["Sucursal", "Estado", "Tarifa", "Acciones"]}
+            headers={["Sucursal", "Estado", "Tarifa", "Meseros", "Acciones"]}
             rows={account.branches.map(({ restaurant }, index) => [
               <div className="flex items-center gap-3" key={`${restaurant.id}-branch`}>
                 <LogoBox restaurant={restaurant} small />
@@ -361,6 +362,11 @@ export default async function ClientAccountPage({
               </div>,
               <StatusBadge key={`${restaurant.id}-status`} status={restaurant.status} />,
               index === 0 ? formatMoney(account.pricing.primaryPriceMonthly) : formatMoney(account.pricing.additionalPriceMonthly),
+              <form action={updateRestaurantWaiterLimitAction} className="flex min-w-[150px] items-center gap-2" key={`${restaurant.id}-waiters`}>
+                <input name="restaurantId" type="hidden" value={restaurant.id} />
+                <Input aria-label={`Cupo de meseros para ${restaurant.name}`} className="min-h-9 w-16 px-2 text-center" defaultValue={restaurant.waiterLimit ?? 2} max={100} min={0} name="waiterLimit" required type="number" />
+                <button className={buttonClasses("secondary", "min-h-9 px-3 text-xs")} type="submit">Guardar</button>
+              </form>,
               <div className="flex flex-wrap gap-2" key={`${restaurant.id}-actions`}>
                 <Link className={buttonClasses("secondary")} href={`/admin/restaurantes/${restaurant.id}`}>
                   Ficha

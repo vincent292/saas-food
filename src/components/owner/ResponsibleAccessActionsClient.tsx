@@ -19,7 +19,7 @@ const errorMessages: Record<string, string> = {
   "responsible-profile-auth": "No se pudo cambiar el correo en Auth.",
   "responsible-profile-update": "No se pudo actualizar el perfil.",
   "service-role-required": "Falta la clave de servicio para administrar usuarios.",
-  "waiter-limit": "Esta sucursal ya tiene los 2 meseros gratuitos activos.",
+  "waiter-limit": "Esta sucursal ya alcanzó el cupo de meseros activos configurado.",
 };
 
 export function ResponsibleAccessActionsClient({

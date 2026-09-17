@@ -7,15 +7,16 @@ import { orderService } from "@/lib/services/order.service";
 import { printConnectorService } from "@/lib/services/print-connector.service";
 import { productService } from "@/lib/services/product.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
+import { tableService } from "@/lib/services/table.service";
 import { measurePerf, perfLog, perfNow } from "@/lib/utils/perf";
 import type { ProductConfiguration } from "@/types/product.types";
 
-type CashTab = "venta" | "pedidos" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
+type CashTab = "venta" | "pedidos" | "mesas" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
 
 const emptyConfiguration: ProductConfiguration = { variants: [], optionGroups: [] };
 
 function normalizeTab(value: string | undefined): CashTab {
-  if (value === "pedidos" || value === "delivery" || value === "recojo" || value === "movimientos" || value === "egresos" || value === "cierre" || value === "reportes") {
+  if (value === "pedidos" || value === "mesas" || value === "delivery" || value === "recojo" || value === "movimientos" || value === "egresos" || value === "cierre" || value === "reportes") {
     return value;
   }
   return "venta";
@@ -39,13 +40,14 @@ export default async function CashPage({
 
   const activeTab = normalizeTab(status.tab);
   const needsPosCatalog = activeTab === "venta";
-  const needsOperationalOrders = activeTab === "pedidos" || activeTab === "delivery" || activeTab === "recojo" || activeTab === "movimientos";
+  const needsOperationalOrders = activeTab === "pedidos" || activeTab === "mesas" || activeTab === "delivery" || activeTab === "recojo" || activeTab === "movimientos";
+  const needsTables = activeTab === "mesas";
   const needsMovements = activeTab === "movimientos";
   const needsReports = activeTab === "cierre" || activeTab === "reportes";
   const needsCancellationReviewCount = activeTab === "cierre";
   const needsFullCashSummary = activeTab === "venta" || activeTab === "movimientos" || activeTab === "egresos" || needsReports;
 
-  const [summary, settings, products, categories, configuration, movements, orders, reports, pendingCancellationReviews, cashAudit, printConnectorLink] = await Promise.all([
+  const [summary, settings, products, categories, configuration, movements, orders, tables, reports, pendingCancellationReviews, cashAudit, printConnectorLink] = await Promise.all([
     measurePerf(needsFullCashSummary ? "[caja-page] cashService.getSummary" : "[caja-page] cashService.getSessionStatusSummary", () => (needsFullCashSummary ? cashService.getSummary(restaurant.id) : cashService.getSessionStatusSummary(restaurant.id)), { tab: activeTab }),
     measurePerf("[caja-page] restaurantService.getSettings", () => restaurantService.getSettings(restaurant.id), { tab: activeTab }),
     needsPosCatalog ? measurePerf("[caja-page] productService.listAvailableByRestaurant", () => productService.listAvailableByRestaurant(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
@@ -53,6 +55,7 @@ export default async function CashPage({
     needsPosCatalog ? measurePerf("[caja-page] productService.listConfigurationsByRestaurant", () => productService.listConfigurationsByRestaurant(restaurant.id), { tab: activeTab }) : Promise.resolve(emptyConfiguration),
     needsMovements ? measurePerf("[caja-page] cashService.listMovements", () => cashService.listMovements(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
     needsOperationalOrders ? measurePerf("[caja-page] orderService.listCashWorkspaceOrders", () => orderService.listCashWorkspaceOrders(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
+    needsTables ? measurePerf("[caja-page] tableService.listByRestaurant", () => tableService.listByRestaurant(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
     needsReports ? measurePerf("[caja-page] cashService.listSessionReports", () => cashService.listSessionReports(restaurant.id), { tab: activeTab }) : Promise.resolve([]),
     needsCancellationReviewCount ? measurePerf("[caja-page] cashService.countPendingCashCancellationReviews", () => cashService.countPendingCashCancellationReviews(restaurant.id), { tab: activeTab }) : Promise.resolve(0),
     needsReports ? measurePerf("[caja-page] cashService.getAuditSnapshot", () => cashService.getAuditSnapshot(restaurant.id), { tab: activeTab }) : Promise.resolve(null),
@@ -78,6 +81,7 @@ export default async function CashPage({
         status.posTrackingToken ?? "",
         status.posCustomerPhone ?? "",
         status.rejected ?? "",
+        status.tableSettled ?? "",
       ].join(":")}
       categories={categories}
       cashAudit={cashAudit}
@@ -93,6 +97,7 @@ export default async function CashPage({
       settings={settings}
       status={status}
       summary={summary}
+      tables={tables}
     />
   );
 }

@@ -806,6 +806,15 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(publicRestaurantOrderPath(parsed.data.restaurantSlug, errorKey));
   }
 
+  if (parsed.data.orderType === "table" && parsed.data.tableId) {
+    await writeClient
+      .from("tables")
+      .update({ status: "occupied" })
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .eq("id", parsed.data.tableId)
+      .eq("is_active", true);
+  }
+
   const tableNotice = parsed.data.orderType === "table" ? "&tablePending=1" : "";
   redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `pedido/${order.id}`)}?token=${order.tracking_token}${tableNotice}`);
 }

@@ -177,6 +177,7 @@ export type Database = {
         owner_user_id: string | null;
         owner_name: string | null;
         owner_email: string | null;
+        waiter_limit: number;
         background_color: string;
         surface_color: string;
         text_color: string;
@@ -1277,6 +1278,20 @@ export type Database = {
           p_restaurant_id: string;
         };
         Returns: string;
+      };
+      settle_table_with_cash_movements: {
+        Args: {
+          p_payment_method: Database["public"]["Enums"]["payment_method_type"];
+          p_receipt_reference?: string | null;
+          p_receipt_url?: string | null;
+          p_restaurant_id: string;
+          p_table_id: string;
+        };
+        Returns: {
+          charged_order_count: number;
+          settled_order_count: number;
+          table_id: string;
+        }[];
       };
       update_operational_order_status: {
         Args: {

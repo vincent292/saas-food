@@ -472,8 +472,7 @@ export const orderService = {
         "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,subtotal,delivery_fee,discount_total,total,notes,created_at,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
       )
       .eq("restaurant_id", restaurantId)
-      .gte("created_at", startOfBusinessDayIso())
-      .in("status", ["pending", "accepted", "preparing", "ready", "delivered", "cancelled"])
+      .or(`created_at.gte.${startOfBusinessDayIso()},and(order_type.eq.table,status.in.(pending,accepted,preparing,ready))`)
       .order("created_at", { ascending: false })
       .limit(160);
     perfLog("[orderService.listCashWorkspaceOrders] orders-query", ordersStartedAt, { restaurantId, rows: orders?.length ?? 0, error: Boolean(error) });

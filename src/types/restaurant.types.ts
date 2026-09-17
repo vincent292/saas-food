@@ -47,6 +47,7 @@ export type Restaurant = {
   ownerUserId?: string;
   ownerName?: string;
   ownerEmail?: string;
+  waiterLimit?: number;
   deactivatedAt?: string;
   deletedAt?: string;
   logoUrl: string;

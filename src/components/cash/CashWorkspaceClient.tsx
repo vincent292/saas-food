@@ -1,12 +1,12 @@
 "use client";
 
-import { AlertTriangle, Banknote, Bike, Calculator, CheckCircle2, Clock3, Copy, CreditCard, ExternalLink, FileText, History, LoaderCircle, Maximize2, MessageCircle, PackageSearch, Printer, QrCode, ReceiptText, Search, ShoppingBag, Store, X, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Banknote, Bike, Calculator, CheckCircle2, Clock3, Copy, CreditCard, ExternalLink, FileText, History, LoaderCircle, Maximize2, MessageCircle, PackageSearch, Printer, QrCode, ReceiptText, Search, ShoppingBag, Store, Table2, X, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import QRCode from "qrcode";
-import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction } from "@/app/admin/actions";
+import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, settleTableAction } from "@/app/admin/actions";
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
@@ -14,10 +14,12 @@ import { DeliveryDispatchPanel } from "@/components/delivery/DeliveryDispatchPan
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { READY_PICKUP_WARNING_MINUTES, elapsedLabel, kitchenDueDate, minutesSince, minutesUntil, orderPrepMinutes } from "@/components/orders/orderPresentation";
 import { printOrderTicket } from "@/components/orders/printOrder";
+import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input, Select, Textarea } from "@/components/ui/Input";
+import { FormSubmitButton } from "@/components/ui/FormSubmitButton";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { useLiveOrderCounts } from "@/lib/client/use-live-order-counts";
 import { useLiveOrders } from "@/lib/client/use-live-orders";
@@ -27,14 +29,15 @@ import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { CashAuditSnapshot, CashMovement, CashSessionReport, CashSummary } from "@/types/cash.types";
-import type { Order } from "@/types/order.types";
+import type { Order, RestaurantTable } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
 import type { Restaurant, RestaurantPrintConnector, RestaurantSettings } from "@/types/restaurant.types";
 
-type CashTab = "venta" | "pedidos" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
+type CashTab = "venta" | "pedidos" | "mesas" | "delivery" | "recojo" | "movimientos" | "egresos" | "cierre" | "reportes";
 type OrderStatusChangeHandler = (orderId: string, status: "preparing" | "ready" | "delivered") => Promise<boolean>;
 
-const operationalTabs = new Set<CashTab>(["pedidos", "delivery", "recojo"]);
+const operationalTabs = new Set<CashTab>(["pedidos", "mesas", "delivery", "recojo"]);
+const instantOperationalTabs = new Set<CashTab>(["pedidos", "delivery", "recojo"]);
 
 function statusMessage(status: CashPageStatus, businessType: Restaurant["businessType"], kitchenEnabled = true) {
   const hasKitchenFlow = businessTypeSupportsKitchen(businessType) && kitchenEnabled;
@@ -61,6 +64,10 @@ function statusMessage(status: CashPageStatus, businessType: Restaurant["busines
   if (status.updated) {
     return { tone: "success", text: "Pedido actualizado correctamente." };
   }
+  if (status.tableSettled) {
+    const count = Number(status.tableSettled);
+    return { tone: "success", text: count ? `Cuenta de mesa cerrada: ${count} pedido${count === 1 ? "" : "s"} cobrado${count === 1 ? "" : "s"}.` : "Mesa liberada correctamente." };
+  }
   if (!status.error) {
     return null;
   }
@@ -82,6 +89,8 @@ function statusMessage(status: CashPageStatus, businessType: Restaurant["busines
     "already-refunded": "Ese pedido ya fue reembolsado.",
     "order-not-paid": "Solo se pueden reembolsar pedidos pagados.",
     "pending-cancellation-review": "Hay anulaciones cobradas pendientes de aprobacion del dueno. Revisa Anulaciones antes de cerrar caja.",
+    "table-not-found": "No encontramos esa mesa activa.",
+    "invalid-table-settlement": "Revisa los datos de la mesa antes de cobrar.",
   };
 
   if (status.error.startsWith("negative-stock")) {
@@ -101,6 +110,7 @@ export type CashPageStatus = {
   pos?: string;
   rejected?: string;
   updated?: string;
+  tableSettled?: string;
   posOrderId?: string;
   posOrderNumber?: string;
   posTrackingToken?: string;
@@ -118,6 +128,7 @@ export function CashWorkspaceClient({
   loadedTab,
   movements,
   reports,
+  tables,
   orders,
   status,
   pendingCancellationReviews,
@@ -133,6 +144,7 @@ export function CashWorkspaceClient({
   loadedTab: CashTab;
   movements: CashMovement[];
   reports: CashSessionReport[];
+  tables: RestaurantTable[];
   orders: Order[];
   status: CashPageStatus;
   pendingCancellationReviews: number;
@@ -184,8 +196,8 @@ export function CashWorkspaceClient({
   }, []);
 
   const todaysOrders = useMemo(() => liveOrders.filter((order) => isSameBusinessDay(order.createdAt)), [liveOrders]);
-  const pendingOrders = useMemo(() => todaysOrders.filter((order) => order.status === "pending" && order.orderType !== "delivery" && order.orderType !== "pickup"), [todaysOrders]);
-  const activeTableOrders = useMemo(() => todaysOrders.filter((order) => order.orderType === "table" && ["accepted", "preparing", "ready"].includes(order.status)), [todaysOrders]);
+  const pendingOrders = useMemo(() => todaysOrders.filter((order) => order.status === "pending" && !["delivery", "pickup", "table"].includes(order.orderType)), [todaysOrders]);
+  const activeTableOrders = useMemo(() => liveOrders.filter((order) => order.orderType === "table" && ["pending", "accepted", "preparing", "ready"].includes(order.status)), [liveOrders]);
   const deliveryOrders = useMemo(
     () => todaysOrders.filter((order) => order.orderType === "delivery" && ["pending", "accepted", "preparing", "ready", "delivered"].includes(order.status)),
     [todaysOrders],
@@ -195,25 +207,35 @@ export function CashWorkspaceClient({
     [todaysOrders],
   );
   const normalizedOrderSearch = orderSearch.trim().toLowerCase();
+  const tableById = useMemo(() => new Map(tables.map((table) => [table.id, table])), [tables]);
   const matchesOrderSearch = useCallback((order: Order) => {
     if (!normalizedOrderSearch) {
       return true;
     }
 
-    const haystack = [order.orderNumber, order.customerName, order.customerPhone, order.notes, order.customerAddress]
+    const table = order.tableId ? tableById.get(order.tableId) : undefined;
+    const haystack = [order.orderNumber, order.customerName, order.customerPhone, order.notes, order.customerAddress, table?.name, table?.code]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
     return haystack.includes(normalizedOrderSearch);
-  }, [normalizedOrderSearch]);
+  }, [normalizedOrderSearch, tableById]);
   const visiblePendingOrders = useMemo(() => pendingOrders.filter(matchesOrderSearch), [pendingOrders, matchesOrderSearch]);
-  const visibleActiveTableOrders = useMemo(() => activeTableOrders.filter(matchesOrderSearch), [activeTableOrders, matchesOrderSearch]);
   const visibleDeliveryOrders = useMemo(() => deliveryOrders.filter(matchesOrderSearch), [deliveryOrders, matchesOrderSearch]);
   const visiblePickupOrders = useMemo(() => pickupOrders.filter(matchesOrderSearch), [pickupOrders, matchesOrderSearch]);
+  const tableAccounts = useMemo(() => tables.map((table) => ({
+    table,
+    orders: activeTableOrders.filter((order) => order.tableId === table.id),
+  })), [activeTableOrders, tables]);
+  const visibleTableAccounts = useMemo(() => tableAccounts.filter(({ table, orders }) => {
+    if (!normalizedOrderSearch) return true;
+    const tableText = [table.name, table.code].join(" ").toLowerCase();
+    return tableText.includes(normalizedOrderSearch) || orders.some(matchesOrderSearch);
+  }), [matchesOrderSearch, normalizedOrderSearch, tableAccounts]);
   const ordersById = useMemo(() => new Map(todaysOrders.map((order) => [order.id, order])), [todaysOrders]);
   const latestReport = reports[0];
   const banner = statusMessage(status, restaurant.businessType, settings?.kitchenEnabled ?? true);
-  const activeTabIsLoaded = activeTab === loadedTab || (operationalTabs.has(activeTab) && operationalTabs.has(loadedTab));
+  const activeTabIsLoaded = activeTab === loadedTab || (instantOperationalTabs.has(activeTab) && instantOperationalTabs.has(loadedTab));
   const hasFullCashSummary = loadedTab === "venta" || loadedTab === "movimientos" || loadedTab === "egresos" || loadedTab === "cierre" || loadedTab === "reportes";
   const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
   const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
@@ -286,7 +308,8 @@ export function CashWorkspaceClient({
 
   const tabs: { key: CashTab; label: string; icon: LucideIcon; count?: number }[] = [
     { key: "venta", label: "Venta POS", icon: Store },
-    { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: liveOrderCounts.pendingReview + liveOrderCounts.tableActive },
+    { key: "pedidos", label: "Pedidos", icon: PackageSearch, count: liveOrderCounts.pendingReview - todaysOrders.filter((order) => order.orderType === "table" && order.status === "pending").length },
+    { key: "mesas", label: "Mesas", icon: Table2, count: activeTableOrders.length },
     { key: "delivery", label: "Delivery", icon: Bike, count: liveOrderCounts.deliveryActive },
     { key: "recojo", label: "Recojo", icon: ShoppingBag, count: liveOrderCounts.pickupActive },
     { key: "movimientos", label: "Movimientos", icon: History, count: loadedTab === "movimientos" ? movements.length : undefined },
@@ -300,7 +323,7 @@ export function CashWorkspaceClient({
       return;
     }
 
-    if (operationalTabs.has(nextTab) && operationalTabs.has(loadedTab)) {
+    if (instantOperationalTabs.has(nextTab) && instantOperationalTabs.has(loadedTab)) {
       setActiveTab(nextTab);
       const url = new URL(window.location.href);
       url.searchParams.set("tab", nextTab);
@@ -584,11 +607,11 @@ export function CashWorkspaceClient({
         ))}
       </div>
 
-      {activeTab === "pedidos" || activeTab === "delivery" || activeTab === "recojo" ? (
+      {activeTab === "pedidos" || activeTab === "mesas" || activeTab === "delivery" || activeTab === "recojo" ? (
         <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-sm">
           <label className="relative block">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
-            <Input className="pl-11" onChange={(event) => setOrderSearch(event.target.value)} placeholder="Buscar por numero de pedido, nombre o WhatsApp" value={orderSearch} />
+            <Input className="pl-11" onChange={(event) => setOrderSearch(event.target.value)} placeholder={activeTab === "mesas" ? "Buscar mesa, código, pedido o cliente" : "Buscar por número de pedido, nombre o WhatsApp"} value={orderSearch} />
           </label>
         </div>
       ) : null}
@@ -618,20 +641,34 @@ export function CashWorkspaceClient({
 
       {activeTab === "pedidos" ? (
         <section className="space-y-4">
-          <SectionTitle title="Pedidos del dia" description={hasKitchenFlow ? "Mesa y POS pendientes para aprobar, cobrar o rechazar." : "Pedidos pendientes para aprobar, cobrar o rechazar."} />
+          <SectionTitle title="Pedidos del dia" description={hasKitchenFlow ? "POS pendientes para aprobar, cobrar o rechazar. Las cuentas de mesa están en su propia pestaña." : "Pedidos pendientes para aprobar, cobrar o rechazar. Las cuentas de mesa están en su propia pestaña."} />
           {!activeTabIsLoaded ? (
             <TabLoadingState />
-          ) : visiblePendingOrders.length || visibleActiveTableOrders.length ? (
+          ) : visiblePendingOrders.length ? (
             <div className="grid gap-3">
               {visiblePendingOrders.map((order) => (
                 <PendingOrderReviewCard businessType={restaurant.businessType} context="caja" disabled={!summary.session} isApproving={pendingOrderIds.has(order.id)} key={order.id} onApprove={approveOrder} order={order} restaurantSlug={restaurant.slug} />
               ))}
-              {visibleActiveTableOrders.map((order) => (
-                <TableServiceOrderCard businessType={restaurant.businessType} isUpdating={pendingOrderIds.has(order.id)} key={order.id} now={now} onStatusChange={updateStatus} order={order} restaurantSlug={restaurant.slug} />
-              ))}
             </div>
           ) : (
             <EmptyState title="Sin pedidos pendientes" description="Cuando llegue un pedido nuevo aparecerá aquí para cobro y aprobación." />
+          )}
+        </section>
+      ) : null}
+
+      {activeTab === "mesas" ? (
+        <section className="space-y-4">
+          <SectionTitle title="Mesas" description="Busca una mesa, revisa su cuenta abierta y cobra todo desde caja. Al cobrar, la mesa queda liberada." />
+          {!activeTabIsLoaded ? (
+            <TabLoadingState />
+          ) : visibleTableAccounts.length ? (
+            <div className="grid gap-3">
+              {visibleTableAccounts.map(({ table, orders: tableOrders }) => (
+                <TableSettlementCard disabled={!summary.session} key={table.id} orders={tableOrders} restaurant={restaurant} table={table} />
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="No encontramos mesas" description="Prueba con otro nombre o código de mesa." />
           )}
         </section>
       ) : null}
@@ -939,28 +976,101 @@ function PickupOrderCard({ order, businessType, now, isUpdating, onStatusChange 
   );
 }
 
-function TableServiceOrderCard({ order, businessType, now, isUpdating, onStatusChange }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"]; now: Date; isUpdating: boolean; onStatusChange: OrderStatusChangeHandler }) {
-  const isActive = order.status === "accepted" || order.status === "preparing";
+function TableSettlementCard({
+  table,
+  orders,
+  restaurant,
+  disabled,
+}: {
+  table: RestaurantTable;
+  orders: Order[];
+  restaurant: Restaurant;
+  disabled: boolean;
+}) {
+  const [paymentMethod, setPaymentMethod] = useState<Order["paymentMethod"]>("cash");
+  const pendingOrders = orders.filter((order) => order.paymentStatus !== "paid");
+  const amountDue = pendingOrders.reduce((sum, order) => sum + order.total, 0);
+  const orderNumbers = orders.map((order) => order.orderNumber).join(", ");
+
+  if (!orders.length) {
+    return (
+      <Card className="rounded-[1.25rem] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-xl font-black text-[var(--text)]">{table.name}</h3>
+              <span className="rounded-full bg-[var(--color-success-soft)] px-3 py-1 text-xs font-black text-[var(--color-success-strong)]">Disponible</span>
+            </div>
+            <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Código {table.code} · {table.capacity} persona{table.capacity === 1 ? "" : "s"}</p>
+          </div>
+          <span className="rounded-2xl bg-[var(--color-neutral-100)] px-4 py-3 text-sm font-black text-[var(--color-secondary-text)]">Sin cuenta abierta</span>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card className="rounded-[1.25rem] p-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start">
-        <OrderOperationalSummary businessType={businessType} now={now} order={order} title="Mesa" />
-        {isActive ? (
-          <OrderReadyActionPanel isUpdating={isUpdating} now={now} onStatusChange={onStatusChange} order={order} />
-        ) : order.status === "ready" ? (
-          <div className="rounded-2xl border border-[var(--border)] p-3">
-            <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">Cuando el pedido ya fue entregado a la mesa, marcalo como servido para cerrar el seguimiento.</p>
-            <Button className="w-full" disabled={isUpdating} onClick={() => void onStatusChange(order.id, "delivered")} type="button">
-              {isUpdating ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {isUpdating ? "Guardando..." : "Marcar servido"}
-            </Button>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-2xl font-black text-[var(--text)]">{table.name}</h3>
+            <span className="rounded-full bg-[var(--color-warning-soft)] px-3 py-1 text-xs font-black text-[var(--color-warning-strong)]">Cuenta abierta</span>
+            <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">{table.code}</span>
           </div>
-        ) : (
-          <div className="rounded-2xl bg-[var(--color-warning-soft)] p-4 text-sm font-bold text-[var(--color-warning-strong)]">
-            {businessTypeSupportsKitchen(businessType) ? "Aun esta en cocina." : "Aun esta en preparacion."} Cuando quede listo podras marcarlo como servido.
+          <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
+            {orders.length} pedido{orders.length === 1 ? "" : "s"} activo{orders.length === 1 ? "" : "s"} · {table.capacity} persona{table.capacity === 1 ? "" : "s"}
+          </p>
+          <div className="mt-4 grid gap-2">
+            {orders.map((order) => (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[var(--color-surface)] p-3" key={order.id}>
+                <div className="min-w-0">
+                  <p className="font-black text-[var(--text)]">{order.orderNumber}</p>
+                  <p className="mt-0.5 truncate text-sm font-semibold text-[var(--muted)]">{order.customerName || "Cliente"} · {order.items.reduce((sum, item) => sum + item.quantity, 0)} producto{order.items.reduce((sum, item) => sum + item.quantity, 0) === 1 ? "" : "s"}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-black text-[var(--text)]">{formatMoney(order.total)}</p>
+                  <p className={cn("text-xs font-black", order.paymentStatus === "paid" ? "text-[var(--color-success-strong)]" : "text-[var(--color-warning-strong)]")}>{order.paymentStatus === "paid" ? "Ya cobrado" : "Pendiente"}</p>
+                </div>
+              </div>
+            ))}
           </div>
-        )}
+        </div>
+
+        <form action={settleTableAction} className="rounded-2xl border border-[var(--border)] bg-[var(--primary-light)] p-4">
+          <input name="restaurantId" type="hidden" value={restaurant.id} />
+          <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
+          <input name="tableId" type="hidden" value={table.id} />
+          <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Cerrar cuenta</p>
+          <p className="mt-1 text-3xl font-black text-[var(--primary-dark)]">{formatMoney(amountDue)}</p>
+          <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
+            {pendingOrders.length ? `Cobrarás ${pendingOrders.length} pedido${pendingOrders.length === 1 ? "" : "s"}.` : "Todos los pedidos ya están cobrados; solo liberarás la mesa."}
+          </p>
+          <p className="mt-2 text-xs font-bold text-[var(--color-secondary-text)]">Pedidos: {orderNumbers}</p>
+
+          {disabled ? <div className="mt-4 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para cerrar y cobrar una mesa.</div> : null}
+
+          <div className="mt-4 grid gap-3">
+            <Select disabled={disabled || !pendingOrders.length} name="paymentMethod" onChange={(event) => setPaymentMethod(event.target.value as Order["paymentMethod"])} value={paymentMethod}>
+              <option value="cash">Efectivo</option>
+              <option value="qr">QR</option>
+            </Select>
+            {paymentMethod === "qr" && pendingOrders.length ? (
+              <>
+                <Input disabled={disabled} maxLength={160} name="paymentReceiptReference" placeholder="Referencia QR (opcional)" />
+                <CompressedImageInput acceptPdf className={disabled ? "pointer-events-none opacity-60" : ""} help="Opcional. Puedes cerrar la mesa sin subir comprobante." label="Comprobante QR (opcional)" name="paymentReceiptFile" />
+              </>
+            ) : null}
+            <FormSubmitButton
+              className="w-full"
+              disabled={disabled}
+              label={pendingOrders.length ? "Cobrar y cerrar mesa" : "Liberar mesa"}
+              overlayDescription="Registrando el cobro y cerrando la cuenta de la mesa."
+              overlayTitle="Cerrando cuenta"
+              pendingLabel="Cerrando..."
+            />
+          </div>
+        </form>
       </div>
     </Card>
   );

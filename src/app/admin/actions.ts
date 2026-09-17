@@ -218,7 +218,6 @@ export type ResponsibleAccessFormState = {
 export type CreateWaiterFormState = {
   error?: string;
   success?: boolean;
-  temporaryPassword?: string;
 };
 
 export type SuperadminUserPasswordFormState = {
@@ -326,6 +325,11 @@ const updateOwnerBranchEntitlementSchema = z.object({
   branchLimit: z.coerce.number().int().positive(),
 });
 
+const updateRestaurantWaiterLimitSchema = z.object({
+  restaurantId: z.string().uuid(),
+  waiterLimit: z.coerce.number().int().min(0).max(100),
+});
+
 const requestOwnerBranchCapacitySchema = z.object({
   restaurantId: z.string().uuid(),
   requestedAdditional: z.coerce.number().int().min(1).max(20),
@@ -388,6 +392,7 @@ const createWaiterSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   email: z.string().trim().email(),
   restaurantId: z.string().uuid(),
+  temporaryPassword: z.string().min(12).max(120).regex(/[a-z]/).regex(/[A-Z]/).regex(/[0-9]/),
 });
 
 const resetSuperadminUserPasswordSchema = z.object({
@@ -579,6 +584,14 @@ const chargeOrderSchema = z.object({
   paymentMethod: paymentMethodSchema.default("cash"),
   paymentReceiptReference: z.string().optional(),
   source: z.enum(["pedidos", "caja"]).default("caja"),
+});
+
+const settleTableSchema = z.object({
+  restaurantId: z.string().uuid(),
+  restaurantSlug: z.string().min(1).optional(),
+  tableId: z.string().uuid(),
+  paymentMethod: paymentMethodSchema.default("cash"),
+  paymentReceiptReference: z.string().trim().max(160).optional(),
 });
 
 const rejectCashOrderSchema = z.object({
@@ -3042,6 +3055,38 @@ export async function updateOwnerBranchEntitlementAction(formData: FormData) {
   redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?saved=cupos`);
 }
 
+export async function updateRestaurantWaiterLimitAction(formData: FormData) {
+  const parsed = updateRestaurantWaiterLimitSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    waiterLimit: formData.get("waiterLimit"),
+  });
+
+  if (!parsed.success) {
+    redirect(`/admin/restaurantes/${formData.get("restaurantId")}/cuenta?error=invalid-waiter-limit`);
+  }
+
+  await requireSuperadmin();
+  const admin = createAdminClient();
+  if (!admin) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?error=service-role-required`);
+  }
+
+  const { error } = await admin
+    .from("restaurants")
+    .update({ waiter_limit: parsed.data.waiterLimit })
+    .eq("id", parsed.data.restaurantId)
+    .is("deleted_at", null);
+
+  if (error) {
+    redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?error=${cashErrorKey(error, "waiter-limit-update")}`);
+  }
+
+  revalidatePath("/admin/restaurantes");
+  revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta`);
+  revalidatePath("/dueno/responsables");
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/cuenta?saved=meseros`);
+}
+
 export async function updateBranchRequestPaymentSettingsAction(formData: FormData) {
   const parsed = updateBranchRequestPaymentSettingsSchema.safeParse({
     amount: formData.get("amount") || 199,
@@ -3545,6 +3590,7 @@ export async function createWaiterAction(
     fullName: formData.get("fullName"),
     email: formData.get("email"),
     restaurantId: formData.get("restaurantId"),
+    temporaryPassword: formData.get("temporaryPassword"),
   });
 
   if (!parsed.success) return { error: "invalid" };
@@ -3555,7 +3601,7 @@ export async function createWaiterAction(
 
   const { data: restaurant } = await admin
     .from("restaurants")
-    .select("id,owner_user_id")
+    .select("id,owner_user_id,waiter_limit")
     .eq("id", parsed.data.restaurantId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -3567,12 +3613,12 @@ export async function createWaiterAction(
     .eq("restaurant_id", restaurant.id)
     .eq("role", "waiter")
     .eq("is_active", true);
-  if ((count ?? 0) >= 2) return { error: "waiter-limit" };
+  if ((count ?? 0) >= Number(restaurant.waiter_limit ?? 2)) return { error: "waiter-limit" };
 
   const email = parsed.data.email.toLowerCase();
   if ((await findAuthUserIdsByEmail(admin, email)).length) return { error: "waiter-email-exists" };
 
-  const temporaryPassword = generateSecurePassword();
+  const temporaryPassword = parsed.data.temporaryPassword;
   const { data: created, error: createError } = await admin.auth.admin.createUser({
     email,
     password: temporaryPassword,
@@ -3619,7 +3665,7 @@ export async function createWaiterAction(
     p_metadata: { email },
   });
   revalidatePath("/dueno/responsables");
-  return { success: true, temporaryPassword };
+  return { success: true };
 }
 
 export async function manageResponsibleAccessAction(
@@ -3649,7 +3695,7 @@ export async function manageResponsibleAccessAction(
   }
 
   const [{ data: restaurant }, { data: membership }] = await Promise.all([
-    admin.from("restaurants").select("owner_user_id").eq("id", parsed.data.restaurantId).is("deleted_at", null).maybeSingle(),
+    admin.from("restaurants").select("owner_user_id,waiter_limit").eq("id", parsed.data.restaurantId).is("deleted_at", null).maybeSingle(),
     admin
       .from("restaurant_memberships")
       .select("user_id,is_active,role")
@@ -3758,7 +3804,7 @@ export async function manageResponsibleAccessAction(
       .eq("restaurant_id", parsed.data.restaurantId)
       .eq("role", "waiter")
       .eq("is_active", true);
-    if ((count ?? 0) >= 2) return { error: "waiter-limit" };
+    if ((count ?? 0) >= Number(restaurant.waiter_limit ?? 2)) return { error: "waiter-limit" };
   }
   const { error } = await admin
     .from("restaurant_memberships")
@@ -7531,6 +7577,53 @@ export async function chargeOrderAction(formData: FormData) {
 
   await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
   redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}charged=${parsed.data.orderId}`);
+}
+
+export async function settleTableAction(formData: FormData) {
+  const parsed = settleTableSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    restaurantSlug: formData.get("restaurantSlug") || undefined,
+    tableId: formData.get("tableId"),
+    paymentMethod: formData.get("paymentMethod") || "cash",
+    paymentReceiptReference: formData.get("paymentReceiptReference") || undefined,
+  });
+  const fallbackRestaurantId = String(formData.get("restaurantId") || "");
+  const fallbackPath = `/admin/restaurantes/${fallbackRestaurantId}/caja?tab=mesas`;
+
+  if (!parsed.success) {
+    redirect(`${fallbackPath}&error=invalid-table-settlement`);
+  }
+
+  const redirectPath = `/admin/restaurantes/${parsed.data.restaurantId}/caja?tab=mesas`;
+  const { supabase } = await requireUser();
+  await requireRestaurantAccess(parsed.data.restaurantId, redirectPath);
+
+  let uploadedReceiptUrl: string | null = null;
+  try {
+    const receiptFile = formData.get("paymentReceiptFile") as File | null;
+    uploadedReceiptUrl = receiptFile && receiptFile.size > 0
+      ? await uploadPrivateFile(receiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
+      : null;
+  } catch (error) {
+    console.error("table-settlement-receipt-upload-failed", error);
+    redirect(`${redirectPath}&error=receipt-upload-failed`);
+  }
+
+  const { data, error } = await supabase.rpc("settle_table_with_cash_movements", {
+    p_restaurant_id: parsed.data.restaurantId,
+    p_table_id: parsed.data.tableId,
+    p_payment_method: parsed.data.paymentMethod,
+    p_receipt_url: uploadedReceiptUrl,
+    p_receipt_reference: parsed.data.paymentReceiptReference ?? null,
+  });
+
+  if (error) {
+    redirect(`${redirectPath}&error=${cashErrorKey(error, "table-settlement")}`);
+  }
+
+  await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
+  const settledCount = data?.[0]?.settled_order_count ?? 0;
+  redirect(`${redirectPath}&tableSettled=${settledCount}`);
 }
 
 export async function rejectCashOrderAction(formData: FormData) {

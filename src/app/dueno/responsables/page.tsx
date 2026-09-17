@@ -93,6 +93,7 @@ export default async function OwnerResponsiblesPage({
     id: membership.restaurant.id,
     name: membership.restaurant.name,
     activeWaiters: activeWaiters.get(membership.restaurant.id) ?? 0,
+    waiterLimit: membership.restaurant.waiterLimit ?? 2,
   }));
   const visible = selectedTab === "meseros" ? waiters : responsibles;
 
@@ -119,7 +120,7 @@ export default async function OwnerResponsiblesPage({
                 </span>
                 <div>
                   <h2 className="text-xl font-black">Crear mesero</h2>
-                  <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Incluye 2 meseros activos gratis por sucursal. El nuevo usuario debera cambiar su clave temporal al ingresar.</p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">Cada sucursal muestra el cupo de meseros que configuró la plataforma. Por ahora no se cobra; el nuevo usuario deberá cambiar su clave temporal al ingresar.</p>
                 </div>
               </div>
               <CreateWaiterClient restaurants={restaurants} />

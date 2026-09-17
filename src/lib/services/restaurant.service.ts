@@ -68,6 +68,7 @@ function mapRestaurant(row: {
   owner_user_id?: string | null;
   owner_name?: string | null;
   owner_email?: string | null;
+  waiter_limit?: number | null;
   deactivated_at?: string | null;
   deleted_at?: string | null;
   logo_url: string | null;
@@ -112,6 +113,7 @@ function mapRestaurant(row: {
     ownerUserId: row.owner_user_id ?? undefined,
     ownerName: row.owner_name ?? undefined,
     ownerEmail: row.owner_email ?? undefined,
+    waiterLimit: Number(row.waiter_limit ?? 2),
     deactivatedAt: row.deactivated_at ?? undefined,
     deletedAt: row.deleted_at ?? undefined,
     logoUrl: row.logo_url || initials,

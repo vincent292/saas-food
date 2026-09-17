@@ -12,6 +12,7 @@ export type UserRestaurantMembership = {
     city: string;
     status: RestaurantStatus;
     ownerUserId?: string;
+    waiterLimit?: number;
   };
 };
 
@@ -41,7 +42,7 @@ async function listRestaurantsForUser(userId: string, onlyActive: boolean): Prom
   const restaurantIds = Array.from(rolesByRestaurant.keys());
   let restaurantsQuery = supabase
     .from("restaurants")
-    .select("id,name,slug,city,status,owner_user_id")
+    .select("id,name,slug,city,status,owner_user_id,waiter_limit")
     .in("id", restaurantIds)
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
@@ -66,6 +67,7 @@ async function listRestaurantsForUser(userId: string, onlyActive: boolean): Prom
       city: restaurant.city ?? "",
       status: restaurant.status as RestaurantStatus,
       ownerUserId: restaurant.owner_user_id ?? undefined,
+      waiterLimit: Number(restaurant.waiter_limit ?? 2),
     },
   }));
 }

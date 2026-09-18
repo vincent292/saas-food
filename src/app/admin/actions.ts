@@ -7215,7 +7215,13 @@ export async function requestRiderAutoDispatchAction(input: {
   }
 
   if (result.status === "already_assigned") {
-    return { ok: true, status: result.status, message: result.riderName ? `${result.riderName} acepto este pedido.` : "El pedido ya tiene rider asignado." };
+    return {
+      ok: true,
+      status: result.status,
+      message: result.riderName
+        ? `${result.riderName} acepto el pedido y va rumbo al local.`
+        : "El rider acepto el pedido y va rumbo al local.",
+    };
   }
 
   return { ok: true, status: result.status, message: "No hay riders activos disponibles. Usa QR o WhatsApp manual." };

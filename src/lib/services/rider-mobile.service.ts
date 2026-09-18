@@ -1340,6 +1340,23 @@ export async function getMobileRiderDashboard(
     updatedAt: string;
   }>
 > {
+  if (options.includeAvailable) {
+    const riderIds = session.activeRiders.map((rider) => rider.id);
+    if (riderIds.length) {
+      const { error: heartbeatError } = await session.admin
+        .from("rider_availability")
+        .update({ last_seen_at: new Date().toISOString() })
+        .eq("rider_user_id", session.user.id)
+        .in("restaurant_rider_id", riderIds)
+        .eq("available_date", todayLaPazDate())
+        .eq("is_available", true);
+
+      if (heartbeatError) {
+        return { ok: false, error: "rider-availability-failed", status: 400 };
+      }
+    }
+  }
+
   const [mineResult, availableResult, offersResult] = await Promise.all([
     listMobileRiderOrders(session, "mine"),
     options.includeAvailable

@@ -140,12 +140,12 @@ export function DeliveryDispatchPanel({
           <div className="rounded-2xl border border-[var(--color-info-soft)] bg-[var(--color-info-soft)] p-3 text-sm text-[var(--color-info-strong)]">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-[0.12em]">Rider asignado</p>
+                <p className="text-xs font-black uppercase tracking-[0.12em]">Rider aceptó</p>
                 <p className="mt-1 text-base font-black">{assignedDispatch.deliveryName || "Repartidor"}</p>
                 {assignedDispatch.deliveryPhone ? <p className="mt-0.5 text-xs font-bold">{assignedDispatch.deliveryPhone}</p> : null}
               </div>
               <span className="shrink-0 rounded-full bg-[var(--surface)] px-2.5 py-1 text-xs font-black">
-                {assignedDispatch.status === "delivered" ? "Entregado" : assignedDispatch.status === "arrived" ? "Recogido" : "Asignado"}
+                {assignedDispatch.status === "delivered" ? "Entregado" : assignedDispatch.status === "arrived" ? "En camino" : "Yendo al local"}
               </span>
             </div>
             {pickupCode ? (

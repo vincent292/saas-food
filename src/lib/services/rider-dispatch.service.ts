@@ -96,7 +96,7 @@ export type RiderAutoDispatchResult =
 
 const expoPushEndpoint = "https://exp.host/--/api/v2/push/send";
 const riderAvailabilityWindowMs = 5 * 60 * 1000;
-const riderOfferTtlSeconds = 45;
+const riderOfferTtlSeconds = 120;
 const activeDispatchStatuses = new Set<DeliveryLinkRow["status"]>(["active", "arrived"]);
 
 function getAdmin(): ServiceResult<AdminClient> {
@@ -362,7 +362,11 @@ async function buildCandidates(admin: AdminClient, order: DispatchOrderRow, rest
     .gte("last_seen_at", lastSeenFloor);
   const availabilityByRider = new Map(((availability ?? []) as RiderAvailabilityRow[]).map((row) => [row.restaurant_rider_id, row]));
   const offeredRows = await admin.from("rider_delivery_offers").select("restaurant_rider_id,status").eq("order_id", order.id);
-  const alreadyTried = new Set((offeredRows.data ?? []).filter((offer) => offer.status !== "cancelled").map((offer) => offer.restaurant_rider_id));
+  const alreadyTried = new Set(
+    (offeredRows.data ?? [])
+      .filter((offer) => offer.status === "pending" || offer.status === "accepted" || offer.status === "rejected")
+      .map((offer) => offer.restaurant_rider_id),
+  );
   const availableRiders = riderRows.filter((rider) => availabilityByRider.has(rider.id) && !alreadyTried.has(rider.id));
   if (!availableRiders.length) {
     return [];

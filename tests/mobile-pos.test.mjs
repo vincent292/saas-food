@@ -54,7 +54,7 @@ function fixture(role = "waiter") {
     business_hours: [], orders: [],
     admin_audit_logs: [{ actor_user_id: userId, restaurant_id: restaurantId, action: "waiter_shift_opened", created_at: new Date().toISOString() }],
   };
-  const client = clientFor(rows), calls = [], rpcCalls = [], backgroundCalls = [], notificationCalls = [];
+  const client = clientFor(rows), calls = [], rpcCalls = [], backgroundCalls = [], notificationCalls = [], signedReceiptCalls = [];
   client.rpc = async (name, args) => {
     rpcCalls.push({ name, args });
     if (name === "charge_order_with_cash_movement") {
@@ -80,6 +80,14 @@ function fixture(role = "waiter") {
   const admin = {
     from: (table) => client.from(table),
     rpc: async (name, args) => { calls.push({ name, args }); return { data: [{ id: "created" }], error: null }; },
+    storage: {
+      from: (bucket) => ({
+        createSignedUrl: async (path) => {
+          signedReceiptCalls.push({ bucket, path });
+          return { data: { signedUrl: `https://signed.test/${bucket}/${path}` }, error: null };
+        },
+      }),
+    },
   };
   const shared = load("src/app/api/mobile/pos/_shared.ts", { "@supabase/supabase-js": { createClient: () => client }, "@/lib/supabase/admin": { createAdminClient: () => admin } });
   const cart = load("src/app/api/mobile/pos/_cart.ts", { "./_shared": shared });
@@ -88,7 +96,13 @@ function fixture(role = "waiter") {
     "./_shared": { ...shared, session: async () => auth }, "./_cart": cart,
     "next/server": { after: (callback) => backgroundCalls.push(callback) }, "next/cache": { revalidatePath: () => {} },
     "@/lib/restaurant-directory-options": { businessTypeSupportsTableQr: () => true, businessTypeSupportsKitchen: () => true },
-    "@/lib/supabase/storage": { uploadPrivateFile: async () => null },
+    "@/lib/supabase/storage": {
+      getPrivateFileSignedUrl: async (path) => {
+        signedReceiptCalls.push({ bucket: "private", path });
+        return `https://signed.test/private/${path}`;
+      },
+      uploadPrivateFile: async () => null,
+    },
     "@/lib/services/announcement.service": { announcementService: { hasActiveClosure: async () => false } },
     "@/lib/services/mobile-push.service": {
       registerRestaurantPosPushToken: async (input) => { notificationCalls.push({ kind: "register", input }); return { ok: true }; },
@@ -101,7 +115,7 @@ function fixture(role = "waiter") {
     "@/lib/services/rider-dispatch.service": {},
     "@/lib/utils/business-hours": { getBusinessStatus: () => ({ hasSchedule: false, isOpen: true }) },
   });
-  return { rows, shared, auth, route, cart, calls, rpcCalls, backgroundCalls, notificationCalls };
+  return { rows, shared, auth, route, cart, calls, rpcCalls, backgroundCalls, notificationCalls, signedReceiptCalls };
 }
 const post = (route, body) => route.POST(new Request("http://localhost/api/mobile/pos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
 const tableOrder = { action: "table-order", restaurantId, requestId, tableCode: "M4", customerName: "Cliente", paymentMethod: "cash", items: [{ productId, quantity: 2, optionIds: [] }] };
@@ -200,6 +214,56 @@ test("cashier accepts a pending order without charging it", async () => {
     call.input.orderId === requestId &&
     call.input.status === "accepted"
   ));
+});
+
+test("accepting skips preparation when the restaurant disabled its kitchen flow", async () => {
+  const f = fixture("cashier");
+  f.rows.restaurant_settings[0].kitchen_enabled = false;
+  f.rows.orders.push({
+    id: requestId,
+    restaurant_id: restaurantId,
+    order_number: "D-10",
+    order_type: "pickup",
+    payment_status: "pending",
+    status: "pending",
+  });
+  const response = await post(f.route, {
+    action: "accept",
+    orderId: requestId,
+    restaurantId,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(f.rows.orders[0].status, "ready");
+  await Promise.all(f.backgroundCalls.map((callback) => callback()));
+  assert.ok(f.notificationCalls.some((call) =>
+    call.kind === "status" && call.input.status === "ready"
+  ));
+});
+
+test("receipt viewer signs absolute private and WhatsApp storage routes for the mobile POS", async () => {
+  const f = fixture("cashier");
+  f.rows.orders.push({
+    id: requestId,
+    restaurant_id: restaurantId,
+    order_type: "delivery",
+    payment_receipt_url: `https://www.yopido.shop/api/storage/private/restaurants/${restaurantId}/payment-receipts/proof.jpg`,
+  });
+  const privateResponse = await f.route.GET(new Request(`http://localhost/api/mobile/pos?restaurantId=${restaurantId}&receiptOrderId=${requestId}`));
+  assert.equal(privateResponse.status, 200);
+  assert.match((await privateResponse.json()).url, /^https:\/\/signed\.test\/private\//);
+  assert.deepEqual(f.signedReceiptCalls[0], {
+    bucket: "private",
+    path: `restaurants/${restaurantId}/payment-receipts/proof.jpg`,
+  });
+
+  f.rows.orders[0].payment_receipt_url = `https://www.yopido.shop/api/storage/whatsapp-receipts/restaurants/${restaurantId}/proof.jpg`;
+  const whatsappResponse = await f.route.GET(new Request(`http://localhost/api/mobile/pos?restaurantId=${restaurantId}&receiptOrderId=${requestId}`));
+  assert.equal(whatsappResponse.status, 200);
+  assert.match((await whatsappResponse.json()).url, /^https:\/\/signed\.test\/whatsapp-payment-receipts\//);
+  assert.deepEqual(f.signedReceiptCalls[1], {
+    bucket: "whatsapp-payment-receipts",
+    path: `restaurants/${restaurantId}/proof.jpg`,
+  });
 });
 
 test("ETA changes are stored and notify WhatsApp orders in the background", async () => {

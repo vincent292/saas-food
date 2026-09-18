@@ -149,6 +149,43 @@ async function createCancellationReview(
   }));
 }
 
+function receiptStoragePath(url: string, routePrefix: string) {
+  try {
+    const pathname = new URL(url, "https://pos.yopido.local").pathname;
+    if (!pathname.startsWith(routePrefix)) return null;
+    const path = pathname.slice(routePrefix.length);
+    return path ? decodeURIComponent(path) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function receiptViewerUrl(
+  request: Request,
+  auth: Awaited<ReturnType<typeof session>>,
+  storedUrl: string,
+) {
+  const privatePath = receiptStoragePath(storedUrl, "/api/storage/private/");
+  if (privatePath) {
+    return getPrivateFileSignedUrl(privatePath);
+  }
+
+  const whatsappPath = receiptStoragePath(storedUrl, "/api/storage/whatsapp-receipts/");
+  if (whatsappPath) {
+    const { data, error } = await auth.admin.storage
+      .from("whatsapp-payment-receipts")
+      .createSignedUrl(whatsappPath, 5 * 60);
+    if (error) throw new PosError("No se pudo abrir el comprobante.", 404);
+    return data?.signedUrl ?? null;
+  }
+
+  try {
+    return new URL(storedUrl, new URL(request.url).origin).href;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const auth = await session(request);
@@ -162,8 +199,9 @@ export async function GET(request: Request) {
       if (!order || (!restaurant.canManage && order.order_type !== "table")) throw new PosError("Comprobante no encontrado.", 404);
       const url = order.payment_receipt_url;
       if (!url) throw new PosError("El pedido no tiene comprobante.", 404);
-      const prefix = "/api/storage/private/";
-      return json({ url: url.startsWith(prefix) ? await getPrivateFileSignedUrl(decodeURIComponent(url.slice(prefix.length))) : url });
+      const viewerUrl = await receiptViewerUrl(request, auth, url);
+      if (!viewerUrl) throw new PosError("No se pudo abrir el comprobante.", 404);
+      return json({ url: viewerUrl });
     }
     const client = auth.client;
     const catalog = params.get("catalog") !== "0";
@@ -194,6 +232,7 @@ export async function GET(request: Request) {
     }
     const settings = checked(settingsResult);
     if (!settings) throw new PosError("El restaurante no tiene configuracion de venta.", 409);
+    settings.kitchen_enabled = businessTypeSupportsKitchen(restaurant.business_type) && settings.kitchen_enabled !== false;
     const orderIds = ordersResult.map((order) => order.id);
     const [ridersResult, assignmentsResult] = restaurant.canManage
       ? await Promise.all([

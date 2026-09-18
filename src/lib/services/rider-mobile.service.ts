@@ -996,6 +996,16 @@ export async function acceptMobileRiderOrder(session: MobileRiderSession, orderI
     return { ok: false, error: claim.error, status: claim.status };
   }
 
+  await session.admin
+    .from("rider_delivery_offers")
+    .update({
+      responded_at: new Date().toISOString(),
+      response_reason: "rider-busy",
+      status: "cancelled",
+    })
+    .eq("rider_user_id", session.user.id)
+    .eq("status", "pending");
+
   const { data: link } = await session.admin.from("order_delivery_links").select(deliveryLinkSelect).eq("order_id", orderId).maybeSingle();
   const [serialized] = await hydrateOrders(session.admin, [orderRow], link ? [link as DeliveryLinkRow] : []);
   return { ok: true, data: { order: serialized } };
@@ -1340,23 +1350,6 @@ export async function getMobileRiderDashboard(
     updatedAt: string;
   }>
 > {
-  if (options.includeAvailable) {
-    const riderIds = session.activeRiders.map((rider) => rider.id);
-    if (riderIds.length) {
-      const { error: heartbeatError } = await session.admin
-        .from("rider_availability")
-        .update({ last_seen_at: new Date().toISOString() })
-        .eq("rider_user_id", session.user.id)
-        .in("restaurant_rider_id", riderIds)
-        .eq("available_date", todayLaPazDate())
-        .eq("is_available", true);
-
-      if (heartbeatError) {
-        return { ok: false, error: "rider-availability-failed", status: 400 };
-      }
-    }
-  }
-
   const [mineResult, availableResult, offersResult] = await Promise.all([
     listMobileRiderOrders(session, "mine"),
     options.includeAvailable

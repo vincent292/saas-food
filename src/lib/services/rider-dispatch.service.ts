@@ -95,7 +95,6 @@ export type RiderAutoDispatchResult =
   | { ok: false; error: string };
 
 const expoPushEndpoint = "https://exp.host/--/api/v2/push/send";
-const riderAvailabilityWindowMs = 5 * 60 * 1000;
 const riderOfferTtlSeconds = 120;
 const activeDispatchStatuses = new Set<DeliveryLinkRow["status"]>(["active", "arrived"]);
 
@@ -310,8 +309,14 @@ async function expirePendingOffers(admin: AdminClient, orderId?: string) {
 async function candidateStats(admin: AdminClient, riderIds: string[]) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const now = new Date().toISOString();
   const [{ data: activeLinks }, { data: recentLinks }, { data: offers }] = await Promise.all([
-    admin.from("order_delivery_links").select("restaurant_rider_id").in("restaurant_rider_id", riderIds).in("status", Array.from(activeDispatchStatuses)),
+    admin
+      .from("order_delivery_links")
+      .select("restaurant_rider_id")
+      .in("restaurant_rider_id", riderIds)
+      .in("status", Array.from(activeDispatchStatuses))
+      .gt("expires_at", now),
     admin.from("order_delivery_links").select("restaurant_rider_id").in("restaurant_rider_id", riderIds).eq("status", "delivered").gte("delivered_at", since),
     admin.from("rider_delivery_offers").select("restaurant_rider_id,status").in("restaurant_rider_id", riderIds).gte("created_at", since30),
   ]);
@@ -338,7 +343,6 @@ async function candidateStats(admin: AdminClient, riderIds: string[]) {
 
 async function buildCandidates(admin: AdminClient, order: DispatchOrderRow, restaurant: DispatchRestaurantRow | null) {
   const today = todayLaPazDate();
-  const lastSeenFloor = new Date(Date.now() - riderAvailabilityWindowMs).toISOString();
   const { data: riders } = await admin
     .from("restaurant_riders")
     .select("id,restaurant_id,rider_user_id,full_name,phone,plate_number,status,membership_valid_until")
@@ -358,8 +362,7 @@ async function buildCandidates(admin: AdminClient, order: DispatchOrderRow, rest
     .select("restaurant_rider_id,rider_user_id,is_available,available_date,latitude,longitude,accuracy_m,heading,speed_mps,last_seen_at")
     .in("restaurant_rider_id", riderIds)
     .eq("available_date", today)
-    .eq("is_available", true)
-    .gte("last_seen_at", lastSeenFloor);
+    .eq("is_available", true);
   const availabilityByRider = new Map(((availability ?? []) as RiderAvailabilityRow[]).map((row) => [row.restaurant_rider_id, row]));
   const offeredRows = await admin.from("rider_delivery_offers").select("restaurant_rider_id,status").eq("order_id", order.id);
   const alreadyTried = new Set(
@@ -372,15 +375,35 @@ async function buildCandidates(admin: AdminClient, order: DispatchOrderRow, rest
     return [];
   }
 
-  const stats = await candidateStats(admin, availableRiders.map((rider) => rider.id));
+  const riderUserIds = Array.from(
+    new Set(availableRiders.map((rider) => rider.rider_user_id).filter((value): value is string => Boolean(value))),
+  );
+  const { data: linkedMemberships } = riderUserIds.length
+    ? await admin.from("restaurant_riders").select("id,rider_user_id").in("rider_user_id", riderUserIds)
+    : { data: [] };
+  const membershipRows = (linkedMemberships ?? []) as Array<{ id: string; rider_user_id: string | null }>;
+  const stats = await candidateStats(admin, membershipRows.map((membership) => membership.id));
+  const busyRiderUserIds = new Set(
+    membershipRows
+      .filter((membership) => (stats.active.get(membership.id) ?? 0) > 0)
+      .map((membership) => membership.rider_user_id)
+      .filter((value): value is string => Boolean(value)),
+  );
+  const freeRiders = availableRiders.filter(
+    (rider) => Boolean(rider.rider_user_id) && !busyRiderUserIds.has(rider.rider_user_id as string),
+  );
+  if (!freeRiders.length) {
+    return [];
+  }
+
   const target = targetCoordinates(order, restaurant);
 
-  return availableRiders.map((rider) => {
+  return freeRiders.map((rider) => {
     const riderAvailability = availabilityByRider.get(rider.id) as RiderAvailabilityRow;
     const latitude = toNumber(riderAvailability.latitude);
     const longitude = toNumber(riderAvailability.longitude);
     const distanceKm = target && latitude !== null && longitude !== null ? haversineKm({ latitude, longitude }, target) : null;
-    const activeDispatches = stats.active.get(rider.id) ?? 0;
+    const activeDispatches = 0;
     const recentDeliveries = stats.recent.get(rider.id) ?? 0;
     const totalOffers = stats.total.get(rider.id) ?? 0;
     const acceptanceRate = totalOffers ? (stats.accepted.get(rider.id) ?? 0) / totalOffers : null;
@@ -645,6 +668,12 @@ export async function assignAcceptedRiderOffer(
       .from("rider_delivery_offers")
       .update({ status: "cancelled", responded_at: new Date().toISOString(), response_reason: "accepted-by-other-offer" })
       .eq("order_id", offerRow.order_id)
+      .eq("status", "pending")
+      .neq("id", offerRow.id),
+    admin
+      .from("rider_delivery_offers")
+      .update({ status: "cancelled", responded_at: new Date().toISOString(), response_reason: "rider-busy" })
+      .eq("rider_user_id", input.riderUserId)
       .eq("status", "pending")
       .neq("id", offerRow.id),
   ]);

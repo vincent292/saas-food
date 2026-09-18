@@ -265,19 +265,6 @@ export default async function Home({
           )}
         </section>
       </div>
-      <footer className="border-t border-white/10 bg-[#12355B] px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-6 text-white/75 sm:px-6 lg:pb-8">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 text-center text-xs font-semibold sm:flex-row sm:text-left">
-          <p>© {new Date().getFullYear()} Yopido · Plataforma de pedidos y comercio digital.</p>
-          <nav aria-label="Información legal" className="flex items-center gap-4">
-            <Link className="transition hover:text-white" href="/privacidad">
-              Política de privacidad
-            </Link>
-            <Link className="transition hover:text-white" href="/terminos">
-              Términos y condiciones
-            </Link>
-          </nav>
-        </div>
-      </footer>
       </HomeLocationProvider>
     </main>
   );

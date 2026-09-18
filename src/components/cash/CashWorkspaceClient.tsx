@@ -942,7 +942,7 @@ function DeliveryOrderCard({ order, restaurantSlug, businessType, now, isUpdatin
         {dispatchStatus === "delivered" ? (
           <DispatchStatusPanel label="Entregado" tone="success" value={order.deliveryDispatch?.deliveredAt ?? order.deliveredAt} />
         ) : dispatchStatus === "arrived" ? (
-          <DispatchStatusPanel label="La moto ya llego" tone="info" value={order.deliveryDispatch?.arrivedAt} />
+          <DispatchStatusPanel label="La moto recogio el pedido" tone="info" value={order.deliveryDispatch?.arrivedAt} />
         ) : isReady ? (
           <DeliveryDispatchPanel compact order={order} restaurantSlug={restaurantSlug} />
         ) : isActive ? (
@@ -1247,7 +1247,7 @@ function OrderOperationalSummary({ order, title, businessType, now }: { order: O
           {title} {order.orderNumber}
         </h3>
         <span className="rounded-full bg-[var(--color-success-soft)] px-3 py-1 text-xs font-black text-[var(--color-success-strong)]">{businessOrderStatusLabel(order.status, businessType)}</span>
-        {order.deliveryDispatch?.status === "arrived" ? <span className="rounded-full bg-[var(--color-info-soft)] px-3 py-1 text-xs font-black text-[var(--color-info-strong)]">llego</span> : null}
+        {order.deliveryDispatch?.status === "arrived" ? <span className="rounded-full bg-[var(--color-info-soft)] px-3 py-1 text-xs font-black text-[var(--color-info-strong)]">en camino</span> : null}
         {order.deliveryDispatch?.status === "delivered" ? <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">entregado por moto</span> : null}
         <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">{formatMoney(order.total)}</span>
         <OrderTimingBadge now={now} order={order} />

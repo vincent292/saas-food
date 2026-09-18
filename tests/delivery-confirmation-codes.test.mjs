@@ -9,7 +9,7 @@ async function read(path) {
 }
 
 test("delivery confirmation codes replace token-only completion paths", async () => {
-  const [migration, riderStatusRoute, riderMobileService, deliveryActions, deliveryPage, dispatchPanel, tracking] = await Promise.all([
+  const [migration, riderStatusRoute, riderMobileService, deliveryActions, deliveryPage, dispatchPanel, tracking, whatsappNotification] = await Promise.all([
     read("supabase/migrations/0098_delivery_confirmation_codes.sql"),
     read("src/app/api/mobile/riders/orders/[orderId]/status/route.ts"),
     read("src/lib/services/rider-mobile.service.ts"),
@@ -17,6 +17,7 @@ test("delivery confirmation codes replace token-only completion paths", async ()
     read("src/app/delivery/[token]/page.tsx"),
     read("src/components/delivery/DeliveryDispatchPanel.tsx"),
     read("src/components/orders/OrderTrackingLiveRefresh.tsx"),
+    read("src/lib/services/order-whatsapp-notification.service.ts"),
   ]);
 
   assert.match(migration, /pickup_confirmation_code text default generate_delivery_confirmation_code\(\)/);
@@ -35,4 +36,7 @@ test("delivery confirmation codes replace token-only completion paths", async ()
   assert.match(deliveryPage, /name="confirmationCode"/);
   assert.match(dispatchPanel, /Codigo de recogida/);
   assert.match(tracking, /Codigo de entrega/);
+  assert.match(whatsappNotification, /delivery_confirmation_code,delivery_code_verified_at/);
+  assert.match(whatsappNotification, /Tu codigo de entrega es:/);
+  assert.match(whatsappNotification, /ya salio del local y va en camino/);
 });

@@ -4,7 +4,7 @@ import { insideWhatsAppReplyWindow, metaGraphVersion, resolveWhatsAppSender } fr
 import type { Json } from "@/types/database.types";
 import type { OrderStatus } from "@/types/order.types";
 
-type OrderNotificationEvent = Extract<OrderStatus, "accepted" | "ready" | "delivered"> | "arrived" | "delivery_dispatched" | "eta_updated";
+type OrderNotificationEvent = Extract<OrderStatus, "accepted" | "preparing" | "ready" | "delivered"> | "arrived" | "delivery_dispatched" | "eta_updated";
 
 type OrderNotificationRow = {
   customer_phone: string | null;
@@ -14,6 +14,11 @@ type OrderNotificationRow = {
   order_type: string;
   restaurant_id: string;
   tracking_token: string;
+};
+
+type DeliveryNotificationRow = {
+  delivery_code_verified_at: string | null;
+  delivery_confirmation_code: string | null;
 };
 
 function normalizePhone(value: string | null) {
@@ -36,18 +41,27 @@ function notificationBody({
   restaurantName,
   trackingUrl,
   estimatedTime,
+  deliveryConfirmationCode,
 }: {
   event: OrderNotificationEvent;
   order: OrderNotificationRow;
   restaurantName: string;
   trackingUrl: string;
   estimatedTime: string;
+  deliveryConfirmationCode?: string | null;
 }) {
   if (event === "accepted") {
     return (
-      `Tu pedido ${order.order_number} fue aprobado por ${restaurantName} y ya paso a cocina.\n` +
+      `Tu pedido ${order.order_number} fue confirmado por ${restaurantName}.\n` +
       `Tiempo estimado: ${estimatedTime}\n` +
       `Si hay algun cambio, te avisaremos.\n\nSigue tu pedido aqui:\n${trackingUrl}`
+    );
+  }
+
+  if (event === "preparing") {
+    return (
+      `Tu pedido ${order.order_number} ya se esta preparando en ${restaurantName}.\n` +
+      `Te avisaremos cuando este listo.\n\nSigue tu pedido aqui:\n${trackingUrl}`
     );
   }
 
@@ -59,11 +73,14 @@ function notificationBody({
   }
 
   if (event === "delivery_dispatched") {
-    return `Tu pedido ${order.order_number} ya fue asignado a delivery y esta en camino.\n\nSiguelo aqui:\n${trackingUrl}`;
+    return `Tu pedido ${order.order_number} ya tiene un rider asignado. Te avisaremos cuando salga del local.\n\nSiguelo aqui:\n${trackingUrl}`;
   }
 
   if (event === "arrived") {
-    return `El repartidor ya llego a tu ubicacion con el pedido ${order.order_number}. Por favor, preparate para recibirlo.\n\nSigue el pedido aqui:\n${trackingUrl}`;
+    const codeMessage = deliveryConfirmationCode
+      ? `\n\nTu codigo de entrega es: *${deliveryConfirmationCode}*\nDaselo al rider solamente cuando tengas el pedido en tus manos.`
+      : "";
+    return `Tu pedido ${order.order_number} ya salio del local y va en camino.${codeMessage}\n\nSiguelo aqui:\n${trackingUrl}`;
   }
 
   if (event === "delivered") {
@@ -112,7 +129,7 @@ export async function sendOrderWhatsAppNotification({
   if (!sender) return { ok: false, error: "whatsapp-not-configured" } as const;
   const { token, phoneNumberId } = sender;
 
-  const [{ data: restaurant }, queueResult] = await Promise.all([
+  const [{ data: restaurant }, queueResult, deliveryResult] = await Promise.all([
     admin.from("restaurants").select("name,slug").eq("id", order.restaurant_id).maybeSingle(),
     event === "accepted" || event === "eta_updated"
       ? admin.rpc("get_public_order_queue_state", {
@@ -120,8 +137,20 @@ export async function sendOrderWhatsAppNotification({
           p_tracking_token: order.tracking_token,
         })
       : Promise.resolve({ data: null }),
+    event === "arrived"
+      ? admin
+          .from("order_delivery_links")
+          .select("delivery_confirmation_code,delivery_code_verified_at")
+          .eq("order_id", order.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
   if (!restaurant?.slug) return { ok: false, error: "restaurant-not-found" } as const;
+
+  const delivery = deliveryResult.data as DeliveryNotificationRow | null;
+  const deliveryConfirmationCode = delivery?.delivery_code_verified_at
+    ? null
+    : delivery?.delivery_confirmation_code;
 
   const trackingUrl = `${getSiteUrl()}/r/${restaurant.slug}/pedido/${order.id}?token=${order.tracking_token}`;
   const body = notificationBody({
@@ -130,6 +159,7 @@ export async function sendOrderWhatsAppNotification({
     order,
     restaurantName: restaurant.name,
     trackingUrl,
+    deliveryConfirmationCode,
   });
   const response = await fetch(`https://graph.facebook.com/${metaGraphVersion}/${phoneNumberId}/messages`, {
     body: JSON.stringify({

@@ -73,6 +73,11 @@ test("WhatsApp order status messages do not block operational actions", async ()
   assert.match(notifications, /Ya puedes pasar a recogerlo/);
   assert.match(notifications, /delivery_dispatched/);
   assert.match(notifications, /event === "arrived"/);
+  assert.match(notifications, /event === "preparing"/);
+  assert.match(notifications, /delivery_confirmation_code,delivery_code_verified_at/);
+  assert.match(notifications, /Tu codigo de entrega es:/);
+  assert.match(notifications, /solamente cuando tengas el pedido en tus manos/);
+  assert.match(actions, /status === "preparing"/);
   assert.match(notifications, /event === "delivered"/);
   assert.match(notifications, /Siguelo aqui/);
   assert.match(riderOrderRoute, /after\(async/);

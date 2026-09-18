@@ -64,7 +64,7 @@ function trackingLabel(order: Order & { businessType?: BusinessType }) {
   }
 
   if (order.orderType === "delivery" && order.deliveryDispatch?.status === "arrived") {
-    return "Llego";
+    return "En camino";
   }
 
   return trackingLabels[order.status];
@@ -152,8 +152,8 @@ function trackingHeroCopy(order: Order, businessType: BusinessType) {
   if (order.orderType === "delivery") {
     if (order.deliveryDispatch?.status === "arrived") {
       return {
-        title: "El repartidor ya llego",
-        description: "El repartidor marco llegada en tu ubicacion. Si falta coordinar algo, puedes contactarlo.",
+        title: "Tu pedido va en camino",
+        description: "El rider recogio el pedido en el local. Ten listo tu codigo de entrega para recibirlo.",
         mode: "Envio a domicilio",
       };
     }
@@ -262,7 +262,7 @@ function trackingSteps(order: Order & { businessType?: BusinessType }) {
         { label: "Confirmado", description: "El equipo lo aprobo.", icon: ClipboardCheck },
         { label: "Preparando", description: preparingDescription, icon: isFood ? ChefHat : ShoppingBag },
         { label: "Listo", description: "Sale del local.", icon: PackageCheck },
-        { label: "Llego", description: "El repartidor marco llegada.", icon: Truck },
+        { label: "En camino", description: "El rider recogio el pedido en el local.", icon: Truck },
         { label: "Entregado", description: "Pedido completado.", icon: PackageCheck },
       ]
     : isPickup
@@ -459,7 +459,7 @@ export function OrderTrackingLiveRefresh({
               <h3 className="mt-1 text-lg font-black text-[var(--text)]">{order.deliveryDispatch.deliveryName || "Repartidor"}</h3>
               <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
                 {order.deliveryDispatch.status === "arrived"
-                  ? "Ya marco llegada."
+                  ? "Ya recogio el pedido y va en camino."
                   : order.deliveryDispatch.status === "delivered"
                     ? "Entrega completada por el repartidor."
                     : "Tiene el pedido para entrega."}

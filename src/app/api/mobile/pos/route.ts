@@ -536,7 +536,7 @@ export async function POST(request: Request) {
         }
         if (changed) after(async () => {
           const tasks: Promise<unknown>[] = [sendOrderStatusPush({ orderId: order.id, status: next })];
-          if (next !== "preparing") tasks.push(sendOrderWhatsAppNotification({ orderId: order.id, event: next }));
+          tasks.push(sendOrderWhatsAppNotification({ orderId: order.id, event: next }));
           if (next === "ready" && order.order_type === "delivery") tasks.push(offerNextRiderForOrder(order.id));
           await Promise.allSettled(tasks);
         });

@@ -51,8 +51,8 @@ const statusCopy: Record<OrderStatus | "arrived", { body: string; title: string 
     title: "Pedido confirmado",
   },
   arrived: {
-    body: "El repartidor marco llegada en tu ubicacion.",
-    title: "El repartidor llego",
+    body: "El rider recogio tu pedido y ya va en camino.",
+    title: "Pedido en camino",
   },
   cancelled: {
     body: "El restaurante cancelo el pedido. Revisa el seguimiento para mas detalles.",

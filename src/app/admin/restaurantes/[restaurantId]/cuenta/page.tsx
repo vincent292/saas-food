@@ -189,12 +189,13 @@ export default async function ClientAccountPage({
             </Card>
 
             <Card className="space-y-4">
-              <SectionTitle title="Cobro mensual" description="Pago unico por cuenta: principal + sucursales no archivadas." />
+              <SectionTitle title="Cobro mensual" description="Solo se cobra si la cuenta registró al menos un pedido en el ciclo." />
               {ownerBilling ? (
                 <>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <SmallStat label="Vence" value={formatDate(ownerBilling.currentCycle.dueDate)} />
                     <SmallStat label="Monto" value={formatMoney(ownerBilling.currentCycle.amountDue, ownerBilling.currentCycle.currency)} />
+                    <SmallStat label="Pedidos" value={String(ownerBilling.currentCycle.usageOrderCount)} />
                   </div>
                   <OwnerBillingStatusBadge cycle={ownerBilling.currentCycle} overdue={ownerBilling.isOverdue} />
                   {ownerBilling.currentCycle.proofUrl ? (
@@ -231,6 +232,7 @@ export default async function ClientAccountPage({
                     </label>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Input defaultValue={ownerBilling.settings.reminderDays} max={15} min={0} name="ownerBillingReminderDays" placeholder="Recordatorio dias" type="number" />
+                      <Input defaultValue={ownerBilling.settings.graceDays} max={15} min={0} name="ownerBillingGraceDays" placeholder="Dias de gracia" type="number" />
                       <Input defaultValue={ownerBilling.settings.currency} maxLength={3} minLength={3} name="ownerBillingCurrency" placeholder="Moneda" />
                     </div>
                     <CompressedImageInput help="QR que el dueno usara para pagar la mensualidad de la plataforma." label="QR mensual" name="ownerBillingQrFile" previewClassName="aspect-square" />

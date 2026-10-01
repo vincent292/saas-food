@@ -19,6 +19,7 @@ const planErrors: Record<string, string> = {
   "invalid-owner-billing-proof": "El comprobante debe ser imagen o PDF de hasta 5 MB.",
   "owner-billing-cycle-mismatch": "El ciclo cambio. Actualiza la pagina e intenta de nuevo.",
   "owner-billing-cycle-paid": "Este mes ya esta marcado como pagado.",
+  "owner-billing-cycle-not-billable": "No hay pago pendiente porque este ciclo no registró pedidos.",
   "owner-billing-not-configured": "Aun falta configurar el QR de pago de la plataforma.",
   "owner-billing-proof-required": "Debes subir un comprobante de pago.",
   "owner-billing-proof-upload": "No se pudo subir el comprobante. Intenta con otro archivo.",
@@ -42,7 +43,7 @@ export default async function OwnerPlanPage({
   const monthlyTotal = billing?.monthlyTotal ?? capacity.monthlyTotal;
   const remaining = Math.max(0, capacity.limit - usedBranches);
   const currentCycle = billing?.currentCycle;
-  const paymentBlocked = !billing?.isConfigured || Boolean(currentCycle?.paidAt);
+  const paymentBlocked = !billing?.isConfigured || !currentCycle?.isBillable || Boolean(currentCycle?.paidAt);
 
   return (
     <OwnerLayout active="/dueno/plan" memberships={ownerMemberships} title="Tarifa">
@@ -64,7 +65,7 @@ export default async function OwnerPlanPage({
               <div>
                 <h2 className="text-2xl font-black">Tarifa {billing?.planName ?? capacity.planName}</h2>
                 <p className="mt-2 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
-                  Todo incluido para cada sucursal no archivada: pedidos, cocina, caja, inventario, reportes, soporte y configuracion.
+                  Se cobra la tarifa de la cuenta solo en ciclos con al menos un pedido. Incluye pedidos, cocina, caja, inventario, reportes, soporte y configuracion.
                 </p>
               </div>
               <BillingStatusBadge cycle={currentCycle} overdue={Boolean(billing?.isOverdue)} />
@@ -73,7 +74,7 @@ export default async function OwnerPlanPage({
               <PriceMetric label="Primera sucursal" value={formatMoney(billing?.primaryPriceMonthly ?? capacity.primaryPriceMonthly)} />
               <PriceMetric label="Sucursal adicional" value={formatMoney(billing?.additionalPriceMonthly ?? capacity.additionalPriceMonthly)} />
               <PriceMetric label="Sucursales cobradas" value={String(usedBranches)} />
-              <PriceMetric label="Total a pagar" value={formatMoney(monthlyTotal, billing?.settings.currency)} />
+              <PriceMetric label="Tarifa si hay uso" value={formatMoney(monthlyTotal, billing?.settings.currency)} />
             </div>
             <div className="mt-5 h-3 overflow-hidden rounded-full bg-[var(--primary-light)]">
               <span className="block h-full rounded-full bg-[var(--accent)]" style={{ width: `${Math.min(100, (usedBranches / Math.max(1, capacity.limit)) * 100)}%` }} />
@@ -106,11 +107,12 @@ export default async function OwnerPlanPage({
             <Card className="space-y-4">
               <SectionTitle
                 title="Mensualidad actual"
-                description={`Ciclo ${currentCycle.periodKey}. Debe pagarse hasta el ${formatDate(currentCycle.dueDate)}.`}
+                description={`Ciclo ${currentCycle.periodKey}. ${currentCycle.isBillable ? `Debe pagarse hasta el ${formatDate(currentCycle.dueDate)}; tienes ${billing.settings.graceDays} dias de gracia.` : "Sin pedidos registrados: este ciclo no genera cobro."}`}
               />
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-4">
                 <SmallStat label="Vence" value={formatDate(currentCycle.dueDate)} />
-                <SmallStat label="Dias" value={billing.daysUntilDue < 0 ? `${Math.abs(billing.daysUntilDue)} venc.` : String(billing.daysUntilDue)} />
+                <SmallStat label="Dias" value={billing.daysUntilDue < 0 ? `${billing.daysIntoGrace}/${billing.settings.graceDays} gracia` : String(billing.daysUntilDue)} />
+                <SmallStat label="Pedidos" value={String(currentCycle.usageOrderCount)} />
                 <SmallStat label="Monto" value={formatMoney(currentCycle.amountDue, currentCycle.currency)} />
               </div>
 
@@ -145,7 +147,7 @@ export default async function OwnerPlanPage({
                     overlayTitle="Enviando comprobante"
                     pendingLabel="Subiendo..."
                   />
-                  {paymentBlocked ? <p className="mt-2 text-xs font-bold text-[var(--color-secondary-text)]">El formulario se procesa solo si hay QR configurado y el ciclo no esta pagado.</p> : null}
+                  {paymentBlocked ? <p className="mt-2 text-xs font-bold text-[var(--color-secondary-text)]">{!currentCycle.isBillable ? "No hay pago pendiente: este ciclo todavía no tiene pedidos." : "El formulario se procesa solo si hay QR configurado y el ciclo no esta pagado."}</p> : null}
                 </div>
               </form>
             </Card>
@@ -185,7 +187,7 @@ export default async function OwnerPlanPage({
                   <div>
                     <p className="font-black">{monthLabel(cycle.periodKey)}</p>
                     <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">
-                      {formatMoney(cycle.amountDue, cycle.currency)} hasta {formatDate(cycle.dueDate)} · {cycle.branchCount} sucursal{cycle.branchCount === 1 ? "" : "es"}
+                      {cycle.isBillable ? `${formatMoney(cycle.amountDue, cycle.currency)} hasta ${formatDate(cycle.dueDate)} · ${cycle.usageOrderCount} pedido${cycle.usageOrderCount === 1 ? "" : "s"}` : "Sin uso: no genera cobro"}
                     </p>
                     {cycle.proofUrl ? (
                       <a className="mt-2 inline-flex items-center gap-1 text-sm font-black text-[var(--primary)]" href={cycle.proofUrl} rel="noreferrer" target="_blank">
@@ -239,10 +241,12 @@ function Banner({ children, tone }: { children: ReactNode; tone: "danger" | "suc
 }
 
 function BillingStatusBadge({ cycle, overdue }: { cycle?: OwnerBillingCycle; overdue: boolean }) {
-  const status = cycle?.paidAt ? "paid" : overdue ? "overdue" : cycle?.status;
+  const status = cycle?.paidAt ? "paid" : !cycle?.isBillable ? "no_usage" : overdue ? "overdue" : cycle?.status;
   const label =
     status === "paid"
       ? "Pagado"
+      : status === "no_usage"
+        ? "Sin consumo"
       : status === "proof_uploaded"
         ? "En revision"
         : status === "verified"
@@ -253,6 +257,8 @@ function BillingStatusBadge({ cycle, overdue }: { cycle?: OwnerBillingCycle; ove
   const className =
     status === "paid"
       ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]"
+      : status === "no_usage"
+        ? "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]"
       : status === "overdue"
         ? "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]"
         : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]";

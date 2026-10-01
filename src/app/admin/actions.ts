@@ -24,7 +24,7 @@ import { restaurantAccessService } from "@/lib/services/restaurant-access.servic
 import { membershipService } from "@/lib/services/membership.service";
 import { analyzeMenuFileWithGemini, normalizeMenuImportDraft, validateMenuImportFile } from "@/lib/services/menu-import-ai.service";
 import { answerSupportQuestionWithAi } from "@/lib/services/support-ai.service";
-import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
+import { sendOrderStatusPush, sendPlatformBroadcastPush, sendRestaurantPromotionPush } from "@/lib/services/mobile-push.service";
 import { sendOrderWhatsAppNotification } from "@/lib/services/order-whatsapp-notification.service";
 import { getBranchRequestPaymentSettings, getOwnerBranchLimit } from "@/lib/services/owner-dashboard.service";
 import { moduleCatalog } from "@/lib/modules";
@@ -252,6 +252,7 @@ const createAnnouncementSchema = z.object({
   body: z.string().optional(),
   startsAt: z.string().min(1),
   endsAt: z.string().optional(),
+  sendPush: z.boolean().default(false),
 });
 
 const closeTodaySchema = z.object({
@@ -677,6 +678,7 @@ const updateOwnerBillingSettingsSchema = z.object({
 const submitOwnerBillingPaymentProofSchema = z.object({
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   notes: z.string().optional(),
+  graceDays: z.coerce.number().int().min(0).max(15).default(3),
 });
 
 const resolveOwnerBillingPaymentSchema = z.object({
@@ -685,6 +687,8 @@ const resolveOwnerBillingPaymentSchema = z.object({
   cycleId: z.string().uuid(),
   notes: z.string().optional(),
 });
+
+const platformBroadcastSchema = z.object({ audience: z.enum(["customers", "staff", "riders", "all"]), body: z.string().trim().min(3).max(500), title: z.string().trim().min(3).max(80) });
 
 const createOwnerChangeRequestSchema = z.object({
   restaurantId: z.string().uuid(),
@@ -5190,6 +5194,7 @@ export async function updateOwnerBillingSettingsAction(formData: FormData) {
   const fallbackRestaurantId = String(formData.get("restaurantId") || "");
   const returnTo = ownerAccountPath(fallbackRestaurantId);
 
+    graceDays: formData.get("ownerBillingGraceDays") || 3,
   if (!parsed.success) {
     redirect(`${returnTo}?error=invalid-owner-billing-settings`);
   }
@@ -5223,6 +5228,7 @@ export async function updateOwnerBillingSettingsAction(formData: FormData) {
     },
     { onConflict: "owner_user_id" },
   );
+      grace_days: parsed.data.graceDays,
 
   if (error) {
     redirect(`${ownerAccountPath(parsed.data.restaurantId)}?error=${cashErrorKey(error, "owner-billing-settings-save")}`);
@@ -5265,6 +5271,10 @@ export async function submitOwnerBillingPaymentProofAction(formData: FormData) {
 
   const proofTypeIsValid = proofFile.type.startsWith("image/") || proofFile.type === "application/pdf";
   if (!proofTypeIsValid || proofFile.size > MAX_OWNER_BILLING_PAYMENT_PROOF_BYTES) {
+  if (!snapshot.currentCycle.isBillable) {
+    redirect("/dueno/plan?error=owner-billing-cycle-not-billable");
+  }
+
     redirect("/dueno/plan?error=invalid-owner-billing-proof");
   }
 
@@ -5568,10 +5578,11 @@ export async function createRestaurantAnnouncementAction(formData: FormData) {
   }
 
   await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos`);
+    sendPush: booleanFromForm(formData, "announcementSendPush"),
   const { supabase, user } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
   const imageUrl = await uploadPublicImage(formData.get("announcementImageFile") as File | null, `restaurants/${parsed.data.restaurantId}/announcements`);
 
-  const { error } = await supabase.from("restaurant_announcements").insert({
+  const { data: announcement, error } = await supabase.from("restaurant_announcements").insert({
     restaurant_id: parsed.data.restaurantId,
     type: parsed.data.type,
     title: parsed.data.title.trim(),
@@ -5581,7 +5592,7 @@ export async function createRestaurantAnnouncementAction(formData: FormData) {
     ends_at: parsed.data.endsAt ? dateTimeInputToIso(parsed.data.endsAt) : null,
     is_active: true,
     created_by: user.id,
-  });
+  }).select("id").single();
 
   if (error) {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&error=${error.code}`);
@@ -5594,10 +5605,27 @@ export async function createRestaurantAnnouncementAction(formData: FormData) {
 export async function updateRestaurantAnnouncementAction(formData: FormData) {
   const announcementId = String(formData.get("announcementId") || "");
   const parsed = updateAnnouncementSchema.safeParse({
+  if (parsed.data.sendPush && parsed.data.type === "announcement" && parsed.data.restaurantSlug) {
+    void sendRestaurantPromotionPush({
+      body: parsed.data.body?.trim() || "Hay una novedad esperándote. Entra a Yopido para verla.",
+      restaurantId: parsed.data.restaurantId,
+      restaurantSlug: parsed.data.restaurantSlug,
+      title: parsed.data.title.trim(),
+    }).catch((pushError) => console.error("restaurant-promotion-push-failed", { announcementId: announcement?.id, pushError }));
+  }
+
     restaurantId: formData.get("restaurantId"),
     restaurantSlug: formData.get("restaurantSlug") || undefined,
     announcementId,
     type: formData.get(`announcementType_${announcementId}`) || "announcement",
+export async function sendPlatformBroadcastAction(formData: FormData) {
+  const parsed = platformBroadcastSchema.safeParse({ audience: formData.get("audience"), body: formData.get("body"), title: formData.get("title") });
+  if (!parsed.success) redirect("/admin/avisos?error=invalid-broadcast");
+  await requireSuperadmin();
+  const result = await sendPlatformBroadcastPush(parsed.data);
+  redirect(`/admin/avisos?sent=${result.sent}${result.ok ? "" : "&error=broadcast-partial"}`);
+}
+
     title: formData.get(`announcementTitle_${announcementId}`),
     body: formData.get(`announcementBody_${announcementId}`) || undefined,
     startsAt: formData.get(`announcementStartsAt_${announcementId}`),

@@ -1002,6 +1002,10 @@ export function RestaurantSettingsFormClient({
               <Input defaultValue={nowInputValue} name="announcementStartsAt" type="datetime-local" />
               <Input name="announcementEndsAt" type="datetime-local" />
               <Textarea className="md:col-span-2" name="announcementBody" placeholder="Detalle visible para los clientes" />
+              <label className="md:col-span-2 flex items-center gap-2 text-sm font-bold text-[var(--color-secondary-text)]">
+                <input name="announcementSendPush" type="checkbox" />
+                Enviar también una notificación push a clientes que ya pidieron desde la app.
+              </label>
               <div className="md:col-span-2">
                 <CompressedImageInput help="Opcional. Recomendado: 1200 x 700 px, sin texto pequeno." label="Imagen del comunicado" name="announcementImageFile" />
               </div>

@@ -97,6 +97,7 @@ export type Database = {
         billing_anchor_day: number;
         next_due_date: string;
         reminder_days: number;
+        grace_days: number;
         currency: string;
         platform_qr_url: string | null;
         platform_qr_note: string | null;
@@ -114,6 +115,10 @@ export type Database = {
         primary_price_monthly: number;
         additional_price_monthly: number;
         amount_due: number;
+        usage_window_starts_on: string | null;
+        usage_window_ends_on: string | null;
+        usage_order_count: number;
+        is_billable: boolean;
         currency: string;
         status: "pending" | "proof_uploaded" | "verified" | "paid" | "overdue" | "cancelled";
         proof_url: string | null;

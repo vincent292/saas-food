@@ -6,6 +6,7 @@ import type { RestaurantStatus } from "@/types/restaurant.types";
 
 const defaultBillingAnchorDay = 15;
 const defaultReminderDays = 4;
+const defaultGraceDays = 3;
 const defaultCurrency = "BOB";
 
 type OwnerBillingSettingsRow = {
@@ -13,6 +14,7 @@ type OwnerBillingSettingsRow = {
   billing_anchor_day: number;
   next_due_date: string;
   reminder_days: number;
+  grace_days: number;
   currency: string;
   platform_qr_url: string | null;
   platform_qr_note: string | null;
@@ -29,6 +31,10 @@ type OwnerBillingCycleRow = {
   primary_price_monthly: number;
   additional_price_monthly: number;
   amount_due: number;
+  usage_window_starts_on: string | null;
+  usage_window_ends_on: string | null;
+  usage_order_count: number;
+  is_billable: boolean;
   currency: string;
   status: OwnerBillingCycleStatus;
   proof_url: string | null;
@@ -59,6 +65,7 @@ export type OwnerBillingSettings = {
   billingAnchorDay: number;
   nextDueDate: string;
   reminderDays: number;
+  graceDays: number;
   currency: string;
   platformQrUrl?: string;
   platformQrNote?: string;
@@ -75,6 +82,10 @@ export type OwnerBillingCycle = {
   primaryPriceMonthly: number;
   additionalPriceMonthly: number;
   amountDue: number;
+  usageWindowStartsOn?: string;
+  usageWindowEndsOn?: string;
+  usageOrderCount: number;
+  isBillable: boolean;
   currency: string;
   status: OwnerBillingCycleStatus;
   proofUrl?: string;
@@ -103,6 +114,7 @@ export type OwnerBillingSnapshot = {
   isOverdue: boolean;
   isSuspendedForBilling: boolean;
   daysUntilDue: number;
+  daysIntoGrace: number;
   reminderStartsAt: string;
 };
 
@@ -175,6 +187,7 @@ function mapSettings(row: OwnerBillingSettingsRow): OwnerBillingSettings {
     billingAnchorDay: row.billing_anchor_day,
     nextDueDate: row.next_due_date,
     reminderDays: row.reminder_days,
+    graceDays: row.grace_days ?? defaultGraceDays,
     currency: row.currency,
     platformQrUrl: row.platform_qr_url ?? undefined,
     platformQrNote: row.platform_qr_note ?? undefined,
@@ -193,6 +206,10 @@ function mapCycle(row: OwnerBillingCycleRow): OwnerBillingCycle {
     primaryPriceMonthly: Number(row.primary_price_monthly ?? primaryLocationPriceMonthly),
     additionalPriceMonthly: Number(row.additional_price_monthly ?? additionalLocationPriceMonthly),
     amountDue: Number(row.amount_due ?? 0),
+    usageWindowStartsOn: row.usage_window_starts_on ?? undefined,
+    usageWindowEndsOn: row.usage_window_ends_on ?? undefined,
+    usageOrderCount: Number(row.usage_order_count ?? 0),
+    isBillable: Boolean(row.is_billable),
     currency: row.currency ?? defaultCurrency,
     status: row.status,
     proofUrl: row.proof_url ?? undefined,
@@ -272,6 +289,7 @@ async function ensureSettings(ownerUserId: string, createdBy?: string) {
       billing_anchor_day: defaultBillingAnchorDay,
       next_due_date: defaultNextDueDate(),
       reminder_days: defaultReminderDays,
+      grace_days: defaultGraceDays,
       currency: defaultCurrency,
       created_by: createdBy ?? null,
       updated_by: createdBy ?? null,
@@ -293,6 +311,7 @@ async function ensureCycle({
   dueDate,
   ownerUserId,
   primaryPriceMonthly,
+  usageOrderCount,
 }: {
   additionalPriceMonthly: number;
   branchCount: number;
@@ -300,13 +319,16 @@ async function ensureCycle({
   dueDate: string;
   ownerUserId: string;
   primaryPriceMonthly: number;
+  usageOrderCount: number;
 }) {
   const admin = createAdminClient();
   if (!admin) {
     return null;
   }
 
-  const amountDue = calculateMonthlyTotal(branchCount, primaryPriceMonthly, additionalPriceMonthly);
+  const isBillable = usageOrderCount > 0;
+  const amountDue = isBillable ? calculateMonthlyTotal(branchCount, primaryPriceMonthly, additionalPriceMonthly) : 0;
+  const usageWindowStartsOn = addMonthsClamped(dueDate, -1);
   const { data: existing } = await admin
     .from("owner_platform_payment_cycles")
     .select("*")
@@ -315,7 +337,10 @@ async function ensureCycle({
     .maybeSingle();
 
   if (existing) {
-    if (!existing.paid_at) {
+    // A real payment is immutable. Old no-use cycles were represented as
+    // paid, without a payer; those remain recalculable after this migration.
+    const hasVerifiedPayment = Boolean(existing.paid_by || existing.proof_verified_by);
+    if (!hasVerifiedPayment) {
       const { data, error } = await admin
         .from("owner_platform_payment_cycles")
         .update({
@@ -323,7 +348,12 @@ async function ensureCycle({
           amount_due: amountDue,
           branch_count: branchCount,
           currency,
+          is_billable: isBillable,
           primary_price_monthly: primaryPriceMonthly,
+          status: isBillable ? (existing.status === "proof_uploaded" || existing.status === "verified" ? existing.status : "pending") : "cancelled",
+          usage_order_count: usageOrderCount,
+          usage_window_ends_on: dueDate,
+          usage_window_starts_on: usageWindowStartsOn,
         })
         .eq("id", existing.id)
         .select("*")
@@ -350,8 +380,11 @@ async function ensureCycle({
       additional_price_monthly: additionalPriceMonthly,
       amount_due: amountDue,
       currency,
-      status: amountDue > 0 ? "pending" : "paid",
-      paid_at: amountDue > 0 ? null : new Date().toISOString(),
+      is_billable: isBillable,
+      status: isBillable ? "pending" : "cancelled",
+      usage_order_count: usageOrderCount,
+      usage_window_ends_on: dueDate,
+      usage_window_starts_on: usageWindowStartsOn,
     })
     .select("*")
     .single();
@@ -361,6 +394,24 @@ async function ensureCycle({
   }
 
   return data as OwnerBillingCycleRow;
+}
+
+async function countOrdersInBillingWindow(restaurantIds: string[], dueDate: string) {
+  const admin = createAdminClient();
+  if (!admin || !restaurantIds.length) return 0;
+
+  const startsOn = addMonthsClamped(dueDate, -1);
+  const { count, error } = await admin
+    .from("orders")
+    .select("id", { count: "exact", head: true })
+    .in("restaurant_id", restaurantIds)
+    .gte("created_at", `${startsOn}T00:00:00-04:00`)
+    .lt("created_at", `${dueDate}T00:00:00-04:00`);
+
+  if (error) {
+    throw new Error(`owner-billing-usage:${error.code}`);
+  }
+  return count ?? 0;
 }
 
 async function listCycles(ownerUserId: string, limit = 12) {
@@ -451,23 +502,51 @@ export const ownerBillingService = {
 
     const [pricing, restaurants] = await Promise.all([getFullPlanPricing(), listOwnerRestaurants(ownerUserId)]);
     const branchCount = restaurants.length;
+    const restaurantIds = restaurants.map((restaurant) => restaurant.id);
+    const today = localTodayDate();
+    let effectiveSettingsRow = settingsRow;
+    let usageOrderCount = await countOrdersInBillingWindow(restaurantIds, effectiveSettingsRow.next_due_date);
+
+    // A no-use period closes without payment. Move it forward on the next
+    // day so a historical empty cycle cannot keep the account on an old due
+    // date forever.
+    const admin = createAdminClient();
+    while (usageOrderCount === 0 && today > effectiveSettingsRow.next_due_date) {
+      const nextDueDate = addMonthsClamped(effectiveSettingsRow.next_due_date, 1);
+      if (admin) {
+        const { data, error } = await admin
+          .from("owner_platform_billing_settings")
+          .update({ next_due_date: nextDueDate, updated_by: options.actorUserId ?? null })
+          .eq("owner_user_id", ownerUserId)
+          .select("*")
+          .single();
+        if (error) throw new Error(`owner-billing-rollover:${error.code}`);
+        effectiveSettingsRow = data as OwnerBillingSettingsRow;
+        usageOrderCount = await countOrdersInBillingWindow(restaurantIds, effectiveSettingsRow.next_due_date);
+      } else {
+        break;
+      }
+    }
     const currentCycleRow = await ensureCycle({
       additionalPriceMonthly: pricing.additionalPriceMonthly,
       branchCount,
-      currency: settingsRow.currency ?? defaultCurrency,
-      dueDate: settingsRow.next_due_date,
+      currency: effectiveSettingsRow.currency ?? defaultCurrency,
+      dueDate: effectiveSettingsRow.next_due_date,
       ownerUserId,
       primaryPriceMonthly: pricing.primaryPriceMonthly,
+      usageOrderCount,
     });
 
     if (!currentCycleRow) {
       return null;
     }
 
-    const today = localTodayDate();
-    const daysUntilDue = diffDays(today, settingsRow.next_due_date);
-    const isPaid = Boolean(currentCycleRow.paid_at);
-    const isOverdue = branchCount > 0 && daysUntilDue < 0 && !isPaid;
+    const daysUntilDue = diffDays(today, effectiveSettingsRow.next_due_date);
+    const isBillable = Boolean(currentCycleRow.is_billable);
+    const isPaid = !isBillable || Boolean(currentCycleRow.paid_at);
+    const graceDays = effectiveSettingsRow.grace_days ?? defaultGraceDays;
+    const daysIntoGrace = Math.max(0, -daysUntilDue);
+    const isOverdue = isBillable && daysUntilDue < -graceDays && !isPaid;
     let effectiveCycleRow = currentCycleRow;
 
     if (isOverdue && currentCycleRow.status !== "overdue") {
@@ -491,7 +570,7 @@ export const ownerBillingService = {
     const monthlyTotal = calculateMonthlyTotal(branchCount, pricing.primaryPriceMonthly, pricing.additionalPriceMonthly);
 
     return {
-      settings: mapSettings(settingsRow),
+      settings: mapSettings(effectiveSettingsRow),
       currentCycle: mapCycle(effectiveCycleRow),
       recentCycles: recentCycles.length ? recentCycles : [mapCycle(effectiveCycleRow)],
       branchCount,
@@ -504,7 +583,8 @@ export const ownerBillingService = {
       isOverdue,
       isSuspendedForBilling: isOverdue || restaurants.some((restaurant) => restaurant.status === "suspended"),
       daysUntilDue,
-      reminderStartsAt: addDays(settingsRow.next_due_date, -settingsRow.reminder_days),
+      daysIntoGrace,
+      reminderStartsAt: addDays(effectiveSettingsRow.next_due_date, -effectiveSettingsRow.reminder_days),
     };
   },
 
@@ -561,11 +641,27 @@ export const ownerBillingService = {
         branchCount: restaurants.length,
         currency: settings.currency ?? defaultCurrency,
         dueDate: nextDueDate,
-        ownerUserId,
-        primaryPriceMonthly: pricing.primaryPriceMonthly,
-      });
+      ownerUserId,
+      primaryPriceMonthly: pricing.primaryPriceMonthly,
+      usageOrderCount: await countOrdersInBillingWindow(restaurants.map((restaurant) => restaurant.id), nextDueDate),
+    });
     }
 
     await reactivateOwnerRestaurantsAfterPayment(ownerUserId, restaurants.map((restaurant) => restaurant.id));
+  },
+
+  async enforceAllDueOwners() {
+    const admin = createAdminClient();
+    if (!admin || !hasSupabaseEnv()) return { checked: 0, suspended: 0 };
+
+    const { data, error } = await admin.from("owner_platform_billing_settings").select("owner_user_id");
+    if (error) throw new Error(`owner-billing-enforce-list:${error.code}`);
+
+    let suspended = 0;
+    for (const row of data ?? []) {
+      const snapshot = await this.getSnapshot(row.owner_user_id, { enforce: true });
+      if (snapshot?.isOverdue) suspended += 1;
+    }
+    return { checked: data?.length ?? 0, suspended };
   },
 };

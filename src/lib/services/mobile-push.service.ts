@@ -90,8 +90,8 @@ async function sendExpoMessages(
     body: string;
     eventType: string;
     messages: Array<Record<string, unknown> & { to: string }>;
-    orderId: string;
-    restaurantId: string;
+    orderId?: string;
+    restaurantId?: string;
     status?: string;
     title: string;
   },
@@ -330,6 +330,61 @@ export async function registerMobilePushToken(input: PushRegistration, supabase 
   );
 
   return { ok: !error };
+}
+
+/** Sends a restaurant-owned promotion only to customers who previously used
+ * the mobile app to order from that restaurant. */
+export async function sendRestaurantPromotionPush(input: {
+  body: string;
+  restaurantId: string;
+  restaurantSlug: string;
+  title: string;
+}) {
+  const supabase = createAdminClient();
+  if (!supabase) return { ok: false, sent: 0 };
+
+  const { data } = await supabase
+    .from("mobile_order_push_tokens")
+    .select("expo_push_token,mobile_push_tokens!inner(is_enabled)")
+    .eq("restaurant_id", input.restaurantId)
+    .eq("mobile_push_tokens.is_enabled", true);
+  const tokens = Array.from(new Set((data ?? []).map((row) => row.expo_push_token).filter(isExpoPushToken)));
+  const result = await sendExpoMessages(supabase, {
+    body: input.body,
+    eventType: "restaurant_promotion",
+    messages: tokens.map((to) => ({
+      body: input.body,
+      channelId: "promotions",
+      data: { restaurantId: input.restaurantId, restaurantSlug: input.restaurantSlug, type: "restaurant_promotion" },
+      priority: "high",
+      sound: "default",
+      title: input.title,
+      to,
+    })),
+    restaurantId: input.restaurantId,
+    title: input.title,
+  });
+  return { ok: result.ok, sent: result.sent };
+}
+
+export async function sendPlatformBroadcastPush(input: { audience: "customers" | "staff" | "riders" | "all"; body: string; title: string }) {
+  const supabase = createAdminClient();
+  if (!supabase) return { ok: false, sent: 0 };
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const [customers, staff, riders] = await Promise.all([
+    input.audience === "staff" || input.audience === "riders" ? Promise.resolve({ data: [] as { expo_push_token: string }[] }) : supabase.from("mobile_push_tokens").select("expo_push_token").eq("is_enabled", true).gte("last_seen_at", since),
+    input.audience === "customers" || input.audience === "riders" ? Promise.resolve({ data: [] as { expo_push_token: string }[] }) : supabase.from("restaurant_pos_push_tokens").select("expo_push_token").eq("is_enabled", true).gte("last_seen_at", since),
+    input.audience === "customers" || input.audience === "staff" ? Promise.resolve({ data: [] as { expo_push_token: string }[] }) : supabase.from("rider_push_tokens").select("expo_push_token").eq("is_enabled", true).gte("last_seen_at", since),
+  ]);
+  const tokens = Array.from(new Set([...(customers.data ?? []), ...(staff.data ?? []), ...(riders.data ?? [])].map((row) => row.expo_push_token).filter(isExpoPushToken)));
+  let sent = 0;
+  let ok = true;
+  for (let index = 0; index < tokens.length; index += 100) {
+    const result = await sendExpoMessages(supabase, { body: input.body, eventType: "platform_broadcast", messages: tokens.slice(index, index + 100).map((to) => ({ body: input.body, channelId: "platform", data: { audience: input.audience, type: "platform_broadcast" }, priority: "high", sound: "default", title: input.title, to })), title: input.title });
+    sent += result.sent;
+    ok &&= result.ok;
+  }
+  return { ok, sent };
 }
 
 export async function subscribeOrderToMobilePush(

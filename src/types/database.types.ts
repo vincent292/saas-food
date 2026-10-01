@@ -1358,6 +1358,21 @@ export type Database = {
           table_id: string;
         }[];
       };
+      settle_table_with_tender: {
+        Args: {
+          p_cash_received?: number | null;
+          p_payment_method: Database["public"]["Enums"]["payment_method_type"];
+          p_receipt_reference?: string | null;
+          p_receipt_url?: string | null;
+          p_restaurant_id: string;
+          p_table_id: string;
+        };
+        Returns: {
+          charged_order_count: number;
+          settled_order_count: number;
+          table_id: string;
+        }[];
+      };
       update_operational_order_status: {
         Args: {
           p_expected_status: Database["public"]["Enums"]["order_status"];
@@ -1404,6 +1419,33 @@ export type Database = {
           p_receipt_reference?: string | null;
           p_receipt_url?: string | null;
           p_restaurant_id: string;
+        };
+        Returns: string;
+      };
+      create_pos_sale_with_tender: {
+        Args: {
+          p_cash_received?: number | null;
+          p_customer_name?: string | null;
+          p_customer_phone?: string | null;
+          p_items?: Json;
+          p_order_origin?: Database["public"]["Enums"]["order_origin"];
+          p_order_number: string;
+          p_order_type?: "pos" | "pickup";
+          p_payment_method?: Database["public"]["Enums"]["payment_method_type"];
+          p_receipt_reference?: string | null;
+          p_receipt_url?: string | null;
+          p_restaurant_id: string;
+        };
+        Returns: string;
+      };
+      record_cash_payment_tender: {
+        Args: {
+          p_amount_due?: number;
+          p_cash_received?: number | null;
+          p_order_id?: string | null;
+          p_payment_method?: Database["public"]["Enums"]["payment_method_type"];
+          p_restaurant_id: string;
+          p_table_id?: string | null;
         };
         Returns: string;
       };

@@ -22,7 +22,7 @@ const base = z.object({ restaurantId: z.string().uuid() });
 const payment = z.enum(["cash", "qr", "bank_transfer", "card", "other"]);
 const schema = z.discriminatedUnion("action", [
   base.extend({ action: z.literal("table-order"), requestId: z.string().uuid(), tableCode: z.string().min(1).max(100), customerName: z.string().trim().max(120), customerPhone: z.string().max(40).optional(), notes: z.string().max(500).optional(), paymentMethod: payment, items: cartSchema }),
-  base.extend({ action: z.literal("sale"), requestId: z.string().uuid(), customerName: z.string().trim().max(120), customerPhone: z.string().max(40).optional(), paymentMethod: payment, reference: z.string().max(160).optional(), items: cartSchema }),
+  base.extend({ action: z.literal("sale"), requestId: z.string().uuid(), customerName: z.string().trim().max(120), customerPhone: z.string().max(40).optional(), orderType: z.enum(["pos", "pickup"]).default("pos"), paymentMethod: payment, cashReceived: z.number().nonnegative().optional(), reference: z.string().max(160).optional(), items: cartSchema }),
   base.extend({ action: z.literal("accept"), orderId: z.string().uuid() }),
   base.extend({ action: z.literal("charge"), orderId: z.string().uuid(), paymentMethod: payment, reference: z.string().max(160).optional() }),
   base.extend({ action: z.literal("receipt"), orderId: z.string().uuid() }),
@@ -42,7 +42,7 @@ const schema = z.discriminatedUnion("action", [
   base.extend({ action: z.literal("open-waiter-shift") }),
   base.extend({ action: z.literal("close-waiter-shift") }),
   base.extend({ action: z.literal("cancel-order"), orderId: z.string().uuid(), reason: z.string().trim().min(5).max(500) }),
-  base.extend({ action: z.literal("settle-table"), tableId: z.string().uuid(), paymentMethod: payment, reference: z.string().max(160).optional() }),
+  base.extend({ action: z.literal("settle-table"), tableId: z.string().uuid(), paymentMethod: payment, cashReceived: z.number().nonnegative().optional(), reference: z.string().max(160).optional() }),
 ]);
 
 async function getWaiterShift(auth: Awaited<ReturnType<typeof session>>, restaurantId: string) {
@@ -209,12 +209,15 @@ export async function GET(request: Request) {
     // Keep every active order, including those created before today's shift.
     ordersQuery = ordersQuery.or(`status.in.(pending,accepted,preparing,ready),created_at.gte.${new Date(Date.now() - 86400000).toISOString()}`);
     if (!restaurant.canManage) ordersQuery = ordersQuery.eq("order_type", "table");
-    const [ordersResult, tablesResult, settingsResult, openResult, waiterShift] = await Promise.all([
+    const [ordersResult, tablesResult, settingsResult, openResult, waiterShift, waiterAssignmentsResult] = await Promise.all([
       allRows((from, to) => ordersQuery.range(from, to)),
       client.from("tables").select("id,name,code,status,capacity").eq("restaurant_id", id).eq("is_active", true).order("name"),
       client.from("restaurant_settings").select("currency,qr_payment_url,table_orders_enabled,kitchen_enabled").eq("restaurant_id", id).maybeSingle(),
       restaurant.canManage ? client.from("cash_sessions").select("*").eq("restaurant_id", id).eq("status", "open").maybeSingle() : Promise.resolve({ data: null, error: null }),
       getWaiterShift(auth, id),
+      restaurant.role === "waiter"
+        ? client.from("waiter_table_assignments").select("table_id,waiter_user_id").eq("restaurant_id", id)
+        : Promise.resolve({ data: [], error: null }),
     ]);
     const cashSession = checked(openResult);
     const movements = cashSession ? await allRows((from, to) => client.from("cash_movements").select("*").eq("restaurant_id", id).eq("cash_session_id", cashSession.id).order("created_at", { ascending: false }).order("id").range(from, to)) : [];
@@ -254,7 +257,12 @@ export async function GET(request: Request) {
       : [{ data: [], error: null }, { data: [], error: null }];
     const riders = checked(ridersResult) ?? [];
     const deliveryAssignments = checked(assignmentsResult) ?? [];
-    return json({ restaurant, orders: ordersResult, tables: checked(tablesResult), settings, cashSession, cashOpen, movements, waiterShift, products, categories, variants, groups, options, riders, deliveryAssignments });
+    const assignments = (checked(waiterAssignmentsResult) ?? []) as Array<{ table_id: string; waiter_user_id: string }>;
+    const assignedTableIds = assignments.filter((assignment) => assignment.waiter_user_id === auth.profile.id).map((assignment) => assignment.table_id);
+    const tables = restaurant.role === "waiter" && assignments.length
+      ? (checked(tablesResult) ?? []).filter((table) => assignedTableIds.includes(table.id))
+      : checked(tablesResult);
+    return json({ restaurant, orders: ordersResult, tables, settings, cashSession, cashOpen, movements, waiterShift, products, categories, variants, groups, options, riders, deliveryAssignments });
   } catch (error) { return failure(error); }
 }
 
@@ -299,6 +307,12 @@ export async function POST(request: Request) {
       }
       const table = checked(await client.from("tables").select("id,name,code").eq("restaurant_id", id).eq("code", input.tableCode.toUpperCase()).eq("is_active", true).maybeSingle());
       if (!table) throw new PosError("La mesa no pertenece a este restaurante.");
+      if (restaurant.role === "waiter") {
+        const assignments = (checked(await client.from("waiter_table_assignments").select("table_id,waiter_user_id").eq("restaurant_id", id)) ?? []) as Array<{ table_id: string; waiter_user_id: string }>;
+        if (assignments?.length && !assignments.some((assignment) => assignment.table_id === table.id && assignment.waiter_user_id === auth.profile.id)) {
+          throw new PosError("Esta mesa esta asignada a otro mesero.", 403);
+        }
+      }
       const settings = checked(await client.from("restaurant_settings").select("table_orders_enabled,min_order_amount,qr_payment_url").eq("restaurant_id", id).single());
       if (!settings?.table_orders_enabled || !businessTypeSupportsTableQr(restaurant.business_type)) throw new PosError("Los pedidos de mesa estan desactivados.");
       if (await announcementService.hasActiveClosure(id)) throw new PosError("El restaurante esta cerrado temporalmente.");
@@ -343,7 +357,7 @@ export async function POST(request: Request) {
       if (existing) return json(existing);
       await resolveCart(auth, id, input.items);
       const receipt = await upload();
-      const sale = await client.rpc("create_pos_sale_with_cash_movement", { p_restaurant_id: id, p_order_number: orderNumber, p_customer_name: input.customerName || "Venta mostrador", p_customer_phone: input.customerPhone || null, p_order_origin: "pos_counter", p_payment_method: input.paymentMethod, p_receipt_url: receipt, p_receipt_reference: input.reference ?? null, p_items: input.items });
+      const sale = await client.rpc("create_pos_sale_with_tender", { p_restaurant_id: id, p_order_number: orderNumber, p_customer_name: input.customerName || "Venta mostrador", p_customer_phone: input.customerPhone || null, p_order_origin: "pos_counter", p_order_type: input.orderType, p_payment_method: input.paymentMethod, p_cash_received: input.cashReceived ?? null, p_receipt_url: receipt, p_receipt_reference: input.reference ?? null, p_items: input.items });
       if (sale.error?.code === "23505") {
         const duplicate = checked(await client.from("orders").select("id,order_number").eq("restaurant_id", id).eq("order_number", orderNumber).maybeSingle());
         if (duplicate) return json(duplicate);
@@ -463,11 +477,18 @@ export async function POST(request: Request) {
       if (!table) throw new PosError("Mesa no encontrada.", 404);
       const orders = checked(await client
         .from("orders")
-        .select("id,status,payment_status")
+        .select("id,status,payment_status,total")
         .eq("restaurant_id", id)
         .eq("table_id", table.id)
         .in("status", ["pending", "accepted", "preparing", "ready"])
         .order("created_at")) ?? [];
+      const amountDue = Number(orders
+        .filter((order) => order.payment_status !== "paid")
+        .reduce((sum, order) => sum + Number(order.total), 0)
+        .toFixed(2));
+      if (input.paymentMethod === "cash" && amountDue > 0 && (input.cashReceived === undefined || input.cashReceived < amountDue)) {
+        throw new PosError("El efectivo recibido no cubre el total de la mesa.", 409);
+      }
       if (!orders.length) {
         checked(await auth.admin.from("tables").update({ status: "available" }).eq("restaurant_id", id).eq("id", table.id));
         result = { tableId: table.id, orders: 0 };
@@ -507,6 +528,15 @@ export async function POST(request: Request) {
           if (status === "ready") {
             checked(await client.rpc("update_operational_order_status", { p_restaurant_id: id, p_order_id: order.id, p_expected_status: "ready", p_next_status: "delivered" }));
           }
+        }
+        if (amountDue > 0) {
+          checked(await client.rpc("record_cash_payment_tender", {
+            p_restaurant_id: id,
+            p_table_id: table.id,
+            p_payment_method: input.paymentMethod,
+            p_amount_due: amountDue,
+            p_cash_received: input.paymentMethod === "cash" ? input.cashReceived ?? null : null,
+          }));
         }
         await releaseTableWhenEmpty(auth, id, table.id);
         checked(await client.rpc("write_admin_audit", {

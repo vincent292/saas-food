@@ -307,7 +307,7 @@ test("cashier settles every active order before releasing the table", async () =
     id: requestId, restaurant_id: restaurantId, table_id: tableId, order_number: "M-10", order_type: "table",
     status: "pending", payment_status: "pending", payment_method: "cash", total: 50,
   });
-  const response = await post(f.route, { action: "settle-table", restaurantId, tableId, paymentMethod: "cash" });
+  const response = await post(f.route, { action: "settle-table", restaurantId, tableId, paymentMethod: "cash", cashReceived: 50 });
   assert.equal(response.status, 200);
   assert.equal(f.rows.orders[0].payment_status, "paid");
   assert.equal(f.rows.orders[0].status, "delivered");

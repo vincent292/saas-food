@@ -554,6 +554,10 @@ const deliveryZoneIdSchema = z.object({
 
 const paymentMethodSchema = z.enum(["cash", "qr", "bank_transfer", "card", "other"]);
 const orderOriginSchema = z.enum(["pos_counter", "table_qr", "web_checkout", "phone_whatsapp", "external_platform"]);
+const cashReceivedSchema = z.preprocess(
+  (value) => value === "" || value === null || value === undefined ? undefined : value,
+  z.coerce.number().nonnegative().optional(),
+);
 
 const openCashSessionSchema = z.object({
   restaurantId: z.string().uuid(),
@@ -592,6 +596,7 @@ const settleTableSchema = z.object({
   restaurantSlug: z.string().min(1).optional(),
   tableId: z.string().uuid(),
   paymentMethod: paymentMethodSchema.default("cash"),
+  cashReceived: cashReceivedSchema,
   paymentReceiptReference: z.string().trim().max(160).optional(),
 });
 
@@ -629,6 +634,8 @@ const createPosSaleSchema = z.object({
   restaurantId: z.string().uuid(),
   restaurantSlug: z.string().min(1).optional(),
   paymentMethod: paymentMethodSchema.default("cash"),
+  cashReceived: cashReceivedSchema,
+  orderType: z.enum(["pos", "pickup"]).default("pos"),
   paymentReceiptReference: z.string().optional(),
   customerName: z.string().optional(),
   customerPhone: z.string().optional(),
@@ -671,6 +678,7 @@ const updateOwnerBillingSettingsSchema = z.object({
   currentOwnerBillingQrUrl: z.string().optional(),
   nextDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   reminderDays: z.coerce.number().int().min(0).max(15).default(4),
+  graceDays: z.coerce.number().int().min(0).max(15).default(3),
   currency: z.string().min(3).max(3).default("BOB"),
   platformQrNote: z.string().optional(),
 });
@@ -678,8 +686,9 @@ const updateOwnerBillingSettingsSchema = z.object({
 const submitOwnerBillingPaymentProofSchema = z.object({
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   notes: z.string().optional(),
-  graceDays: z.coerce.number().int().min(0).max(15).default(3),
 });
+
+const platformBroadcastSchema = z.object({ audience: z.enum(["customers", "staff", "riders", "all"]), body: z.string().trim().min(3).max(500), title: z.string().trim().min(3).max(80) });
 
 const resolveOwnerBillingPaymentSchema = z.object({
   ownerUserId: z.string().uuid(),
@@ -687,8 +696,6 @@ const resolveOwnerBillingPaymentSchema = z.object({
   cycleId: z.string().uuid(),
   notes: z.string().optional(),
 });
-
-const platformBroadcastSchema = z.object({ audience: z.enum(["customers", "staff", "riders", "all"]), body: z.string().trim().min(3).max(500), title: z.string().trim().min(3).max(80) });
 
 const createOwnerChangeRequestSchema = z.object({
   restaurantId: z.string().uuid(),
@@ -5187,6 +5194,7 @@ export async function updateOwnerBillingSettingsAction(formData: FormData) {
     currentOwnerBillingQrUrl: formData.get("currentOwnerBillingQrUrl") || undefined,
     nextDueDate: formData.get("ownerBillingNextDueDate"),
     reminderDays: formData.get("ownerBillingReminderDays") || 4,
+    graceDays: formData.get("ownerBillingGraceDays") || 3,
     currency: formData.get("ownerBillingCurrency") || "BOB",
     platformQrNote: formData.get("ownerBillingQrNote") || undefined,
   });
@@ -5194,7 +5202,6 @@ export async function updateOwnerBillingSettingsAction(formData: FormData) {
   const fallbackRestaurantId = String(formData.get("restaurantId") || "");
   const returnTo = ownerAccountPath(fallbackRestaurantId);
 
-    graceDays: formData.get("ownerBillingGraceDays") || 3,
   if (!parsed.success) {
     redirect(`${returnTo}?error=invalid-owner-billing-settings`);
   }
@@ -5221,6 +5228,7 @@ export async function updateOwnerBillingSettingsAction(formData: FormData) {
       billing_anchor_day: 15,
       next_due_date: parsed.data.nextDueDate,
       reminder_days: parsed.data.reminderDays,
+      grace_days: parsed.data.graceDays,
       currency: parsed.data.currency.toUpperCase(),
       platform_qr_url: qrUrl,
       platform_qr_note: parsed.data.platformQrNote ?? null,
@@ -5228,7 +5236,6 @@ export async function updateOwnerBillingSettingsAction(formData: FormData) {
     },
     { onConflict: "owner_user_id" },
   );
-      grace_days: parsed.data.graceDays,
 
   if (error) {
     redirect(`${ownerAccountPath(parsed.data.restaurantId)}?error=${cashErrorKey(error, "owner-billing-settings-save")}`);
@@ -5264,6 +5271,10 @@ export async function submitOwnerBillingPaymentProofAction(formData: FormData) {
     redirect("/dueno/plan?error=owner-billing-cycle-paid");
   }
 
+  if (!snapshot.currentCycle.isBillable) {
+    redirect("/dueno/plan?error=owner-billing-cycle-not-billable");
+  }
+
   const proofFile = formData.get("ownerBillingPaymentProofFile") as File | null;
   if (!proofFile || proofFile.size === 0) {
     redirect("/dueno/plan?error=owner-billing-proof-required");
@@ -5271,10 +5282,6 @@ export async function submitOwnerBillingPaymentProofAction(formData: FormData) {
 
   const proofTypeIsValid = proofFile.type.startsWith("image/") || proofFile.type === "application/pdf";
   if (!proofTypeIsValid || proofFile.size > MAX_OWNER_BILLING_PAYMENT_PROOF_BYTES) {
-  if (!snapshot.currentCycle.isBillable) {
-    redirect("/dueno/plan?error=owner-billing-cycle-not-billable");
-  }
-
     redirect("/dueno/plan?error=invalid-owner-billing-proof");
   }
 
@@ -5571,6 +5578,7 @@ export async function createRestaurantAnnouncementAction(formData: FormData) {
     body: formData.get("announcementBody") || undefined,
     startsAt: formData.get("announcementStartsAt"),
     endsAt: formData.get("announcementEndsAt") || undefined,
+    sendPush: booleanFromForm(formData, "announcementSendPush"),
   });
 
   if (!parsed.success) {
@@ -5578,7 +5586,6 @@ export async function createRestaurantAnnouncementAction(formData: FormData) {
   }
 
   await requireRestaurantAccess(parsed.data.restaurantId, `/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos`);
-    sendPush: booleanFromForm(formData, "announcementSendPush"),
   const { supabase, user } = await requireRestaurantAdminOrSuperadmin(parsed.data.restaurantId);
   const imageUrl = await uploadPublicImage(formData.get("announcementImageFile") as File | null, `restaurants/${parsed.data.restaurantId}/announcements`);
 
@@ -5598,13 +5605,6 @@ export async function createRestaurantAnnouncementAction(formData: FormData) {
     redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&error=${error.code}`);
   }
 
-  revalidateAnnouncementPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
-  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&announcement=1`);
-}
-
-export async function updateRestaurantAnnouncementAction(formData: FormData) {
-  const announcementId = String(formData.get("announcementId") || "");
-  const parsed = updateAnnouncementSchema.safeParse({
   if (parsed.data.sendPush && parsed.data.type === "announcement" && parsed.data.restaurantSlug) {
     void sendRestaurantPromotionPush({
       body: parsed.data.body?.trim() || "Hay una novedad esperándote. Entra a Yopido para verla.",
@@ -5614,10 +5614,10 @@ export async function updateRestaurantAnnouncementAction(formData: FormData) {
     }).catch((pushError) => console.error("restaurant-promotion-push-failed", { announcementId: announcement?.id, pushError }));
   }
 
-    restaurantId: formData.get("restaurantId"),
-    restaurantSlug: formData.get("restaurantSlug") || undefined,
-    announcementId,
-    type: formData.get(`announcementType_${announcementId}`) || "announcement",
+  revalidateAnnouncementPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/configuracion?tab=avisos&announcement=1`);
+}
+
 export async function sendPlatformBroadcastAction(formData: FormData) {
   const parsed = platformBroadcastSchema.safeParse({ audience: formData.get("audience"), body: formData.get("body"), title: formData.get("title") });
   if (!parsed.success) redirect("/admin/avisos?error=invalid-broadcast");
@@ -5626,6 +5626,13 @@ export async function sendPlatformBroadcastAction(formData: FormData) {
   redirect(`/admin/avisos?sent=${result.sent}${result.ok ? "" : "&error=broadcast-partial"}`);
 }
 
+export async function updateRestaurantAnnouncementAction(formData: FormData) {
+  const announcementId = String(formData.get("announcementId") || "");
+  const parsed = updateAnnouncementSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    restaurantSlug: formData.get("restaurantSlug") || undefined,
+    announcementId,
+    type: formData.get(`announcementType_${announcementId}`) || "announcement",
     title: formData.get(`announcementTitle_${announcementId}`),
     body: formData.get(`announcementBody_${announcementId}`) || undefined,
     startsAt: formData.get(`announcementStartsAt_${announcementId}`),
@@ -7649,6 +7656,7 @@ export async function settleTableAction(formData: FormData) {
     restaurantSlug: formData.get("restaurantSlug") || undefined,
     tableId: formData.get("tableId"),
     paymentMethod: formData.get("paymentMethod") || "cash",
+    cashReceived: formData.get("cashReceived"),
     paymentReceiptReference: formData.get("paymentReceiptReference") || undefined,
   });
   const fallbackRestaurantId = String(formData.get("restaurantId") || "");
@@ -7673,10 +7681,11 @@ export async function settleTableAction(formData: FormData) {
     redirect(`${redirectPath}&error=receipt-upload-failed`);
   }
 
-  const { data, error } = await supabase.rpc("settle_table_with_cash_movements", {
+  const { data, error } = await supabase.rpc("settle_table_with_tender", {
     p_restaurant_id: parsed.data.restaurantId,
     p_table_id: parsed.data.tableId,
     p_payment_method: parsed.data.paymentMethod,
+    p_cash_received: parsed.data.cashReceived ?? null,
     p_receipt_url: uploadedReceiptUrl,
     p_receipt_reference: parsed.data.paymentReceiptReference ?? null,
   });
@@ -7902,6 +7911,8 @@ export async function createPosSaleAction(formData: FormData) {
     restaurantId: formData.get("restaurantId"),
     restaurantSlug: formData.get("restaurantSlug") || undefined,
     paymentMethod: formData.get("paymentMethod") || "cash",
+    cashReceived: formData.get("cashReceived"),
+    orderType: formData.get("orderType") || "pos",
     paymentReceiptReference: formData.get("paymentReceiptReference") || undefined,
     customerName: formData.get("customerName") || undefined,
     customerPhone: formData.get("customerPhone") || undefined,
@@ -7944,13 +7955,15 @@ export async function createPosSaleAction(formData: FormData) {
 
   const orderNumber = `POS-${Date.now()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
 
-  const { data: orderId, error } = await supabase.rpc("create_pos_sale_with_cash_movement", {
+  const { data: orderId, error } = await supabase.rpc("create_pos_sale_with_tender", {
     p_restaurant_id: parsed.data.restaurantId,
     p_order_number: orderNumber,
     p_customer_name: parsed.data.customerName ?? null,
     p_customer_phone: parsed.data.customerPhone ?? null,
     p_order_origin: parsed.data.orderOrigin as OrderOrigin,
+    p_order_type: parsed.data.orderType,
     p_payment_method: parsed.data.paymentMethod,
+    p_cash_received: parsed.data.cashReceived ?? null,
     p_receipt_url: paymentReceiptUrl,
     p_receipt_reference: parsed.data.paymentReceiptReference ?? null,
     p_items: parsed.data.cart as unknown as Json,

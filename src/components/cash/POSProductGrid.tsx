@@ -357,6 +357,13 @@ function PosCartPanel({
   total: number;
   totalItems: number;
 }) {
+  const [cashReceived, setCashReceived] = useState("");
+  const [orderType, setOrderType] = useState<"pos" | "pickup">("pos");
+  const parsedCashReceived = Number(cashReceived);
+  const cashReceivedAmount = Number.isFinite(parsedCashReceived) && parsedCashReceived >= 0 ? parsedCashReceived : 0;
+  const cashAmountIsValid = paymentMethod !== "cash" || (cashReceived.trim() !== "" && cashReceivedAmount >= total);
+  const changeDue = Number(Math.max(cashReceivedAmount - total, 0).toFixed(2));
+  const cashShortfall = Number(Math.max(total - cashReceivedAmount, 0).toFixed(2));
   const headerAction: ReactNode = onClose ? (
     <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={onClose} type="button">
       <X className="h-5 w-5" />
@@ -432,6 +439,10 @@ function PosCartPanel({
             <option value="phone_whatsapp">{orderOriginLabels.phone_whatsapp}</option>
             <option value="external_platform">{orderOriginLabels.external_platform}</option>
           </Select>
+          <Select aria-label="Tipo de servicio" name="orderType" onChange={(event) => setOrderType(event.target.value as "pos" | "pickup")} value={orderType}>
+            <option value="pos">Servir en mostrador / local</option>
+            <option value="pickup">Para llevar</option>
+          </Select>
         </div>
         <div className="flex items-center justify-between border-t border-[var(--border)] pt-4 text-xl font-black">
           <span>Total</span>
@@ -446,6 +457,37 @@ function PosCartPanel({
           <option value="card">Tarjeta</option>
           <option value="other">Otro</option>
         </Select>
+        {paymentMethod === "cash" ? (
+          <div className="grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Paga con</p>
+                <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Indica el efectivo que entregó el cliente.</p>
+              </div>
+              <Button className="min-h-9 px-3 text-xs" onClick={() => setCashReceived(total.toFixed(2))} type="button" variant="secondary">
+                Pago exacto
+              </Button>
+            </div>
+            <Input
+              min={total}
+              name="cashReceived"
+              onChange={(event) => setCashReceived(event.target.value)}
+              placeholder={`Mínimo ${formatMoney(total)}`}
+              required
+              step="0.01"
+              type="number"
+              value={cashReceived}
+            />
+            <div className={cn(
+              "rounded-2xl p-3",
+              cashAmountIsValid ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]",
+            )}>
+              <p className="text-xs font-black uppercase tracking-[0.12em]">{cashAmountIsValid ? "Cambio a devolver" : "Monto faltante"}</p>
+              <p className="mt-1 text-2xl font-black">{formatMoney(cashAmountIsValid ? changeDue : cashShortfall)}</p>
+              <p className="mt-1 text-xs font-bold">Total: {formatMoney(total)} · recibido: {formatMoney(cashReceivedAmount)}</p>
+            </div>
+          </div>
+        ) : null}
         <p className={cn("rounded-2xl p-3 text-xs font-bold", qrAvailable ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-card-muted)] text-[var(--muted)]")}>
           {qrAvailable ? "QR activo para esta sucursal." : "Sin QR configurado para esta sucursal."}
         </p>
@@ -474,7 +516,7 @@ function PosCartPanel({
           </div>
         ) : null}
         <p className="text-xs font-semibold text-[var(--muted)]">Al confirmar, el pedido queda registrado para {preparationAreaLabel} y seguimiento.</p>
-        <PosSubmitButton disabled={disabled || !cart.length} label={submitLabel} />
+        <PosSubmitButton disabled={disabled || !cart.length || !cashAmountIsValid} label={submitLabel} />
       </form>
     </Card>
   );

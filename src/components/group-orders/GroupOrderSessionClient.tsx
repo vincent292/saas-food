@@ -460,7 +460,7 @@ export function GroupOrderSessionClient({
                   </span>
                   <div>
                     <h2 className="text-xl font-black">Unete al pedido</h2>
-                    <p className="text-sm font-semibold text-[var(--muted)]">Solo necesitamos tu nombre para separar lo que pides.</p>
+                    <p className="text-sm font-semibold text-[var(--muted)]">Solo necesitamos tu nombre para separar lo que pides. Si alguien ya usa ese nombre, te agregaremos un número.</p>
                   </div>
                 </div>
                 <form action={joinGroupOrderSessionAction} className="grid gap-3 sm:grid-cols-2">

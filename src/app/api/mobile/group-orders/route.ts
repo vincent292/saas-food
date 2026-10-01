@@ -65,7 +65,7 @@ export async function POST(request: Request) {
 
   if (!restaurant) return mobileGroupError("invalid-restaurant", 404);
 
-  const collectMode = parsed.data.collectMode === "restaurant_collects" ? "host_collects" : parsed.data.collectMode;
+  const collectMode = parsed.data.collectMode;
   const hostQrUrl =
     collectMode === "host_collects" && hostQrFile
       ? await uploadTemporaryPublicImage(hostQrFile, `temporary/group-orders/${restaurant.id}/host-qr`, groupTemporaryUploadMaxAgeSeconds)

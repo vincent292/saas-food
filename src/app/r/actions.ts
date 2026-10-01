@@ -946,7 +946,7 @@ export async function createGroupOrderSessionAction(formData: FormData) {
     redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=qr-type`);
   }
 
-  const collectMode = parsed.data.collectMode === "restaurant_collects" ? "host_collects" : parsed.data.collectMode;
+  const collectMode = parsed.data.collectMode;
   const hostQrUrl =
     collectMode === "host_collects" && isNonEmptyFile(hostQrFile)
       ? await uploadPublicImage(hostQrFile, `restaurants/${restaurant.id}/group-host-qr`)
@@ -1035,15 +1035,18 @@ export async function joinGroupOrderSessionAction(formData: FormData) {
   if ((existingParticipants?.length ?? 0) >= GROUP_MAX_PARTICIPANTS) {
     redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { error: "group-full" }));
   }
-  if ((existingParticipants ?? []).some((participant) => participant.display_name.trim().toLowerCase() === parsed.data.displayName.trim().toLowerCase())) {
-    redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { error: "duplicate-name" }));
+  const usedNames = new Set((existingParticipants ?? []).map((participant) => participant.display_name.trim().toLocaleLowerCase()));
+  const requestedName = parsed.data.displayName.trim();
+  let displayName = requestedName;
+  for (let suffix = 2; usedNames.has(displayName.toLocaleLowerCase()); suffix += 1) {
+    displayName = `${requestedName} (${suffix})`;
   }
 
   const participantToken = createSecretToken();
   const { error } = await admin.from("group_order_participants").insert({
     session_id: session.id,
     participant_token: participantToken,
-    display_name: parsed.data.displayName,
+    display_name: displayName,
     phone: parsed.data.phone || null,
     role: "guest",
   });
@@ -1343,7 +1346,7 @@ export async function updateGroupOrderSessionSettingsAction(formData: FormData) 
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "settings" }));
   }
   const settingsData = parsed.data;
-  const collectMode = settingsData.collectMode === "restaurant_collects" ? "host_collects" : settingsData.collectMode;
+  const collectMode = settingsData.collectMode;
 
   const admin = createAdminClient();
   if (!admin) {

@@ -144,7 +144,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
 
   if (parsed.data.action === "settings") {
     if (!["open", "locked"].includes(session.status)) return mobileGroupError("closed", 409);
-    const collectMode = parsed.data.collectMode === "restaurant_collects" ? "host_collects" : parsed.data.collectMode;
+    const collectMode = parsed.data.collectMode;
     const hostQrUrl =
       collectMode === "host_collects" && hostQrFile
         ? await uploadTemporaryPublicImage(hostQrFile, `temporary/group-orders/${session.restaurant_id}/host-qr`, groupTemporaryUploadMaxAgeSeconds)

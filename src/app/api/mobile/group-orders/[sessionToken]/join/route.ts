@@ -25,13 +25,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
   if (!session || session.status !== "open" || new Date(session.expires_at).getTime() <= Date.now()) return mobileGroupError("closed", 409);
   const { data: existingParticipants } = await supabase.from("group_order_participants").select("display_name").eq("session_id", session.id);
   if ((existingParticipants?.length ?? 0) >= groupMaxParticipants) return mobileGroupError("group-full", 409);
-  if ((existingParticipants ?? []).some((participant) => participant.display_name.trim().toLowerCase() === parsed.data.displayName.trim().toLowerCase())) {
-    return mobileGroupError("duplicate-name", 409);
+  const usedNames = new Set((existingParticipants ?? []).map((participant) => participant.display_name.trim().toLocaleLowerCase()));
+  const requestedName = parsed.data.displayName.trim();
+  let displayName = requestedName;
+  for (let suffix = 2; usedNames.has(displayName.toLocaleLowerCase()); suffix += 1) {
+    displayName = `${requestedName} (${suffix})`;
   }
 
   const participantToken = createSecretToken();
   const { error } = await supabase.from("group_order_participants").insert({
-    display_name: parsed.data.displayName,
+    display_name: displayName,
     participant_token: participantToken,
     phone: parsed.data.phone || null,
     role: "guest",

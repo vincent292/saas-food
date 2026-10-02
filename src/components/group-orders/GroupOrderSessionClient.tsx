@@ -204,6 +204,7 @@ export function GroupOrderSessionClient({
     : new Intl.DateTimeFormat("es-BO", { dateStyle: "short", timeStyle: "short" }).format(expiresAtDate);
   const canModifyGroup = session.status === "open" || session.status === "locked";
   const hostReadyToSubmit = session.status === "locked" && activeItems.length > 0 && pendingPaymentCount === 0;
+  const participantExcluded = Boolean(isJoined && !isHost && currentParticipant?.paymentStatus === "excluded");
   const participantSubmitted = Boolean(isJoined && !isHost && currentParticipant && currentParticipant.paymentStatus !== "pending");
   const participantCanAddProducts = Boolean(isJoined && session.status === "open" && !participantSubmitted);
   const showGroupDetails = !participantSubmitted || showSubmittedDetails || isHost;
@@ -487,7 +488,22 @@ export function GroupOrderSessionClient({
               </Card>
             ) : null}
 
-            {participantSubmitted ? (
+            {participantExcluded ? (
+              <Card className="space-y-4 border-[var(--color-warning-soft)] bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[var(--radius-control)] bg-white/75">
+                    <X className="h-6 w-6" />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="text-xl font-black">Ya no formas parte del grupo</h2>
+                    <p className="mt-1 text-sm font-bold">El host te excluyó de este pedido. Tus productos no se enviarán ni se cobrarán.</p>
+                  </div>
+                </div>
+                <Link className={buttonClasses("secondary", "bg-white/80")} href={publicRestaurantPath(restaurant.slug)}>
+                  Volver al menú
+                </Link>
+              </Card>
+            ) : participantSubmitted ? (
               <Card className="space-y-4 border-[var(--color-success-soft)] bg-[var(--color-success-soft)] text-[var(--color-success-strong)]">
                 <div className="flex items-start gap-3">
                   <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[var(--radius-control)] bg-white/75">

@@ -413,40 +413,7 @@ export function OrderTrackingLiveRefresh({
                 <p className="mt-1 hidden break-words text-xs font-semibold leading-5 text-[var(--muted)] sm:block lg:mx-auto lg:mt-2 lg:max-w-[15rem]">{heroCopy.description}</p>
               </div>
             </div>
-            <div className="grid min-w-0 gap-2 lg:gap-3">
-              {steps.map((step, index) => {
-                const done = currentStep > index;
-                const active = currentStep === index;
-                return (
-                  <div
-                    className={cn(
-                      "flex min-h-[56px] min-w-0 items-center gap-3 rounded-2xl border p-2.5 text-left transition sm:min-h-[64px] sm:p-3 lg:min-h-[76px]",
-                      done && "border-[var(--primary)]/20 bg-[var(--surface)] text-[var(--text)] lg:border-[var(--primary)] lg:bg-[var(--primary)] lg:text-[var(--color-on-primary)]",
-                      active && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--primary-dark)] ring-2 ring-[var(--accent-ring)]",
-                      !done && !active && "border-transparent bg-[var(--color-surface)] text-[var(--muted)]",
-                    )}
-                    key={step.label}
-                  >
-                    <span
-                      className={cn(
-                        "grid h-9 w-9 shrink-0 place-items-center rounded-xl sm:h-10 sm:w-10 lg:h-11 lg:w-11 lg:rounded-2xl",
-                        done && "bg-[var(--primary)] lg:bg-[var(--color-on-primary-soft)]",
-                        active && "bg-[var(--surface)]",
-                        !done && !active && "bg-[var(--surface)]",
-                      )}
-                    >
-                      <step.icon className={cn("h-6 w-6", done ? "text-[var(--color-on-primary)]" : active ? "text-[var(--primary)]" : "text-[var(--color-placeholder)]")} />
-                    </span>
-                    <span className="min-w-0 lg:flex-1">
-                      <p className={cn("text-sm font-black leading-tight", done && "text-[var(--text)] lg:text-[var(--color-on-primary)]")}>{step.label}</p>
-                      <p className={cn("mt-0.5 text-xs font-semibold leading-5 sm:mt-1", done ? "text-[var(--muted)] lg:text-[var(--color-on-primary-muted)]" : "text-[var(--muted)]")}>
-                        {active ? "Ahora" : step.description}
-                      </p>
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+            <TrackingTimeline currentStep={currentStep} steps={steps} />
           </div>
         )}
       </Card>
@@ -519,5 +486,42 @@ export function OrderTrackingLiveRefresh({
 
       <VirtualQueueCard businessType={businessType} order={order} queue={queue} />
     </>
+  );
+}
+
+function TrackingTimeline({
+  currentStep,
+  steps,
+}: {
+  currentStep: number;
+  steps: Array<{ label: string; description: string; icon: typeof CheckCircle2 }>;
+}) {
+  const activeStep = currentStep >= 0 ? steps[currentStep] : null;
+
+  return (
+    <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-surface)] p-3 sm:rounded-[1.5rem] sm:p-4">
+      <div className="overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="grid min-w-[330px]" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(54px, 1fr))` }}>
+          {steps.map((step, index) => {
+            const done = currentStep > index;
+            const active = currentStep === index;
+            const StepIcon = step.icon;
+            return (
+              <div className="relative z-0 min-w-0 text-center" key={step.label}>
+                {index < steps.length - 1 ? <span aria-hidden="true" className={cn("absolute left-1/2 top-5 h-0.5 w-full", done ? "bg-[var(--primary)]" : active ? "tracking-line-flow bg-[var(--accent)]" : "bg-[var(--border)]")} /> : null}
+                <span className={cn("relative z-10 mx-auto grid h-10 w-10 place-items-center rounded-full border-2 bg-[var(--surface)] transition sm:h-11 sm:w-11", done && "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]", active && "tracking-step-pulse border-[var(--accent)] bg-[var(--accent)] text-[var(--primary-dark)] shadow-[0_0_0_5px_var(--accent-ring)]", !done && !active && "border-[var(--border)] text-[var(--color-placeholder)]")}>
+                  {done ? <CheckCircle2 className="h-5 w-5" /> : <StepIcon className="h-5 w-5" />}
+                </span>
+                <p className={cn("mx-auto mt-2 max-w-[72px] text-[10px] font-black leading-tight sm:text-xs", (done || active) ? "text-[var(--primary)]" : "text-[var(--muted)]")}>{step.label}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className={cn("mt-3 rounded-xl px-3 py-2.5 text-sm", activeStep ? "bg-[var(--accent-soft)] text-[var(--primary-dark)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger-strong)]")}>
+        <p className="font-black">{activeStep ? `${activeStep.label}: ahora` : "Pedido cancelado"}</p>
+        <p className="mt-0.5 font-semibold">{activeStep?.description ?? "El equipo no pudo continuar con este pedido."}</p>
+      </div>
+    </div>
   );
 }

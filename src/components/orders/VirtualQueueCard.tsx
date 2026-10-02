@@ -1,4 +1,4 @@
-import { Activity, ChefHat, Clock3, Flame, Sparkles, Timer, UsersRound } from "lucide-react";
+import { Activity, Check, ChefHat, Clock3, Flame, Sparkles, Timer, UsersRound } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { formatShortTime } from "@/lib/utils/dates";
@@ -201,25 +201,29 @@ function QueueProgress({ status, businessType }: { status: OrderStatus; business
   ];
 
   return (
-    <div className="grid grid-cols-4 gap-2">
+    <div className="rounded-2xl bg-[var(--color-surface)] p-3 ring-1 ring-[var(--border)]">
+      <div className="grid grid-cols-4">
       {steps.map((step, index) => {
         const active = currentStep === index + 1 || (status === "pending" && index === 0);
         const done = currentStep > index + 1 || status === "ready" || status === "delivered";
         return (
-          <div
+          <div className="relative z-0 min-w-0 text-center" key={step.label}>
+            {index < steps.length - 1 ? <span aria-hidden="true" className={cn("absolute left-1/2 top-4 h-0.5 w-full", done ? "bg-[var(--primary)]" : active ? "tracking-line-flow bg-[var(--accent)]" : "bg-[var(--border)]")} /> : null}
+            <div
             className={cn(
-              "min-h-20 rounded-2xl border p-2 text-center transition sm:p-3",
+              "relative z-10 mx-auto grid h-8 w-8 place-items-center rounded-full border-2 bg-[var(--surface)] transition sm:h-9 sm:w-9",
               done && "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]",
-              active && "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)] ring-2 ring-[var(--primary)]/15",
-              !done && !active && "border-[var(--color-neutral-100)] bg-[var(--color-surface)] text-[var(--color-placeholder)]",
+              active && "tracking-step-pulse border-[var(--accent)] bg-[var(--accent)] text-[var(--primary-dark)] shadow-[0_0_0_4px_var(--accent-ring)]",
+              !done && !active && "border-[var(--border)] text-[var(--color-placeholder)]",
             )}
-            key={step.label}
-          >
-            <step.icon className={cn("mx-auto h-5 w-5", done ? "text-[var(--color-on-primary)]" : active ? "text-[var(--primary)]" : "text-[var(--color-placeholder)]")} />
-            <p className="mt-2 text-[0.68rem] font-black leading-tight sm:text-xs">{step.label}</p>
+            >
+              {done ? <Check className="h-4 w-4" /> : <step.icon className="h-4 w-4" />}
+            </div>
+            <p className={cn("mx-auto mt-2 max-w-[60px] text-[10px] font-black leading-tight sm:text-xs", (done || active) ? "text-[var(--primary)]" : "text-[var(--muted)]")}>{step.label}</p>
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -230,11 +234,13 @@ export function VirtualQueueCard({ order, queue, businessType = "food" }: { orde
   }
 
   const windowLabel = readyWindow(queue);
+  const showQueueLane = order.status === "pending" || order.status === "accepted" || order.status === "preparing";
+  const showQueueStats = order.status !== "delivered";
 
   return (
-    <Card className="mt-6 overflow-hidden p-0">
-      <div className="grid gap-0 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="space-y-5 p-5 sm:p-6">
+    <Card className="mt-4 overflow-hidden p-0 sm:mt-6">
+      <div className={cn("grid gap-0", showQueueStats && "lg:grid-cols-[1.1fr_0.9fr]")}>
+        <section className="space-y-4 p-4 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <Badge className={cn("ring-1", demandStyles[queue.demandLevel])}>
@@ -252,45 +258,45 @@ export function VirtualQueueCard({ order, queue, businessType = "food" }: { orde
             </div>
           </div>
 
-          <QueueLane queue={queue} />
+          {showQueueLane ? <QueueLane queue={queue} /> : null}
           <QueueProgress businessType={businessType} status={order.status} />
         </section>
 
-        <aside className="grid gap-3 border-t border-[var(--border)] bg-[var(--color-surface)] p-5 sm:grid-cols-3 lg:grid-cols-1 lg:border-l lg:border-t-0">
-          <div className="rounded-2xl bg-[var(--surface)] p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
+        {showQueueStats ? <aside className="grid grid-cols-3 gap-2 border-t border-[var(--border)] bg-[var(--color-surface)] p-3 sm:gap-3 sm:p-5 lg:grid-cols-1 lg:border-l lg:border-t-0">
+          <div className="min-w-0 rounded-2xl bg-[var(--surface)] p-3 shadow-sm">
+            <div className="flex items-center gap-1.5 text-xs font-black text-[var(--text)] sm:text-sm">
               <UsersRound className="h-4 w-4 text-[var(--primary)]" />
-              Fila actual
+              Fila
             </div>
-            <p className="mt-3 text-3xl font-black text-[var(--text)]">{queue.activeOrders}</p>
-            <p className="text-xs font-semibold text-[var(--muted)]">pedidos activos</p>
+            <p className="mt-2 text-2xl font-black text-[var(--text)] sm:mt-3 sm:text-3xl">{queue.activeOrders}</p>
+            <p className="hidden text-xs font-semibold text-[var(--muted)] sm:block">pedidos activos</p>
           </div>
 
-          <div className="rounded-2xl bg-[var(--surface)] p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
+          <div className="min-w-0 rounded-2xl bg-[var(--surface)] p-3 shadow-sm">
+            <div className="flex items-center gap-1.5 text-xs font-black text-[var(--text)] sm:text-sm">
               <ChefHat className="h-4 w-4 text-[var(--primary)]" />
-              {businessPreparationAreaTitle(businessType)}
+              <span className="truncate">{businessPreparationAreaTitle(businessType)}</span>
             </div>
-            <p className="mt-3 text-3xl font-black text-[var(--text)]">{queue.preparingOrders}</p>
-            <p className="text-xs font-semibold text-[var(--muted)]">en preparacion</p>
+            <p className="mt-2 text-2xl font-black text-[var(--text)] sm:mt-3 sm:text-3xl">{queue.preparingOrders}</p>
+            <p className="hidden text-xs font-semibold text-[var(--muted)] sm:block">en preparación</p>
           </div>
 
-          <div className="rounded-2xl bg-[var(--surface)] p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
+          <div className="min-w-0 rounded-2xl bg-[var(--surface)] p-3 shadow-sm">
+            <div className="flex items-center gap-1.5 text-xs font-black text-[var(--text)] sm:text-sm">
               <Timer className="h-4 w-4 text-[var(--primary)]" />
-              Precision
+              Precisión
             </div>
-            <p className="mt-3 text-lg font-black text-[var(--text)]">{confidenceLabel[queue.confidence]}</p>
-            <p className="text-xs font-semibold text-[var(--muted)]">
+            <p className="mt-2 truncate text-sm font-black text-[var(--text)] sm:mt-3 sm:text-lg">{confidenceLabel[queue.confidence]}</p>
+            <p className="hidden text-xs font-semibold text-[var(--muted)] sm:block">
               {queue.historySampleSize ? `${queue.historySampleSize} pedidos medidos` : "con datos iniciales"}
             </p>
           </div>
 
-          <div className="flex items-center justify-center gap-2 rounded-2xl bg-[var(--color-card-soft)] p-3 text-xs font-black text-[var(--muted)] sm:col-span-3 lg:col-span-1">
+          <div className="col-span-3 flex items-center justify-center gap-2 rounded-2xl bg-[var(--color-card-soft)] p-2.5 text-xs font-black text-[var(--muted)] lg:col-span-1">
             <Clock3 className="h-4 w-4" />
             Actualiza en tiempo real
           </div>
-        </aside>
+        </aside> : null}
       </div>
     </Card>
   );

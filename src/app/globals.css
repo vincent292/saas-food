@@ -174,6 +174,25 @@ textarea {
   }
 }
 
+@keyframes tracking-step-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes tracking-line-flow {
+  from {
+    opacity: 0.38;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .cart-roll-forward {
   animation: cart-roll-forward 760ms ease-in-out infinite;
 }
@@ -189,6 +208,21 @@ textarea {
 .virtual-queue-sheen {
   background: linear-gradient(105deg, transparent 0%, rgb(255 255 255 / 0.08) 35%, rgb(255 255 255 / 0.18) 50%, transparent 65%);
   animation: virtual-queue-sheen 4.8s ease-in-out infinite alternate;
+}
+
+.tracking-step-pulse {
+  animation: tracking-step-pulse 1.6s ease-in-out infinite;
+}
+
+.tracking-line-flow {
+  animation: tracking-line-flow 1.2s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tracking-step-pulse,
+  .tracking-line-flow {
+    animation: none;
+  }
 }
 
 .public-brand-theme {

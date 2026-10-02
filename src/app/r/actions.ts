@@ -90,14 +90,14 @@ const createGroupOrderSessionSchema = z.object({
 
 const joinGroupOrderSessionSchema = z.object({
   restaurantSlug: z.string().min(1),
-  sessionToken: z.string().min(8),
+  sessionToken: z.string().min(6),
   displayName: z.string().trim().min(2).max(120),
   phone: z.string().trim().max(40).optional(),
   deviceToken: z.string().uuid(),
 });
 
 const groupOrderItemInputSchema = z.object({
-  sessionToken: z.string().min(8),
+  sessionToken: z.string().min(6),
   participantToken: z.string().min(12),
   productId: z.string().uuid(),
   variantId: z.string().uuid().optional(),
@@ -106,14 +106,14 @@ const groupOrderItemInputSchema = z.object({
 });
 
 const removeGroupOrderItemInputSchema = z.object({
-  sessionToken: z.string().min(8),
+  sessionToken: z.string().min(6),
   participantToken: z.string().min(12).optional(),
   hostAccessToken: z.string().min(12).optional(),
   itemId: z.string().uuid(),
 });
 
 const updateGroupParticipantPaymentInputSchema = z.object({
-  sessionToken: z.string().min(8),
+  sessionToken: z.string().min(6),
   participantToken: z.string().min(12),
   paymentStatus: z.enum(["pending", "qr_uploaded", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
   paymentNote: z.string().trim().max(240).optional(),
@@ -121,7 +121,7 @@ const updateGroupParticipantPaymentInputSchema = z.object({
 
 const updateGroupParticipantPaymentFormSchema = z.object({
   restaurantSlug: z.string().min(1),
-  sessionToken: z.string().min(8),
+  sessionToken: z.string().min(6),
   participantToken: z.string().min(12),
   paymentStatus: z.enum(["pending", "qr_uploaded", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
   paymentNote: z.string().trim().max(240).optional(),
@@ -129,7 +129,7 @@ const updateGroupParticipantPaymentFormSchema = z.object({
 
 const updateGroupSessionSettingsSchema = z.object({
   restaurantSlug: z.string().min(1),
-  sessionToken: z.string().min(8),
+  sessionToken: z.string().min(6),
   hostAccessToken: z.string().min(12),
   collectMode: groupCollectModeSchema,
   multisiteEnabled: z.coerce.boolean().default(false),
@@ -137,13 +137,13 @@ const updateGroupSessionSettingsSchema = z.object({
 
 const updateGroupSessionStatusInputSchema = z.object({
   restaurantSlug: z.string().min(1),
-  sessionToken: z.string().min(8),
+  sessionToken: z.string().min(6),
   hostAccessToken: z.string().min(12),
   status: z.enum(["open", "locked", "cancelled"]),
 });
 
 const updateGroupParticipantByHostInputSchema = z.object({
-  sessionToken: z.string().min(8),
+  sessionToken: z.string().min(6),
   hostAccessToken: z.string().min(12),
   participantId: z.string().uuid(),
   paymentStatus: z.enum(["pending", "qr_uploaded", "paid_qr", "cash_pending", "covered_by_host", "excluded"]),
@@ -151,7 +151,7 @@ const updateGroupParticipantByHostInputSchema = z.object({
 
 const submitGroupOrderSessionSchema = z.object({
   restaurantSlug: z.string().min(1),
-  sessionToken: z.string().min(8),
+  sessionToken: z.string().min(6),
   hostAccessToken: z.string().min(12),
   orderType: z.enum(["delivery", "pickup"]),
   customerName: z.string().trim().min(2).max(120),
@@ -856,7 +856,9 @@ export async function trackPublicOrderAction(formData: FormData) {
 }
 
 function createShortToken(length = 12) {
-  return crypto.randomUUID().replace(/-/g, "").slice(0, length).toUpperCase();
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
 }
 
 function createSecretToken() {
@@ -952,7 +954,7 @@ export async function createGroupOrderSessionAction(formData: FormData) {
     collectMode === "host_collects" && isNonEmptyFile(hostQrFile)
       ? await uploadPublicImage(hostQrFile, `restaurants/${restaurant.id}/group-host-qr`)
       : null;
-  const sessionToken = createShortToken(12);
+  const sessionToken = createShortToken(6);
   const hostAccessToken = createSecretToken();
   const hostParticipantToken = createSecretToken();
   const sessionPayload = {

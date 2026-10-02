@@ -704,8 +704,12 @@ export function GroupOrderSessionClient({
                 </span>
                 <div>
                   <h2 className="text-lg font-black">Invitar</h2>
-                  <p className="text-xs font-bold text-[var(--muted)]">Comparte este link o QR.</p>
+                  <p className="text-xs font-bold text-[var(--muted)]">Comparte el QR o este código.</p>
                 </div>
+              </div>
+              <div className="rounded-[1rem] bg-[var(--primary-dark)] p-4 text-center text-[var(--color-on-primary)]">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-75">Código para unirse</p>
+                <p className="mt-1 font-mono text-4xl font-black tracking-[0.16em]">{session.publicToken}</p>
               </div>
               {qrDataUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -715,7 +719,7 @@ export function GroupOrderSessionClient({
                 {shareState === "copied" ? <Check className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}
                 {shareState === "copied" ? "Copiado" : "Copiar link"}
               </button>
-              <a className={buttonClasses("primary", "w-full")} href={`https://wa.me/?text=${encodeURIComponent(`Unete a mi Yopido Grupal en ${restaurant.name}: ${inviteUrl}`)}`} rel="noreferrer" target="_blank">
+              <a className={buttonClasses("primary", "w-full")} href={`https://wa.me/?text=${encodeURIComponent(`Únete a mi Yopido Grupal en ${restaurant.name}. Código: ${session.publicToken}. Link: ${inviteUrl}`)}`} rel="noreferrer" target="_blank">
                 <Share2 className="h-4 w-4" />
                 WhatsApp
               </a>

@@ -1,14 +1,12 @@
 "use client";
 
-import { CheckCircle2, KeyRound, LogOut, Mail, MapPin, Phone, Plus, ReceiptText, UserRound, X } from "lucide-react";
+import { CheckCircle2, KeyRound, LogOut, Mail, MapPin, Phone, ReceiptText, UserRound, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { BrandLogo } from "@/components/brand/BrandLogo";
-import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
-  createPublicCustomerAddress,
   customerErrorMessage,
   notifyCustomerAccountChanged,
   registerPublicCustomer,
@@ -160,9 +158,6 @@ function CustomerAccountModal({
   const [phone, setPhone] = useState(account.profile?.phone ?? "");
   const [documentNumber, setDocumentNumber] = useState(account.profile?.documentNumber ?? "");
   const [editingProfile, setEditingProfile] = useState(!account.profile);
-  const [addressLabel, setAddressLabel] = useState("");
-  const [address, setAddress] = useState("");
-  const [addressCoordinates, setAddressCoordinates] = useState<{ latitude: number; longitude: number; mapsUrl: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [googleSaving, setGoogleSaving] = useState(false);
   const [newPassword, setNewPassword] = useState("");
@@ -260,32 +255,6 @@ function CustomerAccountModal({
     }
   }
 
-  async function saveAddress(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSaving(true);
-    setError("");
-    setMessage("");
-    try {
-      await createPublicCustomerAddress({
-        address,
-        isDefault: account.addresses.length === 0,
-        label: addressLabel || `Direccion ${account.addresses.length + 1}`,
-        latitude: addressCoordinates?.latitude,
-        longitude: addressCoordinates?.longitude,
-        mapsUrl: addressCoordinates?.mapsUrl,
-      });
-      setAddress("");
-      setAddressLabel("");
-      setAddressCoordinates(null);
-      await onRefresh();
-      setMessage("Direccion guardada.");
-    } catch (nextError) {
-      setError(customerErrorMessage(nextError));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function changeRequiredPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
@@ -358,13 +327,13 @@ function CustomerAccountModal({
           <X className="h-5 w-5" />
         </button>
 
-        <div className={cn("flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] bg-[#12355B] pr-20 pt-[calc(1rem+env(safe-area-inset-top))] text-white sm:pt-4", loggedIn ? "px-5 pb-5 pr-20" : "px-5 pb-4 pr-20")}>
+        <div className={cn("flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] bg-[#12355B] pr-20 pt-[calc(0.85rem+env(safe-area-inset-top))] text-white sm:pt-4", loggedIn ? "px-4 pb-4 pr-20 sm:px-5 sm:pb-5" : "px-5 pb-4 pr-20")}>
           <div>
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[var(--accent)]">Mi Yopido</p>
             {loggedIn ? (
               <>
                 <h2 className="mt-1 text-2xl font-black">Hola {firstName || "bienvenido"}</h2>
-                <p className="mt-1 text-sm font-semibold text-white/74">Datos, direcciones y pedidos sin volver a escribir todo.</p>
+                <p className="mt-1 text-sm font-semibold text-white/74">Tus datos y pedidos, listos para pedir más rápido.</p>
               </>
             ) : null}
           </div>
@@ -445,7 +414,7 @@ function CustomerAccountModal({
                 </>
               ) : (
                 <>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
                 <SummaryCard icon={<CheckCircle2 className="h-5 w-5" />} label="Perfil" value={profileComplete ? "Listo" : "Falta"} />
                 <SummaryCard icon={<MapPin className="h-5 w-5" />} label="Direcciones" value={String(account.addresses.length)} />
                 <SummaryCard icon={<ReceiptText className="h-5 w-5" />} label="Pedidos" value={String(orders.length)} />
@@ -496,7 +465,7 @@ function CustomerAccountModal({
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--primary)] text-white"><MapPin className="h-5 w-5" /></span>
                   <div>
                     <h3 className="text-lg font-black">Direcciones guardadas</h3>
-                    <p className="text-sm font-semibold text-[var(--muted)]">El checkout usara una de estas direcciones automaticamente.</p>
+                    <p className="text-sm font-semibold text-[var(--muted)]">Elige o registra una nueva al hacer un pedido con delivery.</p>
                   </div>
                 </div>
                 <div className="mt-3 grid gap-2">
@@ -508,26 +477,7 @@ function CustomerAccountModal({
                   )) : <p className="rounded-2xl bg-[var(--color-surface)] p-3 text-sm font-bold text-[var(--muted)]">Aun no tienes direcciones guardadas.</p>}
                 </div>
 
-                {account.profile ? (
-                  <form className="mt-4 grid gap-3 border-t border-[var(--border)] pt-4" onSubmit={saveAddress}>
-                    <Input onChange={(event) => setAddressLabel(event.target.value)} placeholder="Alias: Casa, trabajo..." value={addressLabel} />
-                    <Input onChange={(event) => setAddress(event.target.value)} placeholder="Direccion o referencia visible para el restaurante" required value={address} />
-                    <GoogleLocationFields
-                      hideCoordinateInputs
-                      hideMapsUrlInput
-                      label="Ubicacion de entrega"
-                      latitudeName="customerAddressLatitude"
-                      longitudeName="customerAddressLongitude"
-                      mapHeightClassName="h-[280px]"
-                      mapsUrlName="customerAddressMapsUrl"
-                      onCoordinatesChange={setAddressCoordinates}
-                    />
-                    <Button disabled={saving || !address.trim() || !addressCoordinates} type="submit">
-                      <Plus className="h-4 w-4" />
-                      {saving ? "Guardando..." : "Guardar direccion"}
-                    </Button>
-                  </form>
-                ) : null}
+                <p className="mt-3 rounded-2xl bg-[var(--primary-light)]/60 p-3 text-sm font-bold text-[var(--primary)]">Las direcciones se agregan durante el checkout, junto con la ubicación exacta y las indicaciones de entrega.</p>
               </section>
                 </>
               ) : (
@@ -617,10 +567,10 @@ function AuthWelcomePanel({ mode }: { mode: "login" | "register" }) {
 
 function SummaryCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-card)] p-4">
-      <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[var(--primary-light)] text-[var(--primary)]">{icon}</span>
-      <p className="mt-3 text-2xl font-black text-[var(--primary)]">{value}</p>
-      <p className="text-sm font-black text-[var(--muted)]">{label}</p>
+    <div className="min-w-0 rounded-[1.1rem] border border-[var(--border)] bg-[var(--color-card)] p-2.5 sm:rounded-[1.25rem] sm:p-4">
+      <span className="grid h-8 w-8 place-items-center rounded-xl bg-[var(--primary-light)] text-[var(--primary)] sm:h-10 sm:w-10 sm:rounded-2xl">{icon}</span>
+      <p className="mt-2 truncate text-lg font-black leading-none text-[var(--primary)] sm:mt-3 sm:text-2xl">{value}</p>
+      <p className="mt-1 truncate text-[11px] font-black leading-none text-[var(--muted)] sm:text-sm">{label}</p>
     </div>
   );
 }

@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input } from "@/components/ui/Input";
 import { businessCatalogItemsLabel, businessCatalogLabel } from "@/lib/restaurant-directory-options";
-import { customerAccountChangedEvent, type PublicCustomerAccount } from "@/lib/client/customer-account";
+import { createPublicCustomerAddress, customerAccountChangedEvent, customerErrorMessage, type PublicCustomerAccount } from "@/lib/client/customer-account";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { createCustomerClient } from "@/lib/supabase/customer-client";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatBusinessHour, getBusinessStatus, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
@@ -1184,6 +1184,9 @@ function PublicOrderPanel({
   const refreshCustomerAccount = usePublicCustomerStore((state) => state.refreshCustomerAccount);
   const [selectedCustomerAddressId, setSelectedCustomerAddressId] = useState("");
   const [customerAddressMode, setCustomerAddressMode] = useState<CustomerAddressMode>("saved");
+  const [newAddressLabel, setNewAddressLabel] = useState("");
+  const [saveNewAddress, setSaveNewAddress] = useState(true);
+  const savedNewAddressForSubmit = useRef(false);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
@@ -1207,6 +1210,8 @@ function PublicOrderPanel({
   const useNewCustomerAddress = useCallback(() => {
     setCustomerAddressMode("new");
     setSelectedCustomerAddressId("");
+    setNewAddressLabel("");
+    setSaveNewAddress(true);
     setCustomerAddress("");
     setDeliveryAddressDetail("");
     setDeliveryMapsUrl("");
@@ -1396,7 +1401,14 @@ function PublicOrderPanel({
     setFormError("");
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    if (savedNewAddressForSubmit.current) {
+      savedNewAddressForSubmit.current = false;
+      return;
+    }
+
+    const form = event.currentTarget;
+
     for (const step of steps) {
       if (!validateStep(step.key)) {
         event.preventDefault();
@@ -1404,10 +1416,41 @@ function PublicOrderPanel({
         return;
       }
     }
-    const requestIdInput = event.currentTarget.elements.namedItem("requestId");
+    const requestIdInput = form.elements.namedItem("requestId");
     if (requestIdInput instanceof HTMLInputElement && !requestIdInput.value) {
       requestIdInput.value = crypto.randomUUID();
     }
+
+    const shouldSaveNewAddress = Boolean(
+      customerAccount.profile
+      && orderType === "delivery"
+      && customerAddressMode === "new"
+      && saveNewAddress,
+    );
+
+    if (shouldSaveNewAddress) {
+      event.preventDefault();
+      setIsSubmitting(true);
+      setFormError("");
+      try {
+        await createPublicCustomerAddress({
+          address: customerAddress.trim(),
+          isDefault: customerAccount.addresses.length === 0,
+          label: newAddressLabel.trim() || `Direccion ${customerAccount.addresses.length + 1}`,
+          latitude: deliveryCoordinates?.latitude,
+          longitude: deliveryCoordinates?.longitude,
+          mapsUrl: deliveryMapsUrl || undefined,
+        });
+        await refreshCustomerAccount();
+        savedNewAddressForSubmit.current = true;
+        form.requestSubmit();
+      } catch (nextError) {
+        setIsSubmitting(false);
+        setFormError(customerErrorMessage(nextError));
+      }
+      return;
+    }
+
     setIsSubmitting(true);
   }
 
@@ -1564,6 +1607,12 @@ function PublicOrderPanel({
                     </div>
                     ) : (
                       <div className="grid gap-3">
+                        {customerAccount.profile && saveNewAddress ? (
+                          <label className="block text-sm font-black">
+                            Nombre de esta dirección
+                            <Input className="mt-2" onChange={(event) => setNewAddressLabel(event.target.value)} placeholder="Casa, trabajo..." value={newAddressLabel} />
+                          </label>
+                        ) : null}
                         <label className="block text-sm font-black">
                           Direccion de entrega
                           <Input className="mt-2" name="customerAddress" onChange={(event) => setCustomerAddress(event.target.value)} value={customerAddress} />
@@ -1579,6 +1628,12 @@ function PublicOrderPanel({
                           onCoordinatesChange={handleDeliveryCoordinatesChange}
                           showMapByDefault
                         />
+                        {customerAccount.profile ? (
+                          <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-[var(--primary-light)]/60 p-3 text-sm text-[var(--primary)]">
+                            <input checked={saveNewAddress} className="mt-1 h-4 w-4 accent-[var(--primary)]" onChange={(event) => setSaveNewAddress(event.target.checked)} type="checkbox" />
+                            <span><strong className="block font-black">Guardar para próximos pedidos</strong><span className="mt-0.5 block font-semibold">Se registrará al confirmar este pedido.</span></span>
+                          </label>
+                        ) : null}
                       </div>
                     )}
                     <label className="block text-sm font-black">
@@ -1590,8 +1645,14 @@ function PublicOrderPanel({
                   <div className="grid gap-3 rounded-[1.25rem] border border-[var(--border)] bg-[var(--color-surface)] p-4">
                     <div>
                       <p className="font-black">No tienes direccion guardada.</p>
-                      <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Puedes marcar una nueva direccion ahora o guardarla luego en Mi Yopido.</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Registra tu dirección aquí con ubicación exacta y guárdala para tus próximos pedidos.</p>
                     </div>
+                    {customerAccount.profile && saveNewAddress ? (
+                      <label className="block text-sm font-black">
+                        Nombre de esta dirección
+                        <Input className="mt-2" onChange={(event) => setNewAddressLabel(event.target.value)} placeholder="Casa, trabajo..." value={newAddressLabel} />
+                      </label>
+                    ) : null}
                     <label className="block text-sm font-black">
                       Direccion de entrega
                       <Input className="mt-2" name="customerAddress" onChange={(event) => setCustomerAddress(event.target.value)} value={customerAddress} />
@@ -1611,6 +1672,12 @@ function PublicOrderPanel({
                       onCoordinatesChange={handleDeliveryCoordinatesChange}
                       showMapByDefault
                     />
+                    {customerAccount.profile ? (
+                      <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-[var(--primary-light)]/60 p-3 text-sm text-[var(--primary)]">
+                        <input checked={saveNewAddress} className="mt-1 h-4 w-4 accent-[var(--primary)]" onChange={(event) => setSaveNewAddress(event.target.checked)} type="checkbox" />
+                        <span><strong className="block font-black">Guardar para próximos pedidos</strong><span className="mt-0.5 block font-semibold">Se registrará al confirmar este pedido.</span></span>
+                      </label>
+                    ) : null}
                     <PublicCustomerAccountButton tone="plain" />
                   </div>
                 )}

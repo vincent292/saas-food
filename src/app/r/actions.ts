@@ -93,6 +93,7 @@ const joinGroupOrderSessionSchema = z.object({
   sessionToken: z.string().min(8),
   displayName: z.string().trim().min(2).max(120),
   phone: z.string().trim().max(40).optional(),
+  deviceToken: z.string().uuid(),
 });
 
 const groupOrderItemInputSchema = z.object({
@@ -1004,6 +1005,7 @@ export async function joinGroupOrderSessionAction(formData: FormData) {
     sessionToken: formData.get("sessionToken"),
     displayName: formData.get("displayName"),
     phone: formData.get("phone") || undefined,
+    deviceToken: formData.get("deviceToken"),
   });
 
   const restaurantSlug = String(formData.get("restaurantSlug") || "");
@@ -1029,11 +1031,15 @@ export async function joinGroupOrderSessionAction(formData: FormData) {
 
   const { data: existingParticipants } = await admin
     .from("group_order_participants")
-    .select("display_name")
+    .select("display_name,participant_token,device_token")
     .eq("session_id", session.id);
 
   if ((existingParticipants?.length ?? 0) >= GROUP_MAX_PARTICIPANTS) {
     redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { error: "group-full" }));
+  }
+  const existingDevice = existingParticipants?.find((participant) => participant.device_token === parsed.data.deviceToken);
+  if (existingDevice) {
+    redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { participant: existingDevice.participant_token }));
   }
   const usedNames = new Set((existingParticipants ?? []).map((participant) => participant.display_name.trim().toLocaleLowerCase()));
   const requestedName = parsed.data.displayName.trim();
@@ -1048,6 +1054,7 @@ export async function joinGroupOrderSessionAction(formData: FormData) {
     participant_token: participantToken,
     display_name: displayName,
     phone: parsed.data.phone || null,
+    device_token: parsed.data.deviceToken,
     role: "guest",
   });
 

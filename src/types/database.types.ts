@@ -646,6 +646,7 @@ export type Database = {
         id: string;
         session_id: string;
         participant_token: string;
+        device_token: string | null;
         display_name: string;
         phone: string | null;
         role: "host" | "guest";

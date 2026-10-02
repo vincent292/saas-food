@@ -150,6 +150,16 @@ export function GroupOrderSessionClient({
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const hostAccessToken = initialHostAccessToken ?? "";
   const participantToken = initialParticipantToken ?? "";
+  const [deviceToken] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const key = `yopido:group-device:${session.publicToken}`;
+    const existing = window.localStorage.getItem(key);
+    if (existing) return existing;
+    const token = crypto.randomUUID();
+    window.localStorage.setItem(key, token);
+    return token;
+  });
+  const [joining, setJoining] = useState(false);
   const [shareState, setShareState] = useState<"idle" | "copied">("idle");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [clientError, setClientError] = useState("");
@@ -463,13 +473,14 @@ export function GroupOrderSessionClient({
                     <p className="text-sm font-semibold text-[var(--muted)]">Solo necesitamos tu nombre para separar lo que pides. Si alguien ya usa ese nombre, te agregaremos un número.</p>
                   </div>
                 </div>
-                <form action={joinGroupOrderSessionAction} className="grid gap-3 sm:grid-cols-2">
+                <form action={joinGroupOrderSessionAction} className="grid gap-3 sm:grid-cols-2" onSubmit={() => setJoining(true)}>
                   <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
                   <input name="sessionToken" type="hidden" value={session.publicToken} />
+                  <input name="deviceToken" type="hidden" value={deviceToken} />
                   <Input name="displayName" placeholder="Tu nombre" required />
                   <Input inputMode="tel" name="phone" placeholder="WhatsApp opcional" />
-                  <button className={buttonClasses("primary", "sm:col-span-2")} type="submit">
-                    Entrar al pedido
+                  <button className={buttonClasses("primary", "sm:col-span-2")} disabled={!deviceToken || joining} type="submit">
+                    {joining ? "Uniéndote al pedido..." : "Entrar al pedido"}
                     <ArrowRight className="h-4 w-4" />
                   </button>
                 </form>

@@ -31,7 +31,7 @@ import { PublicCustomerAccountButton } from "@/components/customer/PublicCustome
 import { HomeLocationProvider, HomeNearbyHighlights, HomeNearbyMobileExplorer, HomeNearbyRestaurantSection, HomeNearestBranchSpotlight } from "@/components/home/HomeNearbyDirectory";
 import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
 import { PendingCartNotice } from "@/components/home/PendingCartNotice";
-import { PublicThemeToggle } from "@/components/public-theme/PublicThemeToggle";
+import { GroupOrderEntry } from "@/components/home/GroupOrderEntry";
 import { Card } from "@/components/ui/Card";
 import {
   businessCatalogLabelTitle,
@@ -83,7 +83,7 @@ export default async function Home({
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <PartnerLoginButton compact tone="onPrimary" />
               <PublicCustomerAccountButton compact initialMode={miYopidoMode} initialOpen={openMiYopido} />
-              <PublicThemeToggle compact tone="onPrimary" />
+              <GroupOrderEntry />
             </div>
           </header>
 

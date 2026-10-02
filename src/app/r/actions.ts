@@ -95,6 +95,7 @@ const joinGroupOrderSessionSchema = z.object({
   phone: z.string().trim().max(40).optional(),
   deviceToken: z.string().uuid(),
 });
+const joinGroupByCodeSchema = z.object({ code: z.string().trim().toUpperCase().length(6) });
 
 const groupOrderItemInputSchema = z.object({
   sessionToken: z.string().min(6),
@@ -1065,6 +1066,17 @@ export async function joinGroupOrderSessionAction(formData: FormData) {
   }
 
   redirect(groupOrderUrl(parsed.data.restaurantSlug, parsed.data.sessionToken, { participant: participantToken }));
+}
+
+export async function joinGroupByCodeAction(formData: FormData) {
+  const parsed = joinGroupByCodeSchema.safeParse({ code: formData.get("code") });
+  if (!parsed.success) redirect("/?grupoError=codigo");
+  const admin = createAdminClient();
+  if (!admin) redirect("/?grupoError=servicio");
+  const { data: session } = await admin.from("group_order_sessions").select("public_token,restaurants!inner(slug)").eq("public_token", parsed.data.code).eq("status", "open").maybeSingle();
+  const restaurant = session?.restaurants as unknown as { slug?: string } | null;
+  if (!session || !restaurant?.slug) redirect("/?grupoError=no-encontrado");
+  redirect(publicRestaurantPath(restaurant.slug, `grupo/${session.public_token}`));
 }
 
 export async function addGroupOrderItemAction(input: unknown) {

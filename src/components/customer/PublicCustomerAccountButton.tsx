@@ -1,12 +1,14 @@
 "use client";
 
-import { CheckCircle2, KeyRound, LogOut, Mail, MapPin, Phone, ReceiptText, UserRound, X } from "lucide-react";
+import { CheckCircle2, KeyRound, LogOut, Mail, MapPin, Phone, Plus, ReceiptText, UserRound, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
+  createPublicCustomerAddress,
   customerErrorMessage,
   notifyCustomerAccountChanged,
   registerPublicCustomer,
@@ -166,6 +168,7 @@ function CustomerAccountModal({
   const [error, setError] = useState("");
   const [portalReady, setPortalReady] = useState(false);
   const [publicTheme, setPublicTheme] = useState<"light" | "dark">("light");
+  const [addressFormOpen, setAddressFormOpen] = useState(false);
 
   const loggedIn = Boolean(sessionEmail);
   const profileComplete = Boolean(account.profile);
@@ -306,6 +309,7 @@ function CustomerAccountModal({
   if (!portalReady) return null;
 
   return createPortal(
+    <>
     <div
       className="public-brand-theme fixed inset-0 z-[200] flex items-stretch justify-center bg-[rgb(8_36_65_/_0.68)] p-0 text-[var(--text)] backdrop-blur-sm sm:items-center sm:p-4"
       data-public-theme={publicTheme}
@@ -461,12 +465,15 @@ function CustomerAccountModal({
               </section>
 
               <section className="rounded-[1.4rem] border border-[var(--border)] bg-[var(--color-card)] p-4">
-                <div className="flex items-start gap-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--primary)] text-white"><MapPin className="h-5 w-5" /></span>
                   <div>
                     <h3 className="text-lg font-black">Direcciones guardadas</h3>
-                    <p className="text-sm font-semibold text-[var(--muted)]">Elige o registra una nueva al hacer un pedido con delivery.</p>
+                    <p className="text-sm font-semibold text-[var(--muted)]">Tu principal se usará primero en delivery.</p>
                   </div>
+                  </div>
+                  {account.profile ? <button className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full bg-[var(--primary)] px-3 text-xs font-black text-white shadow-sm transition hover:scale-[1.02] active:scale-95" onClick={() => setAddressFormOpen(true)} type="button"><Plus className="h-4 w-4" />Agregar</button> : null}
                 </div>
                 <div className="mt-3 grid gap-2">
                   {account.addresses.length ? account.addresses.map((item) => (
@@ -477,7 +484,7 @@ function CustomerAccountModal({
                   )) : <p className="rounded-2xl bg-[var(--color-surface)] p-3 text-sm font-bold text-[var(--muted)]">Aun no tienes direcciones guardadas.</p>}
                 </div>
 
-                <p className="mt-3 rounded-2xl bg-[var(--primary-light)]/60 p-3 text-sm font-bold text-[var(--primary)]">Las direcciones se agregan durante el checkout, junto con la ubicación exacta y las indicaciones de entrega.</p>
+                <p className="mt-3 rounded-2xl bg-[var(--primary-light)]/60 p-3 text-sm font-bold text-[var(--primary)]">Agrega una dirección desde el botón + con su ubicación exacta. También puedes registrar una nueva durante checkout.</p>
               </section>
                 </>
               ) : (
@@ -536,8 +543,91 @@ function CustomerAccountModal({
           ) : null}
         </div>
       </div>
-    </div>,
+    </div>
+    {addressFormOpen ? <AddressCreateModal isFirstAddress={account.addresses.length === 0} onClose={() => setAddressFormOpen(false)} onSaved={onRefresh} theme={publicTheme} /> : null}
+    </>,
     document.body,
+  );
+}
+
+function AddressCreateModal({
+  isFirstAddress,
+  onClose,
+  onSaved,
+  theme,
+}: {
+  isFirstAddress: boolean;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+  theme: "light" | "dark";
+}) {
+  const [label, setLabel] = useState("");
+  const [address, setAddress] = useState("");
+  const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number; mapsUrl: string } | null>(null);
+  const [isDefault, setIsDefault] = useState(isFirstAddress);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function saveAddress(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await createPublicCustomerAddress({
+        address: address.trim(),
+        isDefault,
+        label: label.trim(),
+        latitude: coordinates?.latitude,
+        longitude: coordinates?.longitude,
+        mapsUrl: coordinates?.mapsUrl,
+      });
+      await onSaved();
+      onClose();
+    } catch (nextError) {
+      setError(customerErrorMessage(nextError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="public-brand-theme fixed inset-0 z-[220] flex items-stretch justify-center bg-[rgb(8_36_65_/_0.76)] text-[var(--text)] backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose} role="dialog" aria-modal="true" aria-label="Agregar dirección" data-public-theme={theme}>
+      <section className="flex h-dvh w-full max-w-xl flex-col overflow-hidden bg-[var(--surface)] shadow-2xl sm:h-auto sm:max-h-[90dvh] sm:rounded-[1.5rem]" onClick={(event) => event.stopPropagation()}>
+        <header className="flex shrink-0 items-start justify-between gap-4 bg-[#12355B] px-4 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] text-white sm:px-5 sm:pt-5">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[var(--accent)]">Mi Yopido</p>
+            <h2 className="mt-1 text-2xl font-black">Nueva dirección</h2>
+            <p className="mt-1 text-sm font-semibold text-white/72">Guarda el punto exacto para que el delivery llegue sin dudas.</p>
+          </div>
+          <button aria-label="Cerrar nueva dirección" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)] shadow-xl" onClick={onClose} type="button"><X className="h-5 w-5" /></button>
+        </header>
+        <form className="admin-scrollbar min-h-0 flex-1 overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:p-5" onSubmit={saveAddress}>
+          <div className="grid gap-4">
+            <label className="block text-sm font-black">Nombre de la dirección<Input className="mt-2" onChange={(event) => setLabel(event.target.value)} placeholder="Casa, trabajo..." required value={label} /></label>
+            <label className="block text-sm font-black">Dirección y referencia<Input className="mt-2" onChange={(event) => setAddress(event.target.value)} placeholder="Calle, zona, número o referencia" required value={address} /></label>
+            <GoogleLocationFields
+              hideCoordinateInputs
+              hideMapsUrlInput
+              label="Ubicación exacta"
+              latitudeName="customerAddressLatitude"
+              longitudeName="customerAddressLongitude"
+              mapHeightClassName="h-[250px] sm:h-[300px]"
+              mapsUrlName="customerAddressMapsUrl"
+              onCoordinatesChange={setCoordinates}
+              showMapByDefault
+            />
+            <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-[var(--primary-light)] p-3 text-sm text-[var(--primary)]">
+              <input checked={isDefault} className="mt-1 h-4 w-4 accent-[var(--primary)]" onChange={(event) => setIsDefault(event.target.checked)} type="checkbox" />
+              <span><strong className="block font-black">Usar como dirección principal</strong><span className="mt-0.5 block font-semibold">Se seleccionará automáticamente al elegir delivery.</span></span>
+            </label>
+            {error ? <Feedback tone="error">{error}</Feedback> : null}
+          </div>
+          <div className="sticky bottom-0 mt-4 bg-[var(--surface)] pt-3">
+            <Button className="min-h-12 w-full" disabled={saving || !address.trim() || !label.trim() || !coordinates} type="submit">{saving ? "Guardando dirección..." : "Guardar dirección"}</Button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 

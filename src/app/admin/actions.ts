@@ -21,6 +21,7 @@ import { printConnectorService } from "@/lib/services/print-connector.service";
 import { offerNextRiderForOrder } from "@/lib/services/rider-dispatch.service";
 import { riderService } from "@/lib/services/rider.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
+import { createReadOnlySupportSession, endActiveSupportSession, getActiveSupportSession } from "@/lib/services/support-impersonation.service";
 import { membershipService } from "@/lib/services/membership.service";
 import { analyzeMenuFileWithGemini, normalizeMenuImportDraft, validateMenuImportFile } from "@/lib/services/menu-import-ai.service";
 import { answerSupportQuestionWithAi } from "@/lib/services/support-ai.service";
@@ -399,6 +400,12 @@ const createWaiterSchema = z.object({
 const resetSuperadminUserPasswordSchema = z.object({
   targetUserId: z.string().uuid(),
   password: z.string().trim().min(8).max(120).optional().or(z.literal("")),
+});
+
+const startReadOnlySupportSessionSchema = z.object({
+  targetUserId: z.string().uuid(),
+  restaurantId: z.string().uuid(),
+  purpose: z.string().trim().min(10).max(500),
 });
 
 const createCategorySchema = z.object({
@@ -1168,13 +1175,20 @@ function generateSecurePassword() {
   return password.join("");
 }
 
-async function requireUser() {
+async function requireUser(options: { allowReadOnlySupport?: boolean } = {}) {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getUser();
 
   if (error || !data.user) {
     await supabase.auth.signOut();
     redirect("/admin/login?error=session");
+  }
+
+  if (!options.allowReadOnlySupport) {
+    const supportSession = await getActiveSupportSession(data.user.id);
+    if (supportSession) {
+      redirect(`/admin/restaurantes/${supportSession.restaurantId}/dashboard?error=support-read-only`);
+    }
   }
 
   return { supabase, user: data.user };
@@ -2432,6 +2446,71 @@ export async function resetSuperadminUserPasswordAction(
     targetUserId: parsed.data.targetUserId,
     temporaryPassword,
   };
+}
+
+export async function startReadOnlySupportSessionAction(formData: FormData) {
+  const parsed = startReadOnlySupportSessionSchema.safeParse({
+    targetUserId: formData.get("targetUserId"),
+    restaurantId: formData.get("restaurantId"),
+    purpose: formData.get("purpose"),
+  });
+  if (!parsed.success) {
+    redirect("/admin/soporte/acceso?error=invalid-support-session");
+  }
+
+  const { supabase, user } = await requireSuperadmin();
+  const admin = createAdminClient();
+  if (!admin) redirect("/admin/soporte/acceso?error=service-role-required");
+
+  const [{ data: membership }, { data: targetProfile }] = await Promise.all([
+    admin
+      .from("restaurant_memberships")
+      .select("role,is_active")
+      .eq("restaurant_id", parsed.data.restaurantId)
+      .eq("user_id", parsed.data.targetUserId)
+      .eq("is_active", true)
+      .maybeSingle(),
+    admin.from("profiles").select("global_role").eq("id", parsed.data.targetUserId).maybeSingle(),
+  ]);
+
+  if (!membership || !["restaurant_admin", "cashier", "kitchen", "waiter"].includes(membership.role) || targetProfile?.global_role === "superadmin") {
+    redirect("/admin/soporte/acceso?error=invalid-support-target");
+  }
+
+  const session = await createReadOnlySupportSession({
+    actorUserId: user.id,
+    targetUserId: parsed.data.targetUserId,
+    restaurantId: parsed.data.restaurantId,
+    targetRole: membership.role as "restaurant_admin" | "cashier" | "kitchen" | "waiter",
+    purpose: parsed.data.purpose,
+  });
+
+  await supabase.rpc("write_admin_audit", {
+    p_action: "support_read_only_session_started",
+    p_entity_type: "support_impersonation_session",
+    p_entity_id: session.id,
+    p_restaurant_id: parsed.data.restaurantId,
+    p_severity: "warning",
+    p_metadata: { target_user_id: parsed.data.targetUserId, target_role: membership.role, purpose: parsed.data.purpose, expires_at: session.expiresAt },
+  });
+
+  redirect(`/admin/restaurantes/${parsed.data.restaurantId}/dashboard?support=1`);
+}
+
+export async function endReadOnlySupportSessionAction() {
+  const { supabase, user } = await requireUser({ allowReadOnlySupport: true });
+  const session = await endActiveSupportSession(user.id);
+  if (session) {
+    await supabase.rpc("write_admin_audit", {
+      p_action: "support_read_only_session_ended",
+      p_entity_type: "support_impersonation_session",
+      p_entity_id: session.id,
+      p_restaurant_id: session.restaurantId,
+      p_severity: "info",
+      p_metadata: { target_user_id: session.targetUserId },
+    });
+  }
+  redirect("/admin/soporte/acceso?ended=1");
 }
 
 export async function setRestaurantStatusAction(formData: FormData) {

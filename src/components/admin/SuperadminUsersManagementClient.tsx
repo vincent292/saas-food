@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, KeyRound, MessageCircle, Search, ShieldCheck, UserRound } from "lucide-react";
+import { Copy, Eye, KeyRound, MessageCircle, Search, ShieldCheck, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useActionState } from "react";
 import { resetSuperadminUserPasswordAction, type SuperadminUserPasswordFormState } from "@/app/admin/actions";
@@ -91,7 +91,7 @@ export function SuperadminUsersManagementClient({
 
       <DataTable
         emptyMessage={emptyMessage}
-        headers={["Usuario", "Contacto", "Carnet", "Tipo", "Estado", "Registro", "Clave"]}
+        headers={["Usuario", "Contacto", "Carnet", "Tipo", "Estado", "Registro", "Soporte", "Clave"]}
         rows={users.map((user) => [
           <div className="flex items-center gap-3" key={`${user.id}-name`}>
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[var(--primary-light)] text-[var(--primary-dark)]">
@@ -126,6 +126,12 @@ export function SuperadminUsersManagementClient({
             <p>{formatShortDate(user.createdAt)}</p>
             <p>Ultimo: {user.lastSignInAt ? formatShortDate(user.lastSignInAt) : "sin registro"}</p>
           </div>,
+          user.accountType !== "customer" ? (
+            <Link className={buttonClasses("secondary", "text-xs")} href={`/admin/soporte/acceso?usuario=${encodeURIComponent(user.id)}`} key={`${user.id}-support`}>
+              <Eye className="h-4 w-4" />
+              Ver como
+            </Link>
+          ) : <span className="text-xs text-[var(--color-secondary-text)]" key={`${user.id}-support`}>No aplica</span>,
           <PasswordResetPanel key={`${user.id}-password`} user={user} />,
         ])}
       />

@@ -7,6 +7,7 @@ import { orderService } from "@/lib/services/order.service";
 import { ownerBillingService } from "@/lib/services/owner-billing.service";
 import { panelNotificationsService } from "@/lib/services/panel-notifications.service";
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
+import { getActiveSupportSession } from "@/lib/services/support-impersonation.service";
 import type { ModuleKey, RestaurantStatus } from "@/types/restaurant.types";
 
 export async function AdminLayout({
@@ -76,6 +77,7 @@ export async function AdminLayout({
         profile.globalRole !== "superadmin" ? restaurantAccessService.claim(restaurantId) : Promise.resolve(null),
       ])
     : [[], []];
+  const supportSession = restaurantId && profile.globalRole === "superadmin" ? await getActiveSupportSession(profile.id) : null;
   const canSwitchBranches = memberships.length > 1;
   const canAccessOwnerPanel = memberships.some((membership) => membership.role === "restaurant_admin" && membership.restaurant.ownerUserId === profile.id);
 
@@ -89,6 +91,7 @@ export async function AdminLayout({
       restaurantId={restaurantId}
       restaurantName={restaurantName}
       restaurantStatus={restaurantStatus}
+      supportSession={supportSession?.restaurantId === restaurantId ? supportSession : null}
       title={title}
       pendingOrderAlerts={pendingOrderAlerts}
       panelNotifications={panelNotifications}

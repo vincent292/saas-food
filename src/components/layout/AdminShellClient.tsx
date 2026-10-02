@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { signOutAction } from "@/app/admin/actions";
+import { endReadOnlySupportSessionAction, signOutAction } from "@/app/admin/actions";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { PanelNotificationBell } from "@/components/notifications/PanelNotificationBell";
 import { GlobalOrderSoundAlert } from "@/components/orders/GlobalOrderSoundAlert";
@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils/cn";
 import type { Order } from "@/types/order.types";
 import type { PanelNotification } from "@/types/notification.types";
 import type { ModuleKey, RestaurantStatus } from "@/types/restaurant.types";
+import type { ActiveSupportSession } from "@/lib/services/support-impersonation.service";
 
 type NavItem = {
   label: string;
@@ -100,6 +101,7 @@ export function AdminShellClient({
   canSwitchBranches = false,
   panelNotifications = [],
   pendingOrderAlerts = [],
+  supportSession = null,
   title: titleOverride,
   active: activeOverride,
 }: {
@@ -113,6 +115,7 @@ export function AdminShellClient({
   enabledModules?: ModuleKey[];
   panelNotifications?: PanelNotification[];
   pendingOrderAlerts?: Order[];
+  supportSession?: ActiveSupportSession | null;
   title?: string;
   active?: string;
 }) {
@@ -145,6 +148,14 @@ export function AdminShellClient({
 
   return (
     <div className="admin-panel min-h-dvh bg-[var(--color-surface)] text-[var(--color-heading)]">
+      {supportSession ? (
+        <div className="fixed inset-x-0 top-0 z-[200] flex flex-wrap items-center justify-center gap-3 border-b border-[var(--color-warning-strong)] bg-[var(--color-warning-soft)] px-4 py-2 text-center text-xs font-black text-[var(--color-warning-strong)] shadow-sm">
+          <span>Soporte: viendo como {supportSession.targetName} ({supportSession.targetRole}) · solo lectura hasta {new Intl.DateTimeFormat("es-BO", { timeStyle: "short" }).format(new Date(supportSession.expiresAt))}</span>
+          <form action={endReadOnlySupportSessionAction}>
+            <button className="rounded-lg border border-current px-2 py-1" type="submit">Terminar</button>
+          </form>
+        </div>
+      ) : null}
       {restaurantId ? <GlobalOrderSoundAlert key={restaurantId} orders={pendingOrderAlerts} restaurantId={restaurantId} /> : null}
 
       <div className={cn("fixed inset-0 z-40 bg-[var(--color-overlay)] backdrop-blur-sm lg:hidden", sidebarOpen ? "block" : "hidden")} onClick={() => setSidebarOpen(false)} />

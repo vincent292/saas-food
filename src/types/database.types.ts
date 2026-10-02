@@ -1053,6 +1053,21 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      support_impersonation_sessions: Row<{
+        id: string;
+        actor_user_id: string;
+        target_user_id: string;
+        restaurant_id: string;
+        target_role: Database["public"]["Enums"]["app_role"];
+        purpose: string;
+        mode: "read_only";
+        token_hash: string;
+        status: "active" | "ended" | "expired" | "revoked";
+        started_at: string;
+        expires_at: string;
+        ended_at: string | null;
+        ended_reason: string | null;
+      }>;
       support_tickets: Row<{
         id: string;
         restaurant_id: string | null;

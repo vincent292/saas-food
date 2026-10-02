@@ -1,4 +1,4 @@
-import { Activity, ChefHat, Clock3, Flame, Sparkles, Timer, UsersRound } from "lucide-react";
+import { Activity, ChefHat, Clock3, Flame, Sparkles, Timer, UserRound, UsersRound } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { formatShortTime } from "@/lib/utils/dates";
@@ -150,41 +150,55 @@ function QueueLane({ queue }: { queue: OrderQueueState }) {
   const dots = Array.from({ length: visibleAhead + 1 });
 
   return (
-    <div className="relative min-h-20 overflow-hidden rounded-[1.25rem] bg-[var(--color-neutral-900)] px-4 py-5 text-[var(--color-on-primary)]">
-      <div className="absolute inset-x-0 top-0 h-px bg-[var(--surface)]/25" />
-      <div className="absolute inset-0 virtual-queue-sheen opacity-70" />
-      <div className="relative flex items-center gap-3">
-        <div className="h-1 flex-1 rounded-full bg-[var(--color-on-primary-soft)]">
-          <div
-            className="h-1 rounded-full bg-[var(--primary)] transition-all duration-700"
-            style={{ width: `${Math.max(22, Math.min(100, ((visibleAhead + 1) / 5) * 100))}%` }}
-          />
+    <div className="relative overflow-hidden rounded-[1.5rem] bg-[linear-gradient(125deg,#082441_0%,#12355B_54%,#0B2D4E_100%)] px-4 py-4 text-[var(--color-on-primary)] shadow-[inset_0_1px_rgb(255_255_255_/_0.14)] sm:px-5 sm:py-5">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/25" />
+      <div className="pointer-events-none absolute -right-14 -top-16 h-44 w-44 rounded-full bg-[var(--accent)]/10 blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 virtual-queue-sheen opacity-60" />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--accent)]">Fila virtual</p>
+          <p className="mt-1 text-sm font-bold text-white/78">{ahead ? `${ahead} ${ahead === 1 ? "pedido antes" : "pedidos antes"} que el tuyo` : "Eres el siguiente para cocina"}</p>
         </div>
-        <span className="text-xs font-black uppercase tracking-[0.16em] text-[var(--color-on-primary-muted)]">En vivo</span>
+        <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-white/85 ring-1 ring-white/10">
+          <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--accent)] opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--accent)]" /></span>
+          En vivo
+        </span>
       </div>
 
-      <div className="relative mt-5 flex items-center gap-2">
-        {dots.map((_, index) => {
-          const isMine = index === dots.length - 1;
-          return (
-            <span
-              aria-hidden="true"
-              className={cn(
-                "grid h-10 w-10 shrink-0 place-items-center rounded-full border text-xs font-black shadow-lg transition",
-                isMine
-                  ? "virtual-queue-breathe border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)] shadow-[var(--shadow-glow)]"
-                  : "border-[var(--surface)]/10 bg-[var(--color-on-primary-soft)] text-[var(--color-on-primary-muted)]",
-              )}
-              key={index}
-            >
-              {isMine ? "Tu" : index + 1}
-            </span>
-          );
-        })}
-        {hiddenAhead ? <span className="rounded-full bg-[var(--surface)]/10 px-3 py-2 text-xs font-black text-[var(--color-on-primary-muted)]">+{hiddenAhead}</span> : null}
-        <span className="ml-auto grid h-10 w-10 place-items-center rounded-full bg-[var(--surface)] text-[var(--color-heading)] shadow-lg">
-          <ChefHat className="h-5 w-5" />
-        </span>
+      <div className="relative mt-5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="relative flex min-w-[285px] items-start justify-between gap-2 px-0.5">
+          <span aria-hidden="true" className="absolute left-5 right-5 top-5 h-1 rounded-full bg-white/12" />
+          <span aria-hidden="true" className="absolute left-5 top-5 h-1 rounded-full bg-[var(--accent)] transition-all duration-700" style={{ width: `${Math.max(18, Math.min(82, ((visibleAhead + 1) / Math.max(visibleAhead + 3, 5)) * 100))}%` }} />
+          {dots.map((_, index) => {
+            const isMine = index === dots.length - 1;
+            return (
+              <div className="relative z-10 grid justify-items-center gap-1.5" key={index}>
+                <span
+                  className={cn(
+                    "grid h-10 w-10 place-items-center rounded-full border shadow-lg transition sm:h-11 sm:w-11",
+                    isMine
+                      ? "virtual-queue-breathe border-[var(--accent)] bg-[var(--accent)] text-[var(--primary-dark)] shadow-[var(--shadow-glow)]"
+                      : "border-white/12 bg-white/10 text-white/75",
+                  )}
+                >
+                  {isMine ? <UserRound className="h-5 w-5" /> : <UsersRound className="h-4 w-4" />}
+                </span>
+                <span className={cn("text-[10px] font-black", isMine ? "text-[var(--accent)]" : "text-white/55")}>{isMine ? "Tú" : `#${index + 1}`}</span>
+              </div>
+            );
+          })}
+          {hiddenAhead ? <span className="relative z-10 mt-2 rounded-full bg-white/10 px-2 py-1 text-[10px] font-black text-white/70">+{hiddenAhead}</span> : null}
+          <div className="relative z-10 grid justify-items-center gap-1.5">
+            <span className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--primary-dark)] shadow-lg sm:h-11 sm:w-11"><ChefHat className="h-5 w-5" /></span>
+            <span className="text-[10px] font-black text-white/80">Cocina</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="relative mt-4 flex items-center justify-between gap-3 rounded-2xl bg-black/10 px-3 py-2.5 text-xs font-bold text-white/72 ring-1 ring-white/8">
+        <span className="inline-flex items-center gap-2"><UsersRound className="h-4 w-4 text-[var(--accent)]" />Tu turno se actualiza al avanzar la fila.</span>
+        <span className="hidden shrink-0 text-white/52 sm:inline">Destino: cocina</span>
       </div>
     </div>
   );

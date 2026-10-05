@@ -73,7 +73,7 @@ function notificationBody({
   }
 
   if (event === "delivery_dispatched") {
-    return `Tu pedido ${order.order_number} ya tiene un rider asignado. Te avisaremos cuando salga del local.\n\nSiguelo aqui:\n${trackingUrl}`;
+    return `Tu pedido ${order.order_number} ya salio del local y va en camino.\n\nSiguelo aqui:\n${trackingUrl}`;
   }
 
   if (event === "arrived") {
@@ -112,6 +112,10 @@ export async function sendOrderWhatsAppNotification({
 
   // Send from the original order channel, never from a different branch or a fallback number.
   if (order.order_origin !== "phone_whatsapp") return { ok: true, skipped: "not-whatsapp-order" } as const;
+  // Minimize paid service messages: the webhook already confirms order creation;
+  // then customers only receive approval and the final actionable update.
+  const allowedEvent = event === "accepted" || (order.order_type === "pickup" ? event === "ready" : event === "delivery_dispatched");
+  if (!allowedEvent) return { ok: true, skipped: "notification-policy" } as const;
   const to = normalizePhone(order.customer_phone);
   if (!to) return { ok: true, skipped: "missing-phone" } as const;
   const { data: orderChannel, error: channelError } = await admin.from("whatsapp_order_channels")

@@ -47,9 +47,25 @@ export type WhatsAppCrmConversation = {
   orderCount: number;
   whatsappOrderCount: number;
   totalSpent: number;
+  activeOrder?: WhatsAppCrmOrderSummary;
   lastOrder?: WhatsAppCrmOrderSummary;
   needsReply: boolean;
   tags: string[];
+  acquisitionSource: "meta_entry" | "direct";
+  acquisitionDetail: string;
+  freeWindowExpiresAt?: string;
+};
+
+export type WhatsAppCrmUsage = {
+  apiMessagesThisMonth: number;
+  adProtectedMessages: number;
+  organicServiceMessages: number;
+  freeServiceMessagesRemaining: number;
+  estimatedBillableMessages: number;
+  estimatedCostUsd: number;
+  estimatedCostBob: number;
+  conversationsFromMetaEntry: number;
+  conversationsDirect: number;
 };
 
 export type WhatsAppCrmQuickReply = {
@@ -90,5 +106,6 @@ export type WhatsAppCrmWorkspace = {
   quickReplies: WhatsAppCrmQuickReply[];
   botSettings: WhatsAppCrmBotSettings;
   stats: WhatsAppCrmStats;
+  usage: WhatsAppCrmUsage;
   whatsappConfigured: boolean;
 };

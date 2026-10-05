@@ -233,6 +233,20 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      restaurant_queue_settings: Row<{
+        id: string;
+        restaurant_id: string;
+        queue_enabled: boolean;
+        base_prep_minutes: number;
+        kitchen_capacity: number;
+        min_estimate_minutes: number;
+        max_estimate_minutes: number;
+        weekend_multiplier: number;
+        rush_multiplier: number;
+        item_complexity_minutes: number;
+        created_at: string;
+        updated_at: string;
+      }>;
       restaurant_print_connectors: Row<{
         id: string;
         restaurant_id: string;
@@ -618,6 +632,76 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      multisite_orders: Row<{
+        id: string;
+        public_request_id: string;
+        tracking_token: string;
+        customer_name: string;
+        customer_phone: string | null;
+        customer_email: string | null;
+        customer_address: string;
+        delivery_address_detail: string | null;
+        delivery_latitude: number;
+        delivery_longitude: number;
+        delivery_maps_url: string | null;
+        status: "submitted" | "accepted" | "preparing" | "ready_for_dispatch" | "rider_searching" | "rider_countered" | "rider_assigned" | "in_delivery" | "delivered" | "partially_cancelled" | "cancelled";
+        payment_status: "pending" | "paid" | "cancelled" | "refunded";
+        payment_method: Database["public"]["Enums"]["payment_method_type"];
+        subtotal: number;
+        delivery_fee: number;
+        total: number;
+        rider_fee_suggested: number;
+        rider_fee_minimum: number;
+        rider_fee_maximum: number;
+        route_plan: Json;
+        notes: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      multisite_order_children: Row<{
+        id: string;
+        multisite_order_id: string;
+        restaurant_id: string;
+        order_id: string;
+        pickup_position: number;
+        release_delay_minutes: number;
+        estimated_ready_minutes: number;
+        status: Database["public"]["Enums"]["order_status"];
+        subtotal: number;
+        created_at: string;
+        updated_at: string;
+      }>;
+      multisite_rider_offers: Row<{
+        id: string;
+        multisite_order_id: string;
+        restaurant_rider_id: string;
+        rider_user_id: string | null;
+        status: "pending" | "countered" | "accepted" | "rejected" | "expired" | "cancelled";
+        offer_round: number;
+        offered_fee: number;
+        counter_fee: number | null;
+        distance_km: number | null;
+        score: number;
+        expires_at: string;
+        responded_at: string | null;
+        response_reason: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      multisite_delivery_dispatches: Row<{
+        id: string;
+        multisite_order_id: string;
+        rider_offer_id: string | null;
+        restaurant_rider_id: string;
+        rider_user_id: string | null;
+        accepted_fee: number;
+        status: "active" | "arrived" | "delivered" | "cancelled";
+        assigned_at: string;
+        arrived_at: string | null;
+        delivered_at: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       group_order_sessions: Row<{
         id: string;
         restaurant_id: string;
@@ -633,6 +717,7 @@ export type Database = {
         multisite_max_pickups: number;
         status: "open" | "locked" | "submitting" | "submitted" | "cancelled" | "expired";
         submitted_order_id: string | null;
+        submitted_multisite_order_id: string | null;
         submitted_snapshot: Json;
         submitted_at: string | null;
         subtotal: number;
@@ -662,6 +747,7 @@ export type Database = {
         id: string;
         session_id: string;
         participant_id: string;
+        restaurant_id: string;
         product_id: string;
         product_name: string;
         variant_id: string | null;
@@ -1687,6 +1773,14 @@ export type Database = {
       expire_old_delivery_links: {
         Args: Record<string, never>;
         Returns: undefined;
+      };
+      create_public_multisite_order_transaction: {
+        Args: {
+          p_request_id: string;
+          p_order: Json;
+          p_children: Json;
+        };
+        Returns: { id: string; tracking_token: string }[];
       };
     };
     Enums: {

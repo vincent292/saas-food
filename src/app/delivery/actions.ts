@@ -6,7 +6,6 @@ import { after } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
-import { sendOrderWhatsAppNotification } from "@/lib/services/order-whatsapp-notification.service";
 
 const deliveryTokenSchema = z.object({
   confirmationCode: z.string().regex(/^\d{4}$/),
@@ -25,9 +24,6 @@ function scheduleDeliveryCustomerNotifications(orderId: string, status: "arrived
     await Promise.all([
       sendOrderStatusPush({ eventType: "delivery_status", orderId, status }).catch((error) => {
         console.error(`delivery-${status}-push-failed`, error);
-      }),
-      sendOrderWhatsAppNotification({ event: status, orderId }).catch((error) => {
-        console.error(`delivery-${status}-whatsapp-failed`, error);
       }),
     ]);
   });

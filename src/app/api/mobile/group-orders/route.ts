@@ -65,7 +65,9 @@ export async function POST(request: Request) {
 
   if (!restaurant) return mobileGroupError("invalid-restaurant", 404);
 
-  const collectMode = parsed.data.collectMode;
+  // A multi-local route has one final cash collection and delivery negotiation.
+  // Keeping it with the host avoids mixing individual restaurant collections.
+  const collectMode = parsed.data.multisiteEnabled ? "host_collects" : parsed.data.collectMode;
   const hostQrUrl =
     collectMode === "host_collects" && hostQrFile
       ? await uploadTemporaryPublicImage(hostQrFile, `temporary/group-orders/${restaurant.id}/host-qr`, groupTemporaryUploadMaxAgeSeconds)
@@ -80,6 +82,7 @@ export async function POST(request: Request) {
     host_name: parsed.data.hostName,
     host_phone: parsed.data.hostPhone || null,
     host_qr_url: collectMode === "host_collects" ? hostQrUrl : null,
+    multisite_enabled: parsed.data.multisiteEnabled,
     public_token: sessionToken,
     restaurant_id: restaurant.id,
   };

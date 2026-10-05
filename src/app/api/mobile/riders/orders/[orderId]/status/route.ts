@@ -3,7 +3,6 @@ import { after } from "next/server";
 import { z } from "zod";
 import { getMobileRiderSession, updateMobileRiderDeliveryStatus } from "@/lib/services/rider-mobile.service";
 import { sendOrderStatusPush } from "@/lib/services/mobile-push.service";
-import { sendOrderWhatsAppNotification } from "@/lib/services/order-whatsapp-notification.service";
 
 const statusSchema = z.object({
   confirmationCode: z.string().regex(/^\d{4}$/),
@@ -39,9 +38,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
       await Promise.all([
         sendOrderStatusPush({ eventType: "delivery_status", orderId, status: parsed.data.status }).catch((error) => {
           console.error("rider-mobile-delivery-push-failed", error);
-        }),
-        sendOrderWhatsAppNotification({ event: parsed.data.status, orderId }).catch((error) => {
-          console.error("rider-mobile-delivery-whatsapp-failed", error);
         }),
       ]);
     });

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Clock3, ShoppingBag, X } from "lucide-react";
+import { Clock3, ShoppingBag, Split, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { clearCart, cartUpdatedEventName, listPendingCarts, type PendingCartSummary } from "@/lib/utils/cart";
 import { formatMoney } from "@/lib/utils/money";
@@ -36,6 +36,12 @@ export function PendingCartNotice() {
           <p className="mt-1 text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">
             Los guardamos solo por hoy y separados por restaurante.
           </p>
+          {carts.length > 1 ? (
+            <Link className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--primary)] px-4 text-sm font-black text-white transition hover:bg-[var(--primary-dark)]" href="/pedido/multi">
+              <Split className="h-4 w-4" />
+              Unir en un solo envio
+            </Link>
+          ) : null}
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {carts.map((cart) => (
               <div className="grid gap-2 rounded-[1.1rem] border border-[var(--border)] bg-white p-3 shadow-sm" key={cart.restaurantSlug}>

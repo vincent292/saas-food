@@ -21,22 +21,36 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
 
   const supabase = await getMobileGroupAdmin();
   if (!supabase) return mobileGroupError("service-role-required", 500);
-  const { data: session } = await supabase.from("group_order_sessions").select("id,restaurant_id,status,expires_at").eq("public_token", sessionToken).maybeSingle();
+  const { data: session } = await supabase.from("group_order_sessions").select("id,restaurant_id,multisite_enabled,multisite_max_pickups,status,expires_at").eq("public_token", sessionToken).maybeSingle();
   if (!session || session.status !== "open" || new Date(session.expires_at).getTime() <= Date.now()) return mobileGroupError("closed", 409);
 
   const { data: participant } = await supabase.from("group_order_participants").select("id").eq("session_id", session.id).eq("participant_token", parsed.data.participantToken).maybeSingle();
   if (!participant) return mobileGroupError("participant", 404);
 
-  const [{ count: groupItemCount }, { count: participantItemCount }] = await Promise.all([
+  const [{ count: groupItemCount }, { count: participantItemCount }, { data: groupRestaurantRows }] = await Promise.all([
     supabase.from("group_order_items").select("id", { count: "exact", head: true }).eq("session_id", session.id),
     supabase.from("group_order_items").select("id", { count: "exact", head: true }).eq("session_id", session.id).eq("participant_id", participant.id),
+    supabase.from("group_order_items").select("restaurant_id").eq("session_id", session.id),
   ]);
   if ((groupItemCount ?? 0) >= groupMaxItems) return mobileGroupError("group-item-limit", 409);
   if ((participantItemCount ?? 0) >= groupMaxItemsPerParticipant) return mobileGroupError("participant-item-limit", 409);
 
+  const itemRestaurantId = parsed.data.restaurantId ?? session.restaurant_id;
+  if (itemRestaurantId !== session.restaurant_id && !session.multisite_enabled) return mobileGroupError("multisite-disabled", 409);
+  const currentRestaurantIds = new Set((groupRestaurantRows ?? []).map((row) => row.restaurant_id));
+  if (!currentRestaurantIds.has(itemRestaurantId) && currentRestaurantIds.size >= Math.min(Number(session.multisite_max_pickups ?? 3), 3)) return mobileGroupError("multisite-limit", 409);
+  const { data: itemRestaurant } = await supabase
+    .from("restaurants")
+    .select("id")
+    .eq("id", itemRestaurantId)
+    .eq("status", "active")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!itemRestaurant) return mobileGroupError("restaurant-unavailable", 404);
+
   let resolved;
   try {
-    [resolved] = await resolveGroupCartItems(supabase, session.restaurant_id, [{ ...parsed.data, quantity: 1 }]);
+    [resolved] = await resolveGroupCartItems(supabase, itemRestaurantId, [{ ...parsed.data, quantity: 1 }]);
   } catch (error) {
     return mobileGroupError(error instanceof Error ? error.message : "product-not-found");
   }
@@ -45,6 +59,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
     notes: resolved.notes ?? null,
     option_ids: resolved.optionIds,
     participant_id: participant.id,
+    restaurant_id: itemRestaurantId,
     product_id: resolved.productId,
     product_name: resolved.name,
     quantity: resolved.quantity,

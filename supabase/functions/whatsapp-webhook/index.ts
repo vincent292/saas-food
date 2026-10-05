@@ -654,6 +654,7 @@ function extractIncomingMessageRows(payload: JsonObject) {
             object: payload.object ?? null,
             entry_id: entry.id ?? null,
             change_field: change.field ?? null,
+            referral: objectValue(message.referral),
             value,
             message,
           },

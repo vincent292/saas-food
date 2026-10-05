@@ -19,7 +19,7 @@ export type PendingCartSummary = {
   expiresAt: string;
 };
 
-type StoredRestaurantCart = {
+export type StoredRestaurantCart = {
   restaurantSlug: string;
   restaurantName: string;
   restaurantId?: string;
@@ -63,6 +63,17 @@ function readCartMap(): StoredCartMap {
   } catch {
     return {};
   }
+}
+
+/**
+ * Returns the complete, still-valid carts stored for the current browser.
+ * Public checkout pages use this instead of trusting prices sent from the UI;
+ * the server always recalculates them before an order is created.
+ */
+export function listActiveCarts(): StoredRestaurantCart[] {
+  return Object.values(readCartMap())
+    .filter((cart) => cart.items.length > 0)
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
 }
 
 function writeCartMap(carts: StoredCartMap) {
@@ -139,7 +150,7 @@ export function listPendingCarts(): PendingCartSummary[] {
     return [];
   }
 
-  return Object.values(readCartMap())
+  return listActiveCarts()
     .map((cart) => ({
       restaurantSlug: cart.restaurantSlug,
       restaurantName: cart.restaurantName,

@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import {
+  ArrowLeft,
   Archive,
   Bot,
-  CheckCircle2,
+  CheckCheck,
   Clock3,
   ExternalLink,
+  Info,
   MapPin,
   MenuSquare,
   MessageCircle,
@@ -84,6 +86,10 @@ function formatMoney(value: number) {
     .replace("BOB", "Bs");
 }
 
+function formatUsd(value: number) {
+  return new Intl.NumberFormat("en-US", { currency: "USD", maximumFractionDigits: 2, style: "currency" }).format(value);
+}
+
 function formatTime(value?: string) {
   if (!value) return "";
   return new Intl.DateTimeFormat("es-BO", {
@@ -127,6 +133,18 @@ function conversationHref(restaurantId: string, conversationId: string) {
   return `/admin/restaurantes/${restaurantId}/whatsapp?conversation=${conversationId}`;
 }
 
+function metaWindowIsOpen(expiresAt?: string) {
+  return Boolean(expiresAt && new Date(expiresAt).getTime() > Date.now());
+}
+
+function sendCostHint(conversation: WhatsAppCrmConversation) {
+  if (conversation.acquisitionSource === "meta_entry" && metaWindowIsOpen(conversation.freeWindowExpiresAt)) {
+    return `Entrada Meta · ventana de 72 h hasta ${formatShortDate(conversation.freeWindowExpiresAt)} ${formatTime(conversation.freeWindowExpiresAt)}`;
+  }
+
+  return "Chat directo · se registra como mensaje API si WhatsApp lo entrega.";
+}
+
 function MessageBubble({ message }: { message: WhatsAppCrmMessage }) {
   const outbound = message.direction === "outbound";
 
@@ -134,16 +152,16 @@ function MessageBubble({ message }: { message: WhatsAppCrmMessage }) {
     <div className={cn("flex", outbound ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[88%] rounded-[var(--radius-control)] px-3 py-2 text-sm font-semibold shadow-sm sm:max-w-[74%]",
+          "max-w-[88%] rounded-lg px-2.5 py-1.5 text-sm font-semibold shadow-sm sm:max-w-[74%]",
           outbound
-            ? "bg-[var(--primary-light)] text-[var(--primary-dark)]"
-            : "border border-[var(--border)] bg-[var(--surface)] text-[var(--color-heading)]",
+            ? "rounded-tr-sm bg-[#d9fdd3] text-[#1f3b25]"
+            : "rounded-tl-sm border border-black/5 bg-white text-[var(--color-heading)]",
         )}
       >
         <p className="whitespace-pre-wrap leading-relaxed">{message.text}</p>
-        <div className={cn("mt-1.5 flex items-center gap-1 text-[0.68rem] font-black", outbound ? "justify-end text-[var(--primary)]" : "text-[var(--color-secondary-text)]")}>
+        <div className={cn("mt-1 flex items-center gap-1 text-[0.65rem] font-bold", outbound ? "justify-end text-[#4c6f58]" : "text-[var(--color-secondary-text)]")}>
           <span>{formatTime(message.timestamp)}</span>
-          {outbound ? <CheckCircle2 className="h-3 w-3" /> : null}
+          {outbound ? <CheckCheck className="h-3.5 w-3.5 text-[#53bdeb]" /> : null}
         </div>
       </div>
     </div>
@@ -162,8 +180,8 @@ function ConversationRow({
   return (
     <Link
       className={cn(
-        "flex min-h-[4.5rem] gap-3 border-b border-[var(--border)] px-3 py-2.5 transition hover:bg-[var(--primary-light)]",
-        selected && "bg-[var(--primary-light)]",
+        "flex min-h-[4.5rem] gap-3 border-b border-[var(--border)] px-3 py-2.5 transition hover:bg-[#f0f2f5]",
+        selected && "border-l-4 border-l-[#25d366] bg-[#f0f2f5] pl-2",
       )}
       href={conversationHref(restaurantId, conversation.id)}
       prefetch={false}
@@ -182,17 +200,44 @@ function ConversationRow({
         <div className="mt-1.5 flex items-center gap-2">
           <span className={cn("h-2 w-2 rounded-full", conversation.needsReply ? "bg-[var(--danger)]" : "bg-[var(--color-success-strong)]")} />
           <span className="truncate text-[0.68rem] font-black uppercase text-[var(--color-secondary-text)]">{stateLabel(conversation.state)}</span>
+          <span className={cn("truncate text-[0.68rem] font-black", conversation.acquisitionSource === "meta_entry" ? "text-[var(--color-success-strong)]" : "text-[var(--color-warning-strong)]")}>
+            {conversation.acquisitionSource === "meta_entry" ? "META 72H" : "DIRECTO"}
+          </span>
         </div>
       </div>
     </Link>
   );
 }
 
+function UsagePanel({ usage }: { usage: WhatsAppCrmWorkspace["usage"] }) {
+  const alertLevel = usage.estimatedBillableMessages > 0 ? "warning" : usage.organicServiceMessages >= 700 ? "warning" : "safe";
+  return (
+    <Card className={cn("grid shrink-0 gap-3 p-3 lg:grid-cols-[1.35fr_repeat(4,minmax(0,1fr))]", alertLevel === "warning" && "border-[var(--color-warning-soft)]") }>
+      <div>
+        <p className="text-sm font-black">Consumo WhatsApp · mes actual</p>
+        <p className="mt-1 text-xs font-semibold text-[var(--color-secondary-text)]">Estimación de mensajes API enviados; Meta factura solo mensajes entregados.</p>
+      </div>
+      <UsageMetric label="API enviados" value={String(usage.apiMessagesThisMonth)} />
+      <UsageMetric label="Meta / CTA 72 h" tone="success" value={String(usage.adProtectedMessages)} />
+      <UsageMetric label="Bolsa disponible" tone={usage.freeServiceMessagesRemaining ? "safe" : "warning"} value={String(usage.freeServiceMessagesRemaining)} />
+      <UsageMetric label="Costo estimado" tone={usage.estimatedBillableMessages ? "warning" : "safe"} value={`${formatMoney(usage.estimatedCostBob)} · ${formatUsd(usage.estimatedCostUsd)}`} />
+      <p className="text-xs font-bold text-[var(--color-secondary-text)] lg:col-span-5">Origen de chats: {usage.conversationsFromMetaEntry} Meta/CTA · {usage.conversationsDirect} directos. El costo usa una tarifa de referencia para Bolivia; confirma siempre el importe final en Meta.</p>
+    </Card>
+  );
+}
+
+function UsageMetric({ label, tone = "safe", value }: { label: string; value: string; tone?: "safe" | "success" | "warning" }) {
+  const color = tone === "warning" ? "text-[var(--color-warning-strong)]" : tone === "success" ? "text-[var(--color-success-strong)]" : "text-[var(--color-heading)]";
+  return <div className="rounded-[var(--radius-control)] bg-[var(--color-surface)] p-2"><p className="text-[0.68rem] font-black uppercase text-[var(--color-secondary-text)]">{label}</p><p className={cn("mt-1 text-sm font-black", color)}>{value}</p></div>;
+}
+
 export function WhatsAppCrmClient({
+  canViewUsage,
   restaurant,
   workspace,
   feedback,
 }: {
+  canViewUsage: boolean;
   restaurant: Restaurant;
   workspace: WhatsAppCrmWorkspace;
   feedback?: string;
@@ -202,6 +247,7 @@ export function WhatsAppCrmClient({
   const [replyBody, setReplyBody] = useState("");
   const [quickReplyTitle, setQuickReplyTitle] = useState("");
   const [quickReplyBody, setQuickReplyBody] = useState("");
+  const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
   const selected = workspace.selectedConversation;
 
   const filteredConversations = useMemo(() => {
@@ -236,6 +282,12 @@ export function WhatsAppCrmClient({
   return (
     <div className="flex h-auto min-h-[calc(100dvh-9rem)] flex-col gap-3 lg:h-[calc(100dvh-8.25rem)] lg:min-h-0">
       <Card className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
+        <div className="mr-1 flex items-center gap-2">
+          <div className="grid h-8 w-8 place-items-center rounded-full bg-[#25d366] text-white">
+            <MessageCircle className="h-4 w-4" />
+          </div>
+          <span className="text-sm font-black text-[var(--color-heading)]">Inbox WhatsApp</span>
+        </div>
         <Badge className={cn(workspace.whatsappConfigured ? "border-[var(--color-success-soft)] bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "border-[var(--color-warning-soft)] bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]")}>
           {workspace.whatsappConfigured ? "Conectado" : "Sin configurar"}
         </Badge>
@@ -264,8 +316,10 @@ export function WhatsAppCrmClient({
         </Link>
       </Card>
 
-      <div className="grid flex-1 gap-3 overflow-hidden lg:min-h-0 xl:grid-cols-[20.5rem_minmax(0,1fr)_19.5rem] 2xl:grid-cols-[22rem_minmax(0,1fr)_21rem]">
-        <Card className="flex min-h-[28rem] flex-col overflow-hidden p-0 lg:min-h-0">
+      {canViewUsage ? <UsagePanel usage={workspace.usage} /> : null}
+
+      <div className="grid flex-1 gap-3 overflow-hidden lg:min-h-0 lg:grid-cols-[20.5rem_minmax(0,1fr)] xl:grid-cols-[20.5rem_minmax(0,1fr)_19.5rem] 2xl:grid-cols-[22rem_minmax(0,1fr)_21rem]">
+        <Card className={cn("min-h-[28rem] flex-col overflow-hidden p-0 lg:min-h-0", selected ? "hidden lg:flex" : "flex")}>
           <div className="shrink-0 border-b border-[var(--border)] p-3">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-base font-black">Conversaciones</h3>
@@ -309,33 +363,49 @@ export function WhatsAppCrmClient({
           </div>
         </Card>
 
-        <Card className="flex min-h-[35rem] flex-col overflow-hidden p-0 lg:min-h-0">
+        <Card className={cn("min-h-[35rem] flex-col overflow-hidden p-0 lg:min-h-0", selected ? "flex" : "hidden lg:flex")}>
           {selected ? (
             <>
-              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] p-3">
+              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-black/10 bg-[#075e54] p-3 text-white">
+                <Link
+                  aria-label="Volver a conversaciones"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 lg:hidden"
+                  href={`/admin/restaurantes/${restaurant.id}/whatsapp`}
+                  prefetch={false}
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Link>
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--primary-light)] text-sm font-black text-[var(--primary)]">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/15 text-sm font-black text-white">
                     {initials(selected.displayName)}
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-base font-black">{selected.displayName}</p>
-                    <p className="mt-0.5 flex items-center gap-2 text-xs font-bold text-[var(--color-secondary-text)]">
+                    <p className="mt-0.5 flex items-center gap-2 text-xs font-bold text-white/80">
                       <Phone className="h-3.5 w-3.5" />
                       +{selected.phone}
                     </p>
+                    <p className="mt-1 text-[0.68rem] font-black text-white/80">
+                      {selected.acquisitionSource === "meta_entry" ? `META 72 H · hasta ${formatShortDate(selected.freeWindowExpiresAt)} ${formatTime(selected.freeWindowExpiresAt)}` : "CHAT DIRECTO"}
+                    </p>
                   </div>
                 </div>
-                <form action={selected.state === "handoff" ? releaseWhatsAppCrmConversationAction : takeWhatsAppCrmConversationAction}>
-                  <input name="restaurantId" type="hidden" value={restaurant.id} />
-                  <input name="conversationId" type="hidden" value={selected.id} />
-                  <button className={buttonClasses(selected.state === "handoff" ? "secondary" : "primary", "min-h-9 px-3 text-xs")} type="submit">
-                    {selected.state === "handoff" ? <Bot className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
-                    {selected.state === "handoff" ? "Liberar" : "Tomar"}
+                <div className="flex shrink-0 items-center gap-1">
+                  <button aria-label="Ver datos y respuestas rápidas" className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10 xl:hidden" onClick={() => setMobileDetailsOpen(true)} type="button">
+                    <Info className="h-4 w-4" />
                   </button>
-                </form>
+                  <form action={selected.state === "handoff" ? releaseWhatsAppCrmConversationAction : takeWhatsAppCrmConversationAction}>
+                    <input name="restaurantId" type="hidden" value={restaurant.id} />
+                    <input name="conversationId" type="hidden" value={selected.id} />
+                    <button className={buttonClasses(selected.state === "handoff" ? "secondary" : "primary", "min-h-9 px-3 text-xs")} type="submit">
+                      {selected.state === "handoff" ? <Bot className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+                      {selected.state === "handoff" ? "Liberar" : "Tomar"}
+                    </button>
+                  </form>
+                </div>
               </div>
 
-              <div className="admin-scrollbar flex-1 space-y-2 overflow-y-auto bg-[var(--color-surface)] p-3">
+              <div className="admin-scrollbar flex-1 space-y-2 overflow-y-auto bg-[#efeae2] p-3">
                 {workspace.messages.length ? (
                   workspace.messages.map((message) => <MessageBubble key={message.id} message={message} />)
                 ) : (
@@ -346,6 +416,15 @@ export function WhatsAppCrmClient({
               </div>
 
               <div className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] p-3">
+                {workspace.quickReplies.length ? (
+                  <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+                    {workspace.quickReplies.map((reply) => (
+                      <button className="shrink-0 rounded-full border border-[#25d366]/40 bg-[#f0fff5] px-3 py-1.5 text-xs font-black text-[#126b38] hover:bg-[#d9fdd3]" key={reply.id} onClick={() => setReplyBody(reply.body)} type="button">
+                        /{reply.title}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="mb-2 grid gap-2 sm:grid-cols-3">
                   <form action={sendWhatsAppCrmMenuAction}>
                     <input name="restaurantId" type="hidden" value={restaurant.id} />
@@ -380,7 +459,9 @@ export function WhatsAppCrmClient({
                     value={replyBody}
                   />
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-xs font-bold text-[var(--color-secondary-text)]">{selected.state === "handoff" ? "Atencion humana activa" : "Enviar tomara la conversacion"}</p>
+                    <p className={cn("text-xs font-bold", selected.acquisitionSource === "meta_entry" && metaWindowIsOpen(selected.freeWindowExpiresAt) ? "text-[var(--color-success-strong)]" : "text-[var(--color-secondary-text)]")}>
+                      {selected.state === "handoff" ? "Atención humana activa · " : ""}{sendCostHint(selected)}
+                    </p>
                     <button className={buttonClasses("primary", "w-full min-h-9 sm:w-auto")} disabled={!replyBody.trim() || !workspace.whatsappConfigured} type="submit">
                       <Send className="h-4 w-4" />
                       Enviar
@@ -396,7 +477,7 @@ export function WhatsAppCrmClient({
           )}
         </Card>
 
-        <Card className="admin-scrollbar flex min-h-[30rem] flex-col gap-3 overflow-y-auto p-3 lg:min-h-0">
+        <Card className="admin-scrollbar hidden min-h-[30rem] flex-col gap-3 overflow-y-auto p-3 xl:flex xl:min-h-0">
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-base font-black">Contacto</h3>
@@ -538,6 +619,37 @@ export function WhatsAppCrmClient({
           ) : null}
         </Card>
       </div>
+      {selected && mobileDetailsOpen ? (
+        <div aria-label="Datos de la conversación" aria-modal="true" className="fixed inset-0 z-[96] bg-black/45 p-3 backdrop-blur-sm xl:hidden" role="dialog">
+          <button aria-label="Cerrar datos" className="absolute inset-0" onClick={() => setMobileDetailsOpen(false)} type="button" />
+          <section className="absolute inset-x-3 bottom-3 z-10 max-h-[78dvh] overflow-y-auto rounded-2xl bg-[var(--surface)] p-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-base font-black">{selected.displayName}</p>
+                <p className="mt-1 text-xs font-bold text-[var(--color-secondary-text)]">+{selected.phone}</p>
+              </div>
+              <button aria-label="Cerrar" className="grid h-9 w-9 place-items-center rounded-full bg-[var(--color-surface)]" onClick={() => setMobileDetailsOpen(false)} type="button">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-4 rounded-xl bg-[var(--color-surface)] p-3 text-xs font-bold text-[var(--color-secondary-text)]">
+              <p className="font-black text-[var(--color-heading)]">{selected.acquisitionDetail}</p>
+              <p className="mt-1">{sendCostHint(selected)}</p>
+            </div>
+            <div className="mt-4">
+              <p className="text-sm font-black">Respuestas rápidas</p>
+              <div className="mt-2 grid gap-2">
+                {workspace.quickReplies.length ? workspace.quickReplies.map((reply) => (
+                  <button className="rounded-xl border border-[var(--border)] bg-[var(--color-surface)] p-3 text-left" key={reply.id} onClick={() => { setReplyBody(reply.body); setMobileDetailsOpen(false); }} type="button">
+                    <span className="block text-sm font-black">/{reply.title}</span>
+                    <span className="mt-1 line-clamp-2 block text-xs font-semibold text-[var(--color-secondary-text)]">{reply.body}</span>
+                  </button>
+                )) : <p className="text-xs font-bold text-[var(--color-secondary-text)]">Aún no hay respuestas guardadas.</p>}
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {botSettingsOpen ? (
         <BotSettingsModal
           conversationId={selected?.id}

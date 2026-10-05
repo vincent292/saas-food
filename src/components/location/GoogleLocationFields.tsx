@@ -280,6 +280,17 @@ export function GoogleLocationFields({
     onCoordinatesChange?.({ latitude: nextLatitude, longitude: nextLongitude, mapsUrl: nextMapsUrl });
   }, [onCoordinatesChange]);
 
+  const updateManualCoordinates = useCallback((nextLatitude: string, nextLongitude: string) => {
+    if (!nextLatitude.trim() || !nextLongitude.trim()) return;
+    const parsedLatitude = Number(nextLatitude);
+    const parsedLongitude = Number(nextLongitude);
+    if (!hasValidCoordinates(parsedLatitude, parsedLongitude)) return;
+
+    const nextMapsUrl = coordinatesToMapsUrl(parsedLatitude, parsedLongitude);
+    setMapsUrl(nextMapsUrl);
+    onCoordinatesChange?.({ latitude: parsedLatitude, longitude: parsedLongitude, mapsUrl: nextMapsUrl });
+  }, [onCoordinatesChange]);
+
   function useCurrentLocation() {
     setGpsStatus("");
     if (!navigator.geolocation) {
@@ -367,8 +378,16 @@ export function GoogleLocationFields({
         </>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          <Input name={latitudeName} onChange={(event) => setLatitude(event.target.value)} placeholder="Latitud" step="0.0000001" type="number" value={latitude} />
-          <Input name={longitudeName} onChange={(event) => setLongitude(event.target.value)} placeholder="Longitud" step="0.0000001" type="number" value={longitude} />
+          <Input name={latitudeName} onChange={(event) => {
+            const value = event.target.value;
+            setLatitude(value);
+            updateManualCoordinates(value, longitude);
+          }} placeholder="Latitud" step="0.0000001" type="number" value={latitude} />
+          <Input name={longitudeName} onChange={(event) => {
+            const value = event.target.value;
+            setLongitude(value);
+            updateManualCoordinates(latitude, value);
+          }} placeholder="Longitud" step="0.0000001" type="number" value={longitude} />
         </div>
       )}
       {hideMapsUrlInput ? (

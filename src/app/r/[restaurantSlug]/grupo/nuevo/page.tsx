@@ -62,6 +62,10 @@ export default async function NewGroupOrderPage({
               <Input name="hostName" placeholder="Nombre del host" required />
               <Input inputMode="tel" name="hostPhone" placeholder="WhatsApp del host opcional" />
               <input name="collectMode" type="hidden" value="host_collects" />
+              <label className="flex items-start gap-3 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--color-surface)] p-3 text-sm font-black">
+                <input className="mt-0.5 h-4 w-4" name="multisiteEnabled" type="checkbox" />
+                <span><span className="block">Permitir locales múltiples</span><span className="mt-1 block text-xs font-semibold text-[var(--muted)]">El grupo podrá pedir de hasta tres locales y organizar una sola ruta de delivery.</span></span>
+              </label>
               <label className="grid gap-1 text-sm font-black">
                 QR del host opcional
                 <Input accept="image/png,image/jpeg,image/webp,image/avif" name="hostQrFile" type="file" />

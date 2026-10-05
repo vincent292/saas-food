@@ -16,6 +16,7 @@ import {
   Menu,
   MessageSquareText,
   RotateCcw,
+  Route,
   ScrollText,
   Settings,
   Shield,
@@ -64,6 +65,7 @@ const restaurantNav: NavItem[] = [
 const superAdminNav: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: Shield },
   { label: "Restaurantes", href: "/admin/restaurantes", icon: Store },
+  { label: "Simulador multi-pedido", href: "/admin/multi-pedidos/simulador", icon: Route },
   { label: "WhatsApp global", href: "/admin/whatsapp", icon: MessageSquareText },
   { label: "Usuarios", href: "/admin/usuarios", icon: Users },
   { label: "Clientes app", href: "/admin/clientes", icon: Users },

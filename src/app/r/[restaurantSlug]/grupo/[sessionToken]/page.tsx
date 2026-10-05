@@ -31,7 +31,7 @@ export default async function GroupOrderPage({
   searchParams,
 }: {
   params: Promise<{ restaurantSlug: string; sessionToken: string }>;
-  searchParams: Promise<{ host?: string; participant?: string; error?: string }>;
+  searchParams: Promise<{ host?: string; participant?: string; error?: string; local?: string }>;
 }) {
   const [{ restaurantSlug, sessionToken }, query] = await Promise.all([params, searchParams]);
   const restaurant = await restaurantService.getPublicBySlug(restaurantSlug);
@@ -56,20 +56,32 @@ export default async function GroupOrderPage({
     notFound();
   }
 
-  const [catalog, participantRows, itemRows, settings, deliveryZones] = await Promise.all([
-    getGroupOrderCatalog(restaurant.id),
+  const selectedCatalogRestaurant = sessionRow.multisite_enabled && query.local
+    ? await restaurantService.getPublicBySlug(query.local)
+    : restaurant;
+  const catalogRestaurant = selectedCatalogRestaurant?.status === "active" ? selectedCatalogRestaurant : restaurant;
+
+  const [catalog, participantRows, itemRows, settings, deliveryZones, multisiteRestaurants] = await Promise.all([
+    getGroupOrderCatalog(catalogRestaurant.id),
     admin.from("group_order_participants").select("*").eq("session_id", sessionRow.id).order("created_at", { ascending: true }),
     admin.from("group_order_items").select("*").eq("session_id", sessionRow.id).order("created_at", { ascending: true }),
     settingsService.getPublicRestaurantSettings(restaurant.id),
     restaurantService.listPublicDeliveryZones(restaurant.id),
+    sessionRow.multisite_enabled ? restaurantService.listPublicDirectoryRestaurants() : Promise.resolve([restaurant]),
   ]);
-  const stockAvailability = await productService.listPublicStockAvailability(restaurant, catalog.products);
+  const stockAvailability = await productService.listPublicStockAvailability(catalogRestaurant, catalog.products);
+  const itemRestaurantIds = Array.from(new Set((itemRows.data ?? []).map((item) => item.restaurant_id)));
+  const { data: itemRestaurants } = itemRestaurantIds.length
+    ? await admin.from("restaurants").select("id,name,slug").in("id", itemRestaurantIds)
+    : { data: [] };
+  const itemRestaurantById = new Map((itemRestaurants ?? []).map((itemRestaurant) => [itemRestaurant.id, itemRestaurant]));
   const rawParticipants = participantRows.data ?? [];
   const currentParticipant = query.participant
     ? rawParticipants.find((participant) => participant.participant_token === query.participant)
     : undefined;
   const validatedHostAccessToken = query.host === sessionRow.host_access_token ? query.host : undefined;
   let submittedOrderTrackingToken: string | undefined;
+  let submittedMultisiteOrderTrackingToken: string | undefined;
   if (sessionRow.submitted_order_id && (validatedHostAccessToken || currentParticipant)) {
     const { data: submittedOrder } = await admin
       .from("orders")
@@ -77,6 +89,14 @@ export default async function GroupOrderPage({
       .eq("id", sessionRow.submitted_order_id)
       .maybeSingle();
     submittedOrderTrackingToken = submittedOrder?.tracking_token ?? undefined;
+  }
+  if (sessionRow.submitted_multisite_order_id && (validatedHostAccessToken || currentParticipant)) {
+    const { data: submittedMultisiteOrder } = await admin
+      .from("multisite_orders")
+      .select("tracking_token")
+      .eq("id", sessionRow.submitted_multisite_order_id)
+      .maybeSingle();
+    submittedMultisiteOrderTrackingToken = submittedMultisiteOrder?.tracking_token ?? undefined;
   }
   const participants = rawParticipants.map<GroupOrderParticipantView>((participant) => {
     const canSeePrivateFields = Boolean(validatedHostAccessToken || participant.id === currentParticipant?.id);
@@ -93,6 +113,8 @@ export default async function GroupOrderPage({
   const items = (itemRows.data ?? []).map<GroupOrderItemView>((item) => ({
     id: item.id,
     participantId: item.participant_id,
+    restaurantId: item.restaurant_id,
+    restaurantName: itemRestaurantById.get(item.restaurant_id)?.name ?? "Local",
     productName: item.product_name,
     unitPrice: Number(item.unit_price),
     quantity: item.quantity,
@@ -119,6 +141,8 @@ export default async function GroupOrderPage({
     expiresAt: sessionRow.expires_at,
     submittedOrderId: sessionRow.submitted_order_id ?? undefined,
     submittedOrderTrackingToken,
+    submittedMultisiteOrderId: sessionRow.submitted_multisite_order_id ?? undefined,
+    submittedMultisiteOrderTrackingToken,
     subtotal: Number(sessionRow.subtotal),
     deliveryFee: Number(sessionRow.delivery_fee),
     total: Number(sessionRow.total),
@@ -137,6 +161,7 @@ export default async function GroupOrderPage({
     <RestaurantThemeProvider>
       <GroupOrderSessionClient
         categories={catalog.categories}
+        catalogRestaurant={catalogRestaurant}
         configuration={configByProduct}
         currentParticipantId={currentParticipant?.id}
         initialHostAccessToken={validatedHostAccessToken}
@@ -146,6 +171,7 @@ export default async function GroupOrderPage({
         participants={participants}
         products={catalog.products}
         restaurant={restaurant}
+        multisiteRestaurants={multisiteRestaurants.filter((candidate) => candidate.latitude != null && candidate.longitude != null)}
         session={session}
         settings={settings}
         deliveryZones={deliveryZones}

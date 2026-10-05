@@ -315,9 +315,9 @@ test('onboarding sessions cannot be completed by a different owner or branch', a
   assert.equal(f.calls.length, 0);
 });
 
-test('order notifications use their original channel and never fall back when that channel is disconnected', async () => {
+test('allowed order notifications use their original channel and never fall back when that channel is disconnected', async () => {
   const now = new Date().toISOString();
-  const rows = { orders: [{ id: 'order-a', restaurant_id: restaurantA, order_origin: 'phone_whatsapp', customer_phone: customerPhone, order_number: 'W-1' }],
+  const rows = { orders: [{ id: 'order-a', restaurant_id: restaurantA, order_origin: 'phone_whatsapp', order_type: 'pickup', customer_phone: customerPhone, order_number: 'W-1' }],
     whatsapp_order_channels: [{ order_id: 'order-a', restaurant_id: restaurantA, conversation_id: 'conversation-a', channel_key: '101' }],
     whatsapp_conversations: [
       { id: 'conversation-a', restaurant_id: restaurantA, from_phone: customerPhone, channel_key: '101', last_customer_message_at: now },
@@ -336,7 +336,7 @@ test('order notifications use their original channel and never fall back when th
   assert.ok(sends[0].url.includes('/101/messages'));
   assert.equal(rows.whatsapp_messages[0].conversation_id, 'conversation-a');
   connected = false;
-  assert.equal((await sendOrderWhatsAppNotification({ orderId: 'order-a', event: 'delivered' })).ok, false);
+  assert.equal((await sendOrderWhatsAppNotification({ orderId: 'order-a', event: 'accepted' })).ok, false);
   assert.equal(sends.length, 1);
   assert.ok(channels.every(([id, key]) => id === restaurantA && key === '101'));
   rows.whatsapp_conversations[0].last_customer_message_at = '2020-01-01';
@@ -383,4 +383,11 @@ test('migration preserves legacy history, enforces channel uniqueness, isolates 
     await assert.rejects(db.query('select token_ciphertext from restaurant_whatsapp_connections'), /permission denied/);
     await assert.rejects(db.query('select * from whatsapp_onboarding_sessions'), /permission denied/);
   } finally { await db.close(); }
+});
+
+test('the mobile WhatsApp inbox is restricted to the cashier role and marks its sends', () => {
+  const mobileInbox = source('src/app/api/mobile/whatsapp/route.ts');
+  assert.match(mobileInbox, /restaurant\.role !== "cashier"/);
+  assert.match(mobileInbox, /source: "pos_cashier"/);
+  assert.match(mobileInbox, /Billing, bot setup and[\s\S]*owner-only metrics remain/);
 });

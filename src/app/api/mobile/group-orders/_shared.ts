@@ -9,6 +9,8 @@ import { deliveryRateService } from "@/lib/services/delivery-rate.service";
 import { sendRestaurantNewOrderPush } from "@/lib/services/mobile-push.service";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
 import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
+import { forecastMultisiteKitchenReadyIn, type MultisiteKitchenSnapshot } from "@/lib/group-orders/kitchen-forecast";
+import { planMultisiteGroupOrder } from "@/lib/group-orders/multisite-planner";
 import type { Database } from "@/types/database.types";
 import type { BusinessHour, RestaurantDeliveryZone } from "@/types/restaurant.types";
 
@@ -26,6 +28,7 @@ export const groupPaymentStatusSchema = z.enum(["pending", "qr_uploaded", "paid_
 
 export const groupItemSchema = z.object({
   participantToken: z.string().min(12),
+  restaurantId: z.string().uuid().optional(),
   productId: z.string().uuid(),
   variantId: z.string().uuid().optional(),
   optionIds: z.array(z.string().uuid()).optional().default([]),
@@ -46,6 +49,7 @@ export const submitGroupSchema = z.object({
   deliveryCity: z.string().trim().max(120).optional(),
   paymentMethod: z.enum(["cash", "qr", "bank_transfer", "card"]).default("cash"),
   paymentReceiptUrl: z.string().trim().max(700).optional(),
+  riderFee: z.coerce.number().nonnegative().max(500).optional(),
 });
 
 type ParsedCartItem = {
@@ -65,12 +69,14 @@ type ResolvedCartItem = {
   quantity: number;
   subtotal: number;
   notes?: string;
+  prepMinutes: number;
 };
 
 type ProductPriceRow = {
   id: string;
   name: string;
   price: number;
+  prep_minutes: number;
   is_available: boolean;
   available_from: string | null;
   available_until: string | null;
@@ -250,6 +256,7 @@ export async function buildGroupOrderPayload({
   const isHost = Boolean(hostAccessToken && session.host_access_token === hostAccessToken);
   const expired = isGroupSessionExpired(session);
   let submittedOrderTrackingToken = "";
+  let submittedMultisiteOrderTrackingToken = "";
   if (session.submitted_order_id && (isHost || currentParticipant)) {
     const { data: submittedOrder } = await supabase
       .from("orders")
@@ -258,6 +265,19 @@ export async function buildGroupOrderPayload({
       .maybeSingle();
     submittedOrderTrackingToken = submittedOrder?.tracking_token ?? "";
   }
+  if (session.submitted_multisite_order_id && (isHost || currentParticipant)) {
+    const { data: submittedOrder } = await supabase
+      .from("multisite_orders")
+      .select("tracking_token")
+      .eq("id", session.submitted_multisite_order_id)
+      .maybeSingle();
+    submittedMultisiteOrderTrackingToken = submittedOrder?.tracking_token ?? "";
+  }
+  const itemRestaurantIds = Array.from(new Set((items ?? []).map((item) => item.restaurant_id)));
+  const { data: itemRestaurants } = itemRestaurantIds.length
+    ? await supabase.from("restaurants").select("id,name,slug").in("id", itemRestaurantIds)
+    : { data: [] };
+  const itemRestaurantById = new Map((itemRestaurants ?? []).map((itemRestaurant) => [itemRestaurant.id, itemRestaurant]));
 
   return {
     currentParticipantId: currentParticipant?.id ?? null,
@@ -265,6 +285,8 @@ export async function buildGroupOrderPayload({
     items: (items ?? []).map((item) => ({
       id: item.id,
       participantId: item.participant_id,
+      restaurantId: item.restaurant_id,
+      restaurantName: itemRestaurantById.get(item.restaurant_id)?.name ?? "Local",
       productId: item.product_id,
       productName: item.product_name,
       unitPrice: Number(item.unit_price),
@@ -299,6 +321,8 @@ export async function buildGroupOrderPayload({
       status: expired && session.status !== "submitted" && session.status !== "cancelled" ? "expired" : session.status,
       submittedOrderId: session.submitted_order_id ?? "",
       submittedOrderTrackingToken,
+      submittedMultisiteOrderId: session.submitted_multisite_order_id ?? "",
+      submittedMultisiteOrderTrackingToken,
       subtotal: Number(session.subtotal),
       deliveryFee: Number(session.delivery_fee),
       total: Number(session.total),
@@ -315,7 +339,7 @@ export async function resolveGroupCartItems(supabase: SupabaseDatabaseClient, re
   const [{ data: productRows, error: productsError }, { data: variantRows }, { data: groupRows }, { data: optionRows }] = await Promise.all([
     supabase
       .from("products")
-      .select("id,name,price,is_available,available_from,available_until,available_days,available_start_time,available_end_time")
+      .select("id,name,price,prep_minutes,is_available,available_from,available_until,available_days,available_start_time,available_end_time")
       .eq("restaurant_id", restaurantId)
       .in("id", productIds),
     supabase.from("product_variants").select("id,product_id,name,price_delta,is_active").eq("restaurant_id", restaurantId).in("product_id", productIds),
@@ -379,6 +403,7 @@ export async function resolveGroupCartItems(supabase: SupabaseDatabaseClient, re
       quantity: item.quantity,
       subtotal: Number((unitPrice * item.quantity).toFixed(2)),
       notes,
+      prepMinutes: Math.max(1, Number(product.prep_minutes ?? 12)),
     };
   });
 }
@@ -430,6 +455,7 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
     .eq("id", session.id)
     .eq("status", "locked")
     .is("submitted_order_id", null)
+    .is("submitted_multisite_order_id", null)
     .select("*")
     .maybeSingle();
   if (lockError || !submittingSession) throw new Error("already-submitting");
@@ -454,6 +480,184 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
     deliveryRateService.list(supabase),
   ]);
 
+  const participantRows = participants ?? [];
+  const participantById = new Map(participantRows.map((participant) => [participant.id, participant]));
+  const includedParticipantIds = new Set(participantRows.filter((participant) => participant.payment_status !== "excluded").map((participant) => participant.id));
+  const sourceItems = (items ?? []).filter((item) => includedParticipantIds.has(item.participant_id));
+  if (!sourceItems.length) await fail("empty");
+  const pendingParticipants = participantRows.filter((participant) => {
+    const participantTotal = sourceItems.reduce((sum, item) => (item.participant_id === participant.id ? sum + Number(item.subtotal) : sum), 0);
+    return participantTotal > 0 && (participant.payment_status === "pending" || participant.payment_status === "qr_uploaded");
+  });
+  if (pendingParticipants.length) await fail("pending-payments");
+
+  const sourceRestaurantIds = Array.from(new Set(sourceItems.map((item) => item.restaurant_id)));
+  const isMultisiteGroup = Boolean(lockedSession.multisite_enabled && sourceRestaurantIds.length > 1);
+  if (lockedSession.multisite_enabled && sourceRestaurantIds.length > 3) await fail("multisite-limit");
+  if (isMultisiteGroup) {
+    if (lockedSession.collect_mode !== "host_collects") await fail("multisite-host-collects");
+    if (payload.orderType !== "delivery") await fail("multisite-delivery-only");
+    if (payload.paymentMethod !== "cash") await fail("multisite-cash-only");
+    if (payload.deliveryLatitude == null || payload.deliveryLongitude == null || !payload.customerAddress?.trim()) await fail("delivery-location");
+
+    const [restaurantsResult, settingsResult, hoursResult, cashResult, queuesResult, activeOrdersResult, recentOrdersResult] = await Promise.all([
+      supabase.from("restaurants").select("id,name,slug,city,latitude,longitude,status,deleted_at").in("id", sourceRestaurantIds),
+      supabase.from("restaurant_settings").select("restaurant_id,delivery_enabled,min_order_amount").in("restaurant_id", sourceRestaurantIds),
+      supabase.from("business_hours").select("restaurant_id,day_of_week,opens_at,closes_at,is_closed").in("restaurant_id", sourceRestaurantIds),
+      supabase.from("cash_sessions").select("restaurant_id").in("restaurant_id", sourceRestaurantIds).eq("status", "open"),
+      supabase.from("restaurant_queue_settings").select("restaurant_id,queue_enabled,base_prep_minutes,kitchen_capacity,rush_multiplier").in("restaurant_id", sourceRestaurantIds),
+      supabase.from("orders").select("restaurant_id,status").in("restaurant_id", sourceRestaurantIds).in("status", ["pending", "accepted", "preparing"]),
+      supabase.from("orders").select("restaurant_id").in("restaurant_id", sourceRestaurantIds).neq("status", "cancelled").gte("created_at", new Date(Date.now() - 20 * 60 * 1000).toISOString()),
+    ]);
+    const restaurantsById = new Map((restaurantsResult.data ?? []).map((row) => [row.id, row]));
+    const settingsByRestaurant = new Map((settingsResult.data ?? []).map((row) => [row.restaurant_id, row]));
+    const queuesByRestaurant = new Map((queuesResult.data ?? []).map((row) => [row.restaurant_id, row]));
+    const cashRestaurantIds = new Set((cashResult.data ?? []).map((row) => row.restaurant_id));
+    const activeByRestaurant = new Map<string, number>();
+    const preparingByRestaurant = new Map<string, number>();
+    const recentByRestaurant = new Map<string, number>();
+    const hoursByRestaurant = new Map<string, BusinessHour[]>();
+    for (const row of activeOrdersResult.data ?? []) {
+      activeByRestaurant.set(row.restaurant_id, (activeByRestaurant.get(row.restaurant_id) ?? 0) + 1);
+      if (row.status === "preparing") preparingByRestaurant.set(row.restaurant_id, (preparingByRestaurant.get(row.restaurant_id) ?? 0) + 1);
+    }
+    for (const row of recentOrdersResult.data ?? []) recentByRestaurant.set(row.restaurant_id, (recentByRestaurant.get(row.restaurant_id) ?? 0) + 1);
+    for (const row of hoursResult.data ?? []) {
+      hoursByRestaurant.set(row.restaurant_id, [...(hoursByRestaurant.get(row.restaurant_id) ?? []), {
+        dayOfWeek: row.day_of_week,
+        opensAt: row.opens_at ?? "",
+        closesAt: row.closes_at ?? "",
+        isClosed: row.is_closed,
+      }]);
+    }
+    const itemsByRestaurant = new Map<string, typeof sourceItems>();
+    for (const item of sourceItems) itemsByRestaurant.set(item.restaurant_id, [...(itemsByRestaurant.get(item.restaurant_id) ?? []), item]);
+    const resolvedByItemId = new Map<string, ResolvedCartItem>();
+    const nowInput = formatLocalDateTimeInput(new Date(), DEFAULT_RESTAURANT_TIME_ZONE);
+    try {
+      for (const restaurantId of sourceRestaurantIds) {
+        const restaurantRow = restaurantsById.get(restaurantId);
+        const restaurantSettings = settingsByRestaurant.get(restaurantId);
+        const restaurantItems = itemsByRestaurant.get(restaurantId) ?? [];
+        if (!restaurantRow || restaurantRow.status !== "active" || restaurantRow.deleted_at || restaurantRow.latitude == null || restaurantRow.longitude == null || !restaurantSettings?.delivery_enabled) throw new Error("restaurant-unavailable");
+        if (!cashRestaurantIds.has(restaurantId)) throw new Error("no-open-cash");
+        if (!isLocalDateTimeWithinBusinessHours(nowInput, hoursByRestaurant.get(restaurantId) ?? [])) throw new Error("outside-hours");
+        if (await announcementService.hasActiveClosure(restaurantId)) throw new Error("temporarily-closed");
+        const resolved = await resolveGroupCartItems(supabase, restaurantId, restaurantItems.map((item) => ({
+          productId: item.product_id,
+          variantId: item.variant_id ?? undefined,
+          optionIds: item.option_ids,
+          quantity: item.quantity,
+          notes: item.notes ?? undefined,
+        })));
+        if (resolved.reduce((sum, item) => sum + item.subtotal, 0) < Number(restaurantSettings.min_order_amount ?? 0)) throw new Error("minimum");
+        restaurantItems.forEach((item, index) => resolvedByItemId.set(item.id, resolved[index]));
+      }
+    } catch (error) {
+      await fail(error instanceof Error ? error.message : "product-not-found");
+    }
+    const plan = planMultisiteGroupOrder({
+      destination: { latitude: Number(payload.deliveryLatitude), longitude: Number(payload.deliveryLongitude) },
+      candidates: sourceRestaurantIds.map((restaurantId) => {
+        const restaurantRow = restaurantsById.get(restaurantId)!;
+        const queue = queuesByRestaurant.get(restaurantId);
+        const resolvedItems = (itemsByRestaurant.get(restaurantId) ?? []).map((item) => resolvedByItemId.get(item.id)!).filter(Boolean);
+        const snapshot: MultisiteKitchenSnapshot = {
+          queueEnabled: queue?.queue_enabled ?? true,
+          basePrepMinutes: Number(queue?.base_prep_minutes ?? 16),
+          kitchenCapacity: Number(queue?.kitchen_capacity ?? 3),
+          rushMultiplier: Number(queue?.rush_multiplier ?? 1.25),
+          activeOrders: activeByRestaurant.get(restaurantId) ?? 0,
+          preparingOrders: preparingByRestaurant.get(restaurantId) ?? 0,
+          recentOrders: recentByRestaurant.get(restaurantId) ?? 0,
+        };
+        const prepTimeMinutes = Math.max(...resolvedItems.map((item) => item.prepMinutes));
+        const forecast = forecastMultisiteKitchenReadyIn(snapshot, prepTimeMinutes);
+        return {
+          id: restaurantId,
+          restaurantId,
+          name: restaurantRow.name,
+          location: { latitude: Number(restaurantRow.latitude), longitude: Number(restaurantRow.longitude) },
+          prepTimeMinutes,
+          queueDelayMinutes: forecast.queueDelayMinutes,
+          queueConfidence: forecast.confidence,
+          kitchenSnapshot: snapshot,
+        };
+      }),
+      radiusKm: Number(lockedSession.multisite_radius_km ?? 3),
+      maxPickups: Math.min(Number(lockedSession.multisite_max_pickups ?? 3), 3),
+    });
+    if (!plan.feasible) await fail("route-unavailable");
+    const riderFee = payload.riderFee ?? plan.riderPricing.suggestedRiderFee;
+    if (riderFee < plan.riderPricing.customerMinimumFee || riderFee > plan.riderPricing.customerMaximumFee) await fail("rider-fee");
+    const routedStops = new Map(plan.stops.map((stop, index) => [stop.restaurantId ?? stop.id, { stop, position: index + 1 }]));
+    const subtotal = Number(Array.from(resolvedByItemId.values()).reduce((sum, item) => sum + item.subtotal, 0).toFixed(2));
+    const requestId = crypto.randomUUID();
+    const orderPrefix = `PGM-${requestId.replaceAll("-", "").slice(0, 8).toUpperCase()}`;
+    const { data: createdOrders, error: createError } = await supabase.rpc("create_public_multisite_order_transaction", {
+      p_request_id: requestId,
+      p_order: {
+        customer_name: payload.customerName,
+        customer_phone: payload.customerPhone ?? lockedSession.host_phone ?? null,
+        customer_email: null,
+        customer_address: payload.customerAddress,
+        delivery_address_detail: payload.deliveryAddressDetail ?? null,
+        delivery_latitude: payload.deliveryLatitude,
+        delivery_longitude: payload.deliveryLongitude,
+        delivery_maps_url: payload.deliveryMapsUrl ?? null,
+        payment_method: "cash",
+        subtotal,
+        delivery_fee: Number(riderFee.toFixed(2)),
+        total: Number((subtotal + riderFee).toFixed(2)),
+        rider_fee_suggested: plan.riderPricing.suggestedRiderFee,
+        rider_fee_minimum: plan.riderPricing.customerMinimumFee,
+        rider_fee_maximum: plan.riderPricing.customerMaximumFee,
+        route_plan: plan,
+        notes: `Yopido Grupal #${lockedSession.public_token} · Host: ${lockedSession.host_name}`,
+      },
+      p_children: sourceRestaurantIds.map((restaurantId) => {
+        const route = routedStops.get(restaurantId)!;
+        const entries = (itemsByRestaurant.get(restaurantId) ?? []).map((item) => ({ item, resolved: resolvedByItemId.get(item.id)! }));
+        return {
+          restaurant_id: restaurantId,
+          order_number: `${orderPrefix}-${route.position}`,
+          pickup_position: route.position,
+          release_delay_minutes: route.stop.orderReleaseDelayMinutes,
+          estimated_ready_minutes: route.stop.estimatedReadyInMinutes,
+          distance_to_destination_km: route.stop.distanceToDestinationKm,
+          subtotal: Number(entries.reduce((sum, entry) => sum + entry.resolved.subtotal, 0).toFixed(2)),
+          items: entries.map(({ item, resolved }) => ({
+            product_id: resolved.productId,
+            product_name: resolved.name,
+            variant_id: resolved.variantId ?? null,
+            option_ids: resolved.optionIds,
+            unit_price: resolved.price,
+            quantity: resolved.quantity,
+            subtotal: resolved.subtotal,
+            notes: [participantById.get(item.participant_id)?.display_name ? `Participante: ${participantById.get(item.participant_id)?.display_name}` : "", resolved.notes].filter(Boolean).join(" | ") || null,
+          })),
+        };
+      }),
+    });
+    const multisiteOrder = createdOrders?.[0];
+    if (createError || !multisiteOrder) await fail(createError?.message.includes("no-open-cash") ? "no-open-cash" : "create-order");
+    const finalOrder = multisiteOrder!;
+    await supabase.from("group_order_sessions").update({
+      status: "submitted",
+      submitted_multisite_order_id: finalOrder.id,
+      submitted_at: new Date().toISOString(),
+      subtotal,
+      delivery_fee: Number(riderFee.toFixed(2)),
+      total: Number((subtotal + riderFee).toFixed(2)),
+      submitted_snapshot: { multisite: true, multisiteOrderId: finalOrder.id, subtotal, deliveryFee: riderFee, total: Number((subtotal + riderFee).toFixed(2)), route: plan },
+    }).eq("id", lockedSession.id).eq("status", "submitting");
+    after(async () => {
+      const { data: children } = await supabase.from("multisite_order_children").select("order_id").eq("multisite_order_id", finalOrder.id);
+      await Promise.all((children ?? []).map((child) => sendRestaurantNewOrderPush(child.order_id).catch(() => null)));
+    });
+    return { orderId: finalOrder.id, orderNumber: "MULTI", trackingToken: finalOrder.tracking_token, isMultisite: true };
+  }
+
   if (!settings || !restaurant) await fail("settings");
   const orderSettings = settings!;
   const orderRestaurant = restaurant!;
@@ -472,17 +676,6 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
   ) {
     await fail("delivery-location");
   }
-
-  const participantRows = participants ?? [];
-  const participantById = new Map(participantRows.map((participant) => [participant.id, participant]));
-  const includedParticipantIds = new Set(participantRows.filter((participant) => participant.payment_status !== "excluded").map((participant) => participant.id));
-  const sourceItems = (items ?? []).filter((item) => includedParticipantIds.has(item.participant_id));
-  if (!sourceItems.length) await fail("empty");
-  const pendingParticipants = participantRows.filter((participant) => {
-    const participantTotal = sourceItems.reduce((sum, item) => (item.participant_id === participant.id ? sum + Number(item.subtotal) : sum), 0);
-    return participantTotal > 0 && (participant.payment_status === "pending" || participant.payment_status === "qr_uploaded");
-  });
-  if (pendingParticipants.length) await fail("pending-payments");
 
   try {
     await resolveGroupCartItems(
@@ -660,5 +853,6 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
     orderId: finalOrder.id,
     orderNumber: savedOrder?.order_number ?? "",
     trackingToken: finalOrder.tracking_token,
+    isMultisite: false,
   };
 }

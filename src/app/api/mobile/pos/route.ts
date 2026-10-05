@@ -237,7 +237,7 @@ export async function GET(request: Request) {
     if (!settings) throw new PosError("El restaurante no tiene configuracion de venta.", 409);
     settings.kitchen_enabled = businessTypeSupportsKitchen(restaurant.business_type) && settings.kitchen_enabled !== false;
     const orderIds = ordersResult.map((order) => order.id);
-    const [ridersResult, assignmentsResult] = restaurant.canManage
+    const [ridersResult, assignmentsResult, whatsappChannelsResult] = restaurant.canManage
       ? await Promise.all([
           auth.admin
             .from("restaurant_riders")
@@ -253,16 +253,30 @@ export async function GET(request: Request) {
                 .eq("restaurant_id", id)
                 .in("order_id", orderIds)
             : Promise.resolve({ data: [], error: null }),
+          orderIds.length
+            ? auth.admin
+                .from("whatsapp_order_channels")
+                .select("order_id,conversation_id")
+                .eq("restaurant_id", id)
+                .in("order_id", orderIds)
+            : Promise.resolve({ data: [], error: null }),
         ])
-      : [{ data: [], error: null }, { data: [], error: null }];
+      : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }];
     const riders = checked(ridersResult) ?? [];
     const deliveryAssignments = checked(assignmentsResult) ?? [];
+    const whatsappConversationByOrder = new Map(
+      (checked(whatsappChannelsResult) ?? []).map((channel) => [channel.order_id, channel.conversation_id]),
+    );
+    const orders = ordersResult.map((order) => ({
+      ...order,
+      whatsappConversationId: whatsappConversationByOrder.get(order.id) ?? null,
+    }));
     const assignments = (checked(waiterAssignmentsResult) ?? []) as Array<{ table_id: string; waiter_user_id: string }>;
     const assignedTableIds = assignments.filter((assignment) => assignment.waiter_user_id === auth.profile.id).map((assignment) => assignment.table_id);
     const tables = restaurant.role === "waiter" && assignments.length
       ? (checked(tablesResult) ?? []).filter((table) => assignedTableIds.includes(table.id))
       : checked(tablesResult);
-    return json({ restaurant, orders: ordersResult, tables, settings, cashSession, cashOpen, movements, waiterShift, products, categories, variants, groups, options, riders, deliveryAssignments });
+    return json({ restaurant, orders, tables, settings, cashSession, cashOpen, movements, waiterShift, products, categories, variants, groups, options, riders, deliveryAssignments });
   } catch (error) { return failure(error); }
 }
 
@@ -401,9 +415,8 @@ export async function POST(request: Request) {
         p_severity: "info",
         p_metadata: { adjustmentMinutes: input.adjustmentMinutes },
       }));
-      after(async () => {
-        await sendOrderWhatsAppNotification({ event: "eta_updated", orderId: input.orderId });
-      });
+      // ETA remains available in the live tracking page; it does not trigger a
+      // paid WhatsApp service message.
       result = order;
     } else if (input.action === "dispatch-rider") {
       const order = checked(await client.from("orders").select("id,order_type,status").eq("restaurant_id", id).eq("id", input.orderId).maybeSingle());
@@ -605,7 +618,9 @@ export async function POST(request: Request) {
         }
         if (changed) after(async () => {
           const tasks: Promise<unknown>[] = [sendOrderStatusPush({ orderId: order.id, status: next })];
-          tasks.push(sendOrderWhatsAppNotification({ orderId: order.id, event: next }));
+          if (next === "accepted" || (next === "ready" && order.order_type !== "delivery")) {
+            tasks.push(sendOrderWhatsAppNotification({ orderId: order.id, event: next }));
+          }
           if (next === "ready" && order.order_type === "delivery") tasks.push(offerNextRiderForOrder(order.id));
           await Promise.allSettled(tasks);
         });

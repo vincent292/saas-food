@@ -1,7 +1,7 @@
 "use client";
 
 import QRCode from "qrcode";
-import { ArrowRight, Bike, Check, Clipboard, CreditCard, Lock, MapPin, Minus, Plus, Send, Share2, ShoppingBag, Store, Trash2, UserRound, UsersRound, X } from "lucide-react";
+import { ArrowRight, Bike, Check, Clipboard, CreditCard, Lock, MapPin, Minus, Plus, Route, Send, Share2, ShoppingBag, Store, Trash2, UserRound, UsersRound, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type CSSProperties, useEffect, useMemo, useState, useTransition } from "react";
@@ -25,6 +25,7 @@ import { Card } from "@/components/ui/Card";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
+import { planMultisiteGroupOrder } from "@/lib/group-orders/multisite-planner";
 import { useRealtimeBroadcast } from "@/lib/client/use-realtime-broadcast";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
@@ -48,6 +49,8 @@ export type GroupOrderSessionView = {
   expiresAt: string;
   submittedOrderId?: string;
   submittedOrderTrackingToken?: string;
+  submittedMultisiteOrderId?: string;
+  submittedMultisiteOrderTrackingToken?: string;
   subtotal: number;
   deliveryFee: number;
   total: number;
@@ -66,6 +69,8 @@ export type GroupOrderParticipantView = {
 export type GroupOrderItemView = {
   id: string;
   participantId: string;
+  restaurantId: string;
+  restaurantName: string;
   productName: string;
   unitPrice: number;
   quantity: number;
@@ -114,6 +119,8 @@ function localStorageKey(sessionToken: string, key: "host" | "participant") {
 
 export function GroupOrderSessionClient({
   restaurant,
+  catalogRestaurant,
+  multisiteRestaurants,
   categories,
   products,
   configuration,
@@ -129,6 +136,8 @@ export function GroupOrderSessionClient({
   orderError,
 }: {
   restaurant: Restaurant;
+  catalogRestaurant: Restaurant;
+  multisiteRestaurants: Restaurant[];
   categories: Category[];
   products: Product[];
   configuration: ProductConfigMap;
@@ -170,6 +179,9 @@ export function GroupOrderSessionClient({
   const [hostAddressDetail, setHostAddressDetail] = useState("");
   const [hostPanelTab, setHostPanelTab] = useState<"invite" | "payments" | "finish">("payments");
   const [hostDeliveryCoordinates, setHostDeliveryCoordinates] = useState<{ latitude: number; longitude: number }>();
+  const [hostRiderFee, setHostRiderFee] = useState("");
+  const [showRestaurantPicker, setShowRestaurantPicker] = useState(false);
+  const [restaurantPickerQuery, setRestaurantPickerQuery] = useState("");
   const inviteUrl = typeof window === "undefined" ? "" : `${window.location.origin}${publicRestaurantPath(restaurant.slug, `grupo/${session.publicToken}`)}`;
   const isHost = Boolean(hostAccessToken);
   const currentParticipant = participants.find((participant) => participant.id === currentParticipantId);
@@ -193,6 +205,17 @@ export function GroupOrderSessionClient({
   }, [items]);
   const activeItems = items.filter((item) => participants.find((participant) => participant.id === item.participantId)?.paymentStatus !== "excluded");
   const activeSubtotal = activeItems.reduce((sum, item) => sum + item.subtotal, 0);
+  const activeRestaurantIds = useMemo(() => Array.from(new Set(activeItems.map((item) => item.restaurantId))), [activeItems]);
+  const isMultisiteCheckout = Boolean(session.multisiteEnabled && activeRestaurantIds.length > 1);
+  const activeRestaurantNames = useMemo(() => {
+    const restaurantsById = new Map(multisiteRestaurants.map((candidate) => [candidate.id, candidate]));
+    return activeRestaurantIds.map((restaurantId) => restaurantsById.get(restaurantId)?.name ?? "Local");
+  }, [activeRestaurantIds, multisiteRestaurants]);
+  const filteredMultisiteRestaurants = useMemo(() => {
+    const needle = normalize(restaurantPickerQuery);
+    if (!needle) return multisiteRestaurants;
+    return multisiteRestaurants.filter((candidate) => normalize(`${candidate.name} ${candidate.city} ${candidate.address}`).includes(needle));
+  }, [multisiteRestaurants, restaurantPickerQuery]);
   const currentParticipantTotal = totalsByParticipant.get(currentParticipantId ?? "") ?? 0;
   const pendingPaymentCount = participants.filter((participant) => {
     const amount = totalsByParticipant.get(participant.id) ?? 0;
@@ -203,7 +226,6 @@ export function GroupOrderSessionClient({
     ? ""
     : new Intl.DateTimeFormat("es-BO", { dateStyle: "short", timeStyle: "short" }).format(expiresAtDate);
   const canModifyGroup = session.status === "open" || session.status === "locked";
-  const hostReadyToSubmit = session.status === "locked" && activeItems.length > 0 && pendingPaymentCount === 0;
   const participantExcluded = Boolean(isJoined && !isHost && currentParticipant?.paymentStatus === "excluded");
   const participantSubmitted = Boolean(isJoined && !isHost && currentParticipant && currentParticipant.paymentStatus !== "pending");
   const participantCanAddProducts = Boolean(isJoined && session.status === "open" && !participantSubmitted);
@@ -241,7 +263,43 @@ export function GroupOrderSessionClient({
     [activeSubtotal, deliveryZones, hostDeliveryCoordinates, hostOrderType, restaurant.city, restaurant.latitude, restaurant.longitude, settings],
   );
   const hostDeliveryFee = hostDeliveryPolicy?.deliveryFee ?? 0;
-  const hostFinalTotal = activeSubtotal + hostDeliveryFee;
+  const clientMultisitePlan = useMemo(() => {
+    if (!isMultisiteCheckout || !hostDeliveryCoordinates) return null;
+    const restaurantById = new Map(multisiteRestaurants.map((candidate) => [candidate.id, candidate]));
+    const candidates = activeRestaurantIds.flatMap((restaurantId) => {
+      const candidate = restaurantById.get(restaurantId);
+      if (candidate?.latitude == null || candidate.longitude == null) return [];
+      return [{
+        id: candidate.id,
+        restaurantId: candidate.id,
+        name: candidate.name,
+        location: { latitude: candidate.latitude, longitude: candidate.longitude },
+        prepTimeMinutes: 16,
+      }];
+    });
+    if (candidates.length !== activeRestaurantIds.length) return null;
+    return planMultisiteGroupOrder({
+      destination: hostDeliveryCoordinates,
+      candidates,
+      radiusKm: session.multisiteRadiusKm ?? 3,
+      maxPickups: Math.min(session.multisiteMaxPickups ?? 3, 3),
+    });
+  }, [activeRestaurantIds, hostDeliveryCoordinates, isMultisiteCheckout, multisiteRestaurants, session.multisiteMaxPickups, session.multisiteRadiusKm]);
+  useEffect(() => {
+    if (!clientMultisitePlan?.feasible) return;
+    const timer = window.setTimeout(() => setHostRiderFee(clientMultisitePlan.riderPricing.suggestedRiderFee.toFixed(2)), 0);
+    return () => window.clearTimeout(timer);
+  }, [clientMultisitePlan?.feasible, clientMultisitePlan?.riderPricing.suggestedRiderFee]);
+  useEffect(() => {
+    if (!isMultisiteCheckout || hostOrderType === "delivery") return;
+    const timer = window.setTimeout(() => setHostOrderType("delivery"), 0);
+    return () => window.clearTimeout(timer);
+  }, [hostOrderType, isMultisiteCheckout]);
+  const selectedRiderFee = Number(hostRiderFee);
+  const effectiveDeliveryFee = isMultisiteCheckout && Number.isFinite(selectedRiderFee) ? selectedRiderFee : hostDeliveryFee;
+  const hostFinalTotal = activeSubtotal + effectiveDeliveryFee;
+  const multisiteFeeValid = !isMultisiteCheckout || Boolean(clientMultisitePlan?.feasible) && Number.isFinite(selectedRiderFee) && selectedRiderFee >= (clientMultisitePlan?.riderPricing.customerMinimumFee ?? Infinity) && selectedRiderFee <= (clientMultisitePlan?.riderPricing.customerMaximumFee ?? -Infinity);
+  const hostReadyToSubmit = session.status === "locked" && activeItems.length > 0 && pendingPaymentCount === 0 && multisiteFeeValid;
   const billableParticipantIds = useMemo(
     () =>
       participants
@@ -249,8 +307,8 @@ export function GroupOrderSessionClient({
         .map((participant) => participant.id),
     [participants, totalsByParticipant],
   );
-  const deliverySharePreview = hostOrderType === "delivery" && hostDeliveryFee > 0 && billableParticipantIds.length ? hostDeliveryFee / billableParticipantIds.length : 0;
-  const effectiveHostPaymentMethod = hostDeliveryPolicy?.requiresQrPrepayment ? "qr" : hostPaymentMethod;
+  const deliverySharePreview = hostOrderType === "delivery" && effectiveDeliveryFee > 0 && billableParticipantIds.length ? effectiveDeliveryFee / billableParticipantIds.length : 0;
+  const effectiveHostPaymentMethod = isMultisiteCheckout ? "cash" : hostDeliveryPolicy?.requiresQrPrepayment ? "qr" : hostPaymentMethod;
   const filteredProducts = useMemo(() => {
     const queryNeedle = normalize(productQuery);
     return products.filter((product) => {
@@ -309,6 +367,7 @@ export function GroupOrderSessionClient({
       const result = await addGroupOrderItemAction({
         sessionToken: session.publicToken,
         participantToken,
+        restaurantId: catalogRestaurant.id,
         productId: product.id,
         variantId: variant?.id,
         optionIds: selectedOptions.map((option) => option.id),
@@ -321,6 +380,10 @@ export function GroupOrderSessionClient({
               ? "El grupo alcanzo el limite de productos."
               : result.error === "participant-item-limit"
                 ? "Alcanzaste el limite de productos para tu parte."
+                : result.error === "multisite-limit"
+                  ? "Este grupo admite productos de hasta tres locales."
+                  : result.error === "restaurant-unavailable"
+                    ? "Este local ya no está disponible para el pedido grupal."
                 : "No se pudo agregar el producto.",
         );
         return;
@@ -401,6 +464,15 @@ export function GroupOrderSessionClient({
     setHostAddress((currentAddress) => (currentAddress.trim() ? currentAddress : "Ubicacion marcada en el mapa"));
   }
 
+  function changeCatalogRestaurant(nextSlug: string) {
+    setShowRestaurantPicker(false);
+    setRestaurantPickerQuery("");
+    const params = new URLSearchParams(window.location.search);
+    if (nextSlug === restaurant.slug) params.delete("local");
+    else params.set("local", nextSlug);
+    router.push(`${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`);
+  }
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,var(--color-surface)_0%,var(--background)_50%,var(--color-surface)_100%)] px-3 py-4 text-[var(--text)] sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-5">
@@ -433,7 +505,13 @@ export function GroupOrderSessionClient({
         {session.status === "submitted" ? (
           <Card className="space-y-3 border-[var(--color-success-soft)] bg-[var(--color-success-soft)] text-[var(--color-success-strong)]">
             <h2 className="text-xl font-black">Pedido enviado</h2>
-            <p className="text-sm font-bold">El host ya envio esta sesion. El pedido entro al flujo del restaurante.</p>
+            <p className="text-sm font-bold">El host ya envio esta sesion. El pedido entro al flujo operativo.</p>
+            {session.submittedMultisiteOrderId && session.submittedMultisiteOrderTrackingToken ? (
+              <Link className={buttonClasses("primary", "w-fit")} href={`/pedido/multi/${session.submittedMultisiteOrderId}?token=${session.submittedMultisiteOrderTrackingToken}&group=1`}>
+                Ver seguimiento multi-local
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            ) : null}
             {session.submittedOrderId && session.submittedOrderTrackingToken ? (
               <Link className={buttonClasses("primary", "w-fit")} href={`${publicRestaurantPath(restaurant.slug, `pedido/${session.submittedOrderId}`)}?token=${session.submittedOrderTrackingToken}&group=1`}>
                 Ver seguimiento
@@ -549,6 +627,47 @@ export function GroupOrderSessionClient({
                   </span>
                 </div>
                 <div className="grid gap-3">
+                  {session.multisiteEnabled ? (
+                    <div className="overflow-hidden rounded-[1.25rem] border border-[var(--primary)]/20 bg-[linear-gradient(135deg,var(--primary-light),var(--surface))]">
+                      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--primary)] text-white shadow-sm"><Route className="h-5 w-5" /></span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-black text-[var(--primary)]">Pedido desde varios locales</p>
+                            <p className="mt-0.5 text-xs font-semibold leading-5 text-[var(--muted)]">Elige el menú de un local, agrega sus productos y luego cambia al siguiente. Máximo 3 locales por ruta.</p>
+                          </div>
+                        </div>
+                        <span className="w-fit rounded-full bg-white/90 px-3 py-1.5 text-xs font-black text-[var(--primary)] shadow-sm">{activeRestaurantIds.length}/3 locales en el pedido</span>
+                      </div>
+
+                      <div className="border-t border-[var(--primary)]/10 bg-white/55 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-black text-[var(--muted)]">AGREGAR AHORA DESDE</p>
+                          <button className="text-xs font-black text-[var(--primary)] underline decoration-2 underline-offset-4" onClick={() => setShowRestaurantPicker(true)} type="button">Ver todos</button>
+                        </div>
+                        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                          {multisiteRestaurants.slice(0, 4).map((candidate) => {
+                            const selected = candidate.id === catalogRestaurant.id;
+                            const hasItems = activeRestaurantIds.includes(candidate.id);
+                            return (
+                              <button
+                                className={cn("flex min-w-[168px] items-center gap-2 rounded-xl border p-2 text-left transition", selected ? "border-[var(--primary)] bg-[var(--primary)] text-white shadow-sm" : "border-[var(--border)] bg-white text-[var(--text)] hover:border-[var(--primary)]")}
+                                key={candidate.id}
+                                onClick={() => changeCatalogRestaurant(candidate.slug)}
+                                type="button"
+                              >
+                                <RestaurantAvatar restaurant={candidate} selected={selected} />
+                                <span className="min-w-0 flex-1"><span className="block truncate text-xs font-black">{candidate.name}</span><span className={cn("mt-0.5 block truncate text-[11px] font-bold", selected ? "text-white/75" : "text-[var(--muted)]")}>{hasItems ? "Ya tiene productos" : candidate.city || "Ver menú"}</span></span>
+                                {selected ? <Check className="h-4 w-4 shrink-0" /> : null}
+                              </button>
+                            );
+                          })}
+                          <button className="grid min-w-[112px] place-items-center rounded-xl border border-dashed border-[var(--primary)]/45 bg-white/65 px-3 text-center text-xs font-black text-[var(--primary)] transition hover:bg-white" onClick={() => setShowRestaurantPicker(true)} type="button"><Plus className="mb-1 h-4 w-4" />Otro local</button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  {session.multisiteEnabled ? <p className="flex items-center gap-2 rounded-xl bg-[var(--surface)] px-3 py-2 text-xs font-bold text-[var(--muted)]"><Store className="h-4 w-4 text-[var(--primary)]" />Estás agregando productos al pedido desde <span className="font-black text-[var(--primary)]">{catalogRestaurant.name}</span>.</p> : null}
                   <label className="flex min-h-12 items-center gap-3 rounded-[1rem] border border-[var(--border)] bg-[var(--color-input)] px-4">
                     <ShoppingBag className="h-5 w-5 text-[var(--muted)]" />
                     <input className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none placeholder:text-[var(--color-placeholder)]" onChange={(event) => setProductQuery(event.target.value)} placeholder="Buscar producto" value={productQuery} />
@@ -651,6 +770,7 @@ export function GroupOrderSessionClient({
                             <div className="flex items-center justify-between gap-3 rounded-[0.85rem] bg-[var(--surface)] p-2" key={item.id}>
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-black">{item.quantity}x {item.productName}</p>
+                                {session.multisiteEnabled ? <p className="truncate text-xs font-bold text-[var(--primary)]">{item.restaurantName}</p> : null}
                                 {item.notes ? <p className="truncate text-xs font-semibold text-[var(--muted)]">{item.notes}</p> : null}
                               </div>
                               <div className="flex shrink-0 items-center gap-2">
@@ -805,10 +925,21 @@ export function GroupOrderSessionClient({
                   <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
                   <input name="sessionToken" type="hidden" value={session.publicToken} />
                   <input name="hostAccessToken" type="hidden" value={hostAccessToken} />
-                  <Select name="collectMode" defaultValue={session.collectMode}>
-                    <option value="host_collects">Todos pagan al host</option>
-                    <option value="internal_cash">Arreglo interno / efectivo</option>
-                  </Select>
+                  {session.multisiteEnabled ? (
+                    <>
+                      <input name="collectMode" type="hidden" value="host_collects" />
+                      <p className="rounded-[1rem] bg-[var(--primary-light)] px-3 py-2 text-sm font-black text-[var(--primary)]">Multi-local usa un solo cobro: todos pagan al host.</p>
+                    </>
+                  ) : (
+                    <Select name="collectMode" defaultValue={session.collectMode}>
+                      <option value="host_collects">Todos pagan al host</option>
+                      <option value="internal_cash">Arreglo interno / efectivo</option>
+                    </Select>
+                  )}
+                  <label className="flex items-start gap-3 rounded-[1rem] border border-[var(--border)] bg-[var(--color-surface)] p-3 text-sm font-black">
+                    <input className="mt-0.5 h-4 w-4" defaultChecked={session.multisiteEnabled} disabled={!canModifyGroup} name="multisiteEnabled" type="checkbox" />
+                    <span><span className="block">Permitir pedido multi-local</span><span className="mt-1 block text-xs font-semibold text-[var(--muted)]">El grupo podrá sumar hasta tres locales y usar una sola entrega. Solo delivery en efectivo al finalizar.</span></span>
+                  </label>
                   <label className="grid gap-1 text-sm font-black">
                     Cambiar QR del host
                     <Input accept="image/png,image/jpeg,image/webp,image/avif" name="hostQrFile" type="file" />
@@ -837,6 +968,7 @@ export function GroupOrderSessionClient({
                   <input name="hostAccessToken" type="hidden" value={hostAccessToken} />
                   <input name="orderType" type="hidden" value={hostOrderType} />
                   <input name="paymentMethod" type="hidden" value={effectiveHostPaymentMethod} />
+                  {isMultisiteCheckout ? <input name="riderFee" type="hidden" value={hostRiderFee} /> : null}
                   <input name="deliveryCity" type="hidden" value={restaurant.city} />
                   <Input defaultValue={session.hostName} name="customerName" placeholder="Nombre del host" required />
                   <Input defaultValue={session.hostPhone ?? ""} inputMode="tel" name="customerPhone" placeholder="WhatsApp del host" />
@@ -851,7 +983,7 @@ export function GroupOrderSessionClient({
                     </div>
                   ) : null}
                   <div className="grid grid-cols-2 gap-2 rounded-[1rem] bg-[var(--primary-light)] p-1">
-                    <button className={cn("flex min-h-11 items-center justify-center gap-2 rounded-[0.85rem] text-sm font-black transition disabled:opacity-50", hostOrderType === "pickup" ? "bg-[var(--surface)] text-[var(--primary)] shadow-sm" : "text-[var(--muted)]")} disabled={!pickupEnabled} onClick={() => setHostOrderType("pickup")} type="button">
+                    <button className={cn("flex min-h-11 items-center justify-center gap-2 rounded-[0.85rem] text-sm font-black transition disabled:opacity-50", hostOrderType === "pickup" ? "bg-[var(--surface)] text-[var(--primary)] shadow-sm" : "text-[var(--muted)]")} disabled={!pickupEnabled || isMultisiteCheckout} onClick={() => setHostOrderType("pickup")} type="button">
                       <Store className="h-4 w-4" />
                       Recojo
                     </button>
@@ -883,7 +1015,18 @@ export function GroupOrderSessionClient({
                         onCoordinatesChange={handleHostDeliveryCoordinatesChange}
                         showMapByDefault
                       />
-                      {hostDeliveryPolicy?.distanceKm != null ? (
+                      {isMultisiteCheckout ? (
+                        clientMultisitePlan?.feasible ? (
+                          <div className="grid gap-3 rounded-[1rem] bg-[var(--primary-light)] p-3 text-sm font-bold text-[var(--primary)]">
+                            <div className="flex items-center gap-2"><Route className="h-4 w-4" /><span>Ruta multi-local: {clientMultisitePlan.stops.length} recojos</span></div>
+                            <ol className="grid gap-2">{clientMultisitePlan.stops.map((stop, index) => <li className="rounded-xl bg-white/80 p-2 text-xs" key={stop.id}><b>{index + 1}. {stop.name}</b><span className="block text-[var(--muted)]">Listo aprox. en {stop.estimatedReadyInMinutes} min</span></li>)}</ol>
+                            <label className="grid gap-1 text-sm font-black">Oferta para la moto (Bs)<Input max={clientMultisitePlan.riderPricing.customerMaximumFee} min={clientMultisitePlan.riderPricing.customerMinimumFee} onChange={(event) => setHostRiderFee(event.target.value)} step="0.5" type="number" value={hostRiderFee} /></label>
+                            <p className="text-xs font-semibold">Sugerido {formatMoney(clientMultisitePlan.riderPricing.suggestedRiderFee)} · permitido de {formatMoney(clientMultisitePlan.riderPricing.customerMinimumFee)} a {formatMoney(clientMultisitePlan.riderPricing.customerMaximumFee)}.</p>
+                          </div>
+                        ) : (
+                          <p className="rounded-[1rem] bg-[var(--color-warning-soft)] p-3 text-xs font-black text-[var(--color-warning-strong)]">Marca el destino. La ruta debe quedar dentro del radio y no exceder el tiempo seguro de comida.</p>
+                        )
+                      ) : hostDeliveryPolicy?.distanceKm != null ? (
                         <div className={cn("rounded-[1rem] p-3 text-sm font-bold", hostDeliveryPolicy.requiresQrPrepayment ? "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]" : "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]")}>
                           <p>
                             {hostDeliveryPolicy.distanceKm.toFixed(1)} km desde el local{hostDeliveryPolicy.matchedZone ? ` · ${hostDeliveryPolicy.matchedZone.name}` : ""}.
@@ -902,7 +1045,9 @@ export function GroupOrderSessionClient({
                     </div>
                   ) : null}
 
-                  <div className="grid gap-2 rounded-[1rem] border border-[var(--border)] bg-[var(--color-surface)] p-3">
+                  {isMultisiteCheckout ? (
+                    <div className="rounded-[1rem] bg-[var(--accent-soft)] p-3 text-sm font-bold text-[var(--primary)]">El pedido multi-local usa un solo cobro en efectivo al recibir. El QR único se habilitará cuando la plataforma tenga su cuenta de cobro configurada.</div>
+                  ) : <div className="grid gap-2 rounded-[1rem] border border-[var(--border)] bg-[var(--color-surface)] p-3">
                     <div className="flex items-center gap-2">
                       <CreditCard className="h-4 w-4 text-[var(--primary)]" />
                       <p className="text-sm font-black">Pago final al restaurante</p>
@@ -925,11 +1070,11 @@ export function GroupOrderSessionClient({
                         </button>
                       ))}
                     </div>
-                  </div>
-                  <label className="grid gap-1 text-sm font-black">
+                  </div>}
+                  {!isMultisiteCheckout ? <label className="grid gap-1 text-sm font-black">
                     Comprobante final si paga QR
                     <Input accept="image/png,image/jpeg,image/webp,image/avif,application/pdf" name="paymentReceiptFile" type="file" />
-                  </label>
+                  </label> : null}
                   <div className="rounded-[1rem] bg-[var(--primary-light)] p-3 text-sm font-black text-[var(--primary)]">
                     <div className="flex justify-between gap-3">
                       <span>Productos</span>
@@ -937,7 +1082,7 @@ export function GroupOrderSessionClient({
                     </div>
                     <div className="mt-1 flex justify-between gap-3">
                       <span>Delivery</span>
-                      <span>{hostOrderType === "delivery" ? (hostDeliveryFee <= 0 ? "Gratis" : formatMoney(hostDeliveryFee)) : "-"}</span>
+                      <span>{hostOrderType === "delivery" ? (effectiveDeliveryFee <= 0 ? "Gratis" : formatMoney(effectiveDeliveryFee)) : "-"}</span>
                     </div>
                     {deliverySharePreview > 0 ? (
                       <div className="mt-1 flex justify-between gap-3 text-xs text-[var(--muted)]">
@@ -963,6 +1108,60 @@ export function GroupOrderSessionClient({
           ) : null}
         </div>
       </div>
+
+      {showRestaurantPicker && session.multisiteEnabled ? (
+        <div className="fixed inset-0 z-[90] flex items-end bg-black/45 p-0 backdrop-blur-[2px] sm:items-center sm:justify-center sm:p-6" onClick={() => setShowRestaurantPicker(false)} role="presentation">
+          <section aria-label="Elegir local" className="max-h-[88vh] w-full max-w-3xl overflow-hidden rounded-t-[1.75rem] bg-[var(--surface)] shadow-2xl sm:rounded-[1.75rem]" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+            <header className="border-b border-[var(--border)] px-5 py-4 sm:px-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Pedido multi-local</p>
+                  <h2 className="mt-1 text-2xl font-black">¿De qué local agregamos ahora?</h2>
+                  <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Selecciona un menú. Los productos que agregues conservarán el local de origen.</p>
+                </div>
+                <button aria-label="Cerrar" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--primary-light)] text-[var(--primary)]" onClick={() => setShowRestaurantPicker(false)} type="button"><X className="h-5 w-5" /></button>
+              </div>
+              <label className="mt-4 flex min-h-12 items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--color-input)] px-3">
+                <ShoppingBag className="h-4 w-4 text-[var(--muted)]" />
+                <input autoFocus className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none placeholder:text-[var(--color-placeholder)]" onChange={(event) => setRestaurantPickerQuery(event.target.value)} placeholder="Buscar por nombre o ciudad" value={restaurantPickerQuery} />
+                {restaurantPickerQuery ? <button aria-label="Limpiar búsqueda" className="text-[var(--muted)]" onClick={() => setRestaurantPickerQuery("")} type="button"><X className="h-4 w-4" /></button> : null}
+              </label>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-[var(--muted)]">
+                <span className="rounded-full bg-[var(--primary-light)] px-2.5 py-1 text-[var(--primary)]">{activeRestaurantIds.length}/3 locales con productos</span>
+                {activeRestaurantNames.length ? <span className="truncate">En tu ruta: {activeRestaurantNames.join(" · ")}</span> : <span>Aún no agregaste productos.</span>}
+              </div>
+            </header>
+            <div className="max-h-[56vh] overflow-y-auto p-4 sm:p-6">
+              {filteredMultisiteRestaurants.length ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {filteredMultisiteRestaurants.map((candidate) => {
+                    const selected = candidate.id === catalogRestaurant.id;
+                    const hasItems = activeRestaurantIds.includes(candidate.id);
+                    const limitReached = activeRestaurantIds.length >= 3 && !hasItems;
+                    return (
+                      <button
+                        className={cn("relative flex min-h-24 items-center gap-3 rounded-2xl border p-3 text-left transition", selected ? "border-[var(--primary)] bg-[var(--primary-light)] shadow-sm" : "border-[var(--border)] bg-white hover:-translate-y-0.5 hover:border-[var(--primary)] hover:shadow-sm", limitReached && "cursor-not-allowed opacity-50 hover:translate-y-0 hover:border-[var(--border)] hover:shadow-none")}
+                        disabled={limitReached}
+                        key={candidate.id}
+                        onClick={() => changeCatalogRestaurant(candidate.slug)}
+                        type="button"
+                      >
+                        <RestaurantAvatar restaurant={candidate} selected={selected} />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-2"><span className="truncate font-black">{candidate.name}</span>{selected ? <span className="rounded-full bg-[var(--primary)] px-2 py-0.5 text-[10px] font-black text-white">VIENDO</span> : null}</span>
+                          <span className="mt-1 flex items-center gap-1 truncate text-xs font-semibold text-[var(--muted)]"><MapPin className="h-3.5 w-3.5 shrink-0" />{candidate.city || candidate.address || "Local disponible"}</span>
+                          <span className={cn("mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-black", hasItems ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : limitReached ? "bg-[var(--color-neutral-100)] text-[var(--muted)]" : "bg-[var(--accent-soft)] text-[var(--primary)]")}>{hasItems ? "Ya tiene productos" : limitReached ? "Límite de 3 locales" : "Elegir este menú"}</span>
+                        </span>
+                        {!limitReached ? <ArrowRight className="h-4 w-4 shrink-0 text-[var(--primary)]" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : <div className="rounded-2xl bg-[var(--primary-light)] p-6 text-center"><Store className="mx-auto h-6 w-6 text-[var(--primary)]" /><p className="mt-2 text-sm font-black">No encontramos ese local</p><p className="mt-1 text-xs font-semibold text-[var(--muted)]">Prueba con otro nombre o ciudad.</p></div>}
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {selectedProduct ? <ProductOptionModal config={configuration[selectedProduct.id]} onAdd={addConfiguredProduct} onClose={() => setSelectedProduct(null)} product={selectedProduct} /> : null}
 
@@ -1005,6 +1204,12 @@ function orderErrorMessage(error: string) {
     "receipt-required": "Para pago QR final debes subir comprobante.",
     "receipt-size": "El comprobante debe pesar menos de 5 MB.",
     "receipt-type": "El comprobante debe ser imagen o PDF.",
+    "multisite-limit": "Un Yopido Grupal multi-local admite hasta tres locales.",
+    "multisite-delivery-only": "Un pedido multi-local solo se puede enviar por delivery.",
+    "multisite-cash-only": "El cobro único multi-local está habilitado por ahora solo en efectivo.",
+    "multisite-host-collects": "Para un pedido multi-local, todos deben arreglar el pago con el host.",
+    "route-unavailable": "La ruta entre estos locales no es segura o supera el radio permitido.",
+    "rider-fee": "La oferta para la moto está fuera del rango sugerido.",
     "qr-size": "El QR debe pesar menos de 5 MB.",
     "qr-type": "El QR debe ser PNG, JPG, WebP o AVIF.",
     payment: "No se pudo actualizar el pago.",
@@ -1038,4 +1243,14 @@ function ProductImage({ fit, name, src }: { fit?: ProductImageFit; name: string;
     // eslint-disable-next-line @next/next/no-img-element
     <img alt={name} className="h-[74px] w-[74px] rounded-[0.85rem] bg-[var(--primary-light)] object-cover" src={isDisplayImage(src) ? (src ?? undefined) : defaultProductImage} style={style} />
   );
+}
+
+function RestaurantAvatar({ restaurant, selected }: { restaurant: Restaurant; selected?: boolean }) {
+  if (isDisplayImage(restaurant.logoUrl)) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img alt="" className="h-12 w-12 shrink-0 rounded-xl bg-white object-cover" src={restaurant.logoUrl} />
+    );
+  }
+  return <span className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-xl text-sm font-black", selected ? "bg-white/20 text-current" : "bg-[var(--primary-light)] text-[var(--primary)]")}>{restaurant.name.slice(0, 1).toUpperCase()}</span>;
 }

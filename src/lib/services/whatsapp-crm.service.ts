@@ -8,6 +8,7 @@ import type {
   WhatsAppCrmConversation,
   WhatsAppCrmDraftSummary,
   WhatsAppCrmMessage,
+  WhatsAppCrmUsage,
   WhatsAppCrmOrderSummary,
   WhatsAppCrmWorkspace,
 } from "@/types/whatsapp-crm.types";
@@ -233,6 +234,46 @@ function startOfBoliviaDayIso(date = new Date()) {
   return new Date(Date.UTC(year, month - 1, day, 4, 0, 0, 0)).toISOString();
 }
 
+function startOfBoliviaMonthIso(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", { month: "2-digit", timeZone: "America/La_Paz", year: "numeric" }).formatToParts(date);
+  const year = Number(parts.find((part) => part.type === "year")?.value ?? date.getUTCFullYear());
+  const month = Number(parts.find((part) => part.type === "month")?.value ?? date.getUTCMonth() + 1);
+  return new Date(Date.UTC(year, month - 1, 1, 4, 0, 0, 0)).toISOString();
+}
+
+const emptyUsage: WhatsAppCrmUsage = {
+  apiMessagesThisMonth: 0,
+  adProtectedMessages: 0,
+  organicServiceMessages: 0,
+  freeServiceMessagesRemaining: 1000,
+  estimatedBillableMessages: 0,
+  estimatedCostUsd: 0,
+  estimatedCostBob: 0,
+  conversationsFromMetaEntry: 0,
+  conversationsDirect: 0,
+};
+
+function acquisitionForConversation(rows: MessageRow[]) {
+  const firstInbound = [...rows]
+    .filter((row) => messageDirection(row) === "inbound")
+    .sort((a, b) => (a.received_at ?? "").localeCompare(b.received_at ?? ""))[0];
+  const payload = firstInbound ? payloadRecord(firstInbound.payload) : {};
+  const message = payloadRecord(payload.message as Json);
+  const explicitReferral = payloadRecord(payload.referral as Json);
+  const referral = Object.keys(explicitReferral).length ? explicitReferral : payloadRecord(message.referral as Json);
+  const hasMetaEntry = Boolean(referral.ctwa_clid || referral.source_id || referral.source_url);
+  const startedAt = firstInbound?.whatsapp_timestamp ?? firstInbound?.received_at;
+  const expiresAt = hasMetaEntry && startedAt ? new Date(new Date(startedAt).getTime() + 72 * 60 * 60 * 1000).toISOString() : undefined;
+  const headline = typeof referral.headline === "string" ? referral.headline.trim() : "";
+  const sourceType = typeof referral.source_type === "string" ? referral.source_type.trim() : "";
+
+  return {
+    source: hasMetaEntry ? "meta_entry" as const : "direct" as const,
+    detail: hasMetaEntry ? headline || (sourceType ? `Entrada Meta: ${sourceType}` : "Anuncio o CTA de Meta") : "Directo / sin atribucion de Meta",
+    expiresAt,
+  };
+}
+
 async function getConversationForMessage(admin: NonNullable<ReturnType<typeof createAdminClient>>, restaurantId: string, conversationId: string) {
   const { data, error } = await admin
     .from("whatsapp_conversations")
@@ -259,6 +300,7 @@ export const whatsappCrmService = {
         quickReplies: [],
         botSettings: DEFAULT_WHATSAPP_BOT_SETTINGS,
         stats: { activeConversations: 0, needsReply: 0, whatsappOrders: 0, todayRevenue: 0 },
+        usage: emptyUsage,
         whatsappConfigured,
       };
     }
@@ -271,6 +313,7 @@ export const whatsappCrmService = {
         quickReplies: [],
         botSettings: DEFAULT_WHATSAPP_BOT_SETTINGS,
         stats: { activeConversations: 0, needsReply: 0, whatsappOrders: 0, todayRevenue: 0 },
+        usage: emptyUsage,
         whatsappConfigured: false,
       };
     }
@@ -312,7 +355,7 @@ export const whatsappCrmService = {
     const phones = conversationsRaw.map((conversation) => conversation.from_phone);
     const customerIds = conversationsRaw.map((conversation) => conversation.customer_id);
 
-    const [customersResult, messagesResult, draftsResult, ordersResult] = await Promise.all([
+    const [customersResult, messagesResult, draftsResult, ordersResult, monthlyMessagesResult] = await Promise.all([
       customerIds.length
         ? admin.from("whatsapp_customers").select("id,phone,display_name").in("id", customerIds)
         : Promise.resolve({ data: [] as CustomerRow[] }),
@@ -343,6 +386,15 @@ export const whatsappCrmService = {
             .order("created_at", { ascending: false })
             .limit(300)
         : Promise.resolve({ data: [] as OrderRow[] }),
+      conversationsRaw.length
+        ? admin
+            .from("whatsapp_messages")
+            .select("id,conversation_id,message_id,from_phone,contact_name,message_type,message_text,payload,whatsapp_timestamp,received_at")
+            .in("conversation_id", conversationsRaw.map((conversation) => conversation.id))
+            .gte("received_at", startOfBoliviaMonthIso())
+            .order("received_at", { ascending: true })
+            .limit(20000)
+        : Promise.resolve({ data: [] as MessageRow[] }),
     ]);
 
     const customersById = new Map(((customersResult.data ?? []) as CustomerRow[]).map((customer) => [customer.id, customer]));
@@ -378,12 +430,27 @@ export const whatsappCrmService = {
       ordersByPhone.set(phone, current);
     }
 
+    const monthlyRowsByConversation = new Map<string, MessageRow[]>();
+    for (const row of (monthlyMessagesResult.data ?? []) as MessageRow[]) {
+      if (!row.conversation_id) continue;
+      const current = monthlyRowsByConversation.get(row.conversation_id) ?? [];
+      current.push(row);
+      monthlyRowsByConversation.set(row.conversation_id, current);
+    }
+
+    const acquisitionsByConversation = new Map<string, ReturnType<typeof acquisitionForConversation>>();
+    for (const [conversationId, rows] of monthlyRowsByConversation) {
+      acquisitionsByConversation.set(conversationId, acquisitionForConversation(rows));
+    }
+
     const conversations: WhatsAppCrmConversation[] = conversationsRaw.map((conversation) => {
       const customer = customersById.get(conversation.customer_id);
       const phone = normalizePhone(conversation.from_phone);
       const customerOrders = ordersByPhone.get(phone) ?? [];
+      const activeOrder = customerOrders.find((order) => ["pending", "accepted", "preparing", "ready"].includes(order.status));
       const lastMessage = latestMessageByConversation.get(conversation.id);
       const activeDraft = draftsByConversation.get(conversation.id);
+      const acquisition = acquisitionsByConversation.get(conversation.id) ?? { source: "direct" as const, detail: "Directo / sin atribucion de Meta", expiresAt: undefined };
       const tags = [
         activeDraft ? "Pedido abierto" : "",
         conversation.state === "handoff" ? "Humano" : "",
@@ -405,11 +472,43 @@ export const whatsappCrmService = {
         orderCount: customerOrders.length,
         whatsappOrderCount: customerOrders.filter((order) => order.origin === "phone_whatsapp").length,
         totalSpent: customerOrders.filter((order) => order.status !== "cancelled").reduce((sum, order) => sum + order.total, 0),
+        activeOrder,
         lastOrder: customerOrders[0],
         needsReply: lastMessage?.direction === "inbound",
         tags,
+        acquisitionSource: acquisition.source,
+        acquisitionDetail: acquisition.detail,
+        freeWindowExpiresAt: acquisition.expiresAt,
       };
     });
+
+    const conversationById = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+    let apiMessagesThisMonth = 0;
+    let adProtectedMessages = 0;
+    for (const row of (monthlyMessagesResult.data ?? []) as MessageRow[]) {
+      if (!row.conversation_id || messageDirection(row) !== "outbound") continue;
+      if (payloadRecord(row.payload).source === "business_app") continue;
+      apiMessagesThisMonth += 1;
+      const conversation = conversationById.get(row.conversation_id);
+      if (conversation?.freeWindowExpiresAt && new Date(row.received_at).getTime() <= new Date(conversation.freeWindowExpiresAt).getTime()) {
+        adProtectedMessages += 1;
+      }
+    }
+    const organicServiceMessages = Math.max(0, apiMessagesThisMonth - adProtectedMessages);
+    const estimatedBillableMessages = Math.max(0, organicServiceMessages - 1000);
+    // Reference rate for Rest of Latin America; Meta billing remains the source of truth.
+    const estimatedCostUsd = estimatedBillableMessages * 0.01243;
+    const usage: WhatsAppCrmUsage = {
+      apiMessagesThisMonth,
+      adProtectedMessages,
+      organicServiceMessages,
+      freeServiceMessagesRemaining: Math.max(0, 1000 - organicServiceMessages),
+      estimatedBillableMessages,
+      estimatedCostUsd,
+      estimatedCostBob: estimatedCostUsd * 6.96,
+      conversationsFromMetaEntry: conversations.filter((conversation) => conversation.acquisitionSource === "meta_entry").length,
+      conversationsDirect: conversations.filter((conversation) => conversation.acquisitionSource === "direct").length,
+    };
 
     const selectedConversation = selectedConversationId
       ? conversations.find((conversation) => conversation.id === selectedConversationId) ?? conversations[0]
@@ -444,6 +543,7 @@ export const whatsappCrmService = {
         whatsappOrders: todayOrderRows?.length ?? 0,
         todayRevenue: (todayOrderRows ?? []).reduce((sum, order) => sum + Number(order.total ?? 0), 0),
       },
+      usage,
       whatsappConfigured,
     };
   },

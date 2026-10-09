@@ -227,10 +227,11 @@ function mapPublicDelivery(payload: PublicOrderPayload): OrderDeliveryDispatch |
   };
 }
 
-function mapOrder(row: OrderRow, items: OrderItem[], deliveryDispatch?: OrderDeliveryDispatch): Order {
+function mapOrder(row: OrderRow, items: OrderItem[], deliveryDispatch?: OrderDeliveryDispatch, multisitePickup?: Order["multisitePickup"]): Order {
   const orderOrigin = row.order_origin ?? (row.order_type === "table" ? "table_qr" : row.order_type === "pos" ? "pos_counter" : "web_checkout");
 
   return {
+    multisitePickup,
     id: row.id,
     restaurantId: row.restaurant_id,
     tableId: row.table_id ?? undefined,
@@ -421,6 +422,11 @@ function deliveryLinksByOrder(links: DeliveryLinkRow[]) {
   return new Map(links.map((link) => [link.order_id, link]));
 }
 
+async function internalMultisitePickups(supabase: Awaited<ReturnType<typeof createClient>>, orderIds: string[]) {
+  const { data } = await supabase.from("multisite_order_children").select("*").in("order_id", orderIds);
+  return new Map((data ?? []).map((child) => [child.order_id, { position: child.pickup_position, code: child.pickup_confirmation_code ?? undefined, pickedUpAt: child.picked_up_at ?? undefined }]));
+}
+
 export const orderService = {
   async listByRestaurant(restaurantId: string) {
     if (!hasSupabaseEnv()) {
@@ -444,12 +450,14 @@ export const orderService = {
     const { data: deliveryLinks } = await supabase.from("order_delivery_links").select("*").in("order_id", orderIds);
     const groupedItems = groupItemsByOrder((items ?? []) as ItemRow[]);
     const linksByOrder = deliveryLinksByOrder((deliveryLinks ?? []) as DeliveryLinkRow[]);
+    const multisitePickups = await internalMultisitePickups(supabase, orderIds);
 
     return orders.map((order) =>
       mapOrder(
         order,
         groupedItems.get(order.id) ?? [],
         mapDeliveryLink(linksByOrder.get(order.id)),
+        multisitePickups.get(order.id),
       ),
     );
   },
@@ -506,12 +514,14 @@ export const orderService = {
     const mapStartedAt = perfNow();
     const groupedItems = groupItemsByOrder((items ?? []) as ItemRow[]);
     const linksByOrder = deliveryLinksByOrder((deliveryLinks ?? []) as DeliveryLinkRow[]);
+    const multisitePickups = await internalMultisitePickups(supabase, orderIds);
 
     const mappedOrders = orders.map((order) =>
       mapOrder(
         order as OrderRow,
         groupedItems.get(order.id) ?? [],
         mapDeliveryLink(linksByOrder.get(order.id)),
+        multisitePickups.get(order.id),
       ),
     );
     perfLog("[orderService.listCashWorkspaceOrders] map", mapStartedAt, { restaurantId, rows: mappedOrders.length });
@@ -613,7 +623,8 @@ export const orderService = {
 
     const { data: items } = await supabase.from("order_items").select("*").eq("order_id", order.id);
     const { data: deliveryLink } = await supabase.from("order_delivery_links").select("*").eq("order_id", order.id).maybeSingle();
-    return mapOrder(order, (items ?? []).map(mapItem), mapDeliveryLink(deliveryLink as DeliveryLinkRow | null));
+    const multisitePickups = await internalMultisitePickups(supabase, [orderId]);
+    return mapOrder(order, (items ?? []).map(mapItem), mapDeliveryLink(deliveryLink as DeliveryLinkRow | null), multisitePickups.get(orderId));
   },
 
   async getPublicByTracking(restaurantId: string, orderId: string, token: string) {

@@ -4,14 +4,15 @@ import {
   acceptMultisiteCustomerCounterOffer,
   getPublicMultisiteDispatch,
   rejectMultisiteCustomerCounterOffer,
+  updateMultisiteCustomerFee,
 } from "@/lib/services/multisite-rider-negotiation.service";
 
 const tokenSchema = z.string().regex(/^[a-f0-9]{32}$/i);
-const decisionSchema = z.object({
+const decisionSchema = z.union([z.object({
   action: z.enum(["accept_counter", "reject_counter"]),
   offerId: z.string().uuid(),
   token: tokenSchema,
-});
+}), z.object({ action: z.literal("update_fee"), fee: z.number().finite().nonnegative().max(500), token: tokenSchema })]);
 
 export async function GET(request: Request, { params }: { params: Promise<{ orderId: string }> }) {
   const { orderId } = await params;
@@ -37,7 +38,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   if (!z.string().uuid().safeParse(orderId).success || !parsed.success) {
     return NextResponse.json({ error: "invalid-multisite-dispatch-decision" }, { status: 400 });
   }
-  const result = parsed.data.action === "accept_counter"
+  const result = parsed.data.action === "update_fee"
+    ? await updateMultisiteCustomerFee({ multisiteOrderId: orderId, trackingToken: parsed.data.token, fee: parsed.data.fee })
+    : parsed.data.action === "accept_counter"
     ? await acceptMultisiteCustomerCounterOffer({ multisiteOrderId: orderId, trackingToken: parsed.data.token, offerId: parsed.data.offerId })
     : await rejectMultisiteCustomerCounterOffer({ multisiteOrderId: orderId, trackingToken: parsed.data.token, offerId: parsed.data.offerId });
   return result.ok

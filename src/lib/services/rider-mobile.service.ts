@@ -771,6 +771,11 @@ export async function listMobileRiderOrders(
 
     const orderRows = (orders ?? []) as OrderRow[];
     const orderIds = orderRows.map((order) => order.id);
+    const { data: multisiteChildren, error: multisiteError } = orderIds.length
+      ? await session.admin.from("multisite_order_children").select("order_id").in("order_id", orderIds)
+      : { data: [], error: null };
+    if (multisiteError) return { ok: false, error: "rider-orders-failed", status: 503 };
+    const multisiteOrderIds = new Set((multisiteChildren ?? []).map((child: { order_id: string }) => child.order_id));
     const { data: links } = orderIds.length
       ? await session.admin.from("order_delivery_links").select(deliveryLinkSelect).in("order_id", orderIds)
       : { data: [] };
@@ -795,6 +800,7 @@ export async function listMobileRiderOrders(
     const acceptedOrderIds = new Set((pendingOffers ?? []).filter((offer) => offer.status === "accepted").map((offer) => offer.order_id));
     const now = Date.now();
     const availableOrders = orderRows.filter((order) => {
+      if (multisiteOrderIds.has(order.id)) return false;
       const link = linksByOrder.get(order.id);
       const pendingOfferRiderId = liveOfferByOrder.get(order.id);
       const linkExpired = Boolean(link && new Date(link.expires_at).getTime() <= now);

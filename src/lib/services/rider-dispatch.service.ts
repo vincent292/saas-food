@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { offerNextMultisiteRider } from "./multisite-rider-negotiation.service";
 import { directionsToMapsUrl, hasValidCoordinates } from "@/lib/utils/google-maps";
 import type { Database, Json } from "@/types/database.types";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -441,6 +442,13 @@ export async function offerNextRiderForOrder(orderId: string): Promise<RiderAuto
   const adminResult = getAdmin();
   if (!adminResult.ok) return { ok: false, error: adminResult.error };
   const admin = adminResult.data;
+
+  const { data: multisiteChild, error: multisiteError } = await admin.from("multisite_order_children").select("id,multisite_order_id").eq("order_id", orderId).maybeSingle();
+  if (multisiteError) return { ok: false, error: "multisite-dispatch-check-failed" };
+  if (multisiteChild) {
+    await offerNextMultisiteRider(multisiteChild.multisite_order_id);
+    return { ok: true, status: "manual_fallback", reason: "multisite-route-dispatch-required" };
+  }
 
   await expirePendingOffers(admin, orderId);
 

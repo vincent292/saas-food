@@ -1,6 +1,7 @@
 export type OrderStatus = "pending" | "accepted" | "preparing" | "ready" | "delivered" | "cancelled";
 export type OrderType = "table" | "delivery" | "pickup" | "pos";
 export type OrderOrigin = "pos_counter" | "table_qr" | "web_checkout" | "phone_whatsapp" | "external_platform";
+export type MultisitePickup = { position: number; code?: string; pickedUpAt?: string };
 export type PaymentStatus = "pending" | "paid" | "cancelled" | "refunded";
 export type PaymentMethodType = "cash" | "qr" | "bank_transfer" | "card" | "other";
 export type TableStatus = "available" | "occupied" | "waiting_order" | "served" | "checkout_requested";
@@ -50,6 +51,7 @@ export type OrderDeliveryDispatch = {
 };
 
 export type Order = {
+  multisitePickup?: MultisitePickup;
   id: string;
   restaurantId: string;
   tableId?: string;

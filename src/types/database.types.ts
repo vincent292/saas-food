@@ -659,6 +659,9 @@ export type Database = {
         updated_at: string;
       }>;
       multisite_order_children: Row<{
+        pickup_confirmation_code: string;
+        pickup_code_attempts: number;
+        picked_up_at: string | null;
         id: string;
         multisite_order_id: string;
         restaurant_id: string;
@@ -689,6 +692,11 @@ export type Database = {
         updated_at: string;
       }>;
       multisite_delivery_dispatches: Row<{
+        delivery_confirmation_code: string;
+        delivery_code_attempts: number;
+        rider_latitude: number | null;
+        rider_longitude: number | null;
+        rider_location_updated_at: string | null;
         id: string;
         multisite_order_id: string;
         rider_offer_id: string | null;
@@ -1348,6 +1356,8 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      advance_multisite_delivery: { Args: { p_order_id: string; p_rider_user_id: string; p_action: string; p_child_id: string | null; p_code: string }; Returns: Json };
+      update_multisite_customer_fee: { Args: { p_order_id: string; p_tracking_token: string; p_fee: number }; Returns: Json };
       manage_customer_address: {
         Args: { p_customer_id: string; p_action: string; p_address_id?: string; p_address?: Json };
         Returns: Database["public"]["Tables"]["customer_addresses"]["Row"][];

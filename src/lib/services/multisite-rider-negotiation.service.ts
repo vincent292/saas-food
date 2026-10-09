@@ -23,6 +23,7 @@ type MultisiteOrderRow = {
 
 type MultisiteChildRow = {
   restaurant_id: string;
+  order_id: string;
   pickup_position: number;
   estimated_ready_minutes: number;
 };
@@ -60,6 +61,8 @@ export type MultisiteRiderOfferForMobile = {
   offerRound: number;
   offeredFee: number;
   counterFee: number | null;
+  minimumFee: number;
+  maximumFee: number;
   expiresAt: string;
   destination: { address: string; latitude: number; longitude: number };
   pickups: Array<{ restaurantId: string; restaurantName: string; latitude: number; longitude: number; position: number; estimatedReadyMinutes: number }>;
@@ -130,7 +133,7 @@ async function loadContext(admin: AdminClient, orderId: string) {
 
   const { data: children } = await admin
     .from("multisite_order_children")
-    .select("restaurant_id,pickup_position,estimated_ready_minutes")
+    .select("restaurant_id,order_id,pickup_position,estimated_ready_minutes")
     .eq("multisite_order_id", orderId)
     .order("pickup_position");
   const childRows = (children ?? []) as MultisiteChildRow[];
@@ -351,6 +354,18 @@ async function activateDispatch(
   return { ok: true as const };
 }
 
+export async function updateMultisiteCustomerFee(input: { multisiteOrderId: string; trackingToken: string; fee: number }) {
+  const result = getAdmin();
+  if (!result.ok) return result;
+  const { error } = await result.data.rpc("update_multisite_customer_fee", { p_order_id: input.multisiteOrderId, p_tracking_token: input.trackingToken, p_fee: input.fee });
+  if (error) {
+    const code = ["multisite-order-not-found", "multisite-fee-locked", "multisite-counter-fee-out-of-range"].find((code) => error.message.includes(code));
+    return { ok: false as const, error: code ?? "multisite-fee-update-unavailable", status: code === "multisite-order-not-found" ? 404 : code ? 409 : 503 };
+  }
+  await offerNextMultisiteRider(input.multisiteOrderId);
+  return { ok: true as const, data: { deliveryFee: input.fee } };
+}
+
 export async function getPublicMultisiteDispatch(input: { multisiteOrderId: string; trackingToken: string }) {
   const adminResult = getAdmin();
   if (!adminResult.ok) return adminResult;
@@ -377,12 +392,42 @@ export async function getPublicMultisiteDispatch(input: { multisiteOrderId: stri
     const longitude = asNumber(candidate.availability.longitude);
     return Number.isFinite(latitude) && Number.isFinite(longitude) ? [roundRadarPosition(origin, { latitude, longitude })] : [];
   });
+  const orderIds = context.children.map((child) => child.order_id);
+  const [{ data: childOrders }, { data: rider }, { data: riderSignal }, { data: routeSignal }, { data: pickupSignals }] = await Promise.all([
+    orderIds.length ? admin.from("orders").select("id,order_number,status,subtotal,created_at,ready_at").in("id", orderIds) : Promise.resolve({ data: [] }),
+    dispatch ? admin.from("restaurant_riders").select("full_name").eq("id", dispatch.restaurant_rider_id).maybeSingle() : Promise.resolve({ data: null }),
+    dispatch ? admin.from("rider_availability").select("latitude,longitude,last_seen_at").eq("restaurant_rider_id", dispatch.restaurant_rider_id).maybeSingle() : Promise.resolve({ data: null }),
+    dispatch ? admin.from("multisite_delivery_dispatches").select("rider_latitude,rider_longitude,rider_location_updated_at,delivery_confirmation_code").eq("id", dispatch.id).maybeSingle() : Promise.resolve({ data: null }),
+    admin.from("multisite_order_children").select("order_id,picked_up_at").eq("multisite_order_id", context.order.id),
+  ]);
+  const childById = new Map((childOrders ?? []).map((child) => [child.id, child]));
+  // Only the assigned rider is identifiable. Nearby candidates remain coarse and anonymous.
+  const riderLocation = routeSignal?.rider_latitude != null && routeSignal.rider_longitude != null && routeSignal.rider_location_updated_at ? {
+    latitude: routeSignal.rider_latitude, longitude: routeSignal.rider_longitude, updatedAt: routeSignal.rider_location_updated_at,
+  } : riderSignal?.latitude != null && riderSignal.longitude != null ? {
+    latitude: Number(riderSignal.latitude), longitude: Number(riderSignal.longitude), updatedAt: riderSignal.last_seen_at,
+  } : null;
   return {
     ok: true as const,
     data: {
       status: context.order.status,
       deliveryFee: asNumber(context.order.delivery_fee),
-      dispatch: dispatch ? { status: dispatch.status, acceptedFee: asNumber(dispatch.accepted_fee) } : null,
+      subtotal: asNumber(context.order.subtotal),
+      total: asNumber(context.order.total),
+      feeMinimum: asNumber(context.order.rider_fee_minimum),
+      feeMaximum: asNumber(context.order.rider_fee_maximum),
+      destination: { address: context.order.customer_address, latitude: asNumber(context.order.delivery_latitude), longitude: asNumber(context.order.delivery_longitude) },
+      pickups: context.children.map((child) => {
+        const restaurant = context.restaurantsById.get(child.restaurant_id);
+        const childOrder = childById.get(child.order_id);
+        return { restaurantName: restaurant?.name ?? "Local", position: child.pickup_position,
+          latitude: restaurant?.latitude == null ? null : asNumber(restaurant.latitude), longitude: restaurant?.longitude == null ? null : asNumber(restaurant.longitude),
+          orderNumber: childOrder?.order_number ?? "", status: childOrder?.status ?? "pending", subtotal: asNumber(childOrder?.subtotal),
+          estimatedReadyMinutes: child.estimated_ready_minutes, createdAt: childOrder?.created_at ?? null, readyAt: childOrder?.ready_at ?? null };
+      }).map((pickup, index) => ({ ...pickup, pickedUpAt: pickupSignals?.find((signal) => signal.order_id === context.children[index].order_id)?.picked_up_at ?? null })),
+      dispatch: dispatch ? { status: dispatch.status, acceptedFee: asNumber(dispatch.accepted_fee), riderName: rider?.full_name ?? "Tu rider", riderLocation,
+        deliveryConfirmationCode: context.order.status === "in_delivery" && dispatch.status === "arrived" ? routeSignal?.delivery_confirmation_code ?? null : null,
+      } : null,
       offer: liveOffer.data ? {
         id: liveOffer.data.id,
         status: liveOffer.data.status as "pending" | "countered",
@@ -504,7 +549,7 @@ export async function listMobileMultisiteRiderOffers(session: MobileRiderSession
   const visibleOffers = (offers ?? []).filter((offer) => offer.status === "pending" || offer.status === "countered");
   const orderIds = Array.from(new Set(visibleOffers.map((offer) => offer.multisite_order_id)));
   const [ordersResult, childrenResult] = await Promise.all([
-    orderIds.length ? session.admin.from("multisite_orders").select("id,customer_address,delivery_latitude,delivery_longitude").in("id", orderIds) : Promise.resolve({ data: [] }),
+    orderIds.length ? session.admin.from("multisite_orders").select("id,customer_address,delivery_latitude,delivery_longitude,rider_fee_minimum,rider_fee_maximum").in("id", orderIds) : Promise.resolve({ data: [] }),
     orderIds.length ? session.admin.from("multisite_order_children").select("multisite_order_id,restaurant_id,pickup_position,estimated_ready_minutes").in("multisite_order_id", orderIds).order("pickup_position") : Promise.resolve({ data: [] }),
   ]);
   const orderById = new Map((ordersResult.data ?? []).map((order) => [order.id, order]));
@@ -525,6 +570,8 @@ export async function listMobileMultisiteRiderOffers(session: MobileRiderSession
           offerRound: offer.offer_round,
           offeredFee: asNumber(offer.offered_fee),
           counterFee: offer.counter_fee == null ? null : asNumber(offer.counter_fee),
+          minimumFee: asNumber(order.rider_fee_minimum),
+          maximumFee: asNumber(order.rider_fee_maximum),
           expiresAt: offer.expires_at,
           destination: { address: order.customer_address, latitude: asNumber(order.delivery_latitude), longitude: asNumber(order.delivery_longitude) },
           pickups: childRows.filter((child) => child.multisite_order_id === offer.multisite_order_id).flatMap((child) => {

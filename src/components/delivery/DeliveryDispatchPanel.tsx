@@ -83,6 +83,16 @@ export function DeliveryDispatchPanel({
     return null;
   }
 
+  if (order.multisitePickup) return (
+    <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+      <p className="flex items-center gap-2 font-black"><Bike className="h-5 w-5" />Recojo {order.multisitePickup.position} · Ruta multi-local</p>
+      {order.multisitePickup.pickedUpAt ? <p className="mt-2 text-sm font-semibold">El rider ya confirmó este recojo.</p> : <>
+        <p className="mt-2 text-sm font-semibold">La moto se asigna a la ruta completa. Comparte este código solo con el rider asignado al entregar el pedido.</p>
+        <p className="mt-3 font-mono text-2xl font-black tracking-[0.3em]">{order.multisitePickup.code || "Código pendiente"}</p>
+      </>}
+    </section>
+  );
+
   function submit() {
     setResult(null);
     setQrDataUrl("");

@@ -3,9 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import type { RestaurantStatus } from "@/types/restaurant.types";
+import { billingNoticePolicy } from "@/lib/billing/notice-policy";
 
 const defaultBillingAnchorDay = 15;
-const defaultReminderDays = 4;
+const defaultReminderDays = 5;
 const defaultGraceDays = 3;
 const defaultCurrency = "BOB";
 
@@ -23,6 +24,10 @@ type OwnerBillingSettingsRow = {
 };
 
 type OwnerBillingCycleRow = {
+  payment_promised_on?: string | null;
+  payment_promise_note?: string | null;
+  payment_promise_status?: "pending" | "approved" | "rejected" | null;
+  payment_extension_until?: string | null;
   id: string;
   owner_user_id: string;
   due_date: string;
@@ -74,6 +79,10 @@ export type OwnerBillingSettings = {
 };
 
 export type OwnerBillingCycle = {
+  paymentPromisedOn?: string;
+  paymentPromiseNote?: string;
+  paymentPromiseStatus?: "pending" | "approved" | "rejected";
+  paymentExtensionUntil?: string;
   id: string;
   ownerUserId: string;
   dueDate: string;
@@ -101,6 +110,9 @@ export type OwnerBillingCycle = {
 };
 
 export type OwnerBillingSnapshot = {
+  cutoffDate: string;
+  daysUntilCut: number;
+  showNotice: boolean;
   settings: OwnerBillingSettings;
   currentCycle: OwnerBillingCycle;
   recentCycles: OwnerBillingCycle[];
@@ -198,6 +210,10 @@ function mapSettings(row: OwnerBillingSettingsRow): OwnerBillingSettings {
 
 function mapCycle(row: OwnerBillingCycleRow): OwnerBillingCycle {
   return {
+    paymentPromisedOn: row.payment_promised_on ?? undefined,
+    paymentPromiseNote: row.payment_promise_note ?? undefined,
+    paymentPromiseStatus: row.payment_promise_status ?? undefined,
+    paymentExtensionUntil: row.payment_extension_until ?? undefined,
     id: row.id,
     ownerUserId: row.owner_user_id,
     dueDate: row.due_date,
@@ -480,6 +496,7 @@ async function reactivateOwnerRestaurantsAfterPayment(ownerUserId: string, resta
       updated_at: now,
     })
     .eq("owner_user_id", ownerUserId)
+    .eq("status", "suspended")
     .is("deactivated_by", null)
     .is("deleted_at", null);
 
@@ -546,7 +563,8 @@ export const ownerBillingService = {
     const isPaid = !isBillable || Boolean(currentCycleRow.paid_at);
     const graceDays = effectiveSettingsRow.grace_days ?? defaultGraceDays;
     const daysIntoGrace = Math.max(0, -daysUntilDue);
-    const isOverdue = isBillable && daysUntilDue < -graceDays && !isPaid;
+    const policy = billingNoticePolicy(mapCycle(currentCycleRow), effectiveSettingsRow.reminder_days, graceDays, today);
+    const isOverdue = policy.isOverdue;
     let effectiveCycleRow = currentCycleRow;
 
     if (isOverdue && currentCycleRow.status !== "overdue") {
@@ -570,6 +588,9 @@ export const ownerBillingService = {
     const monthlyTotal = calculateMonthlyTotal(branchCount, pricing.primaryPriceMonthly, pricing.additionalPriceMonthly);
 
     return {
+      cutoffDate: policy.deadline,
+      daysUntilCut: policy.daysUntilCut,
+      showNotice: policy.showNotice,
       settings: mapSettings(effectiveSettingsRow),
       currentCycle: mapCycle(effectiveCycleRow),
       recentCycles: recentCycles.length ? recentCycles : [mapCycle(effectiveCycleRow)],
@@ -647,6 +668,18 @@ export const ownerBillingService = {
     });
     }
 
+    // Paying an old cycle must not reopen an account whose current cycle is
+    // still overdue. The monthly schedule remains the source of truth.
+    const remainingBilling = await this.getSnapshot(ownerUserId, { enforce: false });
+    if (remainingBilling && !remainingBilling.isOverdue) {
+      await reactivateOwnerRestaurantsAfterPayment(ownerUserId, restaurants.map((restaurant) => restaurant.id));
+    }
+  },
+
+  async restoreApprovedExtension(ownerUserId: string) {
+    const snapshot = await this.getSnapshot(ownerUserId, { enforce: false });
+    if (!snapshot || snapshot.isOverdue || !snapshot.currentCycle.paymentExtensionUntil || snapshot.isPaid) return;
+    const restaurants = await listOwnerRestaurants(ownerUserId);
     await reactivateOwnerRestaurantsAfterPayment(ownerUserId, restaurants.map((restaurant) => restaurant.id));
   },
 

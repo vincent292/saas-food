@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { BillingNotices } from "@/components/billing/BillingNotice";
 import { KitchenBoardClient } from "@/components/kitchen/KitchenBoardClient";
 import { RestaurantThemeProvider } from "@/components/restaurant/RestaurantThemeProvider";
 import { hasRestaurantModule } from "@/lib/modules";
@@ -31,6 +32,7 @@ export default async function KitchenPage({ params }: { params: Promise<{ restau
 
   return (
     <RestaurantThemeProvider>
+      <BillingNotices restaurantId={restaurant.id} />
       <KitchenBoardClient orders={orders} restaurant={restaurant} />
     </RestaurantThemeProvider>
   );

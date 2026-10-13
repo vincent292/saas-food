@@ -6,6 +6,7 @@ import { membershipService, type UserRestaurantMembership } from "@/lib/services
 import { ownerBillingService } from "@/lib/services/owner-billing.service";
 import { ownerMembershipsForUser } from "@/lib/services/owner-dashboard.service";
 import { panelNotificationsService } from "@/lib/services/panel-notifications.service";
+import { BillingNotices } from "@/components/billing/BillingNotice";
 
 const ownerProfileCompletionAllowedRoutes = new Set(["/dueno/cuenta", "/dueno/plan", "/dueno/soporte"]);
 const ownerBillingAllowedRoutes = new Set(["/dueno/cuenta", "/dueno/plan", "/dueno/soporte"]);
@@ -94,6 +95,7 @@ export async function OwnerLayout({
       ownerProfileComplete={profile.ownerProfileComplete}
       title={title}
     >
+      <BillingNotices />
       {children}
     </OwnerShellClient>
   );

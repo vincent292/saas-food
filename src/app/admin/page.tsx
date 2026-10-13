@@ -12,6 +12,7 @@ import { authService } from "@/lib/services/auth.service";
 import { membershipService, type UserRestaurantMembership } from "@/lib/services/membership.service";
 import { ownerMembershipsForUser } from "@/lib/services/owner-dashboard.service";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
+import { getMyBillingAccounts } from "@/lib/services/billing-notice.service";
 
 export default async function AdminPage() {
   const profile = await authService.getCurrentProfile();
@@ -32,6 +33,8 @@ export default async function AdminPage() {
     const memberships = await membershipService.listActiveRestaurantsForUser(profile.id);
 
     if (!memberships.length) {
+      const billingAccounts = await getMyBillingAccounts();
+      if (billingAccounts.some((account) => account.billing?.isOverdue)) redirect("/admin/pagos");
       const allMemberships = await membershipService.listRestaurantsForUser(profile.id);
       const allOwnerMemberships = ownerMembershipsForUser(allMemberships, profile.id);
 
@@ -75,7 +78,7 @@ function SuspendedAccessNotice({ email, memberships }: { email: string; membersh
             <h1 className="mt-1 break-words text-2xl font-black sm:text-3xl">{email}</h1>
             <p className="mt-3 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
               No puedes iniciar sesion operativo porque la cuenta del negocio esta suspendida o inactiva.
-              Ponte en contacto con yopido.shop para regularizar el acceso.
+                Ponte en contacto con yopido.shop para regularizar el acceso.
             </p>
           </div>
           <div className="grid gap-2">

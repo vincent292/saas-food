@@ -107,6 +107,14 @@ export type Database = {
         updated_at: string;
       }>;
       owner_platform_payment_cycles: Row<{
+        payment_promised_on: string | null;
+        payment_promise_note: string | null;
+        payment_promise_requested_by: string | null;
+        payment_promise_requested_at: string | null;
+        payment_promise_status: "pending" | "approved" | "rejected" | null;
+        payment_promise_reviewed_by: string | null;
+        payment_promise_reviewed_at: string | null;
+        payment_extension_until: string | null;
         id: string;
         owner_user_id: string;
         due_date: string;
@@ -1356,6 +1364,7 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      resolve_owner_billing_promise: { Args: { p_cycle_id: string; p_actor_id: string; p_action: string; p_date: string | null; p_note: string | null }; Returns: Json };
       advance_multisite_delivery: { Args: { p_order_id: string; p_rider_user_id: string; p_action: string; p_child_id: string | null; p_code: string }; Returns: Json };
       update_multisite_customer_fee: { Args: { p_order_id: string; p_tracking_token: string; p_fee: number }; Returns: Json };
       manage_customer_address: {

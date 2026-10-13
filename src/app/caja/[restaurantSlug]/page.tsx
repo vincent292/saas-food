@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { BillingNotices } from "@/components/billing/BillingNotice";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
 import { RestaurantRealtimeRefresh } from "@/components/realtime/RestaurantRealtimeRefresh";
@@ -42,6 +43,7 @@ export default async function PublicCashPage({ params }: { params: Promise<{ res
 
   return (
     <RestaurantThemeProvider>
+      <BillingNotices restaurantId={restaurant.id} />
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <RestaurantRealtimeRefresh restaurantId={restaurant.id} scope="cash" />
         <SectionTitle title={`Caja · ${restaurant.name}`} description="Vista rápida para cajero con POS y resumen." />

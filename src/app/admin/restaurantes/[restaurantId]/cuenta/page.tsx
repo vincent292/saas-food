@@ -20,8 +20,13 @@ import { listOwnerBranchCapacityRequests } from "@/lib/services/owner-dashboard.
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import type { RestaurantStatus } from "@/types/restaurant.types";
+import { resolveBillingPromiseAction } from "@/app/admin/billing-actions";
 
 const errorMessages: Record<string, string> = {
+  "billing-invalid-date": "Elige una fecha válida de hoy en adelante para la prórroga.",
+  "billing-promise-not-pending": "La solicitud ya fue resuelta. Actualiza la página.",
+  "billing-cycle-closed": "El ciclo cambió o ya está pagado. No se puede modificar esta solicitud.",
+  "billing-forbidden": "La solicitud no corresponde a esta cuenta.",
   "invalid-entitlement": "Revisa el numero de sucursales habilitadas.",
   "invalid-waiter-limit": "El cupo de meseros debe estar entre 0 y 100.",
   "invalid-branch-request": "Revisa la solicitud y el nuevo limite aprobado.",
@@ -198,6 +203,22 @@ export default async function ClientAccountPage({
                     <SmallStat label="Pedidos" value={String(ownerBilling.currentCycle.usageOrderCount)} />
                   </div>
                   <OwnerBillingStatusBadge cycle={ownerBilling.currentCycle} overdue={ownerBilling.isOverdue} />
+                  <p className="text-sm font-bold">Último día antes del corte: {formatDate(ownerBilling.cutoffDate)}</p>
+                  {ownerBilling.currentCycle.paymentPromisedOn ? <div className="space-y-3 rounded-2xl border border-[var(--border)] p-3">
+                    <p className="text-sm font-black">Fecha propuesta: {formatDate(ownerBilling.currentCycle.paymentPromisedOn)} · {ownerBilling.currentCycle.paymentPromiseStatus === "pending" ? "Pendiente" : ownerBilling.currentCycle.paymentPromiseStatus === "approved" ? "Aprobada" : "Rechazada"}</p>
+                    {ownerBilling.currentCycle.paymentPromiseNote ? <p className="break-words text-sm">{ownerBilling.currentCycle.paymentPromiseNote}</p> : null}
+                    {ownerBilling.currentCycle.paymentPromiseStatus === "pending" && !ownerBilling.currentCycle.paidAt ? <form action={resolveBillingPromiseAction} className="grid gap-3">
+                      <input type="hidden" name="restaurantId" value={baseRestaurant.id} />
+                      <input type="hidden" name="cycleId" value={ownerBilling.currentCycle.id} />
+                      <label className="grid gap-1 text-sm font-bold">Fecha que autorizas<Input name="approvedOn" type="date" defaultValue={ownerBilling.currentCycle.paymentPromisedOn} /></label>
+                      <div className="flex flex-wrap gap-2">
+                        <button name="decision" value="approve" type="submit" className={buttonClasses("primary")}>Aprobar prórroga</button>
+                        <button name="decision" value="reject" type="submit" className={buttonClasses("secondary")}>Rechazar solicitud</button>
+                      </div>
+                      <p className="text-xs">Solo aplaza el corte de este ciclo. No marca el pago ni cambia el próximo mes.</p>
+                    </form> : null}
+                  </div> : null}
+                  {ownerBilling.currentCycle.paymentExtensionUntil ? <p className="text-sm font-bold">Prórroga vigente hasta {formatDate(ownerBilling.currentCycle.paymentExtensionUntil)}</p> : null}
                   {ownerBilling.currentCycle.proofUrl ? (
                     <a className="inline-flex items-center gap-2 text-sm font-black text-[var(--primary)]" href={ownerBilling.currentCycle.proofUrl} rel="noreferrer" target="_blank">
                       <ReceiptText className="h-4 w-4" />

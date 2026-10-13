@@ -9,6 +9,7 @@ import { panelNotificationsService } from "@/lib/services/panel-notifications.se
 import { restaurantAccessService } from "@/lib/services/restaurant-access.service";
 import { getActiveSupportSession } from "@/lib/services/support-impersonation.service";
 import type { ModuleKey, RestaurantStatus } from "@/types/restaurant.types";
+import { BillingNotices } from "@/components/billing/BillingNotice";
 
 export async function AdminLayout({
   children,
@@ -96,6 +97,7 @@ export async function AdminLayout({
       pendingOrderAlerts={pendingOrderAlerts}
       panelNotifications={panelNotifications}
     >
+      {profile.globalRole !== "superadmin" && restaurantId ? <BillingNotices restaurantId={restaurantId} /> : null}
       {children}
     </AdminShellClient>
   );

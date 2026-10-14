@@ -8,6 +8,7 @@ import { Input, Select } from "@/components/ui/Input";
 import { FormSubmitButton } from "@/components/ui/FormSubmitButton";
 import { bankVaultConfigured } from "@/lib/payments/credential-vault";
 import { boliviaDate } from "@/lib/payments/baneco";
+import { bankPanelReadiness } from "@/lib/payments/qr-panel-readiness";
 import { bankQrService, requireBankSuperadmin, safeBankError } from "@/lib/services/bank-qr.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { bankConnectionOperationAction, bankTestQrOperationAction, generateBankTestQrAction, saveBankConnectionAction } from "./actions";
@@ -50,6 +51,12 @@ export default async function BankQrPage({ searchParams }: { searchParams: Promi
   const configured = bankVaultConfigured();
   const restaurantNames = new Map(restaurants.map(restaurant => [restaurant.id, restaurant.name]));
   const active = data.connections.filter(item => item.active && item.environment === "certification");
+  const readiness = bankPanelReadiness({ vaultConfigured: configured, storageError: Boolean(storageError), certificationConnections: active.length });
+  const blockerText = {
+    vault: "Guardar y generar están bloqueados porque falta una clave maestra válida en el servidor. Configura BANK_CREDENTIALS_KEY en Vercel y vuelve a desplegar. No es la llave que te entregó Baneco.",
+    storage: "Guardar y generar están bloqueados porque no se pudo acceder a las tablas privadas. Revisa la configuración de Supabase y la migración 0120.",
+    connection: "Primero guarda una conexión de certificación en el formulario de la izquierda. Luego usa Comprobar y selecciónala aquí para generar el QR.",
+  };
   return (
     <AdminLayout active="/admin/pagos-qr" title="QR dinámicos / Baneco">
       <div className="mx-auto grid max-w-6xl gap-5">
@@ -59,7 +66,12 @@ export default async function BankQrPage({ searchParams }: { searchParams: Promi
           <div className="flex flex-wrap gap-3 text-sm font-bold"><span className="flex items-center gap-2"><LockKeyhole className="h-4 w-4" />Credenciales cifradas por comercio</span><span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" />Solo superadmin · producción bloqueada</span></div>
           <p className="break-all text-xs">Certificación: https://apimktdesa.baneco.com.bo/ApiGateway/</p>
         </Card>
-        {query.result || storageError || !configured ? <Card className="text-sm font-semibold" role="status">{feedback[query.result ?? ""] ?? feedback[storageError] ?? (!configured ? feedback["bank-vault-not-configured"] : feedback["bank-operation-failed"])}</Card> : null}
+        {query.result ? <Card className="text-sm font-semibold" role="status">{feedback[query.result] ?? feedback["bank-operation-failed"]}</Card> : null}
+        <Card className="space-y-2 text-sm" role={readiness.canSave ? "status" : "alert"}>
+          <p className="font-bold">Estado del servidor</p>
+          <div className="flex flex-wrap gap-x-5 gap-y-2"><span>Protección de credenciales: <strong>{configured ? "configurada" : "pendiente"}</strong></span><span>Base de datos privada: <strong>{storageError ? "no disponible" : "disponible"}</strong></span></div>
+          {readiness.saveBlocker ? <p>{blockerText[readiness.saveBlocker]}</p> : <p>Puedes guardar las credenciales. Generar un QR requiere una conexión activa de certificación.</p>}
+        </Card>
         <div className="grid items-start gap-5 lg:grid-cols-2">
           <Card className="min-w-0 [&_select]:min-w-0">
             <h2 className="mb-2 text-lg font-black">1. Guardar credenciales del comercio</h2>
@@ -68,6 +80,7 @@ export default async function BankQrPage({ searchParams }: { searchParams: Promi
               <label className="grid gap-1 text-sm font-bold">Comercio<Select name="restaurantId" required><option value="">Seleccionar comercio</option>{restaurants.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>
               <div className="grid gap-3 sm:grid-cols-2"><label className="grid gap-1 text-sm font-bold">Nombre de conexión<Input name="label" maxLength={100} required placeholder="Baneco - pruebas" /></label><label className="grid gap-1 text-sm font-bold">Ambiente<Select name="environment" defaultValue="certification"><option value="certification">Certificación / pruebas</option><option value="production">Producción (solo guardar; bloqueada)</option></Select></label></div>
               <label className="grid gap-1 text-sm font-bold">Formato de contraseña y cuenta<Select name="encryptionMode"><option value="bank_api">Sin cifrar: el servidor usa el servicio de cifrado del banco</option><option value="pre_encrypted">Ya cifradas por Baneco (base64)</option></Select></label>
+              <p className="text-xs text-[var(--muted)]">Elige “Ya cifradas” solo si la contraseña y la cuenta fueron entregadas cifradas en base64. Si escribes la contraseña y el número de cuenta normales, usa “Sin cifrar”. La llave Baneco no sustituye la contraseña.</p>
               <label className="grid gap-1 text-sm font-bold">Usuario Baneco<Input name="userName" autoComplete="off" maxLength={120} required /></label>
               <label className="grid gap-1 text-sm font-bold">Contraseña Baneco (o valor ya cifrado)<Input name="password" type="password" autoComplete="new-password" maxLength={512} required /></label>
               <label className="grid gap-1 text-sm font-bold">Llave de cifrado asignada por Baneco<Input name="aesKey" type="password" autoComplete="new-password" maxLength={256} required /></label>
@@ -75,7 +88,8 @@ export default async function BankQrPage({ searchParams }: { searchParams: Promi
               <label className="grid gap-1 text-sm font-bold">Código de sucursal Baneco (opcional)<Input name="branchCode" maxLength={5} placeholder="E0001" /></label>
               <p className="text-xs text-[var(--muted)]">El PDF no define modo/IV de AES. No inventamos cifrado local compatible: usamos valores ya cifrados o el endpoint HTTPS documentado. Este último envía la llave Baneco y el texto en parámetros al banco; nunca se registra esa URL en nuestra app.</p>
               <label className="flex items-start gap-2 text-sm"><input type="checkbox" name="acknowledged" required className="mt-1 h-4 w-4 shrink-0" />Confirmo el comercio y ambiente de estas credenciales y autorizo su uso en este panel. Guardar no las envía al banco.</label>
-              <FormSubmitButton disabled={!configured || Boolean(storageError)} label="Guardar cifradas" pendingLabel="Cifrando..." />
+              {readiness.saveBlocker ? <p id="bank-save-blocker" className="text-sm font-semibold" role="status">{blockerText[readiness.saveBlocker]}</p> : null}
+              <FormSubmitButton describedBy={readiness.saveBlocker ? "bank-save-blocker" : undefined} disabled={!readiness.canSave} label="Guardar cifradas" pendingLabel="Cifrando..." />
             </form>
           </Card>
           <Card className="min-w-0 [&_select]:min-w-0">
@@ -88,7 +102,8 @@ export default async function BankQrPage({ searchParams }: { searchParams: Promi
               <label className="grid gap-1 text-sm font-bold">Vencimiento (día Bolivia)<Input name="dueDate" type="date" min={boliviaDate()} defaultValue={boliviaDate()} required /></label>
               <label className="grid gap-1 text-sm font-bold">Descripción<Input name="description" maxLength={150} defaultValue="Prueba de certificación Yopido" /></label>
               <label className="flex items-start gap-2 text-sm"><input name="testAcknowledged" type="checkbox" required className="mt-1 h-4 w-4 shrink-0" />Baneco confirmó que estas credenciales son de certificación. No utilizaré dinero real ni cuenta de producción para esta prueba.</label>
-              <FormSubmitButton label="Generar QR de prueba" pendingLabel="Consultando banco..." disabled={!configured || !active.length || Boolean(storageError)} />
+              {readiness.generateBlocker ? <p id="bank-generate-blocker" className="text-sm font-semibold" role="status">{blockerText[readiness.generateBlocker]}</p> : null}
+              <FormSubmitButton describedBy={readiness.generateBlocker ? "bank-generate-blocker" : undefined} label="Generar QR de prueba" pendingLabel="Consultando banco..." disabled={!readiness.canGenerate} />
             </form>
             <p className="mt-4 text-xs text-[var(--muted)]">Si una generación tarda o falla, no se repite automáticamente: Baneco podría haberla recibido. El estado desconocido requiere revisar con el banco.</p>
           </Card>

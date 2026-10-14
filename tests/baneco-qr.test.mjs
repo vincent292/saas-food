@@ -20,8 +20,24 @@ function load(path, mocks = {}) {
 }
 const vault = load('src/lib/payments/credential-vault.ts');
 const bank = load('src/lib/payments/baneco.ts');
+const { bankPanelReadiness } = load('src/lib/payments/qr-panel-readiness.ts');
 const credentials = { userName: 'QA-user', password: 'QA-password', aesKey: 'QA-bank-key', accountCredit: 'QA-account', encryptionMode: 'bank_api' };
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jYmcAAAAASUVORK5CYII=';
+
+test('panel explains every disabled state without removing encryption/storage guards', () => {
+  const missingKey = bankPanelReadiness({ vaultConfigured:false,storageError:false,certificationConnections:1 });
+  assert.equal(missingKey.canSave, false); assert.equal(missingKey.generateBlocker, 'vault');
+  const missingDb = bankPanelReadiness({ vaultConfigured:true,storageError:true,certificationConnections:1 });
+  assert.equal(missingDb.canSave, false); assert.equal(missingDb.generateBlocker, 'storage');
+  const noConnection = bankPanelReadiness({ vaultConfigured:true,storageError:false,certificationConnections:0 });
+  assert.equal(noConnection.canSave, true); assert.equal(noConnection.canGenerate, false);
+  assert.equal(noConnection.generateBlocker, 'connection');
+  const ready = bankPanelReadiness({ vaultConfigured:true,storageError:false,certificationConnections:1 });
+  assert.equal(ready.canSave, true); assert.equal(ready.canGenerate, true);
+  const page=read('src/app/admin/pagos-qr/page.tsx');
+  assert.match(page,/id="bank-save-blocker"/); assert.match(page,/id="bank-generate-blocker"/);
+  assert.match(page,/query\.result \? <Card/);
+});
 
 test('merchant vault randomizes authenticated encryption and binds tenant/environment/connection', () => {
   const previous = process.env.BANK_CREDENTIALS_KEY;

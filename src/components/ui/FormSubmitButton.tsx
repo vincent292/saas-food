@@ -7,6 +7,7 @@ import type { ComponentProps } from "react";
 
 export function FormSubmitButton({
   className,
+  describedBy,
   disabled = false,
   label = "Guardar",
   overlayDescription = "Estamos guardando los cambios. En unos segundos actualizamos el panel.",
@@ -15,6 +16,7 @@ export function FormSubmitButton({
   variant = "primary",
 }: {
   className?: string;
+  describedBy?: string;
   disabled?: boolean;
   label?: string;
   overlayDescription?: string;
@@ -26,7 +28,7 @@ export function FormSubmitButton({
 
   return (
     <>
-      <Button className={className} disabled={disabled || pending} type="submit" variant={variant}>
+      <Button aria-describedby={describedBy} className={className} disabled={disabled || pending} type="submit" variant={variant}>
         {pending ? pendingLabel : label}
       </Button>
 

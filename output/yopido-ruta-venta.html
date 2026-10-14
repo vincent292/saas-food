@@ -1,0 +1,111 @@
+<div id="yopido-release-route">
+  <style>
+    #yopido-release-route {color:var(--foreground);}
+    #yopido-release-route .route-head {padding-right:96px;}
+    #yopido-release-route .evidence {display:flex;flex-wrap:wrap;gap:12px;margin:16px 0 24px;}
+    #yopido-release-route ol {list-style:none;padding:0;margin:0;}
+    #yopido-release-route li {display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;padding:0 0 20px;}
+    #yopido-release-route .step {color:var(--muted-foreground);font-weight:500;padding-top:12px;}
+    #yopido-release-route details {min-width:0;}
+    #yopido-release-route summary {padding:12px 0;font-weight:500;}
+    #yopido-release-route .gate {color:var(--muted-foreground);margin:0 0 12px;}
+    #yopido-release-route .checks {display:grid;gap:10px;padding:4px 0 12px;}
+    #yopido-release-route .check {display:grid;grid-template-columns:20px minmax(0,1fr);gap:8px;}
+    #yopido-release-route .check-mark {color:var(--muted-foreground);}
+    #yopido-release-route .known {border-left:2px solid var(--destructive);padding-left:12px;margin:8px 0 16px;}
+    #yopido-release-route .flow {color:var(--muted-foreground);margin-bottom:16px;}
+    @media (max-width:480px) {#yopido-release-route .route-head {padding-right:0;} #yopido-release-route li {grid-template-columns:24px minmax(0,1fr);gap:8px;}}
+    @media (pointer:coarse) {#yopido-release-route summary {min-height:44px;}}
+  </style>
+  <div class="route-head">
+    <h2>Yopido · Ruta para salir a la venta</h2>
+    <span class="text-small">Revisión local · 12 octubre 2026 · casos manuales por validar</span>
+  </div>
+  <div class="evidence">
+    <span>TypeScript ✓</span><span>Seguridad estática ✓</span>
+    <span>104 pruebas ✓ · 5 fallidas · 2 omitidas</span>
+  </div>
+  <div class="flow">Preparar → proteger → operar → conectar → coordinar → cobrar → pilotear</div>
+  <ol aria-label="Etapas de aceptación para lanzamiento">
+    <li><span class="step">0</span><details open>
+      <summary class="cursor-interaction">Preparar el ambiente de pruebas</summary>
+      <div class="gate">Salida: versiones y datos trazables; regresiones revisadas.</div>
+      <div class="checks">
+        <div class="check"><span class="check-mark">□</span><span>Backend, base y APK en el mismo ambiente.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>3 locales de un dueño + otro dueño para aislamiento.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Cliente, POS y rider instalados; cuentas de todos los roles.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Productos, QR, caja, stock y horarios de prueba.</span></div>
+      </div>
+      <div class="known">Pendiente: investigar las 5 pruebas fallidas; validar migraciones y despliegue.</div>
+    </details></li>
+    <li><span class="step">1</span><details>
+      <summary class="cursor-interaction">Accesos y catálogo</summary>
+      <div class="gate">Salida: ningún usuario accede a otro negocio.</div>
+      <div class="checks">
+        <div class="check"><span class="check-mark">□</span><span>Alta, login, contraseña inicial, recuperación y membresía revocada.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Permisos por rol, sucursal, API y comprobante privado.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Variantes, extras, precios, agotados y horarios en todos los canales.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Local suspendido inaccesible también por enlaces viejos.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Soporte superadmin: solo lectura, motivo y expiración.</span></div>
+      </div>
+    </details></li>
+    <li><span class="step">2</span><details>
+      <summary class="cursor-interaction">Pedido, cocina, mesa y caja</summary>
+      <div class="gate">Salida: cada pedido y cada boliviano conciliados.</div>
+      <div class="checks">
+        <div class="check"><span class="check-mark">□</span><span>Web / Android → aceptar → preparar → listo → entregar.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>QR pendiente / aprobado / rechazado; efectivo y cambio.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Mesa, turno del mesero y cierre sin pedidos impagos.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Reintento y doble toque: un pedido y un cobro.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Anulación, devolución, inventario, tickets y cierre de caja.</span></div>
+      </div>
+    </details></li>
+    <li><span class="step">3</span><details>
+      <summary class="cursor-interaction">Teléfonos y delivery simple</summary>
+      <div class="gate">Salida: flujo completo en APK real, sin depender de Metro.</div>
+      <div class="checks">
+        <div class="check"><span class="check-mark">□</span><span>320 / 360 / 450 dp, teclado, texto grande y botones accesibles.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Wi-Fi / datos / sin red / reapertura: recuperar sin duplicar.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Push, sincronización y GPS con pantalla encendida y bloqueada.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Dos operadores / dos riders: una transición y una asignación.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Delivery simple: aceptación, recojo, código y entrega.</span></div>
+      </div>
+    </details></li>
+    <li><span class="step">4</span><details open>
+      <summary class="cursor-interaction">Grupal y multi-local</summary>
+      <div class="gate">Salida: participantes, locales y rider comparten el mismo estado y total.</div>
+      <div class="checks">
+        <div class="check"><span class="check-mark">□</span><span>Dos clientes → grupo → productos de 3 locales → finalizar una sola vez.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Pagos al host / local, comprobantes y permisos del host.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Carnes 45 min sin cola vs. cocina rápida con cola larga.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Oferta → aceptar / rechazar / contraoferta → vence en 15 s.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Reabrir, recoger en orden, códigos y entrega; no doble despacho.</span></div>
+      </div>
+      <div class="known">Pendiente: pronóstico completo, liberación coordinada de cocina y GPS multi-local de fondo.</div>
+    </details></li>
+    <li><span class="step">5</span><details>
+      <summary class="cursor-interaction">WhatsApp, mensualidad y superadmin</summary>
+      <div class="gate">Salida: validar cada canal incluido en la oferta comercial.</div>
+      <div class="checks">
+        <div class="check"><span class="check-mark">□</span><span>Bot / CRM / humano, origen del chat y consumo estimado.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Números aislados, coexistencia real y desconexión segura.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Proveedor caído no bloquea pedidos ni caja.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Aviso D-5 → QR → propuesta → aprobación / prórroga / corte.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Pago reactiva solo lo correcto; cron y roles comprobados.</span></div>
+      </div>
+    </details></li>
+    <li><span class="step">6</span><details>
+      <summary class="cursor-interaction">Pico, recuperación y piloto comercial</summary>
+      <div class="gate">Salida: cero fallos críticos y recuperación ensayada.</div>
+      <div class="checks">
+        <div class="check"><span class="check-mark">□</span><span>Staging: carga progresiva de 10 → 25 → 50 usuarios.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Errores y alertas; copia de seguridad restaurada en entorno aislado.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Rollback, APK compatibles y procedimiento ante incidentes.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>3 locales supervisados: turno pico, entregas y cierre conciliado.</span></div>
+        <div class="check"><span class="check-mark">□</span><span>Manuales, soporte, privacidad y condiciones comerciales.</span></div>
+      </div>
+    </details></li>
+  </ol>
+  <hr>
+  <div class="viz-row"><span class="viz-badge">Vender solo el alcance aprobado</span><span class="text-small">Funciones pendientes: no ofrecer y deshabilitar efectivamente.</span></div>
+</div>

@@ -67,6 +67,7 @@ const superAdminNav: NavItem[] = [
   { label: "Restaurantes", href: "/admin/restaurantes", icon: Store },
   { label: "Simulador multi-pedido", href: "/admin/multi-pedidos/simulador", icon: Route },
   { label: "WhatsApp global", href: "/admin/whatsapp", icon: MessageSquareText },
+  { label: "QR dinámicos / Baneco", href: "/admin/pagos-qr", icon: CreditCard },
   { label: "Usuarios", href: "/admin/usuarios", icon: Users },
   { label: "Clientes app", href: "/admin/clientes", icon: Users },
   { label: "Mensajes", href: "/admin/mensajes", icon: MessageSquareText },

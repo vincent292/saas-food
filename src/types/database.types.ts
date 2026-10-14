@@ -10,6 +10,41 @@ type Row<T> = {
 export type Database = {
   public: {
     Tables: {
+      bank_qr_connections: Row<{
+        id: string;
+        restaurant_id: string;
+        environment: "certification" | "production";
+        label: string;
+        credentials_ciphertext: string;
+        encryption_mode: "bank_api" | "pre_encrypted";
+        branch_code: string;
+        active: boolean;
+        checked_at: string | null;
+        check_result: "ok" | "error" | null;
+        created_by: string;
+        created_at: string;
+      }>;
+      bank_qr_test_requests: Row<{
+        id: string;
+        connection_id: string;
+        restaurant_id: string;
+        transaction_id: string;
+        amount: number;
+        currency: "BOB" | "USD";
+        due_date: string;
+        description: string;
+        status: "generating" | "unknown" | "pending" | "paid" | "cancelled" | "expired" | "review";
+        qr_id: string | null;
+        qr_image: string | null;
+        verified_at: string | null;
+        bank_transaction_id: string | null;
+        last_error_code: string | null;
+        operation_token: string | null;
+        operation_until: string | null;
+        created_by: string;
+        created_at: string;
+        updated_at: string;
+      }>;
       profiles: Row<{
         id: string;
         full_name: string | null;
@@ -1364,6 +1399,10 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      reserve_baneco_test_qr: {
+        Args: { p_id: string; p_connection_id: string; p_actor_id: string; p_amount: number; p_currency: string; p_due_date: string; p_description: string };
+        Returns: Json;
+      };
       resolve_owner_billing_promise: { Args: { p_cycle_id: string; p_actor_id: string; p_action: string; p_date: string | null; p_note: string | null }; Returns: Json };
       advance_multisite_delivery: { Args: { p_order_id: string; p_rider_user_id: string; p_action: string; p_child_id: string | null; p_code: string }; Returns: Json };
       update_multisite_customer_fee: { Args: { p_order_id: string; p_tracking_token: string; p_fee: number }; Returns: Json };

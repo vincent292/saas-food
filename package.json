@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "security:check": "node ./scripts/security-checks.mjs",
-    "test": "node --use-system-ca --env-file=.env --test tests/*.test.mjs"
+    "test": "node --use-system-ca --env-file=.env --test tests/*.test.mjs",
+    "test:stress:multisite": "node scripts/stress-multisite.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1104.0",

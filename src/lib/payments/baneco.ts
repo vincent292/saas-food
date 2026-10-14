@@ -51,7 +51,7 @@ export function bankAmount(value: unknown) {
   if (!/^\d{1,5}(?:\.\d{1,2})?$/.test(raw)) throw new BanecoError("bank-invalid-amount");
   const cents = Math.round(Number(raw) * 100);
   if (cents < 1 || cents > 10000) throw new BanecoError("bank-invalid-amount");
-  return cents / 100; // Certification panel only: Bs/USD 0.01..100, never order totals.
+  return cents / 100; // Isolated pilot: Bs/USD 0.01..100, never order totals.
 }
 
 type BankTransport = (url: URL, method: string, token?: string, body?: unknown) => Promise<unknown>;
@@ -80,6 +80,9 @@ export const bankTransport: BankTransport = (url, method, token, body) => new Pr
     });
   });
   req.on("timeout", () => { req.destroy(); reject(new BanecoError("bank-timeout")); });
+  // Socket timeout alone permits an indefinitely slow/trickling response.
+  const deadline = setTimeout(() => { req.destroy(); reject(new BanecoError("bank-timeout")); }, 5000);
+  req.on("close", () => clearTimeout(deadline));
   req.on("error", () => reject(new BanecoError("bank-unavailable")));
   req.end(encoded);
 });

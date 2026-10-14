@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { authService } from "@/lib/services/auth.service";
 import { getActiveSupportSession } from "@/lib/services/support-impersonation.service";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -11,7 +11,7 @@ import type { Database, Json } from "@/types/database.types";
 type TestRequest = Database["public"]["Tables"]["bank_qr_test_requests"]["Row"];
 type BankConnection = Database["public"]["Tables"]["bank_qr_connections"]["Row"];
 export const publicConnectionFields = "id,restaurant_id,environment,label,encryption_mode,branch_code,active,checked_at,check_result,last_error_code,last_error_stage,last_http_status,last_bank_code,created_at";
-export const publicTestFields = "id,connection_id,restaurant_id,environment,transaction_id,amount,currency,due_date,description,status,qr_id,verified_at,last_error_code,last_error_stage,last_http_status,last_bank_code,created_at";
+export const publicTestFields = "id,connection_id,restaurant_id,environment,transaction_id,amount,currency,due_date,description,status,qr_id,verified_at,last_attempt_at,next_check_at,consecutive_failures,last_error_code,last_error_stage,last_http_status,last_bank_code,created_at";
 const clearDiagnostics = { last_error_code: null, last_error_stage: null, last_http_status: null, last_bank_code: null };
 
 export async function requireBankSuperadmin() {
@@ -41,6 +41,60 @@ async function connection(admin: ReturnType<typeof adminClient>, id: string, all
   const credentials = bankCredentialSchema.safeParse(openBankCredentials(row.credentials_ciphertext, row.id, row.restaurant_id, row.environment));
   if (!credentials.success) throw new BanecoError("bank-vault-unreadable");
   return { row, credentials: credentials.data, bank: createBanecoClient(row.environment, credentials.data) };
+}
+
+// Not exported: callers must pass either the superadmin guard or worker auth.
+async function reconcileClaim(admin: ReturnType<typeof adminClient>, current: TestRequest, operationToken: string, cancel = false) {
+  try {
+    const { bank, row } = await connection(admin, current.connection_id, true);
+    let response = await bank.status(current.qr_id!);
+    const expected = { qrId: current.qr_id!, amount: Number(current.amount), currency: current.currency,
+      branchCode: row.branch_code, dueDate: current.due_date };
+    let status = verifyBankStatus(response, expected);
+    if (cancel && (status === "pending" || status === "expired")) {
+      await bank.cancel(current.qr_id!);
+      response = await bank.status(current.qr_id!);
+      status = verifyBankStatus(response, expected);
+    }
+    const payment = Array.isArray(response.payment) ? response.payment[0] : response.payment;
+    const transaction = status === "paid" && payment && typeof payment === "object"
+      ? String((payment as Record<string, Json>).transactionId) : null;
+    const saved = checked(await admin.rpc("finish_baneco_reconciliation", { p_id: current.id, p_token: operationToken,
+      p_status: status, p_transaction: transaction, p_error: null, p_details: {} }));
+    if (!saved) throw new BanecoError("bank-operation-busy");
+  } catch (error) {
+    await admin.rpc("finish_baneco_reconciliation", { p_id: current.id, p_token: operationToken,
+      p_status: null, p_transaction: null, p_error: safeBankError(error), p_details: bankErrorDetails(error) });
+    throw error;
+  }
+}
+
+type WorkerSignature = { timestamp: string | null; signature: string | null };
+export function bankWorkerAuthorized({ timestamp, signature }: WorkerSignature) {
+  const secret = process.env.BANK_QR_WORKER_SECRET;
+  if (!secret || secret.length < 32 || !timestamp || !/^\d{10}$/.test(timestamp) || !signature || !/^[a-f0-9]{64}$/.test(signature)) return false;
+  if (Math.abs(Date.now() - Number(timestamp) * 1000) > 60_000) return false;
+  const expected = createHmac("sha256", secret).update(`baneco-worker-v1:${timestamp}`).digest();
+  return timingSafeEqual(Buffer.from(signature, "hex"), expected);
+}
+
+export async function runBankQrWorker(authentication: WorkerSignature) {
+  if (!bankWorkerAuthorized(authentication)) throw new BanecoError("bank-forbidden");
+  const admin = adminClient();
+  const deadline = Date.now() + 35_000;
+  let claimed = 0, completed = 0, failed = 0;
+  const work = async () => {
+    while (claimed < 10 && Date.now() < deadline) {
+      // Reserve a local slot before await, then claim exclusively using DB time.
+      claimed++;
+      const token = randomUUID();
+      const row = checked(await admin.rpc("claim_baneco_reconciliation", { p_token: token })) as TestRequest | null;
+      if (!row) return;
+      try { await reconcileClaim(admin, row, token); completed++; } catch { failed++; }
+    }
+  };
+  await Promise.all([work(), work(), work()]);
+  return { completed, failed };
 }
 
 // Public methods enforce server-side role checks too, not just page visibility.
@@ -144,40 +198,13 @@ export const bankQrService = {
   async reconcile(requestId: string, cancel = false) {
     await requireBankSuperadmin();
     const admin = adminClient();
-    const current = checked(await admin.from("bank_qr_test_requests").select("*").eq("id", requestId).maybeSingle());
+    const current = checked(await admin.from("bank_qr_test_requests").select("id,qr_id,status").eq("id", requestId).maybeSingle());
     if (!current?.qr_id) throw new BanecoError("bank-request-unavailable");
     if (current.status === "paid" || current.status === "cancelled") return;
     const operationToken = randomUUID();
-    const now = new Date().toISOString();
-    const locked = checked(await admin.from("bank_qr_test_requests").update({ operation_token: operationToken,
-      operation_until: new Date(Date.now() + 90_000).toISOString() }).eq("id", requestId)
-      .in("status", ["pending", "expired", "review", "unknown"])
-      .or(`operation_until.is.null,operation_until.lt.${now}`).select("id").maybeSingle());
+    const locked = checked(await admin.rpc("claim_baneco_reconciliation", { p_token: operationToken, p_id: requestId, p_cancel: cancel })) as TestRequest | null;
     if (!locked) throw new BanecoError("bank-operation-busy");
-    try {
-      const { bank, row } = await connection(admin, current.connection_id, true);
-      let response = await bank.status(current.qr_id);
-      const expected = { qrId: current.qr_id, amount: Number(current.amount), currency: current.currency,
-        branchCode: row.branch_code, dueDate: current.due_date };
-      let status = verifyBankStatus(response, expected);
-      if (cancel && (status === "pending" || status === "expired")) {
-        await bank.cancel(current.qr_id);
-        // DELETE success is not enough: payment and cancellation can race at the bank.
-        response = await bank.status(current.qr_id);
-        status = verifyBankStatus(response, expected);
-      }
-      const payment = Array.isArray(response.payment) ? response.payment[0] : response.payment;
-      const bankTransactionId = status === "paid" && payment && typeof payment === "object"
-        ? String((payment as Record<string, Json>).transactionId) : null;
-      const updated = checked(await admin.from("bank_qr_test_requests").update({ status, verified_at: new Date().toISOString(),
-        bank_transaction_id: bankTransactionId, ...clearDiagnostics, operation_token: null, operation_until: null,
-        updated_at: new Date().toISOString() }).eq("id", requestId).eq("operation_token", operationToken).select("id").maybeSingle());
-      if (!updated) throw new BanecoError("bank-operation-busy");
-    } catch (error) {
-      await admin.from("bank_qr_test_requests").update({ ...bankErrorDetails(error), last_error_code: safeBankError(error), operation_token: null, operation_until: null })
-        .eq("id", requestId).eq("operation_token", operationToken);
-      throw error;
-    }
+    await reconcileClaim(admin, locked, operationToken, cancel);
   },
 };
 

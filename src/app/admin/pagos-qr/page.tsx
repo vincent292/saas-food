@@ -12,6 +12,7 @@ import { bankPanelReadiness } from "@/lib/payments/qr-panel-readiness";
 import { bankQrService, requireBankSuperadmin, safeBankError } from "@/lib/services/bank-qr.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { bankConnectionOperationAction, bankTestQrOperationAction, generateBankTestQrAction, saveBankConnectionAction } from "./actions";
+import { BankQrAutoRefresh, DisconnectBankButton } from "./BankQrAutoRefresh";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -20,7 +21,7 @@ const feedback: Record<string, string> = {
   checked: "El banco aceptó las credenciales en el ambiente seleccionado.", generated: "QR generado. Ya puedes verlo, descargarlo y consultar su pago.",
   "production-ready": "Conexión de producción comprobada. Reutilizamos tus credenciales guardadas; ya puedes generar el QR.",
   "already-registered": "Esta solicitud ya estaba registrada. Revisa su estado abajo; no se volvió a generar otro QR.",
-  disabled: "Conexión desactivada para nuevos QR. Se conserva para conciliar QR anteriores.",
+  disabled: "Cuenta desvinculada para nuevos QR. Los QR ya emitidos siguen vigentes y se verifican automáticamente; sus credenciales se conservan cifradas. No se ha cerrado tu cuenta bancaria.",
   reconciled: "Consulta al banco completada. Revisa el estado de la prueba.",
   "bank-vault-not-configured": "Falta configurar la clave maestra BANK_CREDENTIALS_KEY en el servidor.",
   "bank-vault-unreadable": "No se pudieron abrir las credenciales. Revisa la clave maestra; no reemplaces la configuración sin respaldarla.",
@@ -72,10 +73,12 @@ export default async function BankQrPage({ searchParams }: { searchParams: Promi
   };
   return (
     <AdminLayout active="/admin/pagos-qr" title="QR dinámicos / Baneco">
+      <BankQrAutoRefresh enabled={data.requests.some(item => Boolean(item.qr_id) && !["paid", "cancelled"].includes(item.status))} />
       <div className="mx-auto grid max-w-6xl gap-5">
         <Card className="space-y-3">
           <div className="flex items-center gap-3"><CreditCard className="h-6 w-6 text-[var(--primary)]" /><h1 className="text-2xl font-black">QR dinámicos por comercio</h1></div>
-          <p className="text-sm text-[var(--muted)]">Genera un QR y consulta su pago. Piloto de hasta 100 por QR, separado de los pedidos y caja.</p>
+          <p className="text-sm text-[var(--muted)]">Genera un QR: verificamos su pago automáticamente, incluso si cierras el panel. Piloto de hasta 100 por QR, separado de los pedidos y caja.</p>
+          <p className="text-sm">Consulta bancaria aproximadamente cada 1–2 minutos mientras está pendiente. La pantalla se actualiza sola. Si el banco falla, reintentamos la consulta con una espera progresiva; nunca generamos otro QR.</p>
           <div className="flex flex-wrap gap-3 text-sm font-bold"><span className="flex items-center gap-2"><LockKeyhole className="h-4 w-4" />Credenciales cifradas por comercio</span><span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" />Solo superadmin</span></div>
           <p className="text-sm">Producción permite pagos reales a la cuenta del comercio. Certificación utiliza el ambiente de pruebas del banco.</p>
         </Card>
@@ -125,16 +128,18 @@ export default async function BankQrPage({ searchParams }: { searchParams: Promi
           </Card>
         </div>
         <Card><h2 className="mb-3 text-lg font-black">Últimas 100 conexiones guardadas</h2><div className="grid gap-3">{!data.connections.length ? <p className="text-sm">Todavía no hay conexiones.</p> : data.connections.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
-          <div className="min-w-0"><p className="font-bold">{item.label}</p><p className="text-sm">{restaurantNames.get(item.restaurant_id) ?? "Comercio"} · {item.environment === "certification" ? "Certificación" : "Producción — pagos reales"} · {item.active ? "Activa" : "Desactivada"}</p><p className="text-xs">{item.check_result === "ok" ? "Última comprobación: correcta" : item.check_result === "error" ? "Última comprobación: fallida" : "Sin comprobar"}</p>{item.last_error_code ? <p className="mt-1 text-xs">{feedback[item.last_error_code] ?? feedback["bank-operation-failed"]}</p> : null}<BankDiagnostic item={item} /></div>
-          {item.active ? <div className="flex flex-wrap gap-2">{item.environment === "certification" && !productionRestaurants.has(item.restaurant_id) ? <form action={bankConnectionOperationAction}><input type="hidden" name="connectionId" value={item.id} /><input type="hidden" name="operation" value="production" /><FormSubmitButton label="Usar en producción" pendingLabel="Comprobando producción..." disabled={!readiness.canSave} /></form> : null}<form action={bankConnectionOperationAction}><input type="hidden" name="connectionId" value={item.id} /><input type="hidden" name="operation" value="check" /><FormSubmitButton label="Comprobar" variant="secondary" disabled={!readiness.canSave} /></form><form action={bankConnectionOperationAction}><input type="hidden" name="connectionId" value={item.id} /><input type="hidden" name="operation" value="disable" /><FormSubmitButton label="Desactivar" variant="secondary" /></form></div> : null}
+          <div className="min-w-0"><p className="font-bold">{item.label}</p><p className="text-sm">{restaurantNames.get(item.restaurant_id) ?? "Comercio"} · {item.environment === "certification" ? "Certificación" : "Producción — pagos reales"} · {item.active ? "Activa" : "Desvinculada para nuevos QR"}</p><p className="text-xs">{item.check_result === "ok" ? "Última comprobación: correcta" : item.check_result === "error" ? "Última comprobación: fallida" : "Sin comprobar"}</p>{item.last_error_code ? <p className="mt-1 text-xs">{feedback[item.last_error_code] ?? feedback["bank-operation-failed"]}</p> : null}<BankDiagnostic item={item} /></div>
+          {item.active ? <div className="flex flex-wrap gap-2">{item.environment === "certification" && !productionRestaurants.has(item.restaurant_id) ? <form action={bankConnectionOperationAction}><input type="hidden" name="connectionId" value={item.id} /><input type="hidden" name="operation" value="production" /><FormSubmitButton label="Usar en producción" pendingLabel="Comprobando producción..." disabled={!readiness.canSave} /></form> : null}<form action={bankConnectionOperationAction}><input type="hidden" name="connectionId" value={item.id} /><input type="hidden" name="operation" value="check" /><FormSubmitButton label="Comprobar" variant="secondary" disabled={!readiness.canSave} /></form><form action={bankConnectionOperationAction}><input type="hidden" name="connectionId" value={item.id} /><input type="hidden" name="operation" value="disable" /><DisconnectBankButton /></form></div> : null}
         </div>)}</div></Card>
         <Card><h2 className="mb-3 text-lg font-black">Últimas 30 pruebas</h2><p className="mb-4 text-sm">Consultar no cobra ni aprueba pedidos. Una anulación se confirma con una segunda consulta al banco.</p><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{!data.requests.length ? <p className="text-sm">Todavía no hay pruebas.</p> : data.requests.map(item => <div key={item.id} className="min-w-0 rounded-2xl border border-[var(--border)] p-4">
           <p className="font-black">{item.currency} {Number(item.amount).toFixed(2)} · {statuses[item.status]}</p><p className="text-sm font-semibold">{item.environment === "production" ? "Producción — pago real" : "Certificación"}</p><p className="text-sm">{restaurantNames.get(item.restaurant_id) ?? "Comercio"} · vence {item.due_date}</p><p className="mt-2 break-all text-xs">Referencia: {item.transaction_id}</p>{item.qr_id ? <p className="break-all text-xs">QR: {item.qr_id}</p> : null}
           {/* Bank adapter accepts PNG/JPEG only; no remote URL or SVG content. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {item.qr_image ? <img src={item.qr_image} alt={`QR por ${item.currency} ${Number(item.amount).toFixed(2)}`} className="mx-auto my-3 aspect-square w-full max-w-56 rounded-xl object-contain" /> : null}
-          {item.qr_image ? <a href={item.qr_image} download={`yopido-qr-${item.id}.${item.qr_image.startsWith("data:image/jpeg") ? "jpg" : "png"}`} className="inline-flex min-h-10 items-center text-sm font-bold underline">Descargar QR</a> : null}
-          {item.qr_id && !item.qr_image ? <Link href={`/admin/pagos-qr?qr=${encodeURIComponent(item.id)}`} className="my-3 inline-flex min-h-10 items-center text-sm font-bold underline">Ver imagen del QR</Link> : null}
+          {item.qr_image && !["paid", "cancelled", "expired", "review"].includes(item.status) ? <img src={item.qr_image} alt={`QR por ${item.currency} ${Number(item.amount).toFixed(2)}`} className="mx-auto my-3 aspect-square w-full max-w-56 rounded-xl object-contain" /> : null}
+          {item.qr_image && !["paid", "cancelled", "expired", "review"].includes(item.status) ? <a href={item.qr_image} download={`yopido-qr-${item.id}.${item.qr_image.startsWith("data:image/jpeg") ? "jpg" : "png"}`} className="inline-flex min-h-10 items-center text-sm font-bold underline">Descargar QR</a> : null}
+          {item.qr_id && !item.qr_image && !["paid", "cancelled", "expired", "review"].includes(item.status) ? <Link href={`/admin/pagos-qr?qr=${encodeURIComponent(item.id)}`} className="my-3 inline-flex min-h-10 items-center text-sm font-bold underline">Ver imagen del QR</Link> : null}
+          {item.status === "paid" ? <p className="my-3 font-bold text-emerald-700">Pago confirmado. QR de uso único: no vuelvas a pagarlo.</p> : null}
+          {item.qr_id && !["paid", "cancelled"].includes(item.status) ? <p className="mt-2 text-xs">Verificación automática activa{["expired", "review"].includes(item.status) ? " · revisión periódica cada hora" : ""}.{item.verified_at ? ` Última respuesta: ${new Date(item.verified_at).toLocaleString("es-BO", { timeZone: "America/La_Paz" })}.` : " Esperando respuesta del banco."}</p> : null}
           {item.last_error_code ? <p className="my-2 text-xs">{feedback[item.last_error_code] ?? feedback["bank-operation-failed"]}</p> : null}
           <BankDiagnostic item={item} />
           {item.qr_id && !["paid", "cancelled"].includes(item.status) ? <div className="mt-3 flex flex-wrap gap-2"><form action={bankTestQrOperationAction}><input type="hidden" name="requestId" value={item.id} /><input type="hidden" name="operation" value="status" /><FormSubmitButton label="Consultar" variant="secondary" disabled={!configured} /></form><form action={bankTestQrOperationAction}><input type="hidden" name="requestId" value={item.id} /><input type="hidden" name="operation" value="cancel" /><FormSubmitButton label="Anular QR" variant="secondary" disabled={!configured || item.status === "review"} /></form></div> : null}

@@ -43,6 +43,9 @@ export type Database = {
         qr_image: string | null;
         verified_at: string | null;
         bank_transaction_id: string | null;
+        next_check_at: string;
+        last_attempt_at: string | null;
+        consecutive_failures: number;
         last_error_code: string | null;
         last_error_stage: string | null;
         last_http_status: number | null;
@@ -1407,6 +1410,8 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      claim_baneco_reconciliation: { Args: { p_token: string; p_id?: string; p_cancel?: boolean }; Returns: Json };
+      finish_baneco_reconciliation: { Args: { p_id: string; p_token: string; p_status: string | null; p_transaction: string | null; p_error: string | null; p_details: Json }; Returns: boolean };
       reserve_baneco_test_qr: {
         Args: { p_id: string; p_connection_id: string; p_actor_id: string; p_amount: number; p_currency: string; p_due_date: string; p_description: string };
         Returns: Json;

@@ -12,6 +12,18 @@ Implementación inicial: 14 de octubre de 2026. Ruta: **Superadmin > QR dinámic
 - Producción está habilitada para el piloto explícito del superadmin. Un QR de producción permite un pago real a la cuenta guardada. Antes de generar se exige una conexión comprobada tanto en el panel como en la reserva SQL.
 - «Usar en producción» autentica las credenciales ya guardadas contra producción y crea una nueva versión cifrada con otro ID/AAD. No modifica la conexión ni los intentos históricos de certificación, ni requiere volver a ingresar secretos.
 
+## Verificación automática y desvinculación (14/10/2026)
+
+- Piloto real comprobado: producción generó el QR BOB 1 de referencia `YQ-b221be66b82b4a72a5ea10a7023a4f39` y una consulta autenticada al banco confirmó `paid`. No se movió dinero desde las herramientas del agente.
+- Migraciones `0122` y `0123`: reservas exclusivas de 90 segundos, reloj de base de datos, token de operación y espera progresiva ante errores (hasta una hora). Estados `paid` y `cancelled` son terminales. Un resultado de un trabajador anterior no puede sobrescribir al actual. Los intentos sin `qr_id` no se regeneran.
+- Supabase Cron dispara el worker aproximadamente cada minuto si hay trabajo. Con cooldown de 60 segundos tras una consulta, un pendiente se revisa cada 1–2 minutos; vencidos/revisión se consultan cada hora, sin asumir que no pagaron. Lotes de hasta 10 QR, concurrencia 3. El panel refresca cada 20 segundos mientras está visible y no se edita un formulario.
+- Vercel Hobby no permite cron por minuto. Se usa `pg_cron` + `pg_net` de Supabase, sin depender del navegador. El destino está fijado en `https://yopido.shop/api/cron/bank-qr`.
+- `BANK_QR_WORKER_SECRET` es una clave de infraestructura dedicada, distinta de las credenciales bancarias y de la clave del cofre. Se guarda en Vercel Production y Supabase Vault mediante `node --env-file=.env.local scripts/configure-baneco-worker.mjs` después de migrar y antes de desplegar. El script no imprime secretos ni sobrescribe una clave existente.
+- El scheduler envía una firma HMAC-SHA256 válida durante 60 segundos, no la clave permanente (pg_net almacena temporalmente los encabezados en su cola). Una repetición dentro de esa ventana no salta las reservas ni el cooldown persistidos. La ruta solo consulta estados, no genera ni anula QR.
+- «Desvincular cuenta» pide confirmación, impide nuevos QR y conserva credenciales cifradas e historial para conciliar los ya emitidos. No cierra la cuenta bancaria ni anula sus QR. Para anular un QR pendiente existe su acción específica.
+- Todos los QR se solicitan con `singleUse=true` y `modifyAmount=false`. Al confirmar pago desaparecen la imagen y descarga del panel. El banco debe impedir reutilizar una copia descargada; todavía falta una prueba controlada de segundo intento desde una app bancaria. No se debe hacer un segundo pago real desde las herramientas del agente.
+- Sigue siendo un piloto aislado del checkout/pedidos/caja; integrar aprobaciones de pedidos requiere una transacción idempotente específica.
+
 ## Credenciales y clave maestra
 
 Cada comercio puede ingresar usuario, contraseña, llave de cifrado Baneco y cuenta desde el formulario. Ninguna se devuelve a la interfaz después de guardar; tampoco se registran respuestas bancarias sensibles o tokens.

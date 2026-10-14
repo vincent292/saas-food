@@ -401,6 +401,9 @@ test('scheduler is fixed-destination and private; UI refresh never contacts the 
   assert.match(sql,/https:\/\/yopido.shop\/api\/cron\/bank-qr/);
   assert.match(sql,/vault.decrypted_secrets/);assert.match(sql,/timeout_milliseconds:=60000/);
   assert.match(sql,/extensions.hmac/);assert.doesNotMatch(sql,/Bearer/);
+  const canonical=read('supabase/migrations/0124_baneco_worker_canonical_host.sql');
+  assert.match(canonical,/url:='https:\/\/www.yopido.shop\/api\/cron\/bank-qr'/);
+  assert.match(canonical,/extensions.hmac/);assert.doesNotMatch(canonical,/Bearer/);
   assert.match(sql,/revoke all .* from public,anon,authenticated/);
   assert.doesNotMatch(sql,/grant execute on function public.dispatch/);
   const client=read('src/app/admin/pagos-qr/BankQrAutoRefresh.tsx');

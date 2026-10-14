@@ -17,8 +17,26 @@ export const bankCredentialSchema = z.object({
 });
 export type BankCredentials = z.infer<typeof bankCredentialSchema>;
 
+export type BankStage = "password-encryption" | "authentication" | "account-encryption" | "generation" | "status" | "cancellation";
 export class BanecoError extends Error {
-  constructor(public code: string) { super(code); this.name = "BanecoError"; }
+  constructor(public code: string, public stage?: BankStage, public httpStatus?: number, public bankCode?: number, public qrId?: string) {
+    super(code); this.name = "BanecoError";
+  }
+}
+export function bankErrorDetails(error: unknown) {
+  const knownStages: BankStage[] = ["password-encryption", "authentication", "account-encryption", "generation", "status", "cancellation"];
+  const safe = error instanceof BanecoError ? error : null;
+  return {
+    last_error_stage: safe?.stage && knownStages.includes(safe.stage) ? safe.stage : null,
+    last_http_status: safe?.httpStatus && Number.isInteger(safe.httpStatus) && safe.httpStatus >= 100 && safe.httpStatus <= 599 ? safe.httpStatus : null,
+    last_bank_code: safe?.bankCode !== undefined && Number.isInteger(safe.bankCode) && Math.abs(safe.bankCode) <= 2147483647 ? safe.bankCode : null,
+  };
+}
+async function atStage<T>(stage: BankStage, operation: () => Promise<T>): Promise<T> {
+  try { return await operation(); } catch (error) {
+    if (error instanceof BanecoError) throw new BanecoError(error.code, error.stage ?? stage, error.httpStatus, error.bankCode, error.qrId);
+    throw new BanecoError("bank-operation-failed", stage);
+  }
 }
 export function boliviaDate() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -56,7 +74,7 @@ export const bankTransport: BankTransport = (url, method, token, body) => new Pr
     });
     res.on("error", () => reject(new BanecoError("bank-unavailable")));
     res.on("end", () => {
-      if (res.statusCode !== 200) { reject(new BanecoError("bank-http-error")); return; }
+      if (res.statusCode !== 200) { reject(new BanecoError("bank-http-error", undefined, res.statusCode)); return; }
       const text = Buffer.concat(chunks).toString("utf8").trim();
       try { resolve(JSON.parse(text)); } catch { resolve(text); }
     });
@@ -69,7 +87,7 @@ export const bankTransport: BankTransport = (url, method, token, body) => new Pr
 function success(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new BanecoError("bank-invalid-response");
   const row = value as Record<string, unknown>;
-  if (row.responseCode !== 0) throw new BanecoError("bank-rejected");
+  if (row.responseCode !== 0) throw new BanecoError("bank-rejected", undefined, 200, typeof row.responseCode === "number" ? row.responseCode : undefined);
   return row;
 }
 function base64(value: unknown) {
@@ -86,7 +104,7 @@ export function qrImageDataUrl(value: unknown) {
 }
 
 export function createBanecoClient(environment: BanecoEnvironment, credentials: BankCredentials, transport: BankTransport = bankTransport) {
-  if (environment !== "certification") throw new BanecoError("bank-production-disabled");
+  if (!Object.hasOwn(banecoEnvironments, environment)) throw new BanecoError("bank-invalid-host");
   const url = (path: string) => new URL(path, banecoEnvironments[environment]);
   async function encrypt(value: string) {
     if (credentials.encryptionMode === "pre_encrypted") return base64(value);
@@ -96,31 +114,36 @@ export function createBanecoClient(environment: BanecoEnvironment, credentials: 
     return base64(await transport(endpoint, "GET"));
   }
   async function authenticate() {
-    const password = await encrypt(credentials.password);
-    const result = success(await transport(url("api/authentication/authenticate"), "POST", undefined, { userName: credentials.userName, password }));
-    if (typeof result.token !== "string" || !result.token || result.token.length > 16000) throw new BanecoError("bank-invalid-response");
-    return result.token;
+    const password = await atStage("password-encryption", () => encrypt(credentials.password));
+    return atStage("authentication", async () => {
+      const result = success(await transport(url("api/authentication/authenticate"), "POST", undefined, { userName: credentials.userName, password }));
+      if (typeof result.token !== "string" || !result.token || result.token.length > 16000) throw new BanecoError("bank-invalid-response");
+      return result.token;
+    });
   }
   return {
     async checkConnection() { await authenticate(); return true; },
     async generate(input: { transactionId: string; amount: number; currency: "BOB" | "USD"; dueDate: string; description: string; branchCode: string }) {
       const token = await authenticate();
-      const accountCredit = await encrypt(credentials.accountCredit);
-      const result = success(await transport(url("api/qrsimple/generateQR"), "POST", token, {
-        ...input, accountCredit, singleUse: true, modifyAmount: false,
-      }));
-      if (typeof result.qrId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(result.qrId)) throw new BanecoError("bank-invalid-response");
-      return { qrId: result.qrId, image: qrImageDataUrl(result.qrImage) };
+      const accountCredit = await atStage("account-encryption", () => encrypt(credentials.accountCredit));
+      return atStage("generation", async () => {
+        const result = success(await transport(url("api/qrsimple/generateQR"), "POST", token, {
+          ...input, accountCredit, singleUse: true, modifyAmount: false,
+        }));
+        if (typeof result.qrId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(result.qrId)) throw new BanecoError("bank-invalid-response");
+        try { return { qrId: result.qrId, image: qrImageDataUrl(result.qrImage) }; }
+        catch (error) { throw new BanecoError(error instanceof BanecoError ? error.code : "bank-invalid-qr-image", "generation", 200, 0, result.qrId); }
+      });
     },
     async status(qrId: string) {
       if (!/^[A-Za-z0-9_-]{1,100}$/.test(qrId)) throw new BanecoError("bank-invalid-qr-id");
       const token = await authenticate();
-      return success(await transport(url(`api/qrsimple/v2/statusQR/${encodeURIComponent(qrId)}`), "GET", token));
+      return atStage("status", async () => success(await transport(url(`api/qrsimple/v2/statusQR/${encodeURIComponent(qrId)}`), "GET", token)));
     },
     async cancel(qrId: string) {
       if (!/^[A-Za-z0-9_-]{1,100}$/.test(qrId)) throw new BanecoError("bank-invalid-qr-id");
       const token = await authenticate();
-      success(await transport(url("api/qrsimple/cancelQR"), "DELETE", token, { qrId }));
+      await atStage("cancellation", async () => success(await transport(url("api/qrsimple/cancelQR"), "DELETE", token, { qrId })));
     },
   };
 }

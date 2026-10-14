@@ -5,11 +5,12 @@ Implementación inicial: 14 de octubre de 2026. Ruta: **Superadmin > QR dinámic
 ## Alcance
 
 - Guardar una conexión activa por comercio/ambiente, con versiones inmutables de credenciales. Desactivar una conexión impide nuevos QR, pero conserva la versión asociada a QR anteriores para conciliarlos.
-- Comprobar autenticación, generar QR de certificación de uso único e importe fijo, consultar su estado y anularlo con verificación posterior.
+- Comprobar autenticación, generar QR de certificación o producción de uso único e importe fijo, consultar su estado y anularlo con verificación posterior.
 - Monto de pruebas entre 0.01 y 100, BOB/USD; vencimiento en el día Bolivia o hasta 30 días después.
 - Solo superadmin; bloqueado en sesión de soporte de solo lectura. No hay acceso para dueño/caja/mesero desde UI ni API/tabla privada.
 - No modifica pedidos, caja, inventario ni mensualidades. No hay aprobación automática de pedidos ni asiento bancario/contable por generar o verificar estas pruebas.
-- Producción puede almacenar credenciales, pero las operaciones están bloqueadas explícitamente en el adaptador y en la reserva SQL. No se usa la URL de producción para pruebas.
+- Producción está habilitada para el piloto explícito del superadmin. Un QR de producción permite un pago real a la cuenta guardada. Antes de generar se exige una conexión comprobada tanto en el panel como en la reserva SQL.
+- «Usar en producción» autentica las credenciales ya guardadas contra producción y crea una nueva versión cifrada con otro ID/AAD. No modifica la conexión ni los intentos históricos de certificación, ni requiere volver a ingresar secretos.
 
 ## Credenciales y clave maestra
 
@@ -26,7 +27,7 @@ Si no existe una clave maestra válida, el panel deshabilita guardar/generar. Nu
 Fuente: PDF proporcionado `Api Market Baneco v1.3.0.pdf`, v1.3.0 del 28/04/2025, especialmente páginas PDF 4-11 y 16.
 
 - Certificación: `https://apimktdesa.baneco.com.bo/ApiGateway/`.
-- Producción informada por el usuario: `https://apimkt.baneco.com.bo/ApiGateway/` (bloqueada).
+- Producción informada por el usuario: `https://apimkt.baneco.com.bo/ApiGateway/`.
 - `POST api/authentication/authenticate`: userName, password cifrada; responseCode=0 y token.
 - `POST api/qrsimple/generateQR`: transactionId propio, accountCredit cifrada, currency, amount, dueDate, singleUse=true y modifyAmount=false.
 - `GET api/qrsimple/v2/statusQR/{id}`: estados 0 pendiente, 1 pagado, 9 anulado. Se admiten `statusQrCode` y `statusQRCode`, porque la tabla y el ejemplo del PDF difieren.
@@ -57,6 +58,10 @@ El PDF no documenta firma/autenticación de `notifyPaymentQR`. **No hay un webho
 
 - La reserva SQL bloquea por conexión/solicitud. Diez envíos del mismo requestId reservan una sola operación; cambiar sus datos se rechaza.
 - No se presupone que Baneco haga generación idempotente por transactionId. Un timeout queda **desconocido** y nunca regenera automáticamente.
+- Solo un fallo identificado en cifrado de acceso, autenticación o cifrado de cuenta queda **failed**: en esas etapas todavía no se envió generateQR. Un error durante/después de generar sigue **unknown**. Los históricos sin etapa no se reclasifican.
+- Se guardan únicamente etapa enumerada, estado HTTP y código numérico del banco. HTTP 200 con responseCode 404 se distingue de HTTP 404. No se registran mensajes crudos, tokens ni URL/query bancaria.
+- Si el banco devuelve un qrId válido pero falla la imagen o el primer guardado, se conserva ese ID cuando el almacenamiento lo permite para poder consultar/anular; no se vuelve a generar.
+- Reenviar una reserva existente muestra «Solicitud ya registrada», sin afirmar que se generó un QR ni repetir la operación.
 - Si el proceso termina después de reservar, puede quedar “generación en curso” sin QR. Debe investigarse con el banco; no hay recuperación automática por transactionId porque el PDF no documenta ese endpoint.
 - Consultar/anular adquiere un lease por QR; estados pagado/anulado no se degradan por una operación concurrente. Un resultado recibido después de perder el lease no sobrescribe el nuevo estado.
 - Desactivar/conectar de nuevo no modifica en sitio los secretos de QR anteriores. No borrar versiones que todavía se necesiten para conciliar.
@@ -75,6 +80,12 @@ El PDF no documenta firma/autenticación de `notifyPaymentQR`. **No hay un webho
 10. Desactivar conexión, crear otra y consultar QR anterior: usa su versión anterior de credenciales.
 
 ## Verificación técnica y estado
+
+Actualización de producción, 14/10/2026: el cifrado y la autenticación con las credenciales guardadas fueron aceptados en producción (HTTP 200, responseCode 0). En certificación la autenticación devolvió HTTP 200, responseCode 404. Eso prueba el acceso en producción, no todavía la validez de la cuenta para generar/cobrar. Un GET incompleto que devolvía 502 no reproducía una solicitud válida; no se atribuye a eso la causa del intento histórico.
+
+La migración 0121 agrega diagnóstico seguro, estado `failed` para errores previos a generación y ambiente inmutable en cada intento; mantiene permisos privados, límites y reserva idempotente. Los datos históricos conservan estado y ambiente originales.
+
+Las verificaciones y limitaciones siguientes describen la implementación inicial de certificación; las comprobaciones de producción se documentan arriba.
 
 - 10 pruebas nuevas aisladas, sin llamadas al banco: cifrado y tenant binding, adaptador/documentación, bloqueo producción/hosts, validación de respuestas y pagos, montos/fechas, permisos de tablas/RPC, idempotencia y versiones, autorización en servidor y ausencia de cobro automático.
 - TypeScript, ESLint dirigido y build Next.js aprobados. Suite general: 130 pruebas, 123 aprobadas, 5 fallidas previas, 2 omitidas. No son diez pruebas reales de certificación bancaria.

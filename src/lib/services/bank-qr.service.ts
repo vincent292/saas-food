@@ -5,13 +5,14 @@ import { authService } from "@/lib/services/auth.service";
 import { getActiveSupportSession } from "@/lib/services/support-impersonation.service";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { openBankCredentials, sealBankCredentials } from "@/lib/payments/credential-vault";
-import { bankCredentialSchema, BanecoError, createBanecoClient, verifyBankStatus, type BanecoEnvironment } from "@/lib/payments/baneco";
+import { bankCredentialSchema, bankErrorDetails, BanecoError, createBanecoClient, verifyBankStatus, type BanecoEnvironment } from "@/lib/payments/baneco";
 import type { Database, Json } from "@/types/database.types";
 
 type TestRequest = Database["public"]["Tables"]["bank_qr_test_requests"]["Row"];
 type BankConnection = Database["public"]["Tables"]["bank_qr_connections"]["Row"];
-export const publicConnectionFields = "id,restaurant_id,environment,label,encryption_mode,branch_code,active,checked_at,check_result,created_at";
-export const publicTestFields = "id,connection_id,restaurant_id,transaction_id,amount,currency,due_date,description,status,qr_id,verified_at,last_error_code,created_at";
+export const publicConnectionFields = "id,restaurant_id,environment,label,encryption_mode,branch_code,active,checked_at,check_result,last_error_code,last_error_stage,last_http_status,last_bank_code,created_at";
+export const publicTestFields = "id,connection_id,restaurant_id,environment,transaction_id,amount,currency,due_date,description,status,qr_id,verified_at,last_error_code,last_error_stage,last_http_status,last_bank_code,created_at";
+const clearDiagnostics = { last_error_code: null, last_error_stage: null, last_http_status: null, last_bank_code: null };
 
 export async function requireBankSuperadmin() {
   const profile = await authService.getCurrentProfile();
@@ -29,7 +30,7 @@ function checked<T>(result: { data: T; error: unknown }) {
   return result.data;
 }
 export function safeBankError(error: unknown) {
-  const known = new Set(["bank-forbidden", "bank-support-readonly", "bank-storage-unavailable", "bank-vault-not-configured", "bank-vault-unreadable", "bank-production-disabled", "bank-invalid-amount", "bank-timeout", "bank-unavailable", "bank-http-error", "bank-invalid-response", "bank-invalid-qr-image", "bank-rejected", "bank-connection-unavailable", "bank-request-unavailable", "bank-operation-busy", "bank-invalid-input"]);
+  const known = new Set(["bank-forbidden", "bank-support-readonly", "bank-storage-unavailable", "bank-vault-not-configured", "bank-vault-unreadable", "bank-connection-unverified", "bank-invalid-amount", "bank-timeout", "bank-unavailable", "bank-http-error", "bank-invalid-response", "bank-invalid-qr-image", "bank-rejected", "bank-connection-unavailable", "bank-request-unavailable", "bank-operation-busy", "bank-invalid-input"]);
   const code = error instanceof Error ? error.message : "";
   return known.has(code) ? code : "bank-operation-failed";
 }
@@ -39,7 +40,7 @@ async function connection(admin: ReturnType<typeof adminClient>, id: string, all
   if (!row || (!allowDisabled && !row.active)) throw new BanecoError("bank-connection-unavailable");
   const credentials = bankCredentialSchema.safeParse(openBankCredentials(row.credentials_ciphertext, row.id, row.restaurant_id, row.environment));
   if (!credentials.success) throw new BanecoError("bank-vault-unreadable");
-  return { row, bank: createBanecoClient(row.environment, credentials.data) };
+  return { row, credentials: credentials.data, bank: createBanecoClient(row.environment, credentials.data) };
 }
 
 // Public methods enforce server-side role checks too, not just page visibility.
@@ -77,15 +78,33 @@ export const bankQrService = {
     checked(await adminClient().from("bank_qr_connections").update({ active: false }).eq("id", id));
     // Existing QR records retain this immutable credential version for reconciliation.
   },
+  async useProduction(id: string) {
+    const profile = await requireBankSuperadmin();
+    const admin = adminClient();
+    const { row, credentials } = await connection(admin, id);
+    if (row.environment !== "certification") throw new BanecoError("bank-invalid-input");
+    const existing = checked(await admin.from("bank_qr_connections").select("id").eq("restaurant_id", row.restaurant_id)
+      .eq("environment", "production").eq("active", true).maybeSingle());
+    if (existing) throw new BanecoError("bank-connection-unavailable");
+    // Authenticate the intended environment before creating a new immutable version.
+    // Never modify the source: historical certification attempts retain their AAD.
+    await createBanecoClient("production", credentials).checkConnection();
+    const newId = randomUUID();
+    checked(await admin.from("bank_qr_connections").insert({ id: newId, restaurant_id: row.restaurant_id,
+      environment: "production", label: `${row.label.slice(0, 80)} · producción`, branch_code: row.branch_code,
+      encryption_mode: row.encryption_mode, credentials_ciphertext: sealBankCredentials(credentials, newId, row.restaurant_id, "production"),
+      created_by: profile.id, checked_at: new Date().toISOString(), check_result: "ok" }));
+    return newId;
+  },
   async check(id: string) {
     await requireBankSuperadmin();
     const admin = adminClient();
     const { bank } = await connection(admin, id);
     try {
       await bank.checkConnection();
-      checked(await admin.from("bank_qr_connections").update({ checked_at: new Date().toISOString(), check_result: "ok" }).eq("id", id));
+      checked(await admin.from("bank_qr_connections").update({ ...clearDiagnostics, checked_at: new Date().toISOString(), check_result: "ok" }).eq("id", id));
     } catch (error) {
-      await admin.from("bank_qr_connections").update({ checked_at: new Date().toISOString(), check_result: "error" }).eq("id", id);
+      await admin.from("bank_qr_connections").update({ ...bankErrorDetails(error), last_error_code: safeBankError(error), checked_at: new Date().toISOString(), check_result: "error" }).eq("id", id);
       throw error;
     }
   },
@@ -94,25 +113,33 @@ export const bankQrService = {
     const admin = adminClient();
     // Resolve/decrypt before reserving so missing vault configuration creates no attempt.
     const { row, bank } = await connection(admin, input.connectionId);
-    const result = checked(await admin.rpc("reserve_baneco_test_qr", { p_id: input.requestId,
+    const reserved = await admin.rpc("reserve_baneco_test_qr", { p_id: input.requestId,
       p_connection_id: input.connectionId, p_actor_id: profile.id, p_amount: input.amount,
-      p_currency: input.currency, p_due_date: input.dueDate, p_description: input.description }));
+      p_currency: input.currency, p_due_date: input.dueDate, p_description: input.description });
+    if (reserved.error?.message === "bank-connection-unverified") throw new BanecoError("bank-connection-unverified");
+    const result = checked(reserved);
     const reservation = result as { claimed: boolean; request: TestRequest } | null;
     if (!reservation?.request) throw new BanecoError("bank-storage-unavailable");
-    if (!reservation.claimed) return reservation.request.id;
+    if (!reservation.claimed) return { id: reservation.request.id, created: false };
+    let generated: { qrId: string; image: string } | undefined;
     try {
-      const generated = await bank.generate({ transactionId: reservation.request.transaction_id,
+      generated = await bank.generate({ transactionId: reservation.request.transaction_id,
         amount: Number(reservation.request.amount), currency: reservation.request.currency,
         dueDate: reservation.request.due_date, description: reservation.request.description, branchCode: row.branch_code });
-      checked(await admin.from("bank_qr_test_requests").update({ qr_id: generated.qrId, qr_image: generated.image,
-        status: "pending", updated_at: new Date().toISOString() }).eq("id", input.requestId).eq("status", "generating"));
+      const saved = checked(await admin.from("bank_qr_test_requests").update({ qr_id: generated.qrId, qr_image: generated.image,
+        status: "pending", updated_at: new Date().toISOString() }).eq("id", input.requestId).eq("status", "generating").select("id").maybeSingle());
+      if (!saved) throw new BanecoError("bank-operation-busy", "generation");
     } catch (error) {
-      // A timeout may have generated a bank QR. Never retry generation automatically.
-      await admin.from("bank_qr_test_requests").update({ status: "unknown", last_error_code: safeBankError(error), updated_at: new Date().toISOString() })
+      const details = bankErrorDetails(error);
+      const beforeGeneration = details.last_error_stage && ["password-encryption", "authentication", "account-encryption"].includes(details.last_error_stage);
+      const candidateQrId = generated?.qrId ?? (error instanceof BanecoError && error.stage === "generation" ? error.qrId : null);
+      const receivedQrId = candidateQrId && /^[A-Za-z0-9_-]{1,100}$/.test(candidateQrId) ? candidateQrId : null;
+      // Only positively identified preflight failures prove generateQR was not sent.
+      await admin.from("bank_qr_test_requests").update({ ...details, ...(receivedQrId ? { qr_id: receivedQrId } : {}), ...(generated ? { qr_image: generated.image } : {}), status: beforeGeneration ? "failed" : "unknown", last_error_code: safeBankError(error), updated_at: new Date().toISOString() })
         .eq("id", input.requestId).eq("status", "generating");
       throw error;
     }
-    return input.requestId;
+    return { id: input.requestId, created: true };
   },
   async reconcile(requestId: string, cancel = false) {
     await requireBankSuperadmin();
@@ -143,11 +170,11 @@ export const bankQrService = {
       const bankTransactionId = status === "paid" && payment && typeof payment === "object"
         ? String((payment as Record<string, Json>).transactionId) : null;
       const updated = checked(await admin.from("bank_qr_test_requests").update({ status, verified_at: new Date().toISOString(),
-        bank_transaction_id: bankTransactionId, last_error_code: null, operation_token: null, operation_until: null,
+        bank_transaction_id: bankTransactionId, ...clearDiagnostics, operation_token: null, operation_until: null,
         updated_at: new Date().toISOString() }).eq("id", requestId).eq("operation_token", operationToken).select("id").maybeSingle());
       if (!updated) throw new BanecoError("bank-operation-busy");
     } catch (error) {
-      await admin.from("bank_qr_test_requests").update({ last_error_code: safeBankError(error), operation_token: null, operation_until: null })
+      await admin.from("bank_qr_test_requests").update({ ...bankErrorDetails(error), last_error_code: safeBankError(error), operation_token: null, operation_until: null })
         .eq("id", requestId).eq("operation_token", operationToken);
       throw error;
     }

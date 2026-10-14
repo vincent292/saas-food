@@ -15,7 +15,7 @@ function load(path, mocks = {}) {
   vm.runInNewContext(ts.transpileModule(read(path), { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
   } }).outputText, { exports, require: name => name === 'server-only' ? {} : name in mocks ? mocks[name] : require(name),
-    process, Buffer, URL, Date, Intl, console });
+    process, Buffer, URL, Date, Intl, Error, console });
   return exports;
 }
 const vault = load('src/lib/payments/credential-vault.ts');
@@ -25,14 +25,14 @@ const credentials = { userName: 'QA-user', password: 'QA-password', aesKey: 'QA-
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jYmcAAAAASUVORK5CYII=';
 
 test('panel explains every disabled state without removing encryption/storage guards', () => {
-  const missingKey = bankPanelReadiness({ vaultConfigured:false,storageError:false,certificationConnections:1 });
+  const missingKey = bankPanelReadiness({ vaultConfigured:false,storageError:false,verifiedConnections:1 });
   assert.equal(missingKey.canSave, false); assert.equal(missingKey.generateBlocker, 'vault');
-  const missingDb = bankPanelReadiness({ vaultConfigured:true,storageError:true,certificationConnections:1 });
+  const missingDb = bankPanelReadiness({ vaultConfigured:true,storageError:true,verifiedConnections:1 });
   assert.equal(missingDb.canSave, false); assert.equal(missingDb.generateBlocker, 'storage');
-  const noConnection = bankPanelReadiness({ vaultConfigured:true,storageError:false,certificationConnections:0 });
+  const noConnection = bankPanelReadiness({ vaultConfigured:true,storageError:false,verifiedConnections:0 });
   assert.equal(noConnection.canSave, true); assert.equal(noConnection.canGenerate, false);
   assert.equal(noConnection.generateBlocker, 'connection');
-  const ready = bankPanelReadiness({ vaultConfigured:true,storageError:false,certificationConnections:1 });
+  const ready = bankPanelReadiness({ vaultConfigured:true,storageError:false,verifiedConnections:1 });
   assert.equal(ready.canSave, true); assert.equal(ready.canGenerate, true);
   const page=read('src/app/admin/pagos-qr/page.tsx');
   assert.match(page,/id="bank-save-blocker"/); assert.match(page,/id="bank-generate-blocker"/);
@@ -85,13 +85,116 @@ test('Baneco adapter uses documented certification paths, encrypted fields, sing
   assert.ok(calls.some(call => call.url.pathname.includes('/v2/statusQR/QA-123')));
 });
 
-test('production and arbitrary hosts are blocked; provider errors never return raw messages', async () => {
-  assert.throws(() => bank.createBanecoClient('production', credentials, async () => { throw Error('Should not call'); }), /bank-production-disabled/);
+test('arbitrary hosts are blocked; provider errors never return raw messages', async () => {
+  assert.throws(() => bank.createBanecoClient('invalid', credentials), /bank-invalid-host/);
   await assert.rejects(bank.bankTransport(new URL('https://evil.invalid/'), 'GET'), /bank-invalid-host/);
   const client = bank.createBanecoClient('certification', { ...credentials, encryptionMode: 'pre_encrypted', password: 'cGFzcw==', accountCredit: 'YWNjb3VudA==' },
     async () => ({ responseCode: 5, message: 'SECRET bank account and password' }));
   await assert.rejects(client.checkConnection(), error => error.message === 'bank-rejected' && !error.message.includes('SECRET'));
   assert.throws(() => bank.qrImageDataUrl(Buffer.from('<svg onload="evil"/>').toString('base64')), /bank-invalid-qr-image/);
+});
+
+test('production uses its own host and preserves fixed, single-use generation', async () => {
+  const paths=[];
+  const client=bank.createBanecoClient('production',credentials,async(url,method,token,body)=>{
+    assert.equal(url.origin,'https://apimkt.baneco.com.bo'); paths.push(url.pathname);
+    if(url.pathname.endsWith('/encrypt')) return 'ZW5jcnlwdGVk';
+    if(url.pathname.endsWith('/authenticate')) return {responseCode:0,token:'test-token'};
+    assert.equal(method,'POST'); assert.equal(body.singleUse,true); assert.equal(body.modifyAmount,false);
+    return {responseCode:0,qrId:'production-123',qrImage:png};
+  });
+  await client.generate({transactionId:'QA',amount:1,currency:'BOB',dueDate:bank.boliviaDate(),description:'QA',branchCode:''});
+  assert.equal(paths.filter(path=>path.endsWith('/generateQR')).length,1);
+});
+
+test('errors identify each stage, distinguish HTTP from bank code and never leak messages', async () => {
+  const stages=['password-encryption','authentication','account-encryption','generation'];
+  for(let failAt=0;failAt<4;failAt++){
+    let calls=0;
+    const client=bank.createBanecoClient('production',credentials,async(url)=>{
+      if(calls++===failAt) throw new bank.BanecoError('bank-http-error',undefined,502);
+      return url.pathname.endsWith('/authenticate')?{responseCode:0,token:'test-token'}:'ZW5jcnlwdGVk';
+    });
+    await assert.rejects(client.generate({transactionId:'QA',amount:1,currency:'BOB',dueDate:bank.boliviaDate(),description:'QA',branchCode:''}),error=>{
+      const details=bank.bankErrorDetails(error);
+      assert.equal(details.last_error_stage,stages[failAt]); assert.equal(details.last_http_status,502);
+      return true;
+    });
+    assert.equal(calls,failAt+1);
+  }
+  const denied=bank.createBanecoClient('production',{...credentials,encryptionMode:'pre_encrypted',password:'cGFzcw=='},async()=>({responseCode:404,message:'SECRET-account'}));
+  await assert.rejects(denied.checkConnection(),error=>{
+    const details=bank.bankErrorDetails(error);
+    assert.equal(details.last_error_stage,'authentication');assert.equal(details.last_http_status,200);assert.equal(details.last_bank_code,404);
+    assert.ok(!JSON.stringify(error).includes('SECRET'));return true;
+  });
+  const unsafe=bank.bankErrorDetails(new bank.BanecoError('bank-http-error','SECRET',999,Infinity));
+  assert.equal(unsafe.last_error_stage,null);assert.equal(unsafe.last_http_status,null);assert.equal(unsafe.last_bank_code,null);
+});
+
+test('a generated QR ID survives an invalid image so it can still be reconciled', async () => {
+  const client=bank.createBanecoClient('production',{...credentials,encryptionMode:'pre_encrypted',password:'cGFzcw==',accountCredit:'YWNjb3VudA=='},async(url)=>
+    url.pathname.endsWith('/authenticate')?{responseCode:0,token:'test-token'}:{responseCode:0,qrId:'bank-created-123',qrImage:'PGh0bWw+'});
+  await assert.rejects(client.generate({transactionId:'QA',amount:1,currency:'BOB',dueDate:bank.boliviaDate(),description:'QA',branchCode:''}),error=>error.qrId==='bank-created-123'&&error.stage==='generation');
+});
+
+test('service retains ambiguity after generation, detects preflight failures, and never replays a reservation', async () => {
+  let failure, claimed=true, generationCalls=0, failSave=false;
+  const updates=[];
+  const stored={id:'connection',restaurant_id:'restaurant',environment:'production',active:true,credentials_ciphertext:'encrypted',branch_code:''};
+  const admin={
+    from(table){return {
+      select(){return this;},eq(){return this;},maybeSingle:async()=>({data:stored,error:null}),
+      update(value){assert.equal(table,'bank_qr_test_requests');updates.push(value);return {
+        eq(){return this;},select(){return this;},
+        maybeSingle:async()=>failSave?{data:null,error:{message:'DB failed'}}:{data:{id:'request'},error:null},
+        then(resolve,reject){return Promise.resolve({error:null}).then(resolve,reject);}
+      };}
+    };},
+    rpc:async()=>({error:null,data:{claimed,request:{id:'request',transaction_id:'YQ-request',amount:1,currency:'BOB',due_date:bank.boliviaDate(),description:'QA'}}})
+  };
+  const service=load('src/lib/services/bank-qr.service.ts',{
+    '@/lib/services/auth.service':{authService:{getCurrentProfile:async()=>({id:'admin',globalRole:'superadmin'})}},
+    '@/lib/services/support-impersonation.service':{getActiveSupportSession:async()=>null},
+    '@/lib/supabase/admin':{createAdminClient:()=>admin},
+    '@/lib/payments/credential-vault':{openBankCredentials:()=>credentials},
+    '@/lib/payments/baneco':{...bank,createBanecoClient:()=>({generate:async()=>{generationCalls++;if(failure)throw failure;return {qrId:'bank-123',image:`data:image/png;base64,${png}`};}})}
+  });
+  const input={requestId:'request',connectionId:'connection',amount:1,currency:'BOB',dueDate:bank.boliviaDate(),description:'QA'};
+  for(const stage of ['password-encryption','authentication','account-encryption','generation']){
+    updates.length=0;failure=new bank.BanecoError('bank-http-error',stage,502);
+    await assert.rejects(service.bankQrService.generate(input), error => { assert.equal(error.message,'bank-http-error'); return true; });
+    assert.equal(updates.at(-1).status,stage==='generation'?'unknown':'failed');
+  }
+  failure=undefined;failSave=true;updates.length=0;
+  await assert.rejects(service.bankQrService.generate(input));
+  assert.equal(updates.at(-1).status,'unknown');assert.equal(updates.at(-1).qr_id,'bank-123');
+  failSave=false;claimed=false;const before=generationCalls;
+  assert.equal((await service.bankQrService.generate(input)).created,false);assert.equal(generationCalls,before);
+});
+
+test('production reuse authenticates then creates a freshly sealed version without rewriting its source', async () => {
+  const previous=process.env.BANK_CREDENTIALS_KEY;
+  process.env.BANK_CREDENTIALS_KEY=randomBytes(32).toString('base64');
+  try{
+    const source={id:'source',restaurant_id:'restaurant',environment:'certification',active:true,label:'Saved bank',branch_code:'',encryption_mode:'bank_api',
+      credentials_ciphertext:vault.sealBankCredentials(credentials,'source','restaurant','certification')};
+    let inserted=null,checks=0,rejectCheck=false;
+    const admin={from(){return {select(fields){this.fields=fields;return this;},eq(){return this;},maybeSingle:async function(){return {data:this.fields==='*'?source:null,error:null};},
+      insert:async(value)=>{inserted=value;return {error:null};},update(){throw new Error('Source must not be rewritten');}};}};
+    const service=load('src/lib/services/bank-qr.service.ts',{
+      '@/lib/services/auth.service':{authService:{getCurrentProfile:async()=>({id:'admin',globalRole:'superadmin'})}},
+      '@/lib/services/support-impersonation.service':{getActiveSupportSession:async()=>null},
+      '@/lib/supabase/admin':{createAdminClient:()=>admin},'@/lib/payments/credential-vault':vault,
+      '@/lib/payments/baneco':{...bank,createBanecoClient:environment=>({checkConnection:async()=>{assert.equal(environment,'production');checks++;if(rejectCheck)throw new bank.BanecoError('bank-rejected','authentication',200,404);}})}
+    });
+    const newId=await service.bankQrService.useProduction(source.id);
+    assert.notEqual(newId,source.id);assert.equal(checks,1);assert.equal(inserted.environment,'production');assert.equal(inserted.check_result,'ok');
+    assert.equal(vault.openBankCredentials(inserted.credentials_ciphertext,newId,source.restaurant_id,'production').password,credentials.password);
+    assert.throws(()=>vault.openBankCredentials(inserted.credentials_ciphertext,source.id,source.restaurant_id,'certification'));
+    assert.equal(vault.openBankCredentials(source.credentials_ciphertext,source.id,source.restaurant_id,'certification').password,credentials.password);
+    rejectCheck=true;inserted=null;await assert.rejects(service.bankQrService.useProduction(source.id));assert.equal(inserted,null);
+  }finally{if(previous===undefined)delete process.env.BANK_CREDENTIALS_KEY;else process.env.BANK_CREDENTIALS_KEY=previous;}
 });
 
 test('verification handles casing and requires authoritative matching payment details', () => {
@@ -126,9 +229,10 @@ async function fixture() {
     insert into profiles values('${adminId}','superadmin'),('${staffId}','cashier');
     insert into restaurants values('${rest}');`);
   await db.exec(read('supabase/migrations/0120_baneco_superadmin_test_panel.sql'));
+  await db.exec(read('supabase/migrations/0121_baneco_production_pilot.sql'));
   const connectionId = randomUUID();
-  await db.query(`insert into bank_qr_connections(id,restaurant_id,environment,label,credentials_ciphertext,encryption_mode,created_by)
-    values($1,$2,'certification','QA','v1.secret','bank_api',$3)`, [connectionId, rest, adminId]);
+  await db.query(`insert into bank_qr_connections(id,restaurant_id,environment,label,credentials_ciphertext,encryption_mode,created_by,check_result)
+    values($1,$2,'certification','QA','v1.secret','bank_api',$3,'ok')`, [connectionId, rest, adminId]);
   const reserve = (id = randomUUID(), who = adminId, amount = 1.25) => db.query(`select reserve_baneco_test_qr($1,$2,$3,$4,'BOB',(now() at time zone 'America/La_Paz')::date,'QA') result`, [id, connectionId, who, amount]);
   return { db, connectionId, reserve };
 }
@@ -147,7 +251,7 @@ test('private DB tables and reservation RPC are inaccessible to anon/authenticat
   } finally { await db.close(); }
 });
 
-test('reservation is idempotent and binds amount/connection/actor; non-admin and production rejected', async () => {
+test('reservation is idempotent in both environments and rejects unverified connections', async () => {
   const { db, connectionId, reserve } = await fixture();
   try {
     const requestId = randomUUID();
@@ -158,7 +262,11 @@ test('reservation is idempotent and binds amount/connection/actor; non-admin and
     await assert.rejects(reserve(randomUUID(), staffId), /bank-forbidden/);
     for (const value of [0,100.01,1.005]) await assert.rejects(reserve(randomUUID(), adminId, value), /bank-invalid-input/);
     await db.query("update bank_qr_connections set environment='production' where id=$1", [connectionId]);
-    await assert.rejects(reserve(), /bank-connection-unavailable/);
+    assert.equal((await reserve()).rows[0].result.request.environment, 'production');
+    await db.query("update bank_qr_connections set check_result=null where id=$1", [connectionId]);
+    await assert.rejects(reserve(), /bank-connection-unverified/);
+    assert.equal((await reserve(requestId)).rows[0].result.claimed, false);
+    assert.equal((await db.query('select environment from bank_qr_test_requests where id=$1', [requestId])).rows[0].environment, 'certification');
   } finally { await db.close(); }
 });
 
@@ -206,7 +314,7 @@ test('UI/actions use server role checks and test-only workflow, never automatic 
   assert.match(actions, /await limited\(\)/);
   assert.match(actions, /z\.literal\(true\)/);
   assert.doesNotMatch(service, /from\("orders"\)|from\("cash_movements"\)|charge_order_with_cash_movement/);
-  assert.match(service, /status: "unknown"/);
+  assert.match(service, /status: beforeGeneration \? "failed" : "unknown"/);
   assert.match(service, /operation_token", operationToken/);
   assert.match(service, /\.in\("status", \["pending", "expired", "review", "unknown"\]\)/);
 });

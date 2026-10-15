@@ -1,12 +1,14 @@
 import { notFound } from "next/navigation";
 import { RestaurantLayout } from "@/components/layout/RestaurantLayout";
 import { OrderTrackingLiveRefresh } from "@/components/orders/OrderTrackingLiveRefresh";
+import { BankOrderPaymentCard } from "@/components/orders/BankOrderPaymentCard";
 import { ClearCartOnOrderSuccess } from "@/components/public-menu/ClearCartOnOrderSuccess";
 import { TablePaymentNotice } from "@/components/tables/TablePaymentNotice";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { businessPickupReadyLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import { orderService } from "@/lib/services/order.service";
+import { bankOrderPaymentService } from "@/lib/services/bank-qr.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { formatMoney } from "@/lib/utils/money";
 import type { OrderItem } from "@/types/order.types";
@@ -40,6 +42,7 @@ export default async function TrackingPage({
   if (!order) {
     notFound();
   }
+  const bankPayment = token && order.paymentMethod === "qr" ? await bankOrderPaymentService.get(order.id, token).catch(() => null) : null;
 
   return (
     <RestaurantLayout restaurant={restaurant} showCart={false} showMobileNav={false}>
@@ -51,6 +54,7 @@ export default async function TrackingPage({
         </section>
 
         <aside className="order-first min-w-0 lg:order-none lg:sticky lg:top-24 lg:self-start">
+          {token && order.paymentMethod === "qr" ? <BankOrderPaymentCard initialPayment={bankPayment} orderId={order.id} token={token} /> : null}
           <Card className="overflow-hidden p-0">
             <div className="border-b border-[var(--border)] bg-[var(--color-surface)] p-4 sm:p-5">
               <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between">

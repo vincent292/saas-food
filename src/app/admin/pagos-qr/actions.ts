@@ -45,7 +45,7 @@ export async function saveBankConnectionAction(form: FormData) {
 export async function bankConnectionOperationAction(form: FormData) {
   let failure: string | undefined;
   let details: ReturnType<typeof bankErrorDetails> | undefined;
-  const input = z.object({ id: z.string().uuid(), operation: z.enum(["check", "disable", "production"]) }).safeParse({
+  const input = z.object({ id: z.string().uuid(), operation: z.enum(["check", "disable", "production", "enable-orders", "disable-orders"]) }).safeParse({
     id: form.get("connectionId"), operation: form.get("operation"),
   });
   try {
@@ -53,9 +53,10 @@ export async function bankConnectionOperationAction(form: FormData) {
     if (!input.success) throw new Error("bank-invalid-input");
     if (input.data.operation === "check") await bankQrService.check(input.data.id);
     else if (input.data.operation === "production") await bankQrService.useProduction(input.data.id);
+    else if (input.data.operation === "enable-orders" || input.data.operation === "disable-orders") await bankQrService.setOrdersEnabled(input.data.id, input.data.operation === "enable-orders");
     else await bankQrService.disable(input.data.id);
   } catch (error) { failure = safeBankError(error); details = bankErrorDetails(error); }
-  feedback(failure ?? (input.success && input.data.operation === "check" ? "checked" : input.success && input.data.operation === "production" ? "production-ready" : "disabled"), details);
+  feedback(failure ?? (input.success && input.data.operation === "check" ? "checked" : input.success && input.data.operation === "production" ? "production-ready" : input.success && ["enable-orders", "disable-orders"].includes(input.data.operation) ? "orders-updated" : "disabled"), details);
 }
 
 export async function generateBankTestQrAction(form: FormData) {
@@ -82,10 +83,11 @@ export async function bankTestQrOperationAction(form: FormData) {
   let details: ReturnType<typeof bankErrorDetails> | undefined;
   try {
     await limited();
-    const input = z.object({ requestId: z.string().uuid(), operation: z.enum(["status", "cancel"]) }).parse({
+    const input = z.object({ requestId: z.string().uuid(), operation: z.enum(["status", "cancel", "apply"]) }).parse({
       requestId: form.get("requestId"), operation: form.get("operation"),
     });
-    await bankQrService.reconcile(input.requestId, input.operation === "cancel");
+    if (input.operation === "apply") await bankQrService.retryApplication(input.requestId);
+    else await bankQrService.reconcile(input.requestId, input.operation === "cancel");
   } catch (error) { failure = safeBankError(error); details = bankErrorDetails(error); }
   feedback(failure ?? "reconciled", details);
 }

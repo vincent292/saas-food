@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { announcementService } from "@/lib/services/announcement.service";
 import { sendRestaurantNewOrderPush } from "@/lib/services/mobile-push.service";
 import { deliveryRateService } from "@/lib/services/delivery-rate.service";
+import { bankOrderPaymentService } from "@/lib/services/bank-qr.service";
 import { uploadPrivateFile, uploadPublicImage } from "@/lib/supabase/storage";
 import { businessTypeSupportsTableQr, normalizeRestaurantBusinessType } from "@/lib/restaurant-directory-options";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
@@ -176,6 +177,7 @@ type TrackingLookupPayload = {
 };
 
 type PublicOrderSettings = {
+  currency: string;
   delivery_enabled: boolean;
   pickup_enabled: boolean;
   table_orders_enabled: boolean;
@@ -323,7 +325,7 @@ function isProductCurrentlyOrderable(product: ProductPriceRow, date = new Date()
 async function getPublicOrderSettings(supabase: Awaited<ReturnType<typeof createClient>>, restaurantId: string) {
   const { data: settings } = await supabase
     .from("restaurant_settings")
-    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,delivery_qr_prepayment_enabled,far_delivery_distance_km,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
+    .select("currency,delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,delivery_qr_prepayment_enabled,far_delivery_distance_km,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
     .eq("restaurant_id", restaurantId)
     .maybeSingle();
 
@@ -338,7 +340,7 @@ async function getPublicOrderSettings(supabase: Awaited<ReturnType<typeof create
 
   const { data: serverSettings } = await admin
     .from("restaurant_settings")
-    .select("delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,delivery_qr_prepayment_enabled,far_delivery_distance_km,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
+    .select("currency,delivery_enabled,pickup_enabled,table_orders_enabled,delivery_fee,delivery_qr_prepayment_enabled,far_delivery_distance_km,free_delivery_from,min_order_amount,invoice_enabled,qr_payment_url")
     .eq("restaurant_id", restaurantId)
     .maybeSingle();
 
@@ -713,14 +715,16 @@ export async function createPublicOrderAction(formData: FormData) {
   }
 
   const paymentReceiptFile = formData.get("paymentReceiptFile") as File | null;
+  const dynamicQr = parsed.data.paymentMethod === "qr" && subtotal + (deliveryPolicy?.deliveryFee ?? 0) <= 50000
+    && await bankOrderPaymentService.availableForRestaurant(parsed.data.restaurantId, settings.currency);
   if (deliveryPolicy?.requiresQrPrepayment && parsed.data.paymentMethod !== "qr") {
     redirect(`${failPath}?error=qr-required-distance`);
   }
-  if (parsed.data.paymentMethod === "qr" && !normalizeQrPaymentUrl(settings.qr_payment_url)) {
+  if (parsed.data.paymentMethod === "qr" && !dynamicQr && !normalizeQrPaymentUrl(settings.qr_payment_url)) {
     redirect(`${failPath}?error=qr-unavailable`);
   }
 
-  if (parsed.data.orderType !== "table" && parsed.data.paymentMethod === "qr" && (!paymentReceiptFile || paymentReceiptFile.size === 0)) {
+  if (parsed.data.orderType !== "table" && parsed.data.paymentMethod === "qr" && !dynamicQr && (!paymentReceiptFile || paymentReceiptFile.size === 0)) {
     redirect(`${failPath}?error=receipt-required`);
   }
 
@@ -748,7 +752,7 @@ export async function createPublicOrderAction(formData: FormData) {
   }
 
   const paymentReceiptUrl =
-    parsed.data.paymentMethod === "qr"
+    parsed.data.paymentMethod === "qr" && isNonEmptyFile(paymentReceiptFile)
       ? await uploadPrivateFile(paymentReceiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
       : null;
 

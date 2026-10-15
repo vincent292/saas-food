@@ -1,23 +1,34 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
-export function BankQrAutoRefresh({ enabled }: { enabled: boolean }) {
+export function BankQrAutoRefresh() {
   const router = useRouter();
+  const [live, setLive] = useState(false);
   useEffect(() => {
-    if (!enabled) return;
+    let connected = false, disposed = false, deferred = false;
     const refresh = () => {
-      // Background bank verification is independent of this display refresh.
-      // Avoid changing a generation request ID while someone edits a form.
-      if (document.visibilityState !== "visible" || document.activeElement?.closest("form")) return;
+      if (document.visibilityState !== "visible") return;
+      if (document.activeElement?.closest("form")) { deferred = true; return; }
+      deferred = false;
       router.refresh();
     };
-    const timer = window.setInterval(refresh, 20_000);
+    const onBlur = () => { if (deferred) window.setTimeout(refresh, 0); };
+    const client = createClient();
+    const channel = client.channel("bank-qr:superadmin", { config: { private: true } }).on("broadcast", { event: "changed" }, refresh);
+    void client.realtime.setAuth().then(() => {
+      if (!disposed) channel.subscribe(status => { connected = status === "SUBSCRIBED"; if (!disposed) setLive(connected); if (connected) refresh(); });
+    }).catch(() => { connected = false; });
+    const timer = window.setInterval(() => { if (!connected) refresh(); }, 30_000);
     document.addEventListener("visibilitychange", refresh);
-    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
-  }, [enabled, router]);
-  return null;
+    document.addEventListener("focusout", onBlur);
+    window.addEventListener("focus", refresh);
+    return () => { disposed = true; window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh);
+      document.removeEventListener("focusout", onBlur); window.removeEventListener("focus", refresh); void client.removeChannel(channel); };
+  }, [router]);
+  return <p role="status" className={`text-xs font-bold ${live ? "text-emerald-700" : "text-[var(--muted)]"}`}>{live ? "● Actualizaciones en vivo" : "Conectando actualizaciones…"}</p>;
 }
 
 export function DisconnectBankButton() {

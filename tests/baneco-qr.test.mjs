@@ -307,14 +307,14 @@ test('service authorization denies staff, customer, forced password change and r
   assert.ok(!service.publicConnectionFields.includes('ciphertext'));
 });
 
-test('UI/actions use server role checks and test-only workflow, never automatic checkout approval', () => {
+test('pilot UI/actions use server role checks and order settlement is delegated to its bank-verified transaction', () => {
   const page = read('src/app/admin/pagos-qr/page.tsx');
   const service = read('src/lib/services/bank-qr.service.ts');
   const actions = read('src/app/admin/pagos-qr/actions.ts');
   assert.match(page, /await requireBankSuperadmin/);
   assert.match(actions, /await limited\(\)/);
   assert.match(actions, /z\.literal\(true\)/);
-  assert.doesNotMatch(service, /from\("orders"\)|from\("cash_movements"\)|charge_order_with_cash_movement/);
+  assert.doesNotMatch(service, /from\("cash_movements"\)|charge_order_with_cash_movement/);
   assert.match(service, /status: beforeGeneration \? "failed" : "unknown"/);
   assert.match(service, /p_token: operationToken/);
   assert.match(service, /claim_baneco_reconciliation/);
@@ -375,6 +375,7 @@ test('automatic worker authenticates, reconciles disconnected accounts once, and
       async rpc(name,args){let result;
         if(name==='claim_baneco_reconciliation') result=await db.query('select claim_baneco_reconciliation($1,$2,$3) result',[args.p_token,args.p_id??null,args.p_cancel??false]);
         else if(name==='finish_baneco_reconciliation')result=await db.query('select finish_baneco_reconciliation($1,$2,$3,$4,$5,$6) result',[args.p_id,args.p_token,args.p_status,args.p_transaction,args.p_error,args.p_details]);
+        else if(name==='post_waiting_baneco_payments') return {data:0,error:null};
         else throw Error('Unexpected RPC');return {data:result.rows[0].result,error:null};}
     };
     const service=load('src/lib/services/bank-qr.service.ts',{

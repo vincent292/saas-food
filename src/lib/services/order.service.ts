@@ -129,6 +129,7 @@ type PublicQueuePayload = {
 };
 
 type OrderTrackingStatusRow = {
+  payment_status?: Order["paymentStatus"];
   id: string;
   restaurant_id: string;
   order_type: Order["orderType"];
@@ -312,6 +313,7 @@ function mapQueueState(payload: PublicQueuePayload): OrderQueueState | null {
 
 function mapTrackingStatus(row: OrderTrackingStatusRow, deliveryDispatch?: DeliveryTrackingStatusRow | null): OrderTrackingStatus {
   return {
+    paymentStatus: row.payment_status,
     id: row.id,
     restaurantId: row.restaurant_id,
     orderType: row.order_type,
@@ -348,6 +350,7 @@ function mapTrackingStatus(row: OrderTrackingStatusRow, deliveryDispatch?: Deliv
 
 function mapOrderToTrackingStatus(order: Order): OrderTrackingStatus {
   return {
+    paymentStatus: order.paymentStatus,
     id: order.id,
     restaurantId: order.restaurantId,
     orderType: order.orderType,
@@ -658,7 +661,7 @@ export const orderService = {
     const supabase = await createClient();
     const { data: order, error } = await supabase
       .from("orders")
-      .select("id,restaurant_id,order_type,status,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,updated_at")
+      .select("id,restaurant_id,order_type,status,payment_status,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,updated_at")
       .eq("restaurant_id", restaurantId)
       .eq("id", orderId)
       .maybeSingle();
@@ -690,7 +693,7 @@ export const orderService = {
 
     const { data: order, error } = await admin
       .from("orders")
-      .select("id,restaurant_id,order_type,status,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,updated_at")
+      .select("id,restaurant_id,order_type,status,payment_status,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,updated_at")
       .eq("restaurant_id", restaurantId)
       .eq("id", orderId)
       .eq("tracking_token", token)

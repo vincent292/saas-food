@@ -52,6 +52,7 @@ function isTerminalOrder(order: Order) {
 }
 
 function trackingLabel(order: Order & { businessType?: BusinessType }) {
+  if (order.status === "pending" && order.paymentStatus === "paid") return "Pagado · pendiente de aprobación";
   if (order.orderType === "table") {
     return tableLabels[order.status];
   }
@@ -183,6 +184,7 @@ function trackingHeroCopy(order: Order, businessType: BusinessType) {
 
   if (order.orderType === "table") {
     if (order.status === "pending") {
+      if (order.paymentStatus === "paid") return { title: "Pago confirmado", description: "El local aprobará tu pedido para enviarlo a preparación.", mode: "Pedido en mesa" };
       return {
         title: "Pendiente de pago en caja",
         description: "Acercate a caja con tu numero de pedido para que el equipo lo confirme y pase a cocina.",
@@ -215,6 +217,7 @@ function trackingHeroCopy(order: Order, businessType: BusinessType) {
 function mergeTrackingStatus<T extends Order>(order: T, status: OrderTrackingStatus): T {
   return {
     ...order,
+    paymentStatus: status.paymentStatus ?? order.paymentStatus,
     orderType: status.orderType,
     status: status.status,
     acceptedAt: status.acceptedAt,

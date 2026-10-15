@@ -84,6 +84,7 @@ function businessHoursSummary(hours: BusinessHour[]) {
 }
 
 export function PublicRestaurantOrderClient({
+  dynamicQrAvailable = false,
   restaurant,
   categories,
   products,
@@ -97,6 +98,7 @@ export function PublicRestaurantOrderClient({
   orderError,
 }: {
   restaurant: Restaurant;
+  dynamicQrAvailable?: boolean;
   categories: Category[];
   products: Product[];
   settings: RestaurantSettings | null;
@@ -555,6 +557,7 @@ export function PublicRestaurantOrderClient({
             </div>
             <div className="max-h-[calc(min(92dvh,760px)-68px)] overflow-x-hidden overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3">
               <PublicOrderPanel
+                dynamicQrAvailable={dynamicQrAvailable}
                 cart={cart}
                 cartJson={cartJson}
                 changeQuantity={changeQuantity}
@@ -1091,6 +1094,7 @@ type OrderStepKey = "fulfillment" | "customer" | "invoice" | "payment" | "review
 type CustomerAddressMode = "saved" | "new";
 
 function PublicOrderPanel({
+  dynamicQrAvailable = false,
   restaurant,
   deliveryZones,
   settings,
@@ -1115,6 +1119,7 @@ function PublicOrderPanel({
 }: {
   restaurant: Restaurant;
   deliveryZones: RestaurantDeliveryZone[];
+  dynamicQrAvailable?: boolean;
   settings: RestaurantSettings | null;
   businessHours: BusinessHour[];
   businessStatus: ReturnType<typeof getBusinessStatus>;
@@ -1139,7 +1144,6 @@ function PublicOrderPanel({
   const pickupEnabled = settings?.pickupEnabled ?? true;
   const invoiceEnabled = settings?.invoiceEnabled ?? false;
   const qrPaymentUrl = normalizeQrPaymentUrl(settings?.qrPaymentUrl);
-  const qrAvailable = hasQrPaymentConfigured(settings);
   const nowAvailable = !activeClosure && (!businessStatus.hasSchedule || businessStatus.isOpen);
   const [deliveryCoordinates, setDeliveryCoordinates] = useState<{ latitude: number; longitude: number }>();
   const deliveryPolicy = useMemo(
@@ -1172,6 +1176,8 @@ function PublicOrderPanel({
       ? `${formatMoney(deliveryFee, settings?.currency)} de envio. Puedes pagar en efectivo o QR.`
       : "Envio gratis aplicado. Puedes pagar en efectivo o QR.";
   const grandTotal = total + deliveryFee;
+  const useDynamicQr = dynamicQrAvailable && grandTotal >= .01 && grandTotal <= 50000;
+  const qrAvailable = useDynamicQr || hasQrPaymentConfigured(settings);
   const effectivePaymentMethod = orderType === "delivery" && deliveryPolicy.requiresQrPrepayment ? "qr" : paymentMethod;
   const paymentReceiptRef = useRef<HTMLInputElement>(null);
   const [activeStep, setActiveStep] = useState<OrderStepKey>("fulfillment");
@@ -1356,7 +1362,7 @@ function PublicOrderPanel({
       if (effectivePaymentMethod === "qr" && !qrAvailable) {
         return reject(deliveryPolicy.requiresQrPrepayment ? "Este envio requiere QR, pero el restaurante aun no lo configuro." : "Este restaurante todavia no tiene QR configurado. Elige efectivo.");
       }
-      if (effectivePaymentMethod === "qr" && !(paymentReceiptRef.current?.files?.length ?? 0)) {
+      if (effectivePaymentMethod === "qr" && !useDynamicQr && !(paymentReceiptRef.current?.files?.length ?? 0)) {
         return reject("Sube el comprobante QR antes de confirmar el pedido.");
       }
     }
@@ -1783,12 +1789,12 @@ function PublicOrderPanel({
       ) : null}
 
       <section className={cn("mt-4 space-y-3", activeStep === "payment" ? "block" : "hidden")}>
-        <StepIntro icon={<CreditCard className="h-5 w-5" />} title="Forma de pago" description="El efectivo queda registrado para caja. En QR el comprobante es obligatorio." />
+        <StepIntro icon={<CreditCard className="h-5 w-5" />} title="Forma de pago" description={useDynamicQr ? "Al enviar el pedido podrás generar su QR exacto. El pago se confirma automáticamente." : "El efectivo queda registrado para caja. En QR el comprobante es obligatorio."} />
         <div className="grid gap-3 sm:grid-cols-2">
           <ChoiceCard active={effectivePaymentMethod === "cash"} disabled={orderType === "delivery" && deliveryPolicy.requiresQrPrepayment} icon={<CreditCard className="h-5 w-5" />} label="Efectivo" onClick={() => setPaymentMethod("cash")} text={deliveryPolicy.requiresQrPrepayment ? "No disponible por distancia." : "Caja validara el cobro antes de preparar."} />
           <ChoiceCard active={effectivePaymentMethod === "qr"} disabled={!qrAvailable} icon={<ReceiptText className="h-5 w-5" />} label="Pago QR" onClick={() => setPaymentMethod("qr")} text={qrAvailable ? "QR activo para esta sucursal." : "Sin QR configurado."} />
         </div>
-        <div className={cn(effectivePaymentMethod === "qr" && qrAvailable ? "grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[150px_1fr] sm:items-center" : "hidden")}>
+        <div className={cn(effectivePaymentMethod === "qr" && qrAvailable && !useDynamicQr ? "grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[150px_1fr] sm:items-center" : "hidden")}>
           <QrPaymentViewer
             downloadFileName={`${restaurant.slug}-qr-pago.png`}
             imageClassName="h-28 w-28"
@@ -1809,11 +1815,11 @@ function PublicOrderPanel({
             ) : null}
           </div>
         </div>
-        <div className={cn(effectivePaymentMethod === "qr" && qrAvailable ? "block" : "hidden")}>
+        <div className={cn(effectivePaymentMethod === "qr" && qrAvailable && !useDynamicQr ? "block" : "hidden")}>
           <CompressedImageInput acceptPdf help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." inputRef={paymentReceiptRef} label="Comprobante QR" name="paymentReceiptFile" />
         </div>
         <p className="rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">
-          {effectivePaymentMethod === "cash" ? "El pedido quedara guardado como pago en efectivo pendiente de validacion en caja." : "El equipo confirmara el comprobante antes de preparar el pedido."}
+          {effectivePaymentMethod === "cash" ? "El pedido quedara guardado como pago en efectivo pendiente de validacion en caja." : useDynamicQr ? "Verás el QR del pedido en la siguiente pantalla. Es de uso único y no necesitas subir comprobante." : "El equipo confirmara el comprobante antes de preparar el pedido."}
         </p>
       </section>
 

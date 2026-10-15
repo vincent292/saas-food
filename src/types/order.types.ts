@@ -124,6 +124,7 @@ export type OrderQueueState = {
 };
 
 export type OrderTrackingStatus = {
+  paymentStatus?: PaymentStatus;
   id: string;
   restaurantId: string;
   orderType: OrderType;

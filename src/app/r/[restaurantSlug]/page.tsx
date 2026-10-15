@@ -8,6 +8,7 @@ import { announcementService } from "@/lib/services/announcement.service";
 import { productService } from "@/lib/services/product.service";
 import { publicDirectoryService } from "@/lib/services/public-directory.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
+import { bankOrderPaymentService } from "@/lib/services/bank-qr.service";
 import { absoluteUrl } from "@/lib/seo/site-url";
 import { settingsService } from "@/lib/services/settings.service";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
@@ -16,6 +17,7 @@ import type { ProductStockAvailability } from "@/types/product.types";
 import type { BusinessHour, Restaurant, RestaurantAnnouncement, RestaurantDeliveryZone, RestaurantSettings } from "@/types/restaurant.types";
 
 type PublicRestaurantPageData = {
+  dynamicQrAvailable: boolean;
   restaurant: Restaurant;
   settings: RestaurantSettings | null;
   businessHours: BusinessHour[];
@@ -47,8 +49,9 @@ const getPublicRestaurantPageData = cache(async (restaurantSlug: string): Promis
     restaurantService.listPublicDeliveryZones(restaurant.id),
   ]);
   const stockAvailability = await productService.listPublicStockAvailability(restaurant, products);
+  const dynamicQrAvailable = await bankOrderPaymentService.availableForRestaurant(restaurant.id, settings?.currency);
 
-  const data = { restaurant, settings, businessHours, categories, products, stockAvailability, configuration, announcements, deliveryZones };
+  const data = { restaurant, settings, businessHours, categories, products, stockAvailability, configuration, announcements, deliveryZones, dynamicQrAvailable };
   return data;
 });
 
@@ -118,7 +121,7 @@ export default async function RestaurantPublicPage({
 
   return (
     <RestaurantThemeProvider>
-      <PublicRestaurantOrderClient announcements={announcements} businessHours={businessHours} categories={categories} configuration={configuration} deliveryZones={deliveryZones} initialOrderOpen={pedido === "1" || Boolean(error)} orderError={error} products={products} restaurant={restaurant} settings={settings} stockAvailability={stockAvailability} />
+      <PublicRestaurantOrderClient dynamicQrAvailable={pageData.dynamicQrAvailable} announcements={announcements} businessHours={businessHours} categories={categories} configuration={configuration} deliveryZones={deliveryZones} initialOrderOpen={pedido === "1" || Boolean(error)} orderError={error} products={products} restaurant={restaurant} settings={settings} stockAvailability={stockAvailability} />
     </RestaurantThemeProvider>
   );
 }

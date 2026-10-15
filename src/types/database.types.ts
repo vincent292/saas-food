@@ -19,6 +19,7 @@ export type Database = {
         encryption_mode: "bank_api" | "pre_encrypted";
         branch_code: string;
         active: boolean;
+        orders_enabled: boolean;
         checked_at: string | null;
         check_result: "ok" | "error" | null;
         last_error_code: string | null;
@@ -43,6 +44,12 @@ export type Database = {
         qr_image: string | null;
         verified_at: string | null;
         bank_transaction_id: string | null;
+        notification_received_at: string | null;
+        order_id: string | null;
+        order_paid_at: string | null;
+        application_state: "not_linked" | "pending" | "waiting_cash" | "applied" | "review";
+        application_code: string | null;
+        applied_at: string | null;
         next_check_at: string;
         last_attempt_at: string | null;
         consecutive_failures: number;
@@ -52,7 +59,7 @@ export type Database = {
         last_bank_code: number | null;
         operation_token: string | null;
         operation_until: string | null;
-        created_by: string;
+        created_by: string | null;
         created_at: string;
         updated_at: string;
       }>;
@@ -928,6 +935,7 @@ export type Database = {
       }>;
       cash_movements: Row<{
         id: string;
+        bank_qr_request_id: string | null;
         restaurant_id: string;
         cash_session_id: string | null;
         order_id: string | null;
@@ -1410,6 +1418,11 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      queue_baneco_payment_notification: { Args: { p_qr_id: string }; Returns: string | null };
+      reserve_baneco_order_qr: { Args: { p_order_id: string; p_tracking_token: string }; Returns: Json };
+      post_waiting_baneco_payments: { Args: Record<string, never>; Returns: number };
+      retry_baneco_order_payment: { Args: { p_request_id: string }; Returns: string };
+      approve_prepaid_order_for_preparation: { Args: { p_restaurant_id: string; p_order_id: string }; Returns: string };
       claim_baneco_reconciliation: { Args: { p_token: string; p_id?: string; p_cancel?: boolean }; Returns: Json };
       finish_baneco_reconciliation: { Args: { p_id: string; p_token: string; p_status: string | null; p_transaction: string | null; p_error: string | null; p_details: Json }; Returns: boolean };
       reserve_baneco_test_qr: {

@@ -63,6 +63,8 @@ function statusErrorMessage(error: string) {
   if (error === "invalid-order-status") return "Ese cambio de estado no esta permitido.";
   if (error === "receipt-upload-failed") return "No se pudo subir el comprobante. Revisa el archivo e intenta nuevamente.";
   if (error.includes("no-open-session")) return "La caja se cerro antes de aprobar el pedido. Abre una caja e intenta nuevamente.";
+  if (error.includes("bank-qr-active-cancel-first")) return "Este pedido tiene un QR dinámico vigente. Anúlalo con el banco antes de cambiar el total o cobrar por otro método.";
+  if (error.includes("bank-qr-posting-pending")) return "El pago está confirmado, pero su asiento está pendiente. Abre caja y espera el registro antes de reembolsar.";
   if (error.includes("receipt-required")) return "Para aprobar el pago QR debes adjuntar el comprobante o su referencia.";
   return "No se pudo guardar el cambio. El pedido volvio a su estado anterior.";
 }

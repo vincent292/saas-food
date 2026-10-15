@@ -8,7 +8,7 @@ Implementación inicial: 14 de octubre de 2026. Ruta: **Superadmin > QR dinámic
 - Comprobar autenticación, generar QR de certificación o producción de uso único e importe fijo, consultar su estado y anularlo con verificación posterior.
 - Monto de pruebas entre 0.01 y 100, BOB/USD; vencimiento en el día Bolivia o hasta 30 días después.
 - Solo superadmin; bloqueado en sesión de soporte de solo lectura. No hay acceso para dueño/caja/mesero desde UI ni API/tabla privada.
-- No modifica pedidos, caja, inventario ni mensualidades. No hay aprobación automática de pedidos ni asiento bancario/contable por generar o verificar estas pruebas.
+- Las pruebas manuales no modifican pedidos, caja, inventario ni mensualidades. Los cobros de pedidos requieren habilitar expresamente la cuenta con «Cobrar pedidos» y vinculan el QR antes de emitirlo, por el total de DB en BOB (0.01–50 000). No se asignan pruebas antiguas a pedidos por coincidencia de importe.
 - Producción está habilitada para el piloto explícito del superadmin. Un QR de producción permite un pago real a la cuenta guardada. Antes de generar se exige una conexión comprobada tanto en el panel como en la reserva SQL.
 - «Usar en producción» autentica las credenciales ya guardadas contra producción y crea una nueva versión cifrada con otro ID/AAD. No modifica la conexión ni los intentos históricos de certificación, ni requiere volver a ingresar secretos.
 
@@ -16,13 +16,24 @@ Implementación inicial: 14 de octubre de 2026. Ruta: **Superadmin > QR dinámic
 
 - Piloto real comprobado: producción generó el QR BOB 1 de referencia `YQ-b221be66b82b4a72a5ea10a7023a4f39` y una consulta autenticada al banco confirmó `paid`. No se movió dinero desde las herramientas del agente.
 - Migraciones `0122` y `0123`: reservas exclusivas de 90 segundos, reloj de base de datos, token de operación y espera progresiva ante errores (hasta una hora). Estados `paid` y `cancelled` son terminales. Un resultado de un trabajador anterior no puede sobrescribir al actual. Los intentos sin `qr_id` no se regeneran.
-- Supabase Cron dispara el worker aproximadamente cada minuto si hay trabajo. Con cooldown de 60 segundos tras una consulta, un pendiente se revisa cada 1–2 minutos; vencidos/revisión se consultan cada hora, sin asumir que no pagaron. Lotes de hasta 10 QR, concurrencia 3. El panel refresca cada 20 segundos mientras está visible y no se edita un formulario.
+- Supabase Cron dispara el worker aproximadamente cada minuto si hay trabajo. Con cooldown de 60 segundos tras una consulta, un pendiente se revisa cada 1–2 minutos; vencidos/revisión se consultan cada hora, sin asumir que no pagaron. Lotes de hasta 10 QR, concurrencia 3. Desde 0125 el panel recibe invalidaciones por un canal Realtime privado; solo consulta periódicamente por HTTP si el socket se desconecta.
 - Vercel Hobby no permite cron por minuto. Se usa `pg_cron` + `pg_net` de Supabase, sin depender del navegador. La migración `0124` fija el destino canónico `https://www.yopido.shop/api/cron/bank-qr` para evitar la redirección 308 del dominio sin www.
 - `BANK_QR_WORKER_SECRET` es una clave de infraestructura dedicada, distinta de las credenciales bancarias y de la clave del cofre. Se guarda en Vercel Production y Supabase Vault mediante `node --env-file=.env.local scripts/configure-baneco-worker.mjs` después de migrar y antes de desplegar. El script no imprime secretos ni sobrescribe una clave existente.
 - El scheduler envía una firma HMAC-SHA256 válida durante 60 segundos, no la clave permanente (pg_net almacena temporalmente los encabezados en su cola). Una repetición dentro de esa ventana no salta las reservas ni el cooldown persistidos. La ruta solo consulta estados, no genera ni anula QR.
 - «Desvincular cuenta» pide confirmación, impide nuevos QR y conserva credenciales cifradas e historial para conciliar los ya emitidos. No cierra la cuenta bancaria ni anula sus QR. Para anular un QR pendiente existe su acción específica.
 - Todos los QR se solicitan con `singleUse=true` y `modifyAmount=false`. Al confirmar pago desaparecen la imagen y descarga del panel. El banco debe impedir reutilizar una copia descargada; todavía falta una prueba controlada de segundo intento desde una app bancaria. No se debe hacer un segundo pago real desde las herramientas del agente.
-- Sigue siendo un piloto aislado del checkout/pedidos/caja; integrar aprobaciones de pedidos requiere una transacción idempotente específica.
+- Las pruebas siguen aisladas. El checkout individual admite cobros vinculados desde 0126/0127, con activación por cuenta; no se infieren aportes de participantes ni se reparte un cobro entre comercios/rider.
+
+## Avisos, tiempo real y cobros de pedidos (15/10/2026)
+
+- URL que Baneco debe registrar para cada cuenta de producción: `https://www.yopido.shop/api/qrsimple/notifyPaymentQR`. No existe una operación de registro de esa URL en el contrato proporcionado. Publicar el receptor no implica que el banco ya lo haya registrado.
+- El receptor valida el tamaño/estructura, conserva solo el identificador local y adelanta una consulta autenticada a Baneco. No cree el importe, estado, identidad ni referencia que vengan en el aviso. Desconocidos/duplicados reciben el mismo acuse; límite por IP y coalescencia por QR en DB. El trabajo queda persistido antes de responder y usa `after`; el cron recupera interrupciones. Un aviso recibido durante otra consulta no desaparece detrás de su cooldown.
+- El superadmin escucha `bank-qr:superadmin`, privado y con política de lectura limitada a superadmin sin soporte activo. Se emite únicamente `{changed:true}`, sin claves, imágenes ni datos personales. El seguimiento público y la tarjeta de pago usan canales separados, ligados a su token; esto evita que el SDK reutilice y desconecte una suscripción compartida.
+- El checkout de un comercio habilitado permite enviar el pedido QR sin comprobante y obtener un QR de importe fijo en seguimiento. El RPC anterior conserva la validación de precios, stock, horario, caja e idempotencia. Hasta que el banco confirme, el pedido permanece sin pagar. Una solicitud interrumpida o ambigua se reutiliza, no emite otro QR a ciegas.
+- Al confirmar pago se marca el pedido pagado y se registra una sola venta QR. La preparación se aprueba desde el local: el flujo existente mantiene cocina, tiendas sin cocina, programación, reparto y avisos. Una aprobación de un pedido prepagado no vuelve a cobrar. La aplicación conserva el consumo de inventario del flujo de cobro existente.
+- Si no hay caja abierta, el pago queda confirmado y el pedido pagado con `waiting_cash`; el asiento se reintenta cuando abra caja. No se agrega a una sesión cerrada. Se bloquea un reembolso antes del asiento original para evitar un egreso sin ingreso.
+- Mientras haya un QR vigente, no se permite cambiar el importe ni cobrar por otro medio. «Anular QR para cambiar de pago» consulta, anula y vuelve a consultar al banco; si se pagó durante esa carrera, prevalece el pago confirmado. Cancelar/cambiar un pedido oculta el QR en seguimiento. Las anomalías de asignación conservan el pago bancario y pasan a revisión; el superadmin puede reintentar el registro sin generar ni cobrar otro QR.
+- Alcance: pedidos individuales y de mesa en BOB. Los grupales por participante y los multicomercio conservan sus flujos anteriores; precisan asignación explícita entre receptores/importes antes de activar QR dinámico. No se realiza un reembolso bancario automático.
 
 ## Credenciales y clave maestra
 
@@ -62,7 +73,7 @@ El panel acepta “pago verificado en certificación” solo tras consultar el b
 
 El anexo define PaymentQR.transactionId como ID de transacción del banco, mientras el request de generación lo describe como ID del comercio. No se presume igualdad: se vincula por qrId y los demás datos, y se guarda por separado el ID bancario. Confirmar con Baneco la semántica final durante certificación.
 
-El PDF no documenta firma/autenticación de `notifyPaymentQR`. **No hay un webhook público de aprobación confiado solo en ese cuerpo.** Esta fase usa consultas manuales. Para integración automática, acordar firma/seguridad con Baneco; incluso con webhook, usarlo como aviso para consultar al banco y reconciliar de forma idempotente.
+El PDF no documenta firma/autenticación de `notifyPaymentQR`. El receptor implementado nunca aprueba con ese cuerpo: lo usa como aviso para consultar al banco y reconciliar de forma idempotente. Si Baneco aporta firma o restricciones de origen, podrán añadirse además de la verificación bancaria.
 
 “Vencido” se estima según dueDate y día Bolivia solo cuando el banco retorna pendiente; no es un nuevo código de estado documentado por Baneco. Un pago tardío verificado prevalece sobre esa estimación.
 

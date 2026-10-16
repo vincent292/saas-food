@@ -187,6 +187,26 @@ test('tenant-enabled webhook fails closed without a Meta signature', async () =>
   assert.equal(await f.bot.hasValidMetaSignature(new Request('https://example.com', { headers: { 'x-hub-signature-256': `sha256=${hmac}` } }), body), true);
   const noSecret = webhookFixture({}, { WHATSAPP_CREDENTIALS_KEY: secret });
   assert.equal(await noSecret.bot.hasValidMetaSignature(new Request('https://example.com'), body), false);
+  const unconfigured = webhookFixture();
+  assert.equal(await unconfigured.bot.hasValidMetaSignature(new Request('https://example.com'), body), false);
+  const altered = `${body} `;
+  assert.equal(await f.bot.hasValidMetaSignature(new Request('https://example.com', { headers: { 'x-hub-signature-256': `sha256=${hmac}` } }), altered), false);
+});
+
+test('Meta deletion endpoint provides instructions without falsely acknowledging a deletion', async () => {
+  const route = load('src/app/meta/data-deletion/route.ts', {
+    'next/server': { NextResponse: class extends Response { static json(body, init) { return Response.json(body, init); } } },
+    '@/lib/seo/site-url': { getSiteUrl: () => 'https://www.yopido.shop' },
+  });
+  const page = await route.GET();
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /mailto:yopido.shop@gmail.com/);
+  const rejected = await route.POST(new Request('https://www.yopido.shop/meta/data-deletion', { method: 'POST' }));
+  assert.equal(rejected.status, 405);
+  assert.equal(rejected.headers.get('allow'), 'GET');
+  const body = await rejected.json();
+  assert.equal(body.instructions_url, 'https://www.yopido.shop/meta/data-deletion');
+  assert.equal(body.confirmation_code, undefined);
 });
 
 function serviceFixture(rows, user = { id: userId }) {

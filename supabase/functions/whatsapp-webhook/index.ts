@@ -528,7 +528,6 @@ async function receiveWhatsAppWebhook(request: Request) {
       messages: rows.map((row) => ({
         from: maskPhone(row.from_phone),
         type: row.message_type,
-        text: summarizeText(row.message_text),
       })),
     }),
   );
@@ -581,7 +580,8 @@ async function receiveWhatsAppWebhook(request: Request) {
 
 async function hasValidMetaSignature(request: Request, rawBody: string) {
   const appSecret = Deno.env.get("META_APP_SECRET")?.trim();
-  if (!appSecret) return !Deno.env.get('WHATSAPP_CREDENTIALS_KEY');
+  // Never accept unsigned events, including before tenant credentials are set.
+  if (!appSecret) return false;
 
   const signature = request.headers.get("x-hub-signature-256")?.trim().toLowerCase();
   if (!signature?.startsWith("sha256=")) {
@@ -5836,15 +5836,6 @@ function stringValue(value: unknown) {
 
 function maskPhone(phone: string) {
   return phone.length <= 6 ? "***" : `${phone.slice(0, 3)}...${phone.slice(-3)}`;
-}
-
-function summarizeText(text: string | null) {
-  if (!text) {
-    return null;
-  }
-
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
 }
 
 function normalizeForMatch(value: string) {

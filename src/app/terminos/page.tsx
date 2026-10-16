@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalPageShell title="Terminos del servicio" updatedAt="17 de septiembre de 2026">
+    <LegalPageShell title="Terminos del servicio" updatedAt="16 de octubre de 2026">
       <section className="space-y-3">
         <h2>Uso de la plataforma</h2>
         <p>
@@ -42,6 +42,21 @@ export default function TermsPage() {
           No se permite usar la plataforma para actividades ilegales, abusivas, fraudulentas o que infrinjan derechos de
           terceros. Podemos limitar o suspender funciones cuando sea necesario para proteger la seguridad del servicio, de
           los usuarios o de los clientes finales.
+        </p>
+      </section>
+
+      <section className="space-y-3">
+        <h2>Mensajeria de WhatsApp</h2>
+        <p>
+          Cada restaurante debe contar con la autorizacion de sus clientes para las comunicaciones que inicia y
+          respetar las solicitudes de no recibir mas mensajes. No se permite enviar spam, listas compradas o mensajes
+          enganosos, ni usar el canal para productos u operaciones prohibidos por las politicas de WhatsApp y Meta.
+          La autorizacion del restaurante para conectar su numero no sustituye el consentimiento de sus clientes.
+        </p>
+        <p>
+          La integracion actual permite respuestas y notificaciones dentro de las 24 horas del ultimo mensaje del
+          cliente; fuera de esa ventana bloquea el texto libre. El negocio debe ofrecer una via de atencion humana y
+          atender las solicitudes de privacidad. Los cargos de Meta y la elegibilidad de cada numero dependen de Meta.
         </p>
       </section>
 

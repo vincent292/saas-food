@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { getSiteUrl } from "@/lib/seo/site-url";
 
 export const dynamic = "force-dynamic";
@@ -26,29 +25,10 @@ function htmlPage() {
 <body>
   <h1>Solicitud de eliminacion de datos</h1>
   <p>Para solicitar la eliminacion de datos asociados a yopido.shop, escribe a <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a> indicando el correo de tu cuenta, restaurante o sucursal relacionada.</p>
-  <p>Si la solicitud llega desde Meta, esta URL tambien responde al callback tecnico con un codigo de confirmacion.</p>
+  <p>No envies contrasenas, tokens, documentos de identidad ni datos de tarjetas. Usaremos la informacion de tu solicitud solo para verificar que eres titular de los datos y atenderla.</p>
+  <p>Desconectar WhatsApp detiene el bot y elimina la autorizacion guardada en Yopido; no borra el historial de pedidos o conversaciones. Puedes solicitar su eliminacion por el mismo correo. Te informaremos si algun dato debe conservarse por una obligacion legal.</p>
 </body>
 </html>`;
-}
-
-function base64UrlDecode(value: string) {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
-  return Buffer.from(padded, "base64");
-}
-
-function isValidSignedRequest(signedRequest: string) {
-  const appSecret = process.env.META_APP_SECRET;
-  const [encodedSignature, payload] = signedRequest.split(".");
-
-  if (!appSecret || !encodedSignature || !payload) {
-    return false;
-  }
-
-  const expected = createHmac("sha256", appSecret).update(payload).digest();
-  const signature = base64UrlDecode(encodedSignature);
-
-  return expected.length === signature.length && timingSafeEqual(expected, signature);
 }
 
 export async function GET() {
@@ -59,16 +39,11 @@ export async function GET() {
   });
 }
 
-export async function POST(request: Request) {
-  const formData = await request.formData().catch(() => null);
-  const signedRequest = formData?.get("signed_request");
-
-  if (typeof signedRequest === "string" && signedRequest && !isValidSignedRequest(signedRequest)) {
-    return NextResponse.json({ error: "Invalid signed_request" }, { status: 400 });
-  }
-
+export async function POST() {
+  // Configure this URL as "Data deletion instructions URL" in Meta, not as
+  // a callback. Never acknowledge a deletion that has not been processed.
   return NextResponse.json({
-    url: deletionUrl(),
-    confirmation_code: `yopido-${Date.now()}`,
-  });
+    error: "manual_deletion_only",
+    instructions_url: deletionUrl(),
+  }, { status: 405, headers: { Allow: "GET" } });
 }

@@ -15,6 +15,34 @@ Referencias oficiales: [Embedded Signup, colección de Meta](https://www.postman
 
 ## Variables
 
+### App de Yopido preparada el 16 de octubre de 2026
+
+- App: `1158673010164126` (portfolio Yopido `1822986472708501`).
+- Configuracion: `1130817009857747`, **Yopido WhatsApp restaurantes**.
+- Variacion: registro insertado de WhatsApp; producto: WhatsApp Cloud API.
+- Activos: cuentas de WhatsApp; permisos: `whatsapp_business_management` y `whatsapp_business_messaging`.
+- Token de usuario del sistema con caducidad de 60 dias. El negocio tendra que reconectar cuando venza o se revoque.
+- Negocio aprobado; registro de proveedor independiente iniciado. La app sigue sin publicar; confirmar el resultado real de App Review y acceso avanzado antes de incorporar terceros.
+- No usar el token de usuario temporal del Graph Explorer como token de produccion de los restaurantes.
+- Sustituir juntos App ID, Configuration ID y App Secret. El secreto debe obtenerse de esta app y configurarse tanto en Next.js como en Edge; no reutilizar el de la app anterior. Conservar la clave de cifrado existente para no perder conexiones previas.
+- Privacidad: `https://www.yopido.shop/privacidad`; terminos: `https://www.yopido.shop/terminos`; eliminacion: `https://www.yopido.shop/meta/data-deletion`.
+- En Meta seleccionar **URL de instrucciones para la eliminacion de datos**, no callback. La eliminacion es una solicitud manual al contacto publicado; esta ruta no confirma eliminaciones automaticas ni devuelve codigos ficticios.
+
+Esta configuracion del panel no acredita despliegue ni aprobacion. Revisar URLs publicas, migracion 0105, secretos remotos, firmas del webhook y prueba con dos negocios antes de habilitar clientes.
+
+Estado comprobado en esta preparacion:
+
+- `.env.local` usa la app y configuracion indicadas arriba; el secreto de la nueva app se valido con Meta. El archivo esta ignorado por Git. La clave de cifrado se conserva.
+- En el panel de Meta se guardaron nombre **Yopido**, dominio `yopido.shop`, categoria **Negocios y paginas** y las tres URLs legales anteriores.
+- Facebook Login for Business: SDK JavaScript activado para `https://www.yopido.shop`; redireccion exacta `https://www.yopido.shop/`; HTTPS obligatorio y modo estricto activos. No se habilitaron dominios comodin ni dispositivos adicionales.
+- Las tablas `restaurant_whatsapp_connections` y `whatsapp_onboarding_sessions` existen en el Supabase enlazado.
+- El CLI de Supabase rechazo incluso listar funciones del proyecto con HTTP 403 por privilegios insuficientes. Resolver el acceso con una cuenta autorizada antes de guardar secretos o desplegar `whatsapp-webhook`.
+- Las variables de Vercel de produccion todavia requieren sustitucion coordinada con Edge Functions. No se actualizaron ni se desplego esta preparacion.
+- El numero central configurado localmente sigue siendo el anterior. Obtener credenciales de produccion de la nueva app para el numero central correcto antes de migrarlo; no reutilizar el token temporal de Graph Explorer ni asignar el numero central a una sucursal.
+- Pendientes: icono de la app, publicar las paginas legales actualizadas, webhook verificado y campos `messages`/`smb_message_echoes`, revocacion en Meta y pruebas completas con dos negocios. Completar App Review y confirmar acceso avanzado antes de abrir a terceros.
+
+El webhook modificado rechaza todos los eventos sin firma valida, tambien si faltan secretos; no registrar fragmentos del texto de los clientes. La URL de eliminacion proporciona instrucciones manuales y rechaza POST en lugar de confirmar una eliminacion que no se ejecuto.
+
 | Variable | Next.js | Edge Function |
 | --- | --- | --- |
 | `META_APP_ID` | Sí | No |

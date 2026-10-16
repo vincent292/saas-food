@@ -30,7 +30,6 @@ import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type R
 import { useFormStatus } from "react-dom";
 import { updateRestaurantConfigurationAction } from "@/app/admin/actions";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
-import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { WhatsAppConnectionPanel } from "@/components/whatsapp/WhatsAppConnectionPanel";
 import type { WhatsAppConnectionStatus } from "@/types/whatsapp-connection.types";
@@ -335,7 +334,6 @@ export function RestaurantSettingsFormClient({
   const hoursByDay = new Map(businessHours.map((hour) => [hour.dayOfWeek, hour]));
   const logoIsImage = isImageUrl(restaurant.logoUrl);
   const bannerIsImage = isImageUrl(restaurant.bannerUrl);
-  const qrIsImage = isImageUrl(settings?.qrPaymentUrl);
   const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
   const pendingInvoiceRequests = invoiceRequests.filter((order) => !order.invoiceIssuedAt);
   const moduleReadState = {
@@ -560,10 +558,10 @@ export function RestaurantSettingsFormClient({
       <div className={cn(activeTab === "pagos" ? "block" : "hidden")}>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
           <Card className="grid gap-4 md:grid-cols-2">
-            <SectionTitle title="Pagos y factura" description="QR real del restaurante, datos de cuenta y solicitud de factura publica." />
+            <SectionTitle title="Pagos y factura" description="Cobros verificados por el banco, separados por sucursal." />
             {!canManagePayments ? (
               <div className="md:col-span-2 rounded-2xl border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-4 text-sm font-bold leading-6 text-[var(--color-warning-strong)]">
-                Solo el dueno de la cuenta puede cambiar QR, datos de cobro y solicitud de factura. El equipo de la sucursal puede consultarlos.
+                Solo el dueño puede configurar la cuenta bancaria de esta sucursal.
               </div>
             ) : null}
             <div className="md:col-span-2" />
@@ -576,33 +574,15 @@ export function RestaurantSettingsFormClient({
             <Input defaultValue={settings?.qrAccountName} disabled={!canManagePayments} name="qrAccountName" placeholder="Titular de cuenta QR" />
             <Input defaultValue={settings?.qrAccountDocument} disabled={!canManagePayments} name="qrAccountDocument" placeholder="CI / NIT del titular" />
             <Input defaultValue={settings?.qrBankName} disabled={!canManagePayments} name="qrBankName" placeholder="Banco" />
-            <div className="md:col-span-2">
-              {canManagePayments ? (
-                <CompressedImageInput help="Recomendado: QR cuadrado, nitido y sin bordes cortados. Se subira como WebP." label="QR de pago" name="qrPaymentFile" previewClassName="aspect-square" />
-              ) : (
-                <div className="rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-4 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">
-                  El QR actual se muestra al costado. Para cambiarlo debe ingresar el dueno desde su cuenta.
-                </div>
-              )}
-            </div>
             <div className="md:col-span-2 rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--color-body)]">
-              Este QR se muestra en el pedido publico y en mesa para que el cliente pague y luego suba su comprobante.
+              Los nuevos pedidos individuales usan un QR único por pedido y confirmación bancaria automática. Ya no se configura una foto de QR ni se solicita comprobante en ese checkout.
             </div>
           </Card>
 
           <Card className="space-y-4">
-            <SectionTitle title="QR actual" description="El equipo y los clientes veran este QR al elegir pago QR." />
-            {qrIsImage ? (
-              <QrPaymentViewer
-                downloadFileName={`${restaurant.slug}-qr-pago.png`}
-                imageClassName="h-40 w-40"
-                subtitle="QR visible para pedidos publicos, mesas y POS."
-                title="QR de pago"
-                url={settings?.qrPaymentUrl ?? ""}
-              />
-            ) : (
-              <PreviewMedia label="QR de pago" title="QR de pago" url="" fallback="Sin QR" square />
-            )}
+            <SectionTitle title="QR dinámico · Baneco" description="Credenciales cifradas y cuenta propia para esta sucursal." />
+            {canManagePayments ? <Link className="flex min-h-12 items-center justify-center rounded-xl bg-[var(--primary)] px-4 text-center font-bold text-white" href={`/admin/restaurantes/${restaurant.id}/configuracion/banco`}>Configurar cuenta de cobro</Link> : <p className="text-sm">El dueño puede vincular la cuenta desde su acceso.</p>}
+            <p className="text-sm text-[var(--muted)]">El QR se genera por el importe exacto del pedido, no se carga como imagen.</p>
           </Card>
         </div>
       </div>

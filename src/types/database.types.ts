@@ -10,6 +10,16 @@ type Row<T> = {
 export type Database = {
   public: {
     Tables: {
+      bank_order_activations: Row<{
+        request_id: string;
+        created_at: string;
+        completed_at: string | null;
+        operation_token: string | null;
+        operation_until: string | null;
+        attempts: number;
+        next_attempt_at: string;
+        notification_claimed: boolean;
+      }>;
       bank_qr_connections: Row<{
         id: string;
         restaurant_id: string;
@@ -552,6 +562,9 @@ export type Database = {
         table_id: string | null;
         order_number: string;
         public_request_id: string | null;
+        recovery_key_hash: string | null;
+        bank_payment_required: boolean;
+        bank_auto_accept: boolean;
         customer_name: string | null;
         customer_phone: string | null;
         customer_email: string | null;
@@ -1418,6 +1431,9 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      claim_baneco_order_activation: { Args: { p_token: string }; Returns: Json };
+      activate_baneco_paid_order: { Args: { p_request_id: string; p_token: string; p_uses_kitchen: boolean }; Returns: Json };
+      finish_baneco_order_activation: { Args: { p_request_id: string; p_token: string; p_success: boolean }; Returns: undefined };
       queue_baneco_payment_notification: { Args: { p_qr_id: string }; Returns: string | null };
       reserve_baneco_order_qr: { Args: { p_order_id: string; p_tracking_token: string }; Returns: Json };
       post_waiting_baneco_payments: { Args: Record<string, never>; Returns: number };

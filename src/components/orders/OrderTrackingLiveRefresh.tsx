@@ -52,7 +52,7 @@ function isTerminalOrder(order: Order) {
 }
 
 function trackingLabel(order: Order & { businessType?: BusinessType }) {
-  if (order.status === "pending" && order.paymentStatus === "paid") return "Pagado · pendiente de aprobación";
+  if (order.status === "pending" && order.paymentStatus === "paid") return order.bankAutoAccept ? "Pagado · procesando pedido" : "Pagado · pendiente de aprobación";
   if (order.orderType === "table") {
     return tableLabels[order.status];
   }
@@ -184,10 +184,10 @@ function trackingHeroCopy(order: Order, businessType: BusinessType) {
 
   if (order.orderType === "table") {
     if (order.status === "pending") {
-      if (order.paymentStatus === "paid") return { title: "Pago confirmado", description: "El local aprobará tu pedido para enviarlo a preparación.", mode: "Pedido en mesa" };
+      if (order.paymentStatus === "paid") return { title: "Pago confirmado", description: order.bankAutoAccept ? "Estamos registrando tu pago y aceptando tu pedido automáticamente." : "El local aprobará tu pedido para enviarlo a preparación.", mode: "Pedido en mesa" };
       return {
-        title: "Pendiente de pago en caja",
-        description: "Acercate a caja con tu numero de pedido para que el equipo lo confirme y pase a cocina.",
+        title: order.bankPaymentRequired ? "Pendiente de pago QR" : "Pendiente de pago en caja",
+        description: order.bankPaymentRequired ? "Paga el QR de esta pantalla. No necesitas acercarte a caja ni subir comprobante." : "Acercate a caja con tu numero de pedido para que el equipo lo confirme y pase a cocina.",
         mode: "Pedido en mesa",
       };
     }
@@ -278,8 +278,8 @@ function trackingSteps(order: Order & { businessType?: BusinessType }) {
         ]
       : isTable
         ? [
-            { label: "Pendiente de pago", description: "Acercate a caja para confirmar.", icon: ReceiptText },
-            { label: "Pagado", description: "Caja confirmo tu pedido.", icon: ClipboardCheck },
+            { label: "Pendiente de pago", description: order.bankPaymentRequired ? "Paga tu QR para confirmar." : "Acercate a caja para confirmar.", icon: ReceiptText },
+            { label: "Pagado", description: order.bankPaymentRequired ? "El banco confirmó tu pago." : "Caja confirmo tu pedido.", icon: ClipboardCheck },
             { label: "Preparando", description: preparingDescription, icon: isFood ? ChefHat : ShoppingBag },
             { label: "Listo", description: "El pedido ya esta listo para servir.", icon: PackageCheck },
             { label: "Servido", description: "Pedido completado en mesa.", icon: Store },

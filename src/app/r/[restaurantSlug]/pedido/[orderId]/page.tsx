@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { RestaurantLayout } from "@/components/layout/RestaurantLayout";
 import { OrderTrackingLiveRefresh } from "@/components/orders/OrderTrackingLiveRefresh";
 import { BankOrderPaymentCard } from "@/components/orders/BankOrderPaymentCard";
+import { RememberOrderRecovery } from "@/components/orders/RememberOrderRecovery";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { ClearCartOnOrderSuccess } from "@/components/public-menu/ClearCartOnOrderSuccess";
 import { TablePaymentNotice } from "@/components/tables/TablePaymentNotice";
 import { Card } from "@/components/ui/Card";
@@ -43,14 +45,17 @@ export default async function TrackingPage({
     notFound();
   }
   const bankPayment = token && order.paymentMethod === "qr" ? await bankOrderPaymentService.get(order.id, token).catch(() => null) : null;
+  const recovery = token ? await createAdminClient()?.from("orders").select("public_request_id,bank_payment_required,bank_auto_accept").eq("id", order.id).eq("tracking_token", token).maybeSingle() : null;
+  const trackingOrder = { ...order, bankPaymentRequired: recovery?.data?.bank_payment_required, bankAutoAccept: recovery?.data?.bank_auto_accept };
 
   return (
     <RestaurantLayout restaurant={restaurant} showCart={false} showMobileNav={false}>
       <ClearCartOnOrderSuccess enabled={Boolean(token)} restaurantSlug={restaurantSlug} />
-      {order.orderType === "table" && tablePending ? <TablePaymentNotice orderNumber={order.orderNumber} /> : null}
+      <RememberOrderRecovery requestId={recovery?.data?.public_request_id} terminal={["delivered", "cancelled"].includes(order.status)} />
+      {order.orderType === "table" && tablePending && !trackingOrder.bankPaymentRequired ? <TablePaymentNotice orderNumber={order.orderNumber} /> : null}
       <main className="mx-auto grid max-w-6xl gap-4 px-4 pb-16 pt-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 lg:px-8 lg:pt-8">
         <section className="min-w-0">
-          <OrderTrackingLiveRefresh businessType={restaurant.businessType} initialOrder={order} initialQueue={queueState} restaurantSlug={restaurantSlug} token={token} />
+          <OrderTrackingLiveRefresh businessType={restaurant.businessType} initialOrder={trackingOrder} initialQueue={queueState} restaurantSlug={restaurantSlug} token={token} />
         </section>
 
         <aside className="order-first min-w-0 lg:order-none lg:sticky lg:top-24 lg:self-start">
@@ -70,7 +75,7 @@ export default async function TrackingPage({
                   : order.orderType === "delivery"
                     ? "El estado te avisara cuando el pedido salga para entrega."
                     : order.orderType === "table"
-                      ? "Para que el pedido se procese, caja debe confirmar el pago primero."
+                      ? trackingOrder.bankPaymentRequired ? "El pago QR se confirma con el banco y el pedido se acepta automáticamente." : "Para que el pedido se procese, caja debe confirmar el pago primero."
                     : businessTypeSupportsKitchen(restaurant.businessType)
                       ? "El restaurante actualizara el avance del pedido aqui."
                       : "La tienda actualizara el avance del pedido aqui."}

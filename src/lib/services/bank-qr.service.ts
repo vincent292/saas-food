@@ -7,6 +7,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { bankVaultConfigured, openBankCredentials, sealBankCredentials } from "@/lib/payments/credential-vault";
 import { bankCredentialSchema, bankErrorDetails, boliviaDate, BanecoError, createBanecoClient, verifyBankStatus, type BanecoEnvironment } from "@/lib/payments/baneco";
 import type { Database, Json } from "@/types/database.types";
+import { businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
+import { sendOrderStatusPush, sendRestaurantNewOrderPush } from "@/lib/services/mobile-push.service";
+import { sendOrderWhatsAppNotification } from "@/lib/services/order-whatsapp-notification.service";
+import { offerNextRiderForOrder } from "@/lib/services/rider-dispatch.service";
 
 type TestRequest = Database["public"]["Tables"]["bank_qr_test_requests"]["Row"];
 type BankConnection = Database["public"]["Tables"]["bank_qr_connections"]["Row"];
@@ -115,7 +119,42 @@ export async function runBankQrWorker(authentication: WorkerSignature) {
   };
   await Promise.all([work(), work(), work()]);
   const posted = checked(await admin.rpc("post_waiting_baneco_payments", {}));
+  await activatePaidBankOrders(admin);
   return { completed, failed, posted };
+}
+
+async function activatePaidBankOrders(admin: ReturnType<typeof adminClient>) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const token = randomUUID();
+    const job = checked(await admin.rpc("claim_baneco_order_activation", { p_token: token })) as { requestId: string; restaurantId: string } | null;
+    if (!job) return;
+    try {
+      const [restaurant, settings] = await Promise.all([
+        admin.from("restaurants").select("business_type").eq("id", job.restaurantId).single(),
+        admin.from("restaurant_settings").select("kitchen_enabled").eq("restaurant_id", job.restaurantId).single(),
+      ]);
+      const restaurantRow = checked(restaurant), settingsRow = checked(settings);
+      if (!restaurantRow || !settingsRow) throw new BanecoError("bank-storage-unavailable");
+      const usesKitchen = businessTypeSupportsKitchen(restaurantRow.business_type) && settingsRow.kitchen_enabled !== false;
+      const result = checked(await admin.rpc("activate_baneco_paid_order", { p_request_id: job.requestId, p_token: token, p_uses_kitchen: usesKitchen })) as
+        { orderId: string; status: "accepted" | "preparing" | "ready"; isDelivery: boolean; notify: boolean; deferred: boolean } | null;
+      if (result) {
+        if (result.notify) await Promise.allSettled([
+          sendRestaurantNewOrderPush(result.orderId),
+          sendOrderStatusPush({ orderId: result.orderId, status: result.status }),
+          sendOrderWhatsAppNotification({ event: result.status === "ready" ? "ready" : "accepted", orderId: result.orderId }),
+        ]);
+        if (result.status === "ready" && result.isDelivery) {
+          const dispatch = await offerNextRiderForOrder(result.orderId);
+          if (!dispatch.ok) throw new BanecoError("bank-operation-failed");
+        }
+        if (result.deferred) continue;
+      }
+      checked(await admin.rpc("finish_baneco_order_activation", { p_request_id: job.requestId, p_token: token, p_success: true }));
+    } catch {
+      await admin.rpc("finish_baneco_order_activation", { p_request_id: job.requestId, p_token: token, p_success: false });
+    }
+  }
 }
 
 // This endpoint receives an unauthenticated hint because Baneco's manual has no
@@ -129,7 +168,7 @@ export async function acceptBanecoPaymentNotice(qrId: string) {
       for (let attempt = 0; attempt < 18; attempt++) {
         const operationToken = randomUUID();
         const row = checked(await admin.rpc("claim_baneco_reconciliation", { p_token: operationToken, p_id: id })) as TestRequest | null;
-        if (row) { await reconcileClaim(admin, row, operationToken); return; }
+        if (row) { await reconcileClaim(admin, row, operationToken); await activatePaidBankOrders(admin); return; }
         const current = checked(await admin.from("bank_qr_test_requests").select("operation_until,status,last_attempt_at,notification_received_at").eq("id", id).maybeSingle());
         if (!current?.operation_until || ["paid", "cancelled"].includes(current.status) ||
           (current.last_attempt_at && current.notification_received_at && current.last_attempt_at >= current.notification_received_at)) return;
@@ -311,6 +350,57 @@ export const bankQrService = {
     const locked = checked(await admin.rpc("claim_baneco_reconciliation", { p_token: operationToken, p_id: requestId, p_cancel: cancel })) as TestRequest | null;
     if (!locked) throw new BanecoError("bank-operation-busy");
     await reconcileClaim(admin, locked, operationToken, cancel);
+  },
+};
+
+export async function requireBankOwner(restaurantId: string) {
+  const profile = await authService.getCurrentProfile();
+  if (!profile || profile.mustChangePassword || profile.isCustomerAccount || await getActiveSupportSession(profile.id)) throw new BanecoError("bank-forbidden");
+  const admin = adminClient();
+  const restaurant = checked(await admin.from("restaurants").select("id,owner_user_id,status,deleted_at").eq("id", restaurantId).maybeSingle());
+  if (!restaurant || restaurant.deleted_at || (profile.globalRole !== "superadmin" && (restaurant.owner_user_id !== profile.id || restaurant.status !== "active"))) throw new BanecoError("bank-forbidden");
+  return { admin, profile };
+}
+export const bankBranchConnectionService = {
+  async list(restaurantId: string) {
+    const { admin } = await requireBankOwner(restaurantId);
+    return checked(await admin.from("bank_qr_connections").select(publicConnectionFields).eq("restaurant_id", restaurantId)
+      .eq("environment", "production").order("created_at", { ascending: false }).limit(20)) ?? [];
+  },
+  async save(restaurantId: string, input: { label: string; branchCode: string; credentials: unknown }) {
+    const { admin, profile } = await requireBankOwner(restaurantId);
+    const credentials = bankCredentialSchema.parse(input.credentials);
+    const id = randomUUID();
+    const result = await admin.from("bank_qr_connections").insert({ id, restaurant_id: restaurantId, environment: "production",
+      label: input.label, branch_code: input.branchCode, encryption_mode: credentials.encryptionMode,
+      credentials_ciphertext: sealBankCredentials(credentials, id, restaurantId, "production"), created_by: profile.id });
+    if (result.error?.code === "23505") throw new BanecoError("bank-connection-unavailable");
+    checked(result);
+  },
+  async operate(restaurantId: string, id: string, operation: "check" | "enable" | "disable") {
+    const { admin } = await requireBankOwner(restaurantId);
+    // Check the tenant BEFORE opening the credentials or calling Baneco.
+    const metadata = checked(await admin.from("bank_qr_connections").select("id,environment").eq("restaurant_id", restaurantId).eq("id", id).eq("active", true).maybeSingle());
+    if (!metadata || metadata.environment !== "production") throw new BanecoError("bank-connection-unavailable");
+    if (operation === "disable") {
+      checked(await admin.from("bank_qr_connections").update({ active: false, orders_enabled: false }).eq("id", id).eq("restaurant_id", restaurantId));
+      return;
+    }
+    const { bank, row } = await connection(admin, id);
+    if (operation === "check") {
+      try {
+        await bank.checkConnection();
+        checked(await admin.from("bank_qr_connections").update({ ...clearDiagnostics, checked_at: new Date().toISOString(), check_result: "ok" }).eq("id", id));
+      } catch (error) {
+        await admin.from("bank_qr_connections").update({ ...bankErrorDetails(error), last_error_code: safeBankError(error), checked_at: new Date().toISOString(), check_result: "error" }).eq("id", id);
+        throw error;
+      }
+    } else {
+      if (row.check_result !== "ok") throw new BanecoError("bank-connection-unverified");
+      const settings = checked(await admin.from("restaurant_settings").select("currency").eq("restaurant_id", restaurantId).single());
+      if (!settings || settings.currency !== "BOB") throw new BanecoError("bank-order-ineligible");
+      checked(await admin.from("bank_qr_connections").update({ orders_enabled: true }).eq("id", id).eq("restaurant_id", restaurantId));
+    }
   },
 };
 

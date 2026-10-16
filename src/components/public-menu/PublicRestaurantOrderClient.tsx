@@ -6,8 +6,8 @@ import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEff
 import { createPublicOrderAction } from "@/app/r/actions";
 import { PublicCustomerAccountButton } from "@/components/customer/PublicCustomerAccountButton";
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
-import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
-import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
+import { RecoverOrderNotice } from "@/components/orders/RecoverOrderNotice";
+import { prepareOrderRecovery } from "@/lib/client/order-recovery";
 import { Button } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input } from "@/components/ui/Input";
@@ -22,7 +22,6 @@ import { formatMoney } from "@/lib/utils/money";
 import { productAvailabilityLabels } from "@/lib/utils/product-availability";
 import { productImageFitStyle, type ProductImageFit } from "@/lib/utils/product-image-fit";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
-import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import { usePublicOrderStore, type PublicCartItem, type PublicOrderType } from "@/stores/public-order-store";
 import { usePublicCustomerStore } from "@/stores/public-customer-store";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductStockAvailability, ProductVariant } from "@/types/product.types";
@@ -296,6 +295,7 @@ export function PublicRestaurantOrderClient({
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,var(--color-surface)_0%,var(--background)_44%,var(--color-surface)_100%)] text-[var(--text)]" style={publicBackgroundStyle}>
+      <div className="mx-auto max-w-7xl px-4"><RecoverOrderNotice restaurantId={restaurant.id} /></div>
       <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--color-card-elevated)] text-[var(--text)] shadow-[0_12px_34px_rgb(18_53_91_/_0.08)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center gap-2 px-3 py-2 sm:justify-between sm:gap-3 sm:px-6 sm:py-3 lg:px-8">
           <Link className="flex min-w-0 flex-1 items-center sm:flex-none" href={publicRestaurantPath(restaurant.slug)}>
@@ -1143,7 +1143,6 @@ function PublicOrderPanel({
   const deliveryEnabled = settings?.deliveryEnabled ?? true;
   const pickupEnabled = settings?.pickupEnabled ?? true;
   const invoiceEnabled = settings?.invoiceEnabled ?? false;
-  const qrPaymentUrl = normalizeQrPaymentUrl(settings?.qrPaymentUrl);
   const nowAvailable = !activeClosure && (!businessStatus.hasSchedule || businessStatus.isOpen);
   const [deliveryCoordinates, setDeliveryCoordinates] = useState<{ latitude: number; longitude: number }>();
   const deliveryPolicy = useMemo(
@@ -1171,15 +1170,15 @@ function PublicOrderPanel({
   const deliveryFeeLabel = orderType === "delivery" && deliveryFee <= 0 ? "Gratis" : formatMoney(deliveryFee, settings?.currency);
   const deliveryChoiceText = !deliveryEnabled ? "No disponible" : deliveryPreviewFee > 0 ? `${formatMoney(deliveryPreviewFee, settings?.currency)} de envio` : "Envio gratis";
   const deliveryDistanceHint = deliveryPolicy.requiresQrPrepayment
-    ? "Por seguridad, esta distancia requiere pago QR con comprobante."
+    ? "Por seguridad, esta distancia requiere pago QR verificado por el banco."
     : deliveryFee > 0
       ? `${formatMoney(deliveryFee, settings?.currency)} de envio. Puedes pagar en efectivo o QR.`
       : "Envio gratis aplicado. Puedes pagar en efectivo o QR.";
   const grandTotal = total + deliveryFee;
   const useDynamicQr = dynamicQrAvailable && grandTotal >= .01 && grandTotal <= 50000;
-  const qrAvailable = useDynamicQr || hasQrPaymentConfigured(settings);
+  const qrAvailable = useDynamicQr;
   const effectivePaymentMethod = orderType === "delivery" && deliveryPolicy.requiresQrPrepayment ? "qr" : paymentMethod;
-  const paymentReceiptRef = useRef<HTMLInputElement>(null);
+  const recoveryRef = useRef<HTMLInputElement>(null);
   const [activeStep, setActiveStep] = useState<OrderStepKey>("fulfillment");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -1362,9 +1361,6 @@ function PublicOrderPanel({
       if (effectivePaymentMethod === "qr" && !qrAvailable) {
         return reject(deliveryPolicy.requiresQrPrepayment ? "Este envio requiere QR, pero el restaurante aun no lo configuro." : "Este restaurante todavia no tiene QR configurado. Elige efectivo.");
       }
-      if (effectivePaymentMethod === "qr" && !useDynamicQr && !(paymentReceiptRef.current?.files?.length ?? 0)) {
-        return reject("Sube el comprobante QR antes de confirmar el pedido.");
-      }
     }
 
     return true;
@@ -1422,9 +1418,17 @@ function PublicOrderPanel({
         return;
       }
     }
-    const requestIdInput = form.elements.namedItem("requestId");
-    if (requestIdInput instanceof HTMLInputElement && !requestIdInput.value) {
-      requestIdInput.value = crypto.randomUUID();
+    // Persist the capability before submitting, even if the browser is killed
+    // before receiving the server redirect. Do not store the payment result.
+    try {
+      const recovery = prepareOrderRecovery(restaurant.id, restaurant.slug);
+      const requestIdInput = form.elements.namedItem("requestId");
+      if (requestIdInput instanceof HTMLInputElement) requestIdInput.value = recovery.requestId;
+      if (recoveryRef.current) recoveryRef.current.value = recovery.recoveryKey;
+    } catch {
+      event.preventDefault();
+      setFormError("No podemos conservar el acceso al pedido en este navegador. Habilita el almacenamiento del sitio antes de pagar.");
+      return;
     }
 
     const shouldSaveNewAddress = Boolean(
@@ -1463,6 +1467,7 @@ function PublicOrderPanel({
   return (
     <form action={createPublicOrderAction} className={cn("w-full min-w-0 rounded-[1.5rem] bg-[var(--surface)] text-[var(--text)] shadow-sm", compact ? "rounded-none p-0 shadow-none" : "p-4")} onSubmit={handleSubmit}>
       <input defaultValue="" name="requestId" type="hidden" />
+      <input defaultValue="" name="recoveryKey" ref={recoveryRef} type="hidden" />
       <input name="restaurantId" type="hidden" value={restaurant.id} />
       <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
       <input name="orderType" type="hidden" value={orderType} />
@@ -1789,37 +1794,13 @@ function PublicOrderPanel({
       ) : null}
 
       <section className={cn("mt-4 space-y-3", activeStep === "payment" ? "block" : "hidden")}>
-        <StepIntro icon={<CreditCard className="h-5 w-5" />} title="Forma de pago" description={useDynamicQr ? "Al enviar el pedido podrás generar su QR exacto. El pago se confirma automáticamente." : "El efectivo queda registrado para caja. En QR el comprobante es obligatorio."} />
+        <StepIntro icon={<CreditCard className="h-5 w-5" />} title="Forma de pago" description={useDynamicQr ? "Al confirmar crearemos un QR exclusivo para este pedido. El banco verifica el pago automáticamente." : "Esta sucursal aún no tiene habilitado el cobro QR dinámico. Puedes elegir efectivo si está disponible."} />
         <div className="grid gap-3 sm:grid-cols-2">
           <ChoiceCard active={effectivePaymentMethod === "cash"} disabled={orderType === "delivery" && deliveryPolicy.requiresQrPrepayment} icon={<CreditCard className="h-5 w-5" />} label="Efectivo" onClick={() => setPaymentMethod("cash")} text={deliveryPolicy.requiresQrPrepayment ? "No disponible por distancia." : "Caja validara el cobro antes de preparar."} />
           <ChoiceCard active={effectivePaymentMethod === "qr"} disabled={!qrAvailable} icon={<ReceiptText className="h-5 w-5" />} label="Pago QR" onClick={() => setPaymentMethod("qr")} text={qrAvailable ? "QR activo para esta sucursal." : "Sin QR configurado."} />
         </div>
-        <div className={cn(effectivePaymentMethod === "qr" && qrAvailable && !useDynamicQr ? "grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[150px_1fr] sm:items-center" : "hidden")}>
-          <QrPaymentViewer
-            downloadFileName={`${restaurant.slug}-qr-pago.png`}
-            imageClassName="h-28 w-28"
-            subtitle="QR de pago de esta sucursal."
-            title="QR de pago"
-            url={qrPaymentUrl}
-          />
-          <div>
-            <p className="text-sm font-black text-[var(--text)]">Escanea el QR del restaurante</p>
-            <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Realiza el pago y luego sube el comprobante para que el equipo lo valide.</p>
-            {settings?.qrAccountName || settings?.qrBankName ? (
-              <p className="mt-2 text-xs font-bold text-[var(--muted)]">
-                {settings.qrAccountName ? settings.qrAccountName : ""}
-                {settings.qrBankName ? ` · ${settings.qrBankName}` : ""}
-                {settings.qrAccountType ? ` · ${settings.qrAccountType === "checking" ? "Cuenta corriente" : "Caja de ahorro"}` : ""}
-                {settings.qrCurrency ? ` · ${settings.qrCurrency}` : ""}
-              </p>
-            ) : null}
-          </div>
-        </div>
-        <div className={cn(effectivePaymentMethod === "qr" && qrAvailable && !useDynamicQr ? "block" : "hidden")}>
-          <CompressedImageInput acceptPdf help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." inputRef={paymentReceiptRef} label="Comprobante QR" name="paymentReceiptFile" />
-        </div>
         <p className="rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">
-          {effectivePaymentMethod === "cash" ? "El pedido quedara guardado como pago en efectivo pendiente de validacion en caja." : useDynamicQr ? "Verás el QR del pedido en la siguiente pantalla. Es de uso único y no necesitas subir comprobante." : "El equipo confirmara el comprobante antes de preparar el pedido."}
+          {effectivePaymentMethod === "cash" ? "El pedido quedará guardado como pago en efectivo pendiente de validación en caja." : "Verás el QR en la siguiente pantalla. Puedes descargarlo y abrir tu banco en este mismo celular. Al confirmar el pago, el pedido se acepta automáticamente; no necesitas subir comprobante."}
         </p>
       </section>
 

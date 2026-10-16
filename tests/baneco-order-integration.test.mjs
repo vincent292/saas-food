@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import vm from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
@@ -10,6 +11,11 @@ import { PGlite } from '@electric-sql/pglite';
 const read = path => readFileSync(new URL('../'+path,import.meta.url),'utf8');
 const require = createRequire(import.meta.url);
 function load(path,mocks={}) {
+  mocks={
+    '@/lib/restaurant-directory-options':{businessTypeSupportsKitchen:type=>!type||type==='food'},
+    '@/lib/services/mobile-push.service':{},'@/lib/services/order-whatsapp-notification.service':{},'@/lib/services/rider-dispatch.service':{},
+    ...mocks,
+  };
   const exports={};vm.runInNewContext(ts.transpileModule(read(path),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
     {exports,require:name=>name==='server-only'?{}:name in mocks?mocks[name]:require(name),process,Buffer,URL,Date,Intl,Error,console,setTimeout,clearTimeout,TextDecoder,Uint8Array});
   return exports;
@@ -17,7 +23,7 @@ function load(path,mocks={}) {
 const bank=load('src/lib/payments/baneco.ts');
 const {parseBanecoNotice}=load('src/lib/payments/baneco-notification.ts');
 const merchant=randomUUID(),actor=randomUUID(),other=randomUUID();
-async function fixture() {
+async function fixture(latest=false) {
   const db=new PGlite();
   await db.exec(`create role anon;create role authenticated;create role service_role;
     create schema auth;create schema realtime;
@@ -25,8 +31,8 @@ async function fixture() {
     create function auth.jwt() returns jsonb language sql stable as $$select '{}'::jsonb$$;
     create function auth.role() returns text language sql stable as $$select coalesce(nullif(current_setting('test.auth_role',true),''),'service_role')$$;
     create function realtime.topic() returns text language sql stable as $$select current_setting('test.topic',true)$$;
-    create table profiles(id uuid primary key,global_role text);create table restaurants(id uuid primary key);
-    insert into profiles values('${actor}','superadmin'),('${other}','cashier');insert into restaurants values('${merchant}');
+    create table profiles(id uuid primary key,global_role text);create table restaurants(id uuid primary key,business_type text default 'food');
+    insert into profiles values('${actor}','superadmin'),('${other}','cashier');insert into restaurants(id) values('${merchant}');
     create function is_superadmin() returns boolean language sql stable security definer as $$select exists(select 1 from profiles where id=auth.uid() and global_role='superadmin')$$;
     create table support_impersonation_sessions(actor_user_id uuid,status text,expires_at timestamptz);
     create table realtime.messages(id serial,extension text);alter table realtime.messages enable row level security;
@@ -39,9 +45,10 @@ async function fixture() {
     create table orders(id uuid primary key,restaurant_id uuid,tracking_token text,order_number text,order_type text default 'delivery',
       payment_status text default 'pending',payment_method text default 'qr',status order_status default 'pending',total numeric(12,2),
       group_order_session_id uuid,payment_receipt_url text,payment_receipt_reference text,payment_verified_at timestamptz,accepted_at timestamptz,
-      requested_fulfillment_at timestamptz,requires_prepayment boolean default false,cancelled_at timestamptz,cancellation_reason text);
-    create table restaurant_settings(restaurant_id uuid primary key,currency text default 'BOB');
-    insert into restaurant_settings values('${merchant}','BOB');
+      requested_fulfillment_at timestamptz,requires_prepayment boolean default false,cancelled_at timestamptz,cancellation_reason text,
+      public_request_id uuid,ready_at timestamptz);
+    create table restaurant_settings(restaurant_id uuid primary key,currency text default 'BOB',kitchen_enabled boolean default true);
+    insert into restaurant_settings(restaurant_id,currency) values('${merchant}','BOB');
     create table multisite_order_children(id uuid primary key,order_id uuid);
     create table cash_sessions(id uuid primary key,restaurant_id uuid,status text,opened_at timestamptz default now());
     create table cash_movements(id uuid primary key default gen_random_uuid(),restaurant_id uuid,cash_session_id uuid,order_id uuid,type text,payment_method text,amount numeric,description text,created_by uuid);
@@ -54,12 +61,13 @@ async function fixture() {
     create function create_public_order_transaction(p_request_id uuid,p_order jsonb,p_items jsonb) returns table(id uuid,tracking_token text)
       language plpgsql security definer as $$begin
       if coalesce((p_order->>'requires_prepayment')::boolean,false) and coalesce(p_order->>'payment_receipt_url','')='' then raise exception 'prepayment-required';end if;
-      insert into orders(id,restaurant_id,tracking_token,order_number,total,payment_method,requires_prepayment)
-        values(p_request_id,(p_order->>'restaurant_id')::uuid,'tracking-token-with-at-least-20-chars','QA',(p_order->>'total')::numeric,p_order->>'payment_method',coalesce((p_order->>'requires_prepayment')::boolean,false)) on conflict do nothing;
+      insert into orders(id,public_request_id,restaurant_id,tracking_token,order_number,total,payment_method,requires_prepayment)
+        values(p_request_id,p_request_id,(p_order->>'restaurant_id')::uuid,'tracking-token-with-at-least-20-chars','QA',(p_order->>'total')::numeric,p_order->>'payment_method',coalesce((p_order->>'requires_prepayment')::boolean,false)) on conflict do nothing;
       return query select o.id,o.tracking_token from orders o where o.id=p_request_id;end$$;`);
   for(const name of ['0120_baneco_superadmin_test_panel.sql','0121_baneco_production_pilot.sql','0122_baneco_automatic_reconciliation.sql','0125_baneco_notifications_and_realtime.sql','0126_baneco_order_payments.sql','0127_baneco_public_checkout.sql'])
     await db.exec(read('supabase/migrations/'+name));
   await db.exec(read('supabase/migrations/0052_atomic_order_refunds.sql'));
+  if(latest)await db.exec(read('supabase/migrations/0128_baneco_checkout_recovery_and_acceptance.sql'));
   const connection=randomUUID();
   await db.query(`insert into bank_qr_connections(id,restaurant_id,environment,label,credentials_ciphertext,encryption_mode,created_by,check_result,orders_enabled)
     values($1,$2,'production','QA','ciphertext','bank_api',$3,'ok',true)`,[connection,merchant,actor]);
@@ -207,6 +215,7 @@ test('webhook queries authoritative bank status; forged amounts cannot pay or du
         if(name==='queue_baneco_payment_notification')result=await f.db.query('select queue_baneco_payment_notification($1) result',[args.p_qr_id]);
         else if(name==='claim_baneco_reconciliation')result=await f.db.query('select claim_baneco_reconciliation($1,$2,$3) result',[args.p_token,args.p_id??null,args.p_cancel??false]);
         else if(name==='finish_baneco_reconciliation')result=await f.db.query('select finish_baneco_reconciliation($1,$2,$3,$4,$5,$6) result',[args.p_id,args.p_token,args.p_status,args.p_transaction,args.p_error,args.p_details]);
+        else if(name==='claim_baneco_order_activation')return {data:null,error:null};
         else throw Error('Unexpected RPC');return {data:result.rows[0].result,error:null};}
     };
     const service=load('src/lib/services/bank-qr.service.ts',{
@@ -265,4 +274,123 @@ test('checkout defers receipt only for explicitly enabled verified BOB merchants
     await f.db.query('update bank_qr_connections set orders_enabled=false');
     await assert.rejects(f.db.query('select * from create_public_order_transaction($1,$2,$3)',[randomUUID(),order,[]]),/prepayment-required/);
   }finally{await f.db.close();}
+});
+
+test('durable checkout reuses a protected request, rejects a different recovery secret and refuses static proof',async()=>{
+  const f=await fixture(true);try{
+    const id=randomUUID(),hash='a'.repeat(64);
+    const order={restaurant_id:merchant,total:12.5,payment_method:'qr',requires_prepayment:true,bank_checkout:true,recovery_key_hash:hash};
+    const call=(payload=order)=>f.db.query('select * from create_public_order_transaction($1,$2,$3)',[id,payload,[]]);
+    const results=await Promise.all(Array.from({length:8},()=>call()));
+    assert.ok(results.every(result=>result.rows[0].id===id));
+    const row=(await f.db.query('select * from orders where id=$1',[id])).rows[0];
+    assert.equal(row.recovery_key_hash,hash);assert.equal(row.bank_payment_required,true);assert.equal(row.bank_auto_accept,true);
+    assert.equal(row.status,'pending');assert.equal(row.payment_status,'pending');
+    await assert.rejects(call({...order,recovery_key_hash:'b'.repeat(64)}),/invalid-recovery-key/);
+    await assert.rejects(call({...order,recovery_key_hash:null}),/invalid-recovery-key/);
+    await f.db.query('update bank_qr_connections set orders_enabled=false');
+    // Returning to an existing order still works after the account is disabled.
+    await call();
+    await assert.rejects(f.db.query('select * from create_public_order_transaction($1,$2,$3)',[randomUUID(),order,[]]),/bank-qr-required/);
+    await assert.rejects(f.db.query('select * from create_public_order_transaction($1,$2,$3)',[randomUUID(),{...order,payment_receipt_url:'https://example.test/fake.png'},[]]),/bank-qr-required/);
+  }finally{await f.db.close();}
+});
+
+test('bank-only orders cannot enter kitchen or be manually paid before authoritative payment',async()=>{
+  const f=await fixture(true);try{
+    const orderId=await f.create();
+    await f.db.query('update orders set bank_payment_required=true,bank_auto_accept=true where id=$1',[orderId]);
+    for(const status of ['accepted','preparing','ready','delivered'])
+      await assert.rejects(f.db.query('update orders set status=$2 where id=$1',[orderId,status]),/bank-payment-required/);
+    await assert.rejects(f.db.query("update orders set payment_status='paid',payment_method='cash' where id=$1",[orderId]),/bank-payment-required/);
+    await assert.rejects(f.db.query("update orders set payment_status='paid',payment_method='qr',payment_receipt_url='fake' where id=$1",[orderId]),/bank-payment-required/);
+    assert.equal((await f.db.query('select count(*)::int n from cash_movements')).rows[0].n,0);
+  }finally{await f.db.close();}
+});
+
+test('confirmed payment queues and automatically accepts once; no-kitchen becomes ready and scheduling survives',async()=>{
+  const f=await fixture(true);try{
+    await f.db.query("insert into cash_sessions(id,restaurant_id,status) values($1,$2,'open')",[randomUUID(),merchant]);
+    for(const usesKitchen of [true,false]){
+      const {orderId,id}=await f.prepare({scheduled:usesKitchen});
+      await f.db.query('update orders set bank_payment_required=true,bank_auto_accept=true where id=$1',[orderId]);
+      await f.paid(id);
+      assert.equal((await f.db.query('select count(*)::int n from bank_order_activations where request_id=$1',[id])).rows[0].n,1);
+      const token=randomUUID();
+      const jobs=await Promise.all(Array.from({length:5},()=>f.db.query('select claim_baneco_order_activation($1) result',[token])));
+      assert.equal(jobs.filter(job=>job.rows[0].result).length,1);
+      const activate=()=>f.db.query('select activate_baneco_paid_order($1,$2,$3) result',[id,token,usesKitchen]);
+      assert.equal((await activate()).rows[0].result.notify,true);
+      assert.equal((await activate()).rows[0].result.notify,false);
+      const row=(await f.db.query('select * from orders where id=$1',[orderId])).rows[0];
+      assert.equal(row.status,usesKitchen?'accepted':'ready');assert.ok(row.accepted_at);if(usesKitchen)assert.ok(row.requested_fulfillment_at);
+      assert.equal((await f.db.query('select count(*)::int n from cash_movements where order_id=$1',[orderId])).rows[0].n,1);
+      await f.db.query('select finish_baneco_order_activation($1,$2,true)',[id,token]);
+      assert.equal((await f.db.query('select claim_baneco_order_activation($1) result',[randomUUID()])).rows[0].result,null);
+    }
+    for(const role of ['anon','authenticated'])for(const fn of ['claim_baneco_order_activation(uuid)','activate_baneco_paid_order(uuid,uuid,boolean)','finish_baneco_order_activation(uuid,uuid,boolean)'])
+      assert.equal((await f.db.query("select has_function_privilege($1,$2,'execute') allowed",[role,fn])).rows[0].allowed,false);
+  }finally{await f.db.close();}
+});
+
+test('a scheduled shop is accepted on payment but cannot be marked ready or dispatch before its scheduled time',async()=>{
+  const f=await fixture(true);try{
+    const {orderId,id}=await f.prepare({scheduled:true});
+    await f.db.query('update orders set bank_auto_accept=true,bank_payment_required=true where id=$1',[orderId]);await f.paid(id);
+    const token=randomUUID();await f.db.query('select claim_baneco_order_activation($1)',[token]);
+    const first=(await f.db.query('select activate_baneco_paid_order($1,$2,false) result',[id,token])).rows[0].result;
+    assert.equal(first.status,'accepted');assert.equal(first.deferred,true);
+    assert.equal((await f.db.query('select ready_at from orders where id=$1',[orderId])).rows[0].ready_at,null);
+    assert.equal((await f.db.query('select claim_baneco_order_activation($1) result',[randomUUID()])).rows[0].result,null);
+    // Advance only the fixture timestamps, not application/system clocks.
+    await f.db.query("update orders set requested_fulfillment_at=now()-interval '1 minute' where id=$1",[orderId]);
+    await f.db.query("update bank_order_activations set next_attempt_at=now()-interval '1 second' where request_id=$1",[id]);
+    const nextToken=randomUUID();await f.db.query('select claim_baneco_order_activation($1)',[nextToken]);
+    const ready=(await f.db.query('select activate_baneco_paid_order($1,$2,false) result',[id,nextToken])).rows[0].result;
+    assert.equal(ready.status,'ready');assert.equal(ready.deferred,false);
+  }finally{await f.db.close();}
+});
+
+test('a local application failure never auto-accepts an order just because the bank said paid',async()=>{
+  const f=await fixture(true);try{
+    const {orderId,id}=await f.prepare();await f.db.query('update orders set bank_payment_required=true,bank_auto_accept=true where id=$1',[orderId]);
+    await f.db.exec("select set_config('test.inventory_fail','yes',false)");await f.paid(id);
+    assert.equal((await f.db.query('select status,application_state from bank_qr_test_requests where id=$1',[id])).rows[0].status,'paid');
+    assert.equal((await f.db.query('select status from orders where id=$1',[orderId])).rows[0].status,'pending');
+    assert.equal((await f.db.query('select count(*)::int n from bank_order_activations')).rows[0].n,0);
+    await f.db.exec("select set_config('test.inventory_fail','no',false)");
+    await f.db.query('select retry_baneco_order_payment($1)',[id]);
+    assert.equal((await f.db.query('select count(*)::int n from bank_order_activations')).rows[0].n,1);
+  }finally{await f.db.close();}
+});
+
+test('the backend worker drains a paid activation without a browser, recharging or duplicate notifications',async()=>{
+  const f=await fixture(true);const previous=process.env.BANK_QR_WORKER_SECRET;
+  process.env.BANK_QR_WORKER_SECRET='test-activation-worker-secret-32-characters';
+  try{
+    const {orderId,id}=await f.prepare();await f.db.query('update orders set bank_payment_required=true,bank_auto_accept=true where id=$1',[orderId]);await f.paid(id);
+    const notifications=[];
+    const admin={from(table){return {select(fields){this.fields=fields;return this;},eq(key,value){this.key=key;this.value=value;return this;},
+      async single(){return {data:(await f.db.query(`select ${this.fields} from ${table} where ${this.key}=$1`,[this.value])).rows[0],error:null};}};},
+      async rpc(name,args){
+        const calls={claim_baneco_reconciliation:['select claim_baneco_reconciliation($1,$2,$3) result',[args.p_token,args.p_id??null,args.p_cancel??false]],
+          post_waiting_baneco_payments:['select post_waiting_baneco_payments() result',[]],
+          claim_baneco_order_activation:['select claim_baneco_order_activation($1) result',[args.p_token]],
+          activate_baneco_paid_order:['select activate_baneco_paid_order($1,$2,$3) result',[args.p_request_id,args.p_token,args.p_uses_kitchen]],
+          finish_baneco_order_activation:['select finish_baneco_order_activation($1,$2,$3) result',[args.p_request_id,args.p_token,args.p_success]]};
+        const [sql,params]=calls[name]??[];assert.ok(sql,'Unexpected RPC '+name);return {data:(await f.db.query(sql,params)).rows[0].result,error:null};
+      }};
+    const service=load('src/lib/services/bank-qr.service.ts',{
+      '@/lib/services/auth.service':{authService:{}},'@/lib/services/support-impersonation.service':{},
+      '@/lib/supabase/admin':{createAdminClient:()=>admin},'@/lib/payments/credential-vault':{},'@/lib/payments/baneco':bank,
+      '@/lib/services/mobile-push.service':{sendRestaurantNewOrderPush:async value=>notifications.push(['new',value]),sendOrderStatusPush:async value=>notifications.push(['status',value.orderId])},
+      '@/lib/services/order-whatsapp-notification.service':{sendOrderWhatsAppNotification:async value=>notifications.push(['whatsapp',value.orderId])},
+      '@/lib/services/rider-dispatch.service':{offerNextRiderForOrder:async()=>{throw Error('Not ready');}},
+    });
+    const timestamp=String(Math.floor(Date.now()/1000));const authentication={timestamp,signature:createHmac('sha256',process.env.BANK_QR_WORKER_SECRET).update('baneco-worker-v1:'+timestamp).digest('hex')};
+    await service.runBankQrWorker(authentication);await service.runBankQrWorker(authentication);
+    assert.equal((await f.db.query('select status from orders where id=$1',[orderId])).rows[0].status,'accepted');
+    assert.equal(notifications.length,3);assert.ok(notifications.every(row=>row[1]===orderId));
+    assert.ok((await f.db.query('select completed_at from bank_order_activations where request_id=$1',[id])).rows[0].completed_at);
+  }finally{if(previous===undefined)delete process.env.BANK_QR_WORKER_SECRET;else process.env.BANK_QR_WORKER_SECRET=previous;await f.db.close();}
 });

@@ -4829,12 +4829,9 @@ export async function updateRestaurantConfigurationAction(formData: FormData) {
     (await uploadPublicImage(formData.get("menuBackgroundImageFile") as File | null, `restaurants/${parsed.data.restaurantId}/identity`)) ??
     parsed.data.currentMenuBackgroundImageUrl ??
     null;
-  const qrPaymentUrl = canManagePayments
-    ? ((await uploadPublicImage(formData.get("qrPaymentFile") as File | null, `restaurants/${parsed.data.restaurantId}/payments`)) ??
-      parsed.data.qrPaymentUrl ??
-      parsed.data.currentQrPaymentUrl ??
-      null)
-    : (currentSettings?.qr_payment_url ?? parsed.data.currentQrPaymentUrl ?? null);
+  // Legacy images are retained for historical records only. Account setup is
+  // owner-scoped and encrypted; a form upload cannot enable bank payments.
+  const qrPaymentUrl = currentSettings?.qr_payment_url ?? null;
 
   const restaurantUpdate: {
     name: string;

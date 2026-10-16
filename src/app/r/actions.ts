@@ -10,6 +10,7 @@ import { announcementService } from "@/lib/services/announcement.service";
 import { sendRestaurantNewOrderPush } from "@/lib/services/mobile-push.service";
 import { deliveryRateService } from "@/lib/services/delivery-rate.service";
 import { bankOrderPaymentService } from "@/lib/services/bank-qr.service";
+import { findRecoverableOrder, orderRecoveryHash } from "@/lib/payments/order-recovery";
 import { uploadPrivateFile, uploadPublicImage } from "@/lib/supabase/storage";
 import { businessTypeSupportsTableQr, normalizeRestaurantBusinessType } from "@/lib/restaurant-directory-options";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
@@ -50,6 +51,7 @@ const cartItemSchema = z.object({
 
 const orderSchema = z.object({
   requestId: z.string().uuid(),
+  recoveryKey: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   restaurantId: z.string().uuid(),
   restaurantSlug: z.string().min(1),
   tableId: z.string().uuid().optional(),
@@ -553,6 +555,7 @@ export async function createPublicOrderAction(formData: FormData) {
   }
   const parsed = orderSchema.safeParse({
     requestId: formData.get("requestId") || crypto.randomUUID(),
+    recoveryKey: formData.get("recoveryKey") || undefined,
     restaurantId: formData.get("restaurantId"),
     restaurantSlug: formData.get("restaurantSlug"),
     tableId: formData.get("tableId") || undefined,
@@ -603,6 +606,13 @@ export async function createPublicOrderAction(formData: FormData) {
   const publicRestaurant = await validatePublicRestaurant(supabase, parsed.data.restaurantId, parsed.data.restaurantSlug);
   if (!publicRestaurant) {
     redirect(`${publicRestaurantPath(parsed.data.restaurantSlug)}?pedido=1&error=invalid-restaurant`);
+  }
+
+  // Recover BEFORE stock/hours/cash checks: a paid order must remain accessible
+  // even if the local closed while the payer was in their banking app.
+  if (parsed.data.recoveryKey) {
+    const existing = await findRecoverableOrder(parsed.data.restaurantId, parsed.data.requestId, parsed.data.recoveryKey);
+    if (existing) redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `pedido/${existing.id}`)}?token=${encodeURIComponent(existing.tracking_token)}`);
   }
 
   if (parsed.data.orderType === "table") {
@@ -714,18 +724,13 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(publicRestaurantOrderPath(parsed.data.restaurantSlug, "minimum"));
   }
 
-  const paymentReceiptFile = formData.get("paymentReceiptFile") as File | null;
   const dynamicQr = parsed.data.paymentMethod === "qr" && subtotal + (deliveryPolicy?.deliveryFee ?? 0) <= 50000
     && await bankOrderPaymentService.availableForRestaurant(parsed.data.restaurantId, settings.currency);
   if (deliveryPolicy?.requiresQrPrepayment && parsed.data.paymentMethod !== "qr") {
     redirect(`${failPath}?error=qr-required-distance`);
   }
-  if (parsed.data.paymentMethod === "qr" && !dynamicQr && !normalizeQrPaymentUrl(settings.qr_payment_url)) {
+  if (parsed.data.paymentMethod === "qr" && !dynamicQr) {
     redirect(`${failPath}?error=qr-unavailable`);
-  }
-
-  if (parsed.data.orderType !== "table" && parsed.data.paymentMethod === "qr" && !dynamicQr && (!paymentReceiptFile || paymentReceiptFile.size === 0)) {
-    redirect(`${failPath}?error=receipt-required`);
   }
 
   if (requestedFulfillmentAt && !isPublicFulfillmentOrder) {
@@ -751,10 +756,8 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(`${failPath}?error=no-open-cash`);
   }
 
-  const paymentReceiptUrl =
-    parsed.data.paymentMethod === "qr" && isNonEmptyFile(paymentReceiptFile)
-      ? await uploadPrivateFile(paymentReceiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
-      : null;
+  // Checkout never accepts a screenshot as proof of a bank payment.
+  const paymentReceiptUrl = null;
 
   const deliveryFee = deliveryPolicy?.deliveryFee ?? 0;
   const total = subtotal + deliveryFee;
@@ -765,6 +768,8 @@ export async function createPublicOrderAction(formData: FormData) {
     p_request_id: parsed.data.requestId,
     p_order: {
       restaurant_id: parsed.data.restaurantId,
+      recovery_key_hash: parsed.data.recoveryKey ? orderRecoveryHash(parsed.data.recoveryKey) : null,
+      bank_checkout: true,
       table_id: parsed.data.tableId ?? null,
       order_number: orderNumber,
       customer_name: parsed.data.customerName,
@@ -807,12 +812,13 @@ export async function createPublicOrderAction(formData: FormData) {
   const createdNow = Boolean(createdOrders?.[0]);
   let order = createdOrders?.[0];
 
-  if (!order && error?.code === "23505") {
+  if (!order && error?.code === "23505" && parsed.data.recoveryKey) {
     const { data: existingOrder } = await writeClient
       .from("orders")
       .select("id,tracking_token")
       .eq("restaurant_id", parsed.data.restaurantId)
       .eq("public_request_id", parsed.data.requestId)
+      .eq("recovery_key_hash", orderRecoveryHash(parsed.data.recoveryKey))
       .maybeSingle();
     order = existingOrder ?? undefined;
   }
@@ -833,9 +839,11 @@ export async function createPublicOrderAction(formData: FormData) {
 
   const tableNotice = parsed.data.orderType === "table" ? "&tablePending=1" : "";
   if (createdNow) {
-    after(async () => {
-      await sendRestaurantNewOrderPush(order.id);
-    });
+    if (dynamicQr) {
+      // The bank reservation is durable before emission. A timeout is shown in
+      // tracking; it never creates another order or blindly issues another QR.
+      await bankOrderPaymentService.generate(order.id, order.tracking_token).catch(() => null);
+    } else after(async () => { await sendRestaurantNewOrderPush(order.id); });
   }
   redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `pedido/${order.id}`)}?token=${order.tracking_token}${tableNotice}`);
 }

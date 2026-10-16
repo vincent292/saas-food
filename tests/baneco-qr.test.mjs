@@ -11,6 +11,11 @@ const require = createRequire(import.meta.url);
 const root = new URL('../', import.meta.url);
 const read = path => readFileSync(new URL(path, root), 'utf8');
 function load(path, mocks = {}) {
+  mocks = {
+    '@/lib/restaurant-directory-options': { businessTypeSupportsKitchen: type => !type || type === 'food' },
+    '@/lib/services/mobile-push.service': {}, '@/lib/services/order-whatsapp-notification.service': {}, '@/lib/services/rider-dispatch.service': {},
+    ...mocks,
+  };
   const exports = {};
   vm.runInNewContext(ts.transpileModule(read(path), { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
@@ -376,6 +381,7 @@ test('automatic worker authenticates, reconciles disconnected accounts once, and
         if(name==='claim_baneco_reconciliation') result=await db.query('select claim_baneco_reconciliation($1,$2,$3) result',[args.p_token,args.p_id??null,args.p_cancel??false]);
         else if(name==='finish_baneco_reconciliation')result=await db.query('select finish_baneco_reconciliation($1,$2,$3,$4,$5,$6) result',[args.p_id,args.p_token,args.p_status,args.p_transaction,args.p_error,args.p_details]);
         else if(name==='post_waiting_baneco_payments') return {data:0,error:null};
+        else if(name==='claim_baneco_order_activation') return {data:null,error:null};
         else throw Error('Unexpected RPC');return {data:result.rows[0].result,error:null};}
     };
     const service=load('src/lib/services/bank-qr.service.ts',{

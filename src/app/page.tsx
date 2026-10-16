@@ -31,6 +31,7 @@ import { PublicCustomerAccountButton } from "@/components/customer/PublicCustome
 import { HomeLocationProvider, HomeNearbyHighlights, HomeNearbyMobileExplorer, HomeNearbyRestaurantSection, HomeNearestBranchSpotlight } from "@/components/home/HomeNearbyDirectory";
 import { HomeSearchAutocomplete } from "@/components/home/HomeSearchAutocomplete";
 import { PendingCartNotice } from "@/components/home/PendingCartNotice";
+import { RecoverOrderNotice } from "@/components/orders/RecoverOrderNotice";
 import { GroupOrderEntry } from "@/components/home/GroupOrderEntry";
 import { Card } from "@/components/ui/Card";
 import {
@@ -180,6 +181,7 @@ export default async function Home({
       </section>
 
       <div className="mx-auto max-w-7xl space-y-10 bg-[var(--color-background)] px-4 py-8 sm:px-6 lg:px-8 lg:pt-8">
+        <RecoverOrderNotice />
         <PendingCartNotice />
 
         <section id="explorar">

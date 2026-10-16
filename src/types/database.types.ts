@@ -566,6 +566,7 @@ export type Database = {
         updated_at: string;
       }>;
       orders: Row<{
+        bank_schedule_hold: boolean;
         bank_checkout_hold: boolean;
         bank_group_session_id: string | null;
         group_prepaid_amount: number;
@@ -1466,6 +1467,7 @@ export type Database = {
       resolve_baneco_collection: { Args: { p_restaurant: string }; Returns: string | null };
       prepare_baneco_staff_order: { Args: { p_restaurant: string; p_order: string; p_actor: string }; Returns: string };
       abandon_baneco_checkout: { Args: { p_order: string; p_token: string }; Returns: boolean };
+      authorize_baneco_staff_order: { Args: { p_restaurant: string; p_order: string; p_actor: string }; Returns: undefined };
       post_waiting_baneco_payments: { Args: Record<string, never>; Returns: number };
       retry_baneco_order_payment: { Args: { p_request_id: string }; Returns: string };
       approve_prepaid_order_for_preparation: { Args: { p_restaurant_id: string; p_order_id: string }; Returns: string };

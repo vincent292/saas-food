@@ -4,6 +4,22 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
+test("public table checkout has only a recoverable bank QR, while staff table orders are authenticated and attributed", async () => {
+  const [table, action, pos, bankEndpoint] = await Promise.all([
+    readFile(new URL('src/components/tables/TableOrderClient.tsx', root), 'utf8'),
+    readFile(new URL('src/app/r/actions.ts', root), 'utf8'),
+    readFile(new URL('src/app/api/mobile/pos/route.ts', root), 'utf8'),
+    readFile(new URL('src/app/api/mobile/pos/bank-qr/route.ts', root), 'utf8'),
+  ]);
+  assert.match(table, /name="paymentMethod" type="hidden" value="qr"/);
+  assert.match(table, /prepareOrderRecovery/);assert.match(table, /name="recoveryKey"/);
+  assert.doesNotMatch(table, /CompressedImageInput|QrPaymentViewer|setPaymentMethod|Caja \/ efectivo/);
+  assert.match(action, /parsed.data.paymentMethod !== "qr"\) redirect\(`\$\{failPath\}\?error=table-qr-required/);
+  assert.match(pos, /order_type: "table", order_origin: "pos_counter"/);
+  assert.match(pos, /getWaiterShift/);assert.match(pos, /waiter_table_assignments/);
+  assert.match(bankEndpoint, /authorize_baneco_staff_order/);
+});
+
 test("table approval sends the order to preparation without charging it", async () => {
   const [actions, liveOrders, reviewCard] = await Promise.all([
     readFile(new URL("src/app/admin/actions.ts", root), "utf8"),

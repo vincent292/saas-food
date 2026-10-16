@@ -193,8 +193,8 @@ export async function createPublicMultisiteOrderAction(formData: FormData) {
     admin.from("business_hours").select("restaurant_id,day_of_week,opens_at,closes_at,is_closed").in("restaurant_id", restaurantIds),
     admin.from("cash_sessions").select("restaurant_id").in("restaurant_id", restaurantIds).eq("status", "open"),
     admin.from("restaurant_queue_settings").select("restaurant_id,queue_enabled,base_prep_minutes,kitchen_capacity,rush_multiplier").in("restaurant_id", restaurantIds),
-    admin.from("orders").select("restaurant_id,status").eq("bank_checkout_hold", false).in("restaurant_id", restaurantIds).in("status", ["pending", "accepted", "preparing"]),
-    admin.from("orders").select("restaurant_id").eq("bank_checkout_hold", false).in("restaurant_id", restaurantIds).neq("status", "cancelled").gte("created_at", recentThreshold),
+    admin.from("orders").select("restaurant_id,status").eq("bank_checkout_hold", false).eq("bank_schedule_hold", false).in("restaurant_id", restaurantIds).in("status", ["pending", "accepted", "preparing"]),
+    admin.from("orders").select("restaurant_id").eq("bank_checkout_hold", false).eq("bank_schedule_hold", false).in("restaurant_id", restaurantIds).neq("status", "cancelled").gte("created_at", recentThreshold),
   ]);
   const restaurantById = new Map((restaurantsResult.data ?? []).map((row) => [row.id, row]));
   const settingByRestaurant = new Map((settingsResult.data ?? []).map((row) => [row.restaurant_id, row]));

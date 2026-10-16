@@ -163,9 +163,9 @@ async function activatePaidBankOrders(admin: ReturnType<typeof adminClient>) {
       if (!restaurantRow || !settingsRow) throw new BanecoError("bank-storage-unavailable");
       const usesKitchen = businessTypeSupportsKitchen(restaurantRow.business_type) && settingsRow.kitchen_enabled !== false;
       const result = checked(await admin.rpc("activate_baneco_paid_order", { p_request_id: job.requestId, p_token: token, p_uses_kitchen: usesKitchen })) as
-        { orderId: string; status: "accepted" | "preparing" | "ready"; isDelivery: boolean; notify: boolean; deferred: boolean } | null;
+        { orderId: string; status: "pending" | "accepted" | "preparing" | "ready"; isDelivery: boolean; notify: boolean; deferred: boolean } | null;
       if (result) {
-        if (result.notify) await Promise.allSettled([
+        if (result.notify && result.status !== "pending") await Promise.allSettled([
           sendRestaurantNewOrderPush(result.orderId),
           sendOrderStatusPush({ orderId: result.orderId, status: result.status }),
           sendOrderWhatsAppNotification({ event: result.status === "ready" ? "ready" : "accepted", orderId: result.orderId }),
@@ -205,7 +205,7 @@ export async function acceptBanecoPaymentNotice(qrId: string) {
 }
 
 async function publicOrder(admin: ReturnType<typeof adminClient>, orderId: string, token: string) {
-  const order = checked(await admin.from("orders").select("id,restaurant_id,total,payment_status,payment_method,status,bank_checkout_hold,group_order_session_id,payment_receipt_url,payment_receipt_reference")
+  const order = checked(await admin.from("orders").select("id,restaurant_id,total,payment_status,payment_method,status,bank_checkout_hold,bank_schedule_hold,requested_fulfillment_at,group_order_session_id,payment_receipt_url,payment_receipt_reference")
     .eq("id", orderId).eq("tracking_token", token).maybeSingle());
   if (!order) throw new BanecoError("bank-request-unavailable");
   return order;
@@ -222,7 +222,7 @@ export const bankOrderPaymentService = {
   async get(orderId: string, token: string) {
     const admin = adminClient();
     const order = await publicOrder(admin, orderId, token);
-    const lifecycle = { checkoutHeld: order.bank_checkout_hold, paymentStatus: order.payment_status, orderStatus: order.status };
+    const lifecycle = { checkoutHeld: order.bank_checkout_hold, scheduleHeld: order.bank_schedule_hold, scheduledFor: order.requested_fulfillment_at, paymentStatus: order.payment_status, orderStatus: order.status };
     const request = checked(await admin.from("bank_qr_test_requests").select("id,status,qr_image,amount,application_state,due_date,collection_route")
       .eq("order_id", order.id).not("status", "in", "(failed,cancelled)").order("created_at", { ascending: false }).limit(1).maybeSingle());
     if (request) {

@@ -734,7 +734,7 @@ function OrderErrorMessage({ error }: { error: string }) {
     error === "rate-limit"
       ? "Se enviaron demasiados pedidos en pocos minutos. Espera un momento antes de intentar nuevamente."
       : error === "qr-required-distance"
-      ? "Por la distancia de entrega, este pedido requiere pago QR con comprobante."
+      ? "Por la distancia de entrega, este pedido requiere pago QR bancario confirmado."
       : error === "different-city"
         ? "El delivery solo esta disponible dentro de la misma ciudad del restaurante."
       : error === "delivery-location"
@@ -746,7 +746,7 @@ function OrderErrorMessage({ error }: { error: string }) {
           : error === "settings"
             ? "El restaurante todavia no termino de configurar la recepcion de pedidos."
       : error === "receipt-required"
-        ? "Para pago QR debes subir el comprobante antes de confirmar."
+        ? "El pago QR se confirma con el banco; no necesitas subir comprobante."
         : error === "qr-unavailable"
           ? "Este restaurante todavia no tiene QR configurado. Elige pago en efectivo."
           : error === "temporarily-closed"
@@ -1538,10 +1538,10 @@ function PublicOrderPanel({
         </div>
         <div className={cn(fulfillmentMode === "scheduled" ? "block" : "hidden")}>
           <label className="block text-sm font-black">
-            Hora de entrega o recojo
+            {effectivePaymentMethod === "qr" ? "Hora de inicio de preparación" : "Hora de entrega o recojo"}
             <Input className="mt-2" min={nowAvailable ? businessStatus.currentInputValue : businessStatus.nextOpeningInputValue} name="requestedFulfillmentAt" onChange={(event) => setRequestedFulfillmentAt(event.target.value)} type="datetime-local" value={requestedFulfillmentAt} />
           </label>
-          <p className="mt-2 text-xs font-semibold text-[var(--muted)]">La hora debe estar dentro del horario configurado del restaurante.</p>
+          <p className="mt-2 text-xs font-semibold text-[var(--muted)]">{effectivePaymentMethod === "qr" ? "El pago se confirma ahora; cocina empieza a partir de esta hora, con caja abierta. La entrega será después del tiempo de preparación y traslado." : "La hora debe estar dentro del horario configurado del restaurante."}</p>
         </div>
       </section>
 
@@ -1843,12 +1843,12 @@ function PublicOrderPanel({
         </div>
         <div className="grid gap-2 rounded-[1.25rem] bg-[var(--color-surface)] p-4 text-sm ring-1 ring-[var(--border)]">
           <ReviewLine label="Modalidad" value={orderType === "delivery" ? "Envio a domicilio" : "Recojo en local"} />
-          <ReviewLine label="Horario" value={fulfillmentMode === "scheduled" ? requestedFulfillmentAt.replace("T", " ") : "Ahora mismo"} />
+          <ReviewLine label={fulfillmentMode === "scheduled" && effectivePaymentMethod === "qr" ? "Inicio de preparación" : "Horario"} value={fulfillmentMode === "scheduled" ? requestedFulfillmentAt.replace("T", " ") : "Ahora mismo"} />
           <ReviewLine label="Cliente" value={customerName || "Sin nombre"} />
           {orderType === "delivery" ? <ReviewLine label="Direccion" value={customerAddress || "Sin direccion"} /> : null}
           {orderType === "delivery" && deliveryPolicy.distanceKm != null ? <ReviewLine label="Distancia" value={`${deliveryPolicy.distanceKm.toFixed(1)} km${deliveryPolicy.requiresQrPrepayment ? " · QR obligatorio" : ""}`} /> : null}
           {invoiceEnabled ? <ReviewLine label="Factura" value={requiresInvoice ? `${invoiceDocumentNumber || "Documento"} - ${invoiceName || "Nombre"}` : "No requiere"} /> : null}
-          <ReviewLine label="Pago" value={effectivePaymentMethod === "cash" ? "Efectivo" : "QR con comprobante"} />
+          <ReviewLine label="Pago" value={effectivePaymentMethod === "cash" ? "Efectivo" : "QR bancario automático"} />
         </div>
       </section>
 

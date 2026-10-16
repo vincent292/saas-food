@@ -37,8 +37,8 @@ export default async function TrackingPage({
     notFound();
   }
 
-  const recovery = token ? await createAdminClient()?.from("orders").select("public_request_id,bank_payment_required,bank_auto_accept,bank_checkout_hold,payment_status,status").eq("id", orderId).eq("restaurant_id", restaurant.id).eq("tracking_token", token).maybeSingle() : null;
-  if (token && (recovery?.data?.bank_checkout_hold || (recovery?.data?.bank_payment_required && recovery.data.payment_status !== "paid") || (recovery?.data?.bank_auto_accept && recovery.data.payment_status === "paid" && recovery.data.status === "pending"))) {
+  const recovery = token ? await createAdminClient()?.from("orders").select("public_request_id,bank_payment_required,bank_auto_accept,bank_checkout_hold,bank_schedule_hold,payment_status,status").eq("id", orderId).eq("restaurant_id", restaurant.id).eq("tracking_token", token).maybeSingle() : null;
+  if (token && (recovery?.data?.bank_checkout_hold || (recovery?.data?.bank_payment_required && recovery.data.payment_status !== "paid") || (recovery?.data?.bank_auto_accept && recovery.data.payment_status === "paid" && recovery.data.status === "pending" && !recovery.data.bank_schedule_hold))) {
     redirect(`${publicRestaurantPath(restaurantSlug, `pago/${orderId}`)}?token=${encodeURIComponent(token)}`);
   }
 

@@ -618,6 +618,7 @@ export async function createPublicOrderAction(formData: FormData) {
   }
 
   if (parsed.data.orderType === "table") {
+    if (parsed.data.paymentMethod !== "qr") redirect(`${failPath}?error=table-qr-required`);
     const validTable = await validatePublicTable(supabase, parsed.data.restaurantId, parsed.data.tableId, parsed.data.tableCode);
     if (!validTable) {
       redirect(`${failPath}?error=invalid-table`);
@@ -843,7 +844,7 @@ export async function createPublicOrderAction(formData: FormData) {
   if (createdNow) {
     if (dynamicQr) {
       // The bank reservation is durable before emission. A timeout is shown in
-      // tracking; it never creates another order or blindly issues another QR.
+      // the payment screen; it never creates another order or blindly issues another QR.
       await bankOrderPaymentService.generate(order.id, order.tracking_token).catch(() => null);
     } else after(async () => { await sendRestaurantNewOrderPush(order.id); });
   }

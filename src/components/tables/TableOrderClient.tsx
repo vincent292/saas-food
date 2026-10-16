@@ -3,8 +3,9 @@
 import { CalendarClock, Check, Minus, Plus, ReceiptText, ShoppingCart, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
-import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
-import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
+import { RecoverOrderNotice } from "@/components/orders/RecoverOrderNotice";
+import { prepareOrderRecovery } from "@/lib/client/order-recovery";
+import { FormSubmitButton } from "@/components/ui/FormSubmitButton";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
@@ -12,7 +13,6 @@ import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { productAvailabilityLabels } from "@/lib/utils/product-availability";
 import { productImageFitStyle } from "@/lib/utils/product-image-fit";
-import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { RestaurantTable } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
 import type { Restaurant, RestaurantSettings } from "@/types/restaurant.types";
@@ -42,6 +42,7 @@ export function TableOrderClient({
   settings,
   configuration,
   orderError,
+  bankQrAvailable,
 }: {
   restaurant: Restaurant;
   table: RestaurantTable;
@@ -50,12 +51,12 @@ export function TableOrderClient({
   settings: RestaurantSettings | null;
   configuration: ProductConfiguration;
   orderError?: string;
+  bankQrAvailable: boolean;
 }) {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "qr">("cash");
   const [requiresInvoice, setRequiresInvoice] = useState(false);
 
   const configByProduct = useMemo<ProductConfigMap>(() => {
@@ -156,11 +157,12 @@ export function TableOrderClient({
               <div className="relative max-w-2xl">
                 <span className="inline-flex rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-black text-[var(--primary-dark)]">Pedido en mesa</span>
                 <h1 className="mt-4 text-4xl font-black leading-none tracking-normal text-[var(--text)] sm:text-6xl">Mesa {table.name.replace(/^mesa\s*/i, "")}</h1>
-                <p className="mt-3 max-w-[18rem] text-sm font-bold leading-6 text-[var(--muted)] sm:max-w-2xl sm:text-base">Elige tus productos. Para procesarlo, confirma el pago en caja.</p>
+                <p className="mt-3 max-w-[18rem] text-sm font-bold leading-6 text-[var(--muted)] sm:max-w-2xl sm:text-base">Elige tus productos y paga con QR bancario. Tu pedido entra a cocina solo después de confirmar el pago. Para pedir en efectivo, llama a un mesero.</p>
               </div>
             </div>
             {orderError ? <OrderErrorMessage error={orderError} /> : null}
           </div>
+          <RecoverOrderNotice restaurantId={restaurant.id} />
 
           <div className="sticky top-[68px] z-20 -mx-3 mb-3 border-y border-[var(--border)] bg-[var(--surface)]/95 px-3 py-3 backdrop-blur sm:mx-0 sm:rounded-[1.5rem] sm:border">
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -186,10 +188,9 @@ export function TableOrderClient({
             cartJson={cartJson}
             changeQuantity={changeQuantity}
             notes={orderNotes}
-            paymentMethod={paymentMethod}
+            bankQrAvailable={bankQrAvailable}
             requiresInvoice={requiresInvoice}
             restaurant={restaurant}
-            setPaymentMethod={setPaymentMethod}
             setRequiresInvoice={setRequiresInvoice}
             settings={settings}
             table={table}
@@ -225,10 +226,9 @@ export function TableOrderClient({
               changeQuantity={changeQuantity}
               compact
               notes={orderNotes}
-              paymentMethod={paymentMethod}
+              bankQrAvailable={bankQrAvailable}
               requiresInvoice={requiresInvoice}
               restaurant={restaurant}
-              setPaymentMethod={setPaymentMethod}
               setRequiresInvoice={setRequiresInvoice}
               settings={settings}
               table={table}
@@ -270,9 +270,11 @@ function OrderErrorMessage({ error }: { error: string }) {
     error === "no-open-cash"
       ? "La caja esta cerrada. El restaurante debe abrir caja para recibir pedidos."
       : error === "phone-required"
-        ? "Para pedidos en mesa el WhatsApp es obligatorio. Lo usamos para avisarte si no pasaste por caja."
-      : error === "receipt-required"
-        ? "Para pago QR debes subir el comprobante antes de confirmar."
+        ? "Para pedidos en mesa el WhatsApp es obligatorio para identificarte y avisarte del estado."
+      : error === "table-qr-required"
+        ? "Desde el QR de la mesa solo puedes pagar con QR bancario. Para pedir en efectivo, llama a un mesero."
+      : error === "qr-unavailable"
+        ? "El pago bancario no está disponible. Llama a un mesero para que tome tu pedido."
       : error === "invoice"
         ? "Completa los datos de factura para confirmar el pedido."
       : error === "invoice-disabled"
@@ -508,12 +510,11 @@ function OrderPanel({
   cart,
   cartJson,
   total,
-  paymentMethod,
+  bankQrAvailable,
   requiresInvoice,
   notes,
   compact = false,
   changeQuantity,
-  setPaymentMethod,
   setRequiresInvoice,
 }: {
   restaurant: Restaurant;
@@ -522,26 +523,38 @@ function OrderPanel({
   cart: CartItem[];
   cartJson: string;
   total: number;
-  paymentMethod: "cash" | "qr";
+  bankQrAvailable: boolean;
   requiresInvoice: boolean;
   notes: string;
   compact?: boolean;
   changeQuantity: (cartId: string, delta: number) => void;
-  setPaymentMethod: (method: "cash" | "qr") => void;
   setRequiresInvoice: (value: boolean) => void;
 }) {
-  const qrPaymentUrl = normalizeQrPaymentUrl(settings?.qrPaymentUrl);
-  const qrAvailable = hasQrPaymentConfigured(settings);
+  const [recoveryError, setRecoveryError] = useState("");
   const invoiceEnabled = settings?.invoiceEnabled ?? false;
 
   return (
-    <form action={createPublicOrderAction} className={cn("rounded-[1.5rem] bg-[var(--surface)] p-4 text-[var(--text)] shadow-sm", compact && "rounded-none p-0 shadow-none")}>
+    <form action={createPublicOrderAction} onSubmit={(event) => {
+      setRecoveryError("");
+      try {
+        const recovery = prepareOrderRecovery(restaurant.id, restaurant.slug);
+        const form = event.currentTarget;
+        const id = form.elements.namedItem("requestId"), key = form.elements.namedItem("recoveryKey");
+        if (!(id instanceof HTMLInputElement) || !(key instanceof HTMLInputElement)) throw new Error("missing-recovery");
+        id.value = recovery.requestId; key.value = recovery.recoveryKey;
+      } catch {
+        event.preventDefault();
+        setRecoveryError("Habilita el almacenamiento de este navegador para recuperar tu pago. Si no puedes, llama a un mesero.");
+      }
+    }} className={cn("rounded-[1.5rem] bg-[var(--surface)] p-4 text-[var(--text)] shadow-sm", compact && "rounded-none p-0 shadow-none")}>
+      <input name="requestId" type="hidden" defaultValue="" />
+      <input name="recoveryKey" type="hidden" defaultValue="" />
       <input name="restaurantId" type="hidden" value={restaurant.id} />
       <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
       <input name="tableId" type="hidden" value={table.id} />
       <input name="tableCode" type="hidden" value={table.code} />
       <input name="orderType" type="hidden" value="table" />
-      <input name="paymentMethod" type="hidden" value={paymentMethod} />
+      <input name="paymentMethod" type="hidden" value="qr" />
       <input name="invoiceRequired" type="hidden" value={invoiceEnabled && requiresInvoice ? "on" : ""} />
       <input name="notes" type="hidden" value={notes} />
       <input name="cartJson" type="hidden" value={cartJson} />
@@ -585,7 +598,7 @@ function OrderPanel({
       <label className="mt-3 block text-sm font-black">
         WhatsApp *
         <Input className="mt-2" name="customerPhone" placeholder="Ej: 70707070" required type="tel" />
-        <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--muted)]">Obligatorio para avisarte si el pedido queda pendiente de pago en caja.</span>
+        <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--muted)]">Para identificar tu pedido y avisarte de su estado.</span>
       </label>
 
       {invoiceEnabled ? (
@@ -632,45 +645,11 @@ function OrderPanel({
         </section>
       ) : null}
 
-      <div className="mt-3 grid rounded-2xl bg-[var(--primary-light)] p-1 sm:grid-cols-2">
-        <button className={cn("h-12 rounded-full text-sm font-black", paymentMethod === "cash" && "bg-[var(--primary)] text-[var(--color-on-primary)]")} onClick={() => setPaymentMethod("cash")} type="button">
-          Caja / efectivo
-        </button>
-        <button className={cn("h-12 rounded-full text-sm font-black text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-45", paymentMethod === "qr" && "bg-[var(--primary)] text-[var(--color-on-primary)]")} disabled={!qrAvailable} onClick={() => setPaymentMethod("qr")} type="button">
-          Pago QR
-        </button>
-      </div>
-      <p className={cn("mt-2 rounded-2xl p-3 text-xs font-bold", qrAvailable ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-card-muted)] text-[var(--muted)]")}>
-        {qrAvailable ? "QR activo para esta mesa/sucursal." : "Sin QR configurado. Puedes confirmar en caja/efectivo."}
-      </p>
-
-      {paymentMethod === "qr" && qrAvailable ? (
-        <div className="mt-3 grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[140px_1fr] sm:items-center">
-          <QrPaymentViewer
-            downloadFileName={`${restaurant.slug}-mesa-${table.code}-qr-pago.png`}
-            imageClassName="h-24 w-24"
-            subtitle={`Mesa ${table.name}`}
-            title="QR de pago"
-            url={qrPaymentUrl}
-          />
-          <div>
-            <p className="text-sm font-black text-[var(--text)]">Escanea el QR del restaurante</p>
-            <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Puedes pagar con QR y caja lo validara antes de mandar el pedido a cocina.</p>
-          </div>
-        </div>
-      ) : null}
-
-      {paymentMethod === "qr" && qrAvailable ? (
-        <CompressedImageInput acceptPdf className="mt-3" help="Opcional en mesa. Si no lo subes aqui, caja puede registrar la referencia cuando pagues." label="Comprobante QR opcional" name="paymentReceiptFile" />
-      ) : null}
-
       <p className="mt-4 rounded-2xl bg-[var(--color-card-muted)] p-3 text-sm leading-6 text-[var(--muted)]">
-        Para procesar tu pedido, por favor acercate a caja y confirma el pago indicando tu numero de pedido y mesa.
+        {bankQrAvailable ? "En la siguiente pantalla verás el QR de importe exacto. El banco verifica el pago automáticamente; no necesitas subir comprobante. Para pedir en efectivo, llama a un mesero." : "El cobro QR no está habilitado. No se enviará un pedido sin pagar; llama a un mesero para que tome tu pedido."}
       </p>
-
-      <Button className="mt-5 min-h-13 w-full" disabled={!cart.length} type="submit">
-        Confirmar pedido
-      </Button>
+      {recoveryError ? <p role="alert" className="mt-3 text-sm text-red-700">{recoveryError}</p> : null}
+      <FormSubmitButton className="mt-5 min-h-13 w-full" disabled={!cart.length || !bankQrAvailable} label="Continuar al pago QR" pendingLabel="Preparando tu pago…" overlayTitle="Preparando tu pago" overlayDescription="Conservamos la misma solicitud para que puedas salir a tu banco y volver." />
     </form>
   );
 }

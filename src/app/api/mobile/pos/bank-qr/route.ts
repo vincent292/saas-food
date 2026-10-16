@@ -23,7 +23,8 @@ async function handle(request: Request, mutate: boolean) {
       authorized = new Request(request.url, { headers: { authorization: `Bearer ${data.session.access_token}` } });
     }
     const auth = await session(authorized);
-    restaurantAccess(auth, parsed.data.restaurantId, true);
+    restaurantAccess(auth, parsed.data.restaurantId);
+    checked(await auth.admin.rpc("authorize_baneco_staff_order", { p_restaurant: parsed.data.restaurantId, p_order: parsed.data.orderId, p_actor: auth.profile.id }));
     const support = checked(await auth.admin.from("support_impersonation_sessions").select("id").eq("actor_user_id", auth.profile.id).eq("status", "active").gt("expires_at", new Date().toISOString()).limit(1).maybeSingle());
     if (support) throw new PosError("bank-forbidden", 403);
     const limit = await consumeRateLimit({ scope: mutate ? "pos-bank-write" : "pos-bank-read", identity: auth.profile.id,

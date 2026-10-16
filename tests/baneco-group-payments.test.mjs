@@ -55,6 +55,13 @@ async function fixture(){
   const queue=read('0023_virtual_order_queue.sql');await db.exec(queue.slice(0,queue.indexOf('create index')));
   await db.exec(read('0025_queue_ignores_stale_active_orders.sql'));
   await db.exec(read('0136_baneco_payment_before_submission.sql'));
+  await db.exec(`alter table orders add column table_visit_id uuid;
+    create table table_visits(id uuid primary key default gen_random_uuid(),restaurant_id uuid,table_id uuid,status text default 'open',opened_by uuid);
+    create unique index fixture_open_visit on table_visits(table_id) where status='open';
+    create table waiter_table_assignments(restaurant_id uuid,table_id uuid,waiter_user_id uuid);
+    create table admin_audit_logs(id uuid default gen_random_uuid(),actor_user_id uuid,restaurant_id uuid,action text,created_at timestamptz default now());`);
+  await db.exec(read('0137_public_table_bank_only_and_waiter_access.sql'));
+  await db.exec(read('0138_baneco_scheduled_cash_day_and_preparation.sql'));
   const charge=read('0103_fix_table_settlement_and_payment_flow.sql');
   await db.exec(charge.slice(charge.indexOf('create or replace function charge_order_with_cash_movement('),charge.indexOf('create or replace function settle_table_with_cash_movements(')));
   const products=[];for(const [i,id] of restaurants.entries()){
@@ -76,8 +83,8 @@ async function fixture(){
     const stops=bills.map((bill,i)=>({...bill,order_number:'QA-'+i,pickup_position:i+1,release_delay_minutes:0,estimated_ready_minutes:20}));
     return {token,run:()=>db.query('select finalize_baneco_group($1,$2,$3,$4,$5) result',[session,hostSecret,token,{customer_name:'QA host',customer_address:'Destino',customer_phone:'59170000000',delivery_latitude:-17.3,delivery_longitude:-66.1,order_type:'delivery',delivery_fee:8,rider_fee_suggested:8,rider_fee_minimum:8,rider_fee_maximum:8},stops])};
   };
-  const checkout=async()=>{
-    const id=randomUUID();const payload={restaurant_id:restaurants[0],order_number:'PAY-'+id,order_type:'pickup',order_origin:'web_checkout',payment_method:'qr',customer_name:'Cliente',subtotal:10,total:10,delivery_fee:0,discount_total:0,bank_checkout:true,recovery_key_hash:'a'.repeat(64)};
+  const checkout=async(overrides={})=>{
+    const id=randomUUID();const payload={restaurant_id:restaurants[0],order_number:'PAY-'+id,order_type:'pickup',order_origin:'web_checkout',payment_method:'qr',customer_name:'Cliente',subtotal:10,total:10,delivery_fee:0,discount_total:0,bank_checkout:true,recovery_key_hash:'a'.repeat(64),...overrides};
     const items=[{product_id:products[0],product_name:'Producto',unit_price:10,quantity:1,subtotal:10,option_ids:[]}];
     const replay=()=>db.query('select * from create_public_order_transaction($1,$2,$3)',[id,payload,items]);
     const result=(await replay()).rows[0];return {...result,replay};
@@ -256,5 +263,74 @@ test('bank payment with a local stock failure stays held for review and cannot b
     assert.equal((await f.db.query('select bank_checkout_hold from orders where id=$1',[a.id])).rows[0].bank_checkout_hold,true);
     assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders')).rows[0].n,0);
     assert.equal((await f.db.query('select abandon_baneco_checkout($1,$2) result',[a.id,a.tracking_token])).rows[0].result,false);
+  }finally{await f.db.close();}
+});
+
+test('public tables require bank QR, open no visit until paid, while authenticated staff-origin cash remains pending collection',async()=>{
+  const f=await fixture();try{
+    const table=randomUUID();await f.db.query("insert into tables values($1,$2,'available')",[table,f.restaurants[0]]);
+    await assert.rejects(f.checkout({order_type:'table',order_origin:'table_qr',table_id:table,payment_method:'cash'}),/table-qr-required/);
+    const order=await f.checkout({order_type:'table',order_origin:'table_qr',table_id:table});
+    assert.equal((await f.db.query('select count(*)::int n from table_visits')).rows[0].n,0);
+    const request=(await f.db.query('select reserve_baneco_order_qr($1,$2) r',[order.id,order.tracking_token])).rows[0].r.request;
+    await f.db.query("update bank_qr_test_requests set status='pending',qr_id=$2 where id=$1",[request.id,'TABLE-'+request.id]);
+    await f.pay(request);await f.pay(request);
+    assert.equal((await f.db.query('select count(*)::int n from table_visits')).rows[0].n,1);
+    assert.ok((await f.db.query('select table_visit_id from orders where id=$1',[order.id])).rows[0].table_visit_id);
+    assert.equal((await f.db.query('select status from tables where id=$1',[table])).rows[0].status,'occupied');
+    const cash=await f.checkout({order_type:'table',order_origin:'pos_counter',table_id:table,payment_method:'cash'});
+    const row=(await f.db.query('select * from orders where id=$1',[cash.id])).rows[0];
+    assert.equal(row.bank_checkout_hold,false);assert.equal(row.payment_status,'pending');assert.equal(row.status,'pending');
+    assert.equal((await f.db.query('select count(*)::int n from table_visits')).rows[0].n,1);
+    assert.equal((await f.db.query('select count(*)::int n from cash_movements where order_id=$1',[cash.id])).rows[0].n,0);
+  }finally{await f.db.close();}
+});
+
+test('waiter bank access requires membership, active shift and assigned table and cannot access counter sales or another branch',async()=>{
+  const f=await fixture();try{
+    const waiter=randomUUID(),other=randomUUID(),table=randomUUID(),otherTable=randomUUID();
+    await f.db.query("insert into profiles values($1,null),($2,null)",[waiter,other]);
+    await f.db.query("insert into restaurant_memberships values($1,$2,true,'waiter')",[waiter,f.restaurants[0]]);
+    const order=await f.checkout({order_type:'table',order_origin:'pos_counter',table_id:table,payment_method:'cash'});
+    const check=(actor=waiter,restaurant=f.restaurants[0],id=order.id)=>f.db.query('select authorize_baneco_staff_order($1,$2,$3)',[restaurant,id,actor]);
+    await assert.rejects(check(),/bank-forbidden/);
+    await f.db.query("insert into admin_audit_logs(actor_user_id,restaurant_id,action) values($1,$2,'waiter_shift_opened')",[waiter,f.restaurants[0]]);
+    await check();await assert.rejects(check(other),/bank-forbidden/);await assert.rejects(check(waiter,f.restaurants[1]),/bank-forbidden/);
+    const sale=await f.checkout({order_origin:'pos_counter'});await assert.rejects(check(waiter,f.restaurants[0],sale.id),/bank-forbidden/);
+    await f.db.query('insert into waiter_table_assignments values($1,$2,$3)',[f.restaurants[0],otherTable,waiter]);await assert.rejects(check(),/bank-forbidden/);
+    await f.db.query('insert into waiter_table_assignments values($1,$2,$3)',[f.restaurants[0],table,waiter]);await check();
+    await f.db.query('select prepare_baneco_staff_order($1,$2,$3)',[f.restaurants[0],order.id,waiter]);
+    assert.equal((await f.db.query('select payment_method from orders where id=$1',[order.id])).rows[0].payment_method,'qr');
+    await f.db.query("insert into admin_audit_logs(actor_user_id,restaurant_id,action,created_at) values($1,$2,'waiter_shift_closed',now()+interval '1 second')",[waiter,f.restaurants[0]]);await assert.rejects(check(),/bank-forbidden/);
+    await f.db.exec('set role authenticated');await assert.rejects(check(),/permission denied/);
+  }finally{await f.db.close();}
+});
+
+test('scheduled bank payment waits for start and correct cash day, then releases and posts exactly once without recharging',async()=>{
+  const f=await fixture();try{
+    const start=new Date(Date.now()+3500);
+    const order=await f.checkout({requested_fulfillment_at:start.toISOString()});
+    // A still-open session from a previous Bolivia day must not receive it.
+    await f.db.query("update cash_sessions set opened_at=now()-interval '2 days' where restaurant_id=$1",[f.restaurants[0]]);
+    const request=(await f.db.query('select reserve_baneco_order_qr($1,$2) r',[order.id,order.tracking_token])).rows[0].r.request;
+    await f.db.query("update bank_qr_test_requests set status='pending',qr_id=$2 where id=$1",[request.id,'SCHEDULE-'+request.id]);await f.pay(request);
+    let row=(await f.db.query('select * from orders where id=$1',[order.id])).rows[0];
+    const paidAt=row.payment_verified_at;assert.equal(row.payment_status,'paid');assert.equal(row.status,'pending');assert.equal(row.bank_checkout_hold,false);assert.equal(row.bank_schedule_hold,true);
+    assert.equal((await f.db.query('select application_state from bank_qr_test_requests where id=$1',[request.id])).rows[0].application_state,'waiting_cash');
+    assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders')).rows[0].n,0);
+    await assert.rejects(f.db.query("update orders set status='accepted' where id=$1",[order.id]),/bank-schedule-not-due/);
+    assert.equal((await f.db.query('select claim_baneco_order_activation($1) r',[randomUUID()])).rows[0].r,null);
+    await new Promise(resolve=>setTimeout(resolve,Math.max(0,start.getTime()-Date.now()+75)));
+    assert.equal((await f.db.query('select post_waiting_baneco_payments() n')).rows[0].n,0);
+    let token=randomUUID();await f.db.query('select claim_baneco_order_activation($1)',[token]);
+    assert.equal((await f.db.query('select activate_baneco_paid_order($1,$2,true) r',[request.id,token])).rows[0].r.deferred,true);
+    await f.db.query("update cash_sessions set status='closed' where restaurant_id=$1",[f.restaurants[0]]);
+    const current=randomUUID();await f.db.query("insert into cash_sessions(id,restaurant_id,status) values($1,$2,'open')",[current,f.restaurants[0]]);
+    assert.equal((await f.db.query('select post_waiting_baneco_payments() n')).rows[0].n,1);
+    assert.equal((await f.db.query('select post_waiting_baneco_payments() n')).rows[0].n,0);
+    await f.db.query('update bank_order_activations set next_attempt_at=now() where request_id=$1',[request.id]);token=randomUUID();await f.db.query('select claim_baneco_order_activation($1)',[token]);
+    await f.db.query('select activate_baneco_paid_order($1,$2,true)',[request.id,token]);await f.db.query('select finish_baneco_order_activation($1,$2,true)',[request.id,token]);
+    row=(await f.db.query('select * from orders where id=$1',[order.id])).rows[0];assert.equal(row.status,'accepted');assert.equal(row.bank_schedule_hold,false);assert.deepEqual(row.payment_verified_at,paidAt);assert.ok(new Date(row.accepted_at)>=start);
+    const movements=(await f.db.query('select * from cash_movements where order_id=$1',[order.id])).rows;assert.equal(movements.length,1);assert.equal(movements[0].cash_session_id,current);
   }finally{await f.db.close();}
 });

@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils/cn";
 
 const publicSearchOpenEvent = "yopido:open-public-search";
 const hiddenPrefixes = ["/admin", "/dueno", "/cocina", "/caja", "/delivery", "/api", "/r"];
-const hiddenPublicRoutePatterns = [/^\/[^/]+\/grupo(?:\/|$)/, /^\/[^/]+\/pago(?:\/|$)/];
+const hiddenPublicRoutePatterns = [/^\/[^/]+\/grupo(?:\/|$)/, /^\/[^/]+\/pago(?:\/|$)/, /^\/[^/]+\/mesa(?:\/|$)/];
 
 function shouldHide(pathname: string) {
   return hiddenPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)) || hiddenPublicRoutePatterns.some((pattern) => pattern.test(pathname));

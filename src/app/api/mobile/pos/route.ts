@@ -317,6 +317,7 @@ export async function POST(request: Request) {
       }
       result = { active: opening, openedAt: opening ? current?.openedAt ?? new Date().toISOString() : null };
     } else if (input.action === "table-order") {
+      if (!["cash", "qr"].includes(input.paymentMethod)) throw new PosError("En mesa usa efectivo tomado por el personal o QR bancario.", 409);
       const existing = checked(await auth.client.from("orders").select("id,order_number").eq("restaurant_id", id).eq("public_request_id", input.requestId).maybeSingle());
       if (existing) return json(existing);
       if (restaurant.role === "waiter" && !(await getWaiterShift(auth, id))?.active) {
@@ -344,7 +345,9 @@ export async function POST(request: Request) {
       const orderNumber = `M-${input.requestId.slice(0, 8).toUpperCase()}`;
       // Attribution is generated from the authenticated account, never from the payload.
       const notes = `${table.name} (${table.code}) | Mesero: ${auth.profile.full_name || "Personal"} | Usuario: ${auth.profile.id}${input.notes ? ` | ${input.notes}` : ""}`;
-      const created = await auth.admin.rpc("create_public_order_transaction", { p_request_id: input.requestId, p_order: { restaurant_id: id, table_id: table.id, order_number: orderNumber, customer_name: input.customerName || table.name, customer_phone: input.customerPhone || null, order_type: "table", order_origin: "table_qr", payment_method: input.paymentMethod, payment_receipt_url: receipt, payment_receipt_uploaded_at: receipt ? new Date().toISOString() : null, subtotal: total, total, delivery_fee: 0, discount_total: 0, notes }, p_items: items });
+      // Staff-only origin: this endpoint authenticated membership, shift and table
+      // assignment above. Public table QR clients can never choose this origin.
+      const created = await auth.admin.rpc("create_public_order_transaction", { p_request_id: input.requestId, p_order: { restaurant_id: id, table_id: table.id, order_number: orderNumber, customer_name: input.customerName || table.name, customer_phone: input.customerPhone || null, order_type: "table", order_origin: "pos_counter", payment_method: input.paymentMethod, payment_receipt_url: receipt, payment_receipt_uploaded_at: receipt ? new Date().toISOString() : null, subtotal: total, total, delivery_fee: 0, discount_total: 0, notes }, p_items: items });
       if (created.error?.code === "23505") {
         const retry = checked(await client.from("orders").select("id,order_number").eq("restaurant_id", id).eq("public_request_id", input.requestId).maybeSingle());
         if (retry) return json(retry);
@@ -355,9 +358,7 @@ export async function POST(request: Request) {
         if (restaurant.role === "waiter") {
           await writeWaiterAudit(auth, id, "waiter_order_created", { orderId: createdOrderId, orderNumber, tableId: table.id, tableName: table.name });
         }
-        after(async () => {
-          await sendRestaurantNewOrderPush(createdOrderId);
-        });
+        if (input.paymentMethod !== "qr") after(async () => { await sendRestaurantNewOrderPush(createdOrderId); });
       }
       result = { id: createdOrderId, order_number: orderNumber };
     } else if (input.action === "open-cash" || input.action === "close-cash") {

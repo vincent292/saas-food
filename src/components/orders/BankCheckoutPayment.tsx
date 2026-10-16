@@ -5,7 +5,7 @@ import { BankOrderPaymentCard } from "./BankOrderPaymentCard";
 import { useRealtimeBroadcast } from "@/lib/client/use-realtime-broadcast";
 import { markOrderRecovered } from "@/lib/client/order-recovery";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
-type Payment = { available: boolean; status: string; amount?: number; image?: string | null; applicationState?: string; checkoutHeld?: boolean; paymentStatus?: string; orderStatus?: string };
+type Payment = { available: boolean; status: string; amount?: number; image?: string | null; applicationState?: string; checkoutHeld?: boolean; scheduleHeld?: boolean; paymentStatus?: string; orderStatus?: string };
 export function BankCheckoutPayment({ orderId, token, restaurantSlug, requestId, initialPayment }: {
   orderId: string; token: string; restaurantSlug: string; requestId: string | null; initialPayment: Payment | null;
 }) {
@@ -19,7 +19,7 @@ export function BankCheckoutPayment({ orderId, token, restaurantSlug, requestId,
       if (!response.ok) return;
       const next = await response.json() as Payment;
       setPayment(next);
-      if (next.paymentStatus === "paid" && !next.checkoutHeld && next.orderStatus && !["pending", "cancelled"].includes(next.orderStatus)) {
+      if (next.paymentStatus === "paid" && !next.checkoutHeld && next.orderStatus && next.orderStatus !== "cancelled" && (next.scheduleHeld || !["pending", "cancelled"].includes(next.orderStatus))) {
         router.replace(`${publicRestaurantPath(restaurantSlug, `pedido/${orderId}`)}?token=${encodeURIComponent(token)}`);
       }
     } catch { /* The same durable reservation is recovered after reconnect. */ }

@@ -5,6 +5,7 @@ import { categoryService } from "@/lib/services/category.service";
 import { productService } from "@/lib/services/product.service";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { tableService } from "@/lib/services/table.service";
+import { bankOrderPaymentService } from "@/lib/services/bank-qr.service";
 
 export default async function TableOrderPage({
   params,
@@ -32,10 +33,11 @@ export default async function TableOrderPage({
     restaurantService.getPublicSettings(restaurant.id),
     productService.listPublicConfigurationsByRestaurant(restaurant.id),
   ]);
+  const bankQrAvailable = await bankOrderPaymentService.availableForRestaurant(restaurant.id, settings?.currency);
 
   return (
     <RestaurantThemeProvider>
-      <TableOrderClient categories={categories} configuration={configuration} orderError={error} products={products} restaurant={restaurant} settings={settings} table={table} />
+      <TableOrderClient bankQrAvailable={bankQrAvailable} categories={categories} configuration={configuration} orderError={error} products={products} restaurant={restaurant} settings={settings} table={table} />
     </RestaurantThemeProvider>
   );
 }

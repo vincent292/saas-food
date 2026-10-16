@@ -52,6 +52,7 @@ function isTerminalOrder(order: Order) {
 }
 
 function trackingLabel(order: Order & { businessType?: BusinessType }) {
+  if (order.status === "pending" && order.paymentStatus === "paid" && order.requestedFulfillmentAt) return "Pagado · programado";
   if (order.status === "pending" && order.paymentStatus === "paid") return order.bankAutoAccept ? "Pagado · procesando pedido" : "Pagado · pendiente de aprobación";
   if (order.orderType === "table") {
     return tableLabels[order.status];
@@ -121,7 +122,7 @@ function trackingHeroCopy(order: Order, businessType: BusinessType) {
   if (scheduledFulfillment && order.status === "pending" && (order.orderType === "pickup" || order.orderType === "delivery")) {
     return {
       title: "Pedido programado recibido",
-      description: `Tu pedido fue recibido y se preparara para ${scheduledFulfillment}. El restaurante lo aprobara cuando este listo para operarlo.`,
+      description: order.bankAutoAccept ? `Pago confirmado. El inicio de preparación está programado para ${scheduledFulfillment}; se habilitará automáticamente cuando llegue la hora y el local tenga caja abierta.` : `Tu pedido está programado para ${scheduledFulfillment}. El restaurante lo aprobará cuando corresponda.`,
       mode: order.orderType === "delivery" ? "Envio programado" : "Recojo programado",
     };
   }

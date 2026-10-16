@@ -219,9 +219,9 @@ test("payment settings are owner-only and invoice requests are filterable", () =
   assert.match(publicOrder, /hasQrPaymentConfigured\(settings\)/);
   assert.match(publicOrder, /QR activo para esta sucursal/);
   assert.match(publicOrder, /QrPaymentViewer/);
-  assert.match(tableOrder, /hasQrPaymentConfigured\(settings\)/);
-  assert.match(tableOrder, /disabled=\{!qrAvailable\}/);
-  assert.match(tableOrder, /QrPaymentViewer/);
+  assert.match(tableOrder, /bankQrAvailable/);
+  assert.match(tableOrder, /disabled=\{!cart.length \|\| !bankQrAvailable\}/);
+  assert.doesNotMatch(tableOrder, /QrPaymentViewer|CompressedImageInput/);
   assert.match(tableOrder, /settings\?\.invoiceEnabled/);
   assert.match(tableOrder, /name="invoiceRequired" type="hidden"/);
   assert.match(tableOrder, /name="invoiceDocumentType"/);

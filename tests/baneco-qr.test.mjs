@@ -382,6 +382,7 @@ test('automatic worker authenticates, reconciles disconnected accounts once, and
         else if(name==='finish_baneco_reconciliation')result=await db.query('select finish_baneco_reconciliation($1,$2,$3,$4,$5,$6) result',[args.p_id,args.p_token,args.p_status,args.p_transaction,args.p_error,args.p_details]);
         else if(name==='post_waiting_baneco_payments') return {data:0,error:null};
         else if(name==='claim_baneco_order_activation') return {data:null,error:null};
+        else if(name==='release_baneco_group_ready') return {data:[],error:null};
         else throw Error('Unexpected RPC');return {data:result.rows[0].result,error:null};}
     };
     const service=load('src/lib/services/bank-qr.service.ts',{

@@ -205,6 +205,7 @@ export function buildOrderTicketHtml({
             <span>Total</span>
             <span>${formatMoney(order.total)}</span>
           </div>
+          ${order.bankGroupSessionId ? `<div class="notes">QR verificado: ${formatMoney(order.groupPrepaidAmount ?? 0)}<br />Saldo efectivo: ${formatMoney(order.paymentStatus === "paid" ? 0 : order.groupCashDue ?? 0)}<br />Delivery separado. No volver a cobrar lo pagado por QR.</div>` : ""}
           ${order.notes ? `<div class="notes"><strong>Notas:</strong><br />${escapeHtml(order.notes)}</div>` : ""}
         </main>
       </body>

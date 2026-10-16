@@ -17,7 +17,7 @@ export async function listRiderMultisiteRoutes(session: MobileRiderSession, orde
   const orderIds = (dispatches ?? []).map((dispatch) => dispatch.multisite_order_id);
   if (!orderIds.length) return { ok: true as const, data: { routes: [], updatedAt: new Date().toISOString() } };
   const [{ data: masters, error: masterError }, { data: children, error: childError }] = await Promise.all([
-    admin.from("multisite_orders").select("id,status,customer_name,customer_phone,customer_address,delivery_latitude,delivery_longitude,total").in("id", orderIds),
+    admin.from("multisite_orders").select("id,status,customer_name,customer_phone,customer_address,delivery_latitude,delivery_longitude,total,bank_group_session_id").in("id", orderIds),
     admin.from("multisite_order_children").select("*").in("multisite_order_id", orderIds).order("pickup_position"),
   ]);
   if (masterError || childError) return unavailable;
@@ -25,7 +25,7 @@ export async function listRiderMultisiteRoutes(session: MobileRiderSession, orde
   const childOrderIds = (children ?? []).map((child) => child.order_id);
   const [{ data: restaurants, error: restaurantError }, { data: orders, error: orderError }] = await Promise.all([
     admin.from("restaurants").select("id,name,address,latitude,longitude").in("id", restaurantIds),
-    admin.from("orders").select("id,order_number,status").in("id", childOrderIds),
+    admin.from("orders").select("id,order_number,status,payment_status,group_cash_due").in("id", childOrderIds),
   ]);
   if (restaurantError || orderError) return unavailable;
   const masterById = new Map((masters ?? []).map((master) => [master.id, master]));
@@ -34,7 +34,12 @@ export async function listRiderMultisiteRoutes(session: MobileRiderSession, orde
   return { ok: true as const, data: { routes: (dispatches ?? []).flatMap((dispatch) => {
     const master = masterById.get(dispatch.multisite_order_id);
     if (!master) return [];
-    return [{ id: master.id, status: master.status, dispatchStatus: dispatch.status, acceptedFee: Number(dispatch.accepted_fee), total: Number(master.total),
+    const routeChildren = (children ?? []).filter(child => child.multisite_order_id === master.id);
+    const productBalance = routeChildren.reduce((sum, child) => { const order = orderById.get(child.order_id);
+      return sum + (order && order.payment_status !== "paid" && order.status !== "cancelled" ? Number(order.group_cash_due) : 0); }, 0);
+    const cashToCollect = master.bank_group_session_id ? Number((productBalance + Number(dispatch.accepted_fee)).toFixed(2)) : Number(master.total);
+    return [{ id: master.id, status: master.status, dispatchStatus: dispatch.status, acceptedFee: Number(dispatch.accepted_fee), total: cashToCollect,
+      orderTotal: Number(master.total), cashToCollect, bankPayments: Boolean(master.bank_group_session_id),
       lifecycleAvailable: typeof dispatch.delivery_confirmation_code === "string",
       customerName: master.customer_name, customerPhone: master.customer_phone,
       destination: { address: master.customer_address, latitude: master.delivery_latitude == null ? null : Number(master.delivery_latitude), longitude: master.delivery_longitude == null ? null : Number(master.delivery_longitude) },

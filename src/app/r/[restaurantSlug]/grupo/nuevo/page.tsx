@@ -47,7 +47,7 @@ export default async function NewGroupOrderPage({
               <p className="text-sm font-black uppercase text-[var(--primary)]">{restaurant.name}</p>
               <h1 className="mt-1 text-3xl font-black leading-tight sm:text-4xl">Crear Yopido Grupal</h1>
               <p className="mt-2 text-sm font-semibold leading-6 text-[var(--muted)]">
-                Crea una sesion, comparte el link y cada persona agrega lo suyo. El host revisa los pagos y envia un solo pedido al restaurante.
+                Comparte el enlace y cada persona paga su parte directamente a cada local. Al cerrar entran solo las partes pagadas o asumidas en efectivo.
               </p>
             </div>
 
@@ -61,15 +61,12 @@ export default async function NewGroupOrderPage({
               <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
               <Input name="hostName" placeholder="Nombre del host" required />
               <Input inputMode="tel" name="hostPhone" placeholder="WhatsApp del host opcional" />
-              <input name="collectMode" type="hidden" value="host_collects" />
+              <input name="collectMode" type="hidden" value="restaurant_collects" />
               <label className="flex items-start gap-3 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--color-surface)] p-3 text-sm font-black">
                 <input className="mt-0.5 h-4 w-4" name="multisiteEnabled" type="checkbox" />
                 <span><span className="block">Permitir locales múltiples</span><span className="mt-1 block text-xs font-semibold text-[var(--muted)]">El grupo podrá pedir de hasta tres locales y organizar una sola ruta de delivery.</span></span>
               </label>
-              <label className="grid gap-1 text-sm font-black">
-                QR del host opcional
-                <Input accept="image/png,image/jpeg,image/webp,image/avif" name="hostQrFile" type="file" />
-              </label>
+              <p className="rounded-xl bg-[var(--accent-soft)] p-3 text-sm font-bold text-[var(--primary)]">Sin QR por foto ni comprobantes. El banco verifica cada pago y el delivery se paga por separado.</p>
               <button className={buttonClasses("primary", "min-h-12 w-full")} type="submit">
                 Crear Yopido Grupal
               </button>

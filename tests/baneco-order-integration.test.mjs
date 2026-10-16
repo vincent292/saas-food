@@ -373,6 +373,7 @@ test('the backend worker drains a paid activation without a browser, recharging 
     const admin={from(table){return {select(fields){this.fields=fields;return this;},eq(key,value){this.key=key;this.value=value;return this;},
       async single(){return {data:(await f.db.query(`select ${this.fields} from ${table} where ${this.key}=$1`,[this.value])).rows[0],error:null};}};},
       async rpc(name,args){
+        if(name==='release_baneco_group_ready')return {data:[],error:null};
         const calls={claim_baneco_reconciliation:['select claim_baneco_reconciliation($1,$2,$3) result',[args.p_token,args.p_id??null,args.p_cancel??false]],
           post_waiting_baneco_payments:['select post_waiting_baneco_payments() result',[]],
           claim_baneco_order_activation:['select claim_baneco_order_activation($1) result',[args.p_token]],

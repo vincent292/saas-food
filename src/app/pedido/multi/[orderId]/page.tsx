@@ -19,7 +19,7 @@ export default async function PublicMultisiteOrderPage({
 
   const { data: order } = await admin
     .from("multisite_orders")
-    .select("id,tracking_token,status,subtotal,delivery_fee,total")
+    .select("id,tracking_token,status,subtotal,delivery_fee,total,bank_group_session_id,products_prepaid_amount")
     .eq("id", orderId)
     .eq("tracking_token", token)
     .maybeSingle();
@@ -34,7 +34,7 @@ export default async function PublicMultisiteOrderPage({
   const orderIds = (children ?? []).map((child) => child.order_id);
   const [{ data: restaurants }, { data: childOrders }] = await Promise.all([
     restaurantIds.length ? admin.from("restaurants").select("id,name,slug").in("id", restaurantIds) : Promise.resolve({ data: [] }),
-    orderIds.length ? admin.from("orders").select("id,order_number,status").in("id", orderIds) : Promise.resolve({ data: [] }),
+    orderIds.length ? admin.from("orders").select("id,order_number,status,payment_status,group_cash_due").in("id", orderIds) : Promise.resolve({ data: [] }),
   ]);
   const restaurantById = new Map((restaurants ?? []).map((restaurant) => [restaurant.id, restaurant]));
   const orderById = new Map((childOrders ?? []).map((childOrder) => [childOrder.id, childOrder]));
@@ -46,6 +46,8 @@ export default async function PublicMultisiteOrderPage({
     subtotal: Number(order.subtotal),
     deliveryFee: Number(order.delivery_fee),
     total: Number(order.total),
+    bankGroup: Boolean(order.bank_group_session_id),
+    prepaidAmount: Number(order.products_prepaid_amount),
     children: (children ?? []).map((child) => {
       const restaurant = restaurantById.get(child.restaurant_id);
       const childOrder = orderById.get(child.order_id);
@@ -57,6 +59,7 @@ export default async function PublicMultisiteOrderPage({
         pickupPosition: child.pickup_position,
         estimatedReadyMinutes: child.estimated_ready_minutes,
         subtotal: Number(child.subtotal),
+        cashDue: childOrder?.payment_status === "paid" ? 0 : Number(childOrder?.group_cash_due ?? 0),
       };
     }),
   }} />;

@@ -16,6 +16,7 @@ type Child = {
   pickupPosition: number;
   estimatedReadyMinutes: number;
   subtotal: number;
+  cashDue?: number;
 };
 
 const statusLabel: Record<string, string> = {
@@ -38,6 +39,8 @@ export function MultisiteOrderSuccessClient({
     subtotal: number;
     deliveryFee: number;
     children: Child[];
+    bankGroup?: boolean;
+    prepaidAmount?: number;
   };
 }) {
   const router = useRouter();
@@ -61,12 +64,13 @@ export function MultisiteOrderSuccessClient({
         <span className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-100 text-emerald-700"><CheckCircle2 className="h-7 w-7" /></span>
         <p className="mt-5 text-sm font-black text-emerald-700">Pedido recibido</p>
         <h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--color-heading)]">Tus locales ya recibieron el pedido</h1>
-        <p className="mt-3 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">El total se cobra una sola vez en efectivo al recibir. Esta pantalla se actualiza automáticamente mientras los locales preparan tu pedido.</p>
+        <p className="mt-3 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">{order.bankGroup ? "Solo se enviaron las partes pagadas o asumidas en efectivo, directamente a cada local. Los QR pagados no se vuelven a cobrar. El delivery se paga aparte." : "El total se cobra una sola vez en efectivo al recibir. Esta pantalla se actualiza automáticamente mientras los locales preparan tu pedido."}</p>
 
         <div className="mt-6 rounded-2xl bg-[var(--color-surface)] p-4">
           <div className="flex justify-between text-sm font-semibold text-[var(--color-secondary-text)]"><span>Productos</span><span>{formatMoney(order.subtotal)}</span></div>
           <div className="mt-2 flex justify-between text-sm font-semibold text-[var(--color-secondary-text)]"><span>Entrega única</span><span>{formatMoney(order.deliveryFee)}</span></div>
-          <div className="mt-3 flex justify-between border-t border-[var(--border)] pt-3 text-lg font-black text-[var(--color-heading)]"><span>Total a cobrar</span><span>{formatMoney(order.total)}</span></div>
+          {order.bankGroup ? <><div className="mt-2 flex justify-between text-sm font-bold text-emerald-700"><span>QR ya pagados a los locales</span><span>{formatMoney(order.prepaidAmount ?? 0)}</span></div><div className="mt-2 flex justify-between text-sm font-bold"><span>Saldo efectivo de productos</span><span>{formatMoney(order.children.reduce((sum, child) => sum + (child.cashDue ?? 0), 0))}</span></div><p className="mt-2 text-xs">El local confirma el efectivo antes de preparar esa parte. El delivery no está incluido en los QR.</p></> : null}
+          <div className="mt-3 flex justify-between border-t border-[var(--border)] pt-3 text-lg font-black text-[var(--color-heading)]"><span>{order.bankGroup ? "Total de la compra y delivery" : "Total a cobrar"}</span><span>{formatMoney(order.total)}</span></div>
         </div>
 
         <div className="mt-6 space-y-3">

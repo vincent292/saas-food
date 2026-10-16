@@ -141,7 +141,8 @@ export function PendingOrderReviewCard({
         <div className="space-y-3">
           <div className="rounded-2xl bg-[var(--primary-light)] p-4">
             <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">{isTableOrder ? "Decisión del pedido" : "Decisión de caja"}</p>
-            <p className="mt-1 text-2xl font-black text-[var(--primary-dark)]">{formatMoney(order.total)}</p>
+            <p className="mt-1 text-2xl font-black text-[var(--primary-dark)]">{formatMoney(order.bankGroupSessionId ? order.groupCashDue ?? order.total : order.total)}</p>
+            {order.bankGroupSessionId ? <p className="mt-1 text-sm font-bold">QR ya verificado: {formatMoney(order.groupPrepaidAmount ?? 0)} · cobrar solo este saldo en efectivo. Delivery separado.</p> : null}
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
               {approvalCopy}
             </p>
@@ -176,10 +177,7 @@ export function PendingOrderReviewCard({
               <>
                 <Select name="paymentMethod" onChange={(event) => setPaymentMethod(event.target.value as Order["paymentMethod"])} value={paymentMethod}>
                   <option value="cash">Efectivo</option>
-                  <option value="qr">QR</option>
-                  <option value="bank_transfer">Transferencia</option>
-                  <option value="card">Tarjeta</option>
-                  <option value="other">Otro</option>
+                  {!order.bankGroupSessionId ? <><option value="qr">QR</option><option value="bank_transfer">Transferencia</option><option value="card">Tarjeta</option><option value="other">Otro</option></> : null}
                 </Select>
                 {paymentMethod === "qr" ? (
                   <>

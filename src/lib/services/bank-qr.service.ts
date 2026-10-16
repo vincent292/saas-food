@@ -67,6 +67,29 @@ async function generateReservedQr(admin: ReturnType<typeof adminClient>, request
   }
 }
 
+// Capability-based group callers reserve via the private tenant-bound RPC before
+// using this adapter. No connection ID or bank credentials come from the browser.
+export async function emitReservedGroupQr(requestId: string, groupBillId: string) {
+  const admin = adminClient();
+  const request = checked(await admin.from("bank_qr_test_requests").select("*").eq("id", requestId).eq("group_bill_id", groupBillId).eq("status", "generating").single());
+  if (!request) throw new BanecoError("bank-request-unavailable");
+  const { bank, row } = await connection(admin, request.connection_id, true).catch(async error => {
+    await admin.from("bank_qr_test_requests").update({ status: "failed", last_error_code: safeBankError(error) }).eq("id", request.id).eq("status", "generating");
+    throw error;
+  });
+  await generateReservedQr(admin, request, bank, row.branch_code);
+}
+export async function cancelReservedGroupQr(requestId: string, groupBillId: string) {
+  const admin = adminClient();
+  const request = checked(await admin.from("bank_qr_test_requests").select("id,status").eq("id", requestId).eq("group_bill_id", groupBillId).single());
+  if (!request) throw new BanecoError("bank-request-unavailable");
+  if (["paid", "cancelled", "failed"].includes(request.status)) return;
+  const token = randomUUID();
+  const row = checked(await admin.rpc("claim_baneco_reconciliation", { p_token: token, p_id: request.id, p_cancel: true })) as TestRequest | null;
+  if (!row) throw new BanecoError("bank-operation-busy");
+  await reconcileClaim(admin, row, token, true);
+}
+
 // Not exported: callers must pass either the superadmin guard or worker auth.
 async function reconcileClaim(admin: ReturnType<typeof adminClient>, current: TestRequest, operationToken: string, cancel = false) {
   try {
@@ -120,6 +143,9 @@ export async function runBankQrWorker(authentication: WorkerSignature) {
   await Promise.all([work(), work(), work()]);
   const posted = checked(await admin.rpc("post_waiting_baneco_payments", {}));
   await activatePaidBankOrders(admin);
+  const released = checked(await admin.rpc("release_baneco_group_ready", {})) as { orderId: string; isDelivery: boolean }[];
+  await Promise.allSettled((released ?? []).flatMap(order => [sendOrderStatusPush({ orderId: order.orderId, status: "ready" }),
+    ...(order.isDelivery ? [offerNextRiderForOrder(order.orderId)] : [])]));
   return { completed, failed, posted };
 }
 

@@ -455,6 +455,7 @@ function ReceptionOrderCard({
           <div className="rounded-2xl bg-[var(--primary-light)] p-4">
             <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Resumen</p>
             <p className="mt-1 text-2xl font-black text-[var(--primary-dark)]">{formatMoney(order.total)}</p>
+            {order.bankGroupSessionId ? <p className="mt-2 text-sm font-bold">QR verificado: {formatMoney(order.groupPrepaidAmount ?? 0)} · saldo efectivo: {formatMoney(order.paymentStatus === "paid" ? 0 : order.groupCashDue ?? 0)}. Delivery separado.</p> : null}
             <p className="mt-1 text-xs font-semibold text-[var(--muted)]">{businessOrderStatusLabel(order.status, restaurant.businessType)}</p>
             {order.paymentReceiptReference ? <p className="mt-2 text-xs font-black text-[var(--primary-dark)]">Referencia: {order.paymentReceiptReference}</p> : null}
             <OrderReceiptControls order={order} />

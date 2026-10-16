@@ -11,6 +11,7 @@ import { sendRestaurantNewOrderPush } from "@/lib/services/mobile-push.service";
 import { deliveryRateService } from "@/lib/services/delivery-rate.service";
 import { bankOrderPaymentService } from "@/lib/services/bank-qr.service";
 import { findRecoverableOrder, orderRecoveryHash } from "@/lib/payments/order-recovery";
+import { submitBankGroupOrder } from "@/lib/services/bank-group-payment.service";
 import { uploadPrivateFile, uploadPublicImage } from "@/lib/supabase/storage";
 import { businessTypeSupportsTableQr, normalizeRestaurantBusinessType } from "@/lib/restaurant-directory-options";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
@@ -157,6 +158,7 @@ const updateGroupParticipantByHostInputSchema = z.object({
 });
 
 const submitGroupOrderSessionSchema = z.object({
+  cancelUnpaidQrs: z.boolean().default(false),
   restaurantSlug: z.string().min(1),
   sessionToken: z.string().min(6),
   hostAccessToken: z.string().min(12),
@@ -969,21 +971,19 @@ export async function createGroupOrderSessionAction(formData: FormData) {
     redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, "grupo/nuevo")}?error=qr-type`);
   }
 
-  const collectMode = parsed.data.multisiteEnabled ? "host_collects" : parsed.data.collectMode;
-  const hostQrUrl =
-    collectMode === "host_collects" && isNonEmptyFile(hostQrFile)
-      ? await uploadPublicImage(hostQrFile, `restaurants/${restaurant.id}/group-host-qr`)
-      : null;
+  const collectMode = "restaurant_collects";
+  const hostQrUrl = null;
   const sessionToken = createShortToken(6);
   const hostAccessToken = createSecretToken();
   const hostParticipantToken = createSecretToken();
   const sessionPayload = {
+    bank_payments: true,
     restaurant_id: restaurant.id,
     public_token: sessionToken,
     host_access_token: hostAccessToken,
     host_name: parsed.data.hostName,
     host_phone: parsed.data.hostPhone || null,
-    collect_mode: collectMode,
+    collect_mode: collectMode as "restaurant_collects",
     host_qr_url: hostQrUrl,
     multisite_enabled: parsed.data.multisiteEnabled,
   };
@@ -1007,8 +1007,8 @@ export async function createGroupOrderSessionAction(formData: FormData) {
       display_name: parsed.data.hostName,
       phone: parsed.data.hostPhone || null,
       role: "host",
-      payment_status: "covered_by_host",
-      payment_method: "other",
+      payment_status: "pending",
+      payment_method: null,
     })
     .select("id")
     .single();
@@ -1548,6 +1548,7 @@ export async function updateGroupParticipantByHostAction(input: unknown) {
 
 export async function submitGroupOrderSessionAction(formData: FormData) {
   const parsed = submitGroupOrderSessionSchema.safeParse({
+    cancelUnpaidQrs: formData.get("cancelUnpaidQrs") === "yes",
     restaurantSlug: formData.get("restaurantSlug"),
     sessionToken: formData.get("sessionToken"),
     hostAccessToken: formData.get("hostAccessToken"),
@@ -1593,6 +1594,19 @@ export async function submitGroupOrderSessionAction(formData: FormData) {
     .eq("public_token", submitData.sessionToken)
     .eq("host_access_token", submitData.hostAccessToken)
     .maybeSingle();
+
+  if (sessionRow?.bank_payments) {
+    let target: string;
+    try {
+      const result = await submitBankGroupOrder(submitData.sessionToken, submitData);
+      target = result.multisite ? `/pedido/multi/${result.id}?token=${encodeURIComponent(result.trackingToken)}&group=1`
+        : `${publicRestaurantPath(result.restaurantSlug, `pedido/${result.id}`)}?token=${encodeURIComponent(result.trackingToken)}`;
+    } catch (error) {
+      const code = error instanceof Error && /^[a-z-]+$/.test(error.message) ? error.message : "group-bank-unavailable";
+      redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: code }));
+    }
+    redirect(target);
+  }
 
   if (!sessionRow || !["open", "locked"].includes(sessionRow.status) || new Date(sessionRow.expires_at).getTime() <= Date.now()) {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { host: hostAccessToken, error: "closed" }));

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { uploadTemporaryPublicImage } from "@/lib/supabase/storage";
 import {
   buildGroupOrderPayload,
   createSecretToken,
@@ -8,7 +7,6 @@ import {
   getMobileGroupAdmin,
   groupCollectModeSchema,
   groupPublicImageTypes,
-  groupTemporaryUploadMaxAgeSeconds,
   isNonEmptyFile,
   mobileGroupError,
   validateGroupUpload,
@@ -65,23 +63,18 @@ export async function POST(request: Request) {
 
   if (!restaurant) return mobileGroupError("invalid-restaurant", 404);
 
-  // A multi-local route has one final cash collection and delivery negotiation.
-  // Keeping it with the host avoids mixing individual restaurant collections.
-  const collectMode = parsed.data.multisiteEnabled ? "host_collects" : parsed.data.collectMode;
-  const hostQrUrl =
-    collectMode === "host_collects" && hostQrFile
-      ? await uploadTemporaryPublicImage(hostQrFile, `temporary/group-orders/${restaurant.id}/host-qr`, groupTemporaryUploadMaxAgeSeconds)
-      : parsed.data.hostQrUrl || null;
+  const collectMode = "restaurant_collects";
 
   const sessionToken = createShortToken(12);
   const hostAccessToken = createSecretToken();
   const hostParticipantToken = createSecretToken();
   const sessionPayload = {
-    collect_mode: collectMode,
+    bank_payments: true,
+    collect_mode: collectMode as "restaurant_collects",
     host_access_token: hostAccessToken,
     host_name: parsed.data.hostName,
     host_phone: parsed.data.hostPhone || null,
-    host_qr_url: collectMode === "host_collects" ? hostQrUrl : null,
+    host_qr_url: null,
     multisite_enabled: parsed.data.multisiteEnabled,
     public_token: sessionToken,
     restaurant_id: restaurant.id,
@@ -101,8 +94,8 @@ export async function POST(request: Request) {
     .insert({
       display_name: parsed.data.hostName,
       participant_token: hostParticipantToken,
-      payment_method: "other",
-      payment_status: "covered_by_host",
+      payment_method: null,
+      payment_status: "pending",
       phone: parsed.data.hostPhone || null,
       role: "host",
       session_id: session.id,

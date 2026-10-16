@@ -1,4 +1,5 @@
 "use client";
+import { GroupBankPayments } from "@/components/group-orders/GroupBankPayments";
 
 import QRCode from "qrcode";
 import { ArrowRight, Bike, Check, Clipboard, CreditCard, Lock, MapPin, Minus, Plus, Route, Send, Share2, ShoppingBag, Store, Trash2, UserRound, UsersRound, X } from "lucide-react";
@@ -36,6 +37,7 @@ import type { Restaurant, RestaurantDeliveryZone, RestaurantSettings } from "@/t
 
 type PaymentStatus = "pending" | "qr_uploaded" | "paid_qr" | "cash_pending" | "covered_by_host" | "excluded";
 export type GroupOrderSessionView = {
+  bankPayments?: boolean;
   id: string;
   publicToken: string;
   hostName: string;
@@ -180,6 +182,7 @@ export function GroupOrderSessionClient({
   const [hostPanelTab, setHostPanelTab] = useState<"invite" | "payments" | "finish">("payments");
   const [hostDeliveryCoordinates, setHostDeliveryCoordinates] = useState<{ latitude: number; longitude: number }>();
   const [hostRiderFee, setHostRiderFee] = useState("");
+  const [bankEligibleItems, setBankEligibleItems] = useState<string[]>([]);
   const [showRestaurantPicker, setShowRestaurantPicker] = useState(false);
   const [restaurantPickerQuery, setRestaurantPickerQuery] = useState("");
   const inviteUrl = typeof window === "undefined" ? "" : `${window.location.origin}${publicRestaurantPath(restaurant.slug, `grupo/${session.publicToken}`)}`;
@@ -203,7 +206,7 @@ export function GroupOrderSessionClient({
     }
     return map;
   }, [items]);
-  const activeItems = items.filter((item) => participants.find((participant) => participant.id === item.participantId)?.paymentStatus !== "excluded");
+  const activeItems = items.filter((item) => session.bankPayments ? bankEligibleItems.includes(item.id) : participants.find((participant) => participant.id === item.participantId)?.paymentStatus !== "excluded");
   const activeSubtotal = activeItems.reduce((sum, item) => sum + item.subtotal, 0);
   const activeRestaurantIds = useMemo(() => Array.from(new Set(activeItems.map((item) => item.restaurantId))), [activeItems]);
   const isMultisiteCheckout = Boolean(session.multisiteEnabled && activeRestaurantIds.length > 1);
@@ -227,7 +230,7 @@ export function GroupOrderSessionClient({
     : new Intl.DateTimeFormat("es-BO", { dateStyle: "short", timeStyle: "short" }).format(expiresAtDate);
   const canModifyGroup = session.status === "open" || session.status === "locked";
   const participantExcluded = Boolean(isJoined && !isHost && currentParticipant?.paymentStatus === "excluded");
-  const participantSubmitted = Boolean(isJoined && !isHost && currentParticipant && currentParticipant.paymentStatus !== "pending");
+  const participantSubmitted = !session.bankPayments && Boolean(isJoined && !isHost && currentParticipant && currentParticipant.paymentStatus !== "pending");
   const participantCanAddProducts = Boolean(isJoined && session.status === "open" && !participantSubmitted);
   const showGroupDetails = !participantSubmitted || showSubmittedDetails || isHost;
   const realtimeEnabled = session.status === "open" || session.status === "locked";
@@ -299,7 +302,7 @@ export function GroupOrderSessionClient({
   const effectiveDeliveryFee = isMultisiteCheckout && Number.isFinite(selectedRiderFee) ? selectedRiderFee : hostDeliveryFee;
   const hostFinalTotal = activeSubtotal + effectiveDeliveryFee;
   const multisiteFeeValid = !isMultisiteCheckout || Boolean(clientMultisitePlan?.feasible) && Number.isFinite(selectedRiderFee) && selectedRiderFee >= (clientMultisitePlan?.riderPricing.customerMinimumFee ?? Infinity) && selectedRiderFee <= (clientMultisitePlan?.riderPricing.customerMaximumFee ?? -Infinity);
-  const hostReadyToSubmit = session.status === "locked" && activeItems.length > 0 && pendingPaymentCount === 0 && multisiteFeeValid;
+  const hostReadyToSubmit = (session.status === "locked" || (session.bankPayments && session.status === "submitting")) && activeItems.length > 0 && (session.bankPayments || pendingPaymentCount === 0) && multisiteFeeValid;
   const billableParticipantIds = useMemo(
     () =>
       participants
@@ -308,7 +311,7 @@ export function GroupOrderSessionClient({
     [participants, totalsByParticipant],
   );
   const deliverySharePreview = hostOrderType === "delivery" && effectiveDeliveryFee > 0 && billableParticipantIds.length ? effectiveDeliveryFee / billableParticipantIds.length : 0;
-  const effectiveHostPaymentMethod = isMultisiteCheckout ? "cash" : hostDeliveryPolicy?.requiresQrPrepayment ? "qr" : hostPaymentMethod;
+  const effectiveHostPaymentMethod = session.bankPayments || isMultisiteCheckout ? "cash" : hostDeliveryPolicy?.requiresQrPrepayment ? "qr" : hostPaymentMethod;
   const filteredProducts = useMemo(() => {
     const queryNeedle = normalize(productQuery);
     return products.filter((product) => {
@@ -484,7 +487,7 @@ export function GroupOrderSessionClient({
             </Link>
             <h1 className="mt-2 text-2xl font-black leading-tight sm:text-4xl">Yopido Grupal</h1>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">
-              Host: <strong className="text-[var(--text)]">{session.hostName}</strong> · {collectModeLabel(session.collectMode)}
+              Host: <strong className="text-[var(--text)]">{session.hostName}</strong> · {session.bankPayments ? "Cada parte paga a su local" : collectModeLabel(session.collectMode)}
             </p>
             {expiresAtLabel ? <p className="mt-1 text-xs font-bold text-[var(--muted)]">Vence: {expiresAtLabel}</p> : null}
           </div>
@@ -738,7 +741,7 @@ export function GroupOrderSessionClient({
                             {participant.role === "host" ? " · host" : ""}
                           </p>
                           <span className={cn("mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-black", paymentStatusClasses(participant.paymentStatus))}>
-                            {paymentStatusLabel(participant.paymentStatus)}
+                            {session.bankPayments ? "Pago por local" : paymentStatusLabel(participant.paymentStatus)}
                           </span>
                           {participant.paymentReceiptUrl ? (
                             <div className="mt-2">
@@ -748,7 +751,7 @@ export function GroupOrderSessionClient({
                         </div>
                         <span className="shrink-0 text-sm font-black text-[var(--primary)]">{formatMoney(totalsByParticipant.get(participant.id) ?? 0)}</span>
                       </div>
-                      {isHost && canModifyGroup && participant.role !== "host" ? (
+                      {isHost && canModifyGroup && participant.role !== "host" && !session.bankPayments ? (
                         <div className="mt-3 flex flex-wrap gap-2">
                           <button className={buttonClasses("secondary", "min-h-9 px-3 text-xs")} onClick={() => updateHostParticipant(participant.id, "covered_by_host")} type="button">
                             Cubrir
@@ -846,7 +849,8 @@ export function GroupOrderSessionClient({
             </Card>
             ) : null}
 
-            {session.collectMode === "host_collects" && (!isHost || hostPanelTab === "payments") ? (
+            {session.bankPayments && (hostAccessToken || participantToken) && (!isHost || hostPanelTab !== "invite") ? <GroupBankPayments sessionToken={session.publicToken} secret={hostAccessToken || participantToken!} host={isHost} onEligibleItems={setBankEligibleItems} /> : null}
+            {!session.bankPayments && session.collectMode === "host_collects" && (!isHost || hostPanelTab === "payments") ? (
               <Card className="space-y-3">
                 <h2 className="text-lg font-black">QR del host</h2>
                 {session.hostQrUrl ? (
@@ -858,7 +862,7 @@ export function GroupOrderSessionClient({
               </Card>
             ) : null}
 
-            {!isHost && isJoined && canModifyGroup && !participantSubmitted && currentParticipantTotal > 0 ? (
+            {!session.bankPayments && !isHost && isJoined && canModifyGroup && !participantSubmitted && currentParticipantTotal > 0 ? (
               <Card className="space-y-3">
                 <div>
                   <h2 className="text-lg font-black">Confirmar tu parte</h2>
@@ -896,7 +900,7 @@ export function GroupOrderSessionClient({
                   </span>
                   <div>
                     <h2 className="text-lg font-black">Control del host</h2>
-                    <p className="text-xs font-bold text-[var(--muted)]">{pendingPaymentCount ? `${pendingPaymentCount} participante(s) pendiente(s)` : "Pagos listos o cubiertos"}</p>
+                    <p className="text-xs font-bold text-[var(--muted)]">{session.bankPayments ? "Solo se envían partes confirmadas" : pendingPaymentCount ? `${pendingPaymentCount} participante(s) pendiente(s)` : "Pagos listos o cubiertos"}</p>
                   </div>
                 </div>
                 <div className="grid gap-2">
@@ -925,7 +929,7 @@ export function GroupOrderSessionClient({
                   <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
                   <input name="sessionToken" type="hidden" value={session.publicToken} />
                   <input name="hostAccessToken" type="hidden" value={hostAccessToken} />
-                  {session.multisiteEnabled ? (
+                  {session.bankPayments ? <><input name="collectMode" type="hidden" value="restaurant_collects" /><p className="text-sm font-bold">Pagos directos por persona y sucursal. Nadie puede marcar un QR como pagado manualmente.</p></> : session.multisiteEnabled ? (
                     <>
                       <input name="collectMode" type="hidden" value="host_collects" />
                       <p className="rounded-[1rem] bg-[var(--primary-light)] px-3 py-2 text-sm font-black text-[var(--primary)]">Multi-local usa un solo cobro: todos pagan al host.</p>
@@ -940,10 +944,10 @@ export function GroupOrderSessionClient({
                     <input className="mt-0.5 h-4 w-4" defaultChecked={session.multisiteEnabled} disabled={!canModifyGroup} name="multisiteEnabled" type="checkbox" />
                     <span><span className="block">Permitir pedido multi-local</span><span className="mt-1 block text-xs font-semibold text-[var(--muted)]">El grupo podrá sumar hasta tres locales y usar una sola entrega. Solo delivery en efectivo al finalizar.</span></span>
                   </label>
-                  <label className="grid gap-1 text-sm font-black">
+                  {!session.bankPayments ? <label className="grid gap-1 text-sm font-black">
                     Cambiar QR del host
                     <Input accept="image/png,image/jpeg,image/webp,image/avif" name="hostQrFile" type="file" />
-                  </label>
+                  </label> : null}
                   <button className={buttonClasses("secondary", "w-full")} disabled={!canModifyGroup} type="submit">
                     Guardar cobro
                   </button>
@@ -962,7 +966,10 @@ export function GroupOrderSessionClient({
                     <p className="text-xs font-bold text-[var(--muted)]">El pedido entrara a caja y cocina como un pedido normal.</p>
                   </div>
                 </div>
-                <form action={submitGroupOrderSessionAction} className="grid gap-3">
+                <form action={submitGroupOrderSessionAction} className="grid gap-3" onSubmit={event => {
+                  if (session.bankPayments && !window.confirm("Enviaremos solo las partes pagadas o asumidas en efectivo. Anularemos primero los QR pendientes con el banco; el delivery se paga separado. ¿Cerrar y enviar?")) event.preventDefault();
+                }}>
+                  {session.bankPayments ? <input name="cancelUnpaidQrs" type="hidden" value="yes" /> : null}
                   <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
                   <input name="sessionToken" type="hidden" value={session.publicToken} />
                   <input name="hostAccessToken" type="hidden" value={hostAccessToken} />
@@ -977,7 +984,7 @@ export function GroupOrderSessionClient({
                       Cierra el grupo antes de enviarlo para congelar productos y pagos.
                     </div>
                   ) : null}
-                  {pendingPaymentCount ? (
+                  {!session.bankPayments && pendingPaymentCount ? (
                     <div className="rounded-[1rem] bg-[var(--color-warning-soft)] p-3 text-xs font-black text-[var(--color-warning-strong)]">
                       Hay {pendingPaymentCount} participante(s) pendiente(s) o con QR por revisar. Marcalos como QR verificado, efectivo, cubierto o excluido.
                     </div>
@@ -1045,7 +1052,7 @@ export function GroupOrderSessionClient({
                     </div>
                   ) : null}
 
-                  {isMultisiteCheckout ? (
+                  {session.bankPayments ? <div className="rounded-xl bg-[var(--accent-soft)] p-3 text-sm font-bold text-[var(--primary)]">Se enviarán {activeItems.length} productos confirmados. Las partes pendientes no entran. Los QR pendientes deben quedar anulados y verificados; una emisión ambigua impedirá cerrar hasta revisarla. Delivery separado.</div> : isMultisiteCheckout ? (
                     <div className="rounded-[1rem] bg-[var(--accent-soft)] p-3 text-sm font-bold text-[var(--primary)]">El pedido multi-local usa un solo cobro en efectivo al recibir. El QR único se habilitará cuando la plataforma tenga su cuenta de cobro configurada.</div>
                   ) : <div className="grid gap-2 rounded-[1rem] border border-[var(--border)] bg-[var(--color-surface)] p-3">
                     <div className="flex items-center gap-2">
@@ -1071,7 +1078,7 @@ export function GroupOrderSessionClient({
                       ))}
                     </div>
                   </div>}
-                  {!isMultisiteCheckout ? <label className="grid gap-1 text-sm font-black">
+                  {!session.bankPayments && !isMultisiteCheckout ? <label className="grid gap-1 text-sm font-black">
                     Comprobante final si paga QR
                     <Input accept="image/png,image/jpeg,image/webp,image/avif,application/pdf" name="paymentReceiptFile" type="file" />
                   </label> : null}
@@ -1190,6 +1197,14 @@ function orderErrorMessage(error: string) {
     "lock-required": "Primero cierra el grupo para congelar productos y pagos.",
     "already-submitting": "El pedido ya se esta creando. Espera un momento.",
     "pending-payments": "Aun hay participantes con pago pendiente.",
+    "group-bank-empty": "No hay partes pagadas ni asumidas en efectivo para enviar.",
+    "group-payment-in-progress": "Hay un QR en verificación. Espera su confirmación o anulación antes de cerrar.",
+    "group-cancellations-pending": "Anulamos un lote de QR pendientes. Vuelve a cerrar para completar los restantes; no se creó otro pedido.",
+    "group-cancel-confirmation-required": "Debes confirmar la anulación de QR pendientes antes de excluir esas partes.",
+    "group-basket-frozen": "Esta parte ya está confirmada. Libérala desde pagos antes de editar; una parte pagada no se puede modificar.",
+    "group-use-bank-bills": "Gestiona cada parte desde «Tu pago, directo a cada local»; no se acepta un comprobante como confirmación bancaria.",
+    "group-bank-unavailable": "No pudimos verificar los pagos. Conservamos las solicitudes; no vuelvas a pagar sin revisar.",
+    "group-payment-review-required": "El grupo tiene pagos o QR pendientes. No puede cancelarse sin revisar esos fondos.",
     "host-only-payment-status": "Solo el host puede marcar cubierto o excluido.",
     "group-full": "Este Yopido Grupal ya alcanzo el limite de participantes.",
     "duplicate-name": "Ya existe un participante con ese nombre en el grupo.",

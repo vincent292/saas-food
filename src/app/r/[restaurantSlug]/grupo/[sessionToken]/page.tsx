@@ -122,12 +122,14 @@ export default async function GroupOrderPage({
     notes: item.notes ?? undefined,
   }));
   // eslint-disable-next-line react-hooks/purity
-  const expired = new Date(sessionRow.expires_at).getTime() <= Date.now();
+  const deadlinePassed = new Date(sessionRow.expires_at).getTime() <= Date.now();
+  const expired = deadlinePassed && !sessionRow.bank_funding_confirmed;
   const sessionStatus =
     expired && sessionRow.status !== "submitted" && sessionRow.status !== "cancelled"
       ? "expired"
-      : sessionRow.status;
+      : sessionRow.bank_payments && sessionRow.bank_funding_confirmed && deadlinePassed && sessionRow.status === "open" ? "locked" : sessionRow.status;
   const session: GroupOrderSessionView = {
+    bankPayments: sessionRow.bank_payments,
     id: sessionRow.id,
     publicToken: sessionRow.public_token,
     hostName: sessionRow.host_name,

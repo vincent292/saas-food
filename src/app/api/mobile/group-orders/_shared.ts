@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveDeliveryPolicy } from "@/lib/delivery-policy";
 import { deliveryRateService } from "@/lib/services/delivery-rate.service";
 import { sendRestaurantNewOrderPush } from "@/lib/services/mobile-push.service";
+import { submitBankGroupOrder } from "@/lib/services/bank-group-payment.service";
 import { DEFAULT_RESTAURANT_TIME_ZONE, formatLocalDateTimeInput, isLocalDateTimeWithinBusinessHours } from "@/lib/utils/business-hours";
 import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import { forecastMultisiteKitchenReadyIn, type MultisiteKitchenSnapshot } from "@/lib/group-orders/kitchen-forecast";
@@ -36,6 +37,7 @@ export const groupItemSchema = z.object({
 });
 
 export const submitGroupSchema = z.object({
+  cancelUnpaidQrs: z.boolean().default(false),
   hostAccessToken: z.string().min(12),
   restaurantSlug: z.string().min(1),
   orderType: z.enum(["delivery", "pickup"]),
@@ -140,8 +142,8 @@ export function mobileGroupError(error: string, status = 400) {
   return NextResponse.json({ error }, { status });
 }
 
-export function isGroupSessionExpired(session: { expires_at?: string | null }) {
-  return Boolean(session.expires_at && new Date(session.expires_at).getTime() <= Date.now());
+export function isGroupSessionExpired(session: { expires_at?: string | null; bank_funding_confirmed?: boolean }) {
+  return Boolean(!session.bank_funding_confirmed && session.expires_at && new Date(session.expires_at).getTime() <= Date.now());
 }
 
 export function isNonEmptyFile(file: FormDataEntryValue | null): file is File {
@@ -313,6 +315,7 @@ export async function buildGroupOrderPayload({
       publicToken: session.public_token,
       hostName: session.host_name,
       hostPhone: session.host_phone ?? "",
+      bankPayments: session.bank_payments,
       collectMode: session.collect_mode,
       hostQrUrl: expired ? "" : (session.host_qr_url ?? ""),
       multisiteEnabled: Boolean(session.multisite_enabled),
@@ -446,6 +449,10 @@ async function hasOpenCashSession(supabase: SupabaseDatabaseClient, restaurantId
 
 export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, sessionToken: string, payload: z.infer<typeof submitGroupSchema>) {
   const { data: session } = await supabase.from("group_order_sessions").select("*").eq("public_token", sessionToken).eq("host_access_token", payload.hostAccessToken).maybeSingle();
+  if (session?.bank_payments) {
+    const result = await submitBankGroupOrder(sessionToken, payload);
+    return { orderId: result.id, orderNumber: result.multisite ? "MULTI" : "GRUPAL", trackingToken: result.trackingToken, isMultisite: result.multisite, restaurantSlug: result.restaurantSlug };
+  }
   if (!session || !["open", "locked"].includes(session.status) || new Date(session.expires_at).getTime() <= Date.now()) throw new Error("closed");
   if (session.status !== "locked") throw new Error("lock-required");
 

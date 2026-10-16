@@ -51,6 +51,9 @@ export type OrderDeliveryDispatch = {
 };
 
 export type Order = {
+  bankGroupSessionId?: string;
+  groupPrepaidAmount?: number;
+  groupCashDue?: number;
   multisitePickup?: MultisitePickup;
   id: string;
   restaurantId: string;

@@ -1252,6 +1252,7 @@ function OrderOperationalSummary({ order, title, businessType, now }: { order: O
         <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">{formatMoney(order.total)}</span>
         <OrderTimingBadge now={now} order={order} />
       </div>
+      {order.bankGroupSessionId ? <p className="mt-2 text-sm font-bold text-[var(--primary)]">QR verificado: {formatMoney(order.groupPrepaidAmount ?? 0)} · saldo efectivo: {formatMoney(order.paymentStatus === "paid" ? 0 : order.groupCashDue ?? 0)}. No cobrar el QR otra vez. Delivery separado.</p> : null}
       <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
         {order.customerName || "Cliente"} | {order.customerPhone || "Sin telefono"}
         {order.orderType === "delivery" ? ` | ${order.customerAddress || "Sin direccion"}` : ""}

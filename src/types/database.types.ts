@@ -10,6 +10,11 @@ type Row<T> = {
 export type Database = {
   public: {
     Tables: {
+      bank_group_bills: Row<{
+        id: string; session_id: string; participant_id: string; restaurant_id: string; amount: number; items: Json;
+        mode: "qr" | "cash"; paid_request_id: string | null; requested_by: string | null; cash_assumed_by: string | null;
+        order_id: string | null; voided_at: string | null; created_at: string;
+      }>;
       bank_order_activations: Row<{
         request_id: string;
         created_at: string;
@@ -40,6 +45,7 @@ export type Database = {
         created_at: string;
       }>;
       bank_qr_test_requests: Row<{
+        group_bill_id: string | null;
         id: string;
         connection_id: string;
         environment: "certification" | "production";
@@ -556,6 +562,9 @@ export type Database = {
         updated_at: string;
       }>;
       orders: Row<{
+        bank_group_session_id: string | null;
+        group_prepaid_amount: number;
+        group_cash_due: number;
         id: string;
         restaurant_id: string;
         customer_id: string | null;
@@ -707,6 +716,8 @@ export type Database = {
         updated_at: string;
       }>;
       multisite_orders: Row<{
+        bank_group_session_id: string | null;
+        products_prepaid_amount: number;
         id: string;
         public_request_id: string;
         tracking_token: string;
@@ -785,6 +796,10 @@ export type Database = {
         updated_at: string;
       }>;
       group_order_sessions: Row<{
+        bank_payments: boolean;
+        bank_funding_confirmed: boolean;
+        bank_submission_token: string | null;
+        bank_submission_until: string | null;
         id: string;
         restaurant_id: string;
         public_token: string;
@@ -947,6 +962,8 @@ export type Database = {
         notes: string | null;
       }>;
       cash_movements: Row<{
+        bank_group_bill_id: string | null;
+        group_balance_order_id: string | null;
         id: string;
         bank_qr_request_id: string | null;
         restaurant_id: string;
@@ -1431,6 +1448,10 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      release_baneco_group_ready: { Args: Record<string, never>; Returns: Json };
+      reserve_baneco_group_bill: { Args: { p_session: string; p_secret: string; p_host: boolean; p_participant: string; p_restaurant: string; p_mode: string; p_paying_other: boolean }; Returns: Json };
+      begin_bank_group_submission: { Args: { p_session: string; p_secret: string; p_token: string }; Returns: undefined };
+      finalize_baneco_group: { Args: { p_session: string; p_secret: string; p_token: string; p_order: Json; p_stops: Json }; Returns: Json };
       claim_baneco_order_activation: { Args: { p_token: string }; Returns: Json };
       activate_baneco_paid_order: { Args: { p_request_id: string; p_token: string; p_uses_kitchen: boolean }; Returns: Json };
       finish_baneco_order_activation: { Args: { p_request_id: string; p_token: string; p_success: boolean }; Returns: undefined };

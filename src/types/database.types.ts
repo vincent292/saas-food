@@ -10,6 +10,8 @@ type Row<T> = {
 export type Database = {
   public: {
     Tables: {
+      bank_collection_settings: Row<{ singleton: boolean; connection_id: string | null; enabled: boolean; authorized_at: string | null; authorized_by: string | null; updated_at: string }>;
+      bank_collection_receivables: Row<{ request_id: string; restaurant_id: string; receiver_restaurant_id: string; amount: number; currency: string; created_at: string }>;
       bank_group_bills: Row<{
         id: string; session_id: string; participant_id: string; restaurant_id: string; amount: number; items: Json;
         mode: "qr" | "cash"; paid_request_id: string | null; requested_by: string | null; cash_assumed_by: string | null;
@@ -45,6 +47,8 @@ export type Database = {
         created_at: string;
       }>;
       bank_qr_test_requests: Row<{
+        receiver_restaurant_id: string;
+        collection_route: "merchant" | "platform";
         group_bill_id: string | null;
         id: string;
         connection_id: string;
@@ -716,6 +720,7 @@ export type Database = {
         updated_at: string;
       }>;
       multisite_orders: Row<{
+        bank_payments: boolean;
         bank_group_session_id: string | null;
         products_prepaid_amount: number;
         id: string;
@@ -1457,6 +1462,8 @@ export type Database = {
       finish_baneco_order_activation: { Args: { p_request_id: string; p_token: string; p_success: boolean }; Returns: undefined };
       queue_baneco_payment_notification: { Args: { p_qr_id: string }; Returns: string | null };
       reserve_baneco_order_qr: { Args: { p_order_id: string; p_tracking_token: string }; Returns: Json };
+      resolve_baneco_collection: { Args: { p_restaurant: string }; Returns: string | null };
+      prepare_baneco_staff_order: { Args: { p_restaurant: string; p_order: string; p_actor: string }; Returns: string };
       post_waiting_baneco_payments: { Args: Record<string, never>; Returns: number };
       retry_baneco_order_payment: { Args: { p_request_id: string }; Returns: string };
       approve_prepaid_order_for_preparation: { Args: { p_restaurant_id: string; p_order_id: string }; Returns: string };

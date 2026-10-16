@@ -23,6 +23,7 @@ const cartItemSchema = z.object({
 });
 
 const multiOrderSchema = z.object({
+  paymentMethod: z.enum(["cash", "qr"]).default("cash"),
   requestId: z.string().uuid(),
   customerName: z.string().trim().min(2).max(120),
   customerPhone: z.string().trim().min(4).max(40),
@@ -152,6 +153,7 @@ export async function createPublicMultisiteOrderAction(formData: FormData) {
   }
 
   const parsed = multiOrderSchema.safeParse({
+    paymentMethod: formData.get("paymentMethod") || "cash",
     requestId: formData.get("requestId") || crypto.randomUUID(),
     customerName: formData.get("customerName"),
     customerPhone: formData.get("customerPhone"),
@@ -287,7 +289,7 @@ export async function createPublicMultisiteOrderAction(formData: FormData) {
       delivery_latitude: parsed.data.deliveryLatitude,
       delivery_longitude: parsed.data.deliveryLongitude,
       delivery_maps_url: parsed.data.deliveryMapsUrl || null,
-      payment_method: "cash",
+      payment_method: parsed.data.paymentMethod,
       subtotal: Number(subtotal.toFixed(2)),
       delivery_fee: Number(requestedRiderFee.toFixed(2)),
       total,
@@ -325,7 +327,7 @@ export async function createPublicMultisiteOrderAction(formData: FormData) {
 
   const created = data?.[0];
   if (!created) {
-    const errorKey = error?.message.includes("no-open-cash") ? "no-open-cash" : error?.message.includes("invalid-multisite") ? "create" : "create";
+    const errorKey = error?.message.includes("bank-connection-unavailable") ? "bank-unavailable" : error?.message.includes("no-open-cash") ? "no-open-cash" : "create";
     redirect(failPath(errorKey));
   }
 

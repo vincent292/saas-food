@@ -6,10 +6,9 @@ import { useState } from "react";
 import { rejectCashOrderAction } from "@/app/admin/actions";
 import { groupReceiptLinksFromNotes, orderSourceLabel, orderTypeLabels, paymentMethodLabels } from "@/components/orders/orderPresentation";
 import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
-import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Input, Select, Textarea } from "@/components/ui/Input";
+import { Select, Textarea } from "@/components/ui/Input";
 import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
 import { formatShortTime } from "@/lib/utils/dates";
 import { cn } from "@/lib/utils/cn";
@@ -18,6 +17,7 @@ import { directionsToMapsUrl, hasValidCoordinates } from "@/lib/utils/google-map
 import { businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import type { Order } from "@/types/order.types";
 import type { BusinessType } from "@/types/restaurant.types";
+import { BankOrderPaymentCard } from "./BankOrderPaymentCard";
 
 type PendingOrderContext = "pedidos" | "caja";
 
@@ -164,6 +164,7 @@ export function PendingOrderReviewCard({
 
           {!disabled ? null : <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para aprobar y sumar este pedido al turno actual.</div>}
 
+          {!order.bankGroupSessionId && (paymentMethod === "qr" || order.bankPaymentRequired) ? <BankOrderPaymentCard orderId={order.id} staffRestaurantId={order.restaurantId} initialPayment={null} /> : null}
           <form action={async (formData) => { await onApprove(order.id, formData); }} className="grid gap-3 rounded-2xl border border-[var(--border)] p-3">
             <input name="restaurantId" type="hidden" value={order.restaurantId} />
             <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
@@ -187,15 +188,14 @@ export function PendingOrderReviewCard({
                       </div>
                     ) : (
                       <>
-                        <Input name="paymentReceiptReference" placeholder="Número de comprobante o referencia QR" />
-                        <CompressedImageInput acceptPdf help="Sube captura o PDF del pago. Las imagenes se optimizan en WebP." label="Comprobante QR" name="paymentReceiptFile" required />
+                        <p className="text-sm">Genera el QR bancario de arriba. No se confirma el pago con fotos o referencias.</p>
                       </>
                     )}
                   </>
                 ) : null}
               </>
             )}
-            <PendingSubmitButton disabled={disabled || isApproving} pendingLabel={isTableOrder ? "Aprobando pedido..." : "Aprobando y cobrando..."}>
+            <PendingSubmitButton disabled={disabled || isApproving || Boolean(order.bankPaymentRequired && order.paymentStatus !== "paid") || (!isTableOrder && paymentMethod === "qr")} pendingLabel={isTableOrder ? "Aprobando pedido..." : "Aprobando y cobrando..."}>
               {isTableOrder ? "Aprobar pedido" : "Aprobar y cobrar"}
             </PendingSubmitButton>
           </form>

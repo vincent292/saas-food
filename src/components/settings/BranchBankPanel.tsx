@@ -15,6 +15,7 @@ export function BranchBankPanel({ restaurantId, connections, configured, result 
     <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
       <h2 className="text-lg font-black">Cuenta de cobro de esta sucursal</h2>
       <p className="mt-2 text-sm">Cada QR tiene el importe exacto del pedido. Baneco confirma el pago y Yopido lo acepta automáticamente, sin foto ni comprobante. La cuenta debe estar autorizada por el banco para estas credenciales.</p>
+      <p className="mt-2 text-sm">Si no hay cuenta propia activa, el sistema podrá usar la cuenta de respaldo que superadmin haya autorizado. Ese dinero lo recibe Yopido por cuenta de tu local y se registra por separado; no es una transferencia automática a tu cuenta. Una cuenta propia activa pero sin habilitar no se sustituye silenciosamente.</p>
       <p className="mt-2 break-all text-xs text-[var(--muted)]">API oficial de producción: https://apimkt.baneco.com.bo/ApiGateway/ · No se admiten URLs arbitrarias.</p>
       {active ? <div className="mt-4 space-y-3">
         <p className="font-bold">{active.label} · {active.orders_enabled ? "Cobros habilitados" : "Cobros deshabilitados"}</p>

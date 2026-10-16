@@ -36,7 +36,7 @@ async function context(access: GroupBankAccess) {
   return { admin, session, participants, actor };
 }
 export type GroupBillView = { id?: string; participantId: string; participantName: string; restaurantId: string; restaurantName: string;
-  amount: number; status: string; image?: string | null; orderId?: string | null; canReset: boolean };
+  amount: number; status: string; collectionRoute?: string; image?: string | null; orderId?: string | null; canReset: boolean };
 function funded(bill: Bill) { return !bill.voided_at && (bill.paid_request_id || bill.mode === "cash"); }
 export const bankGroupPaymentService = {
   async view(access: GroupBankAccess, selectedId?: string) {
@@ -48,7 +48,7 @@ export const bankGroupPaymentService = {
     const bills = check(billsResult) ?? [], items = check(itemsResult) ?? [];
     const restaurantIds = [...new Set(items.map(item => item.restaurant_id))];
     const restaurants = restaurantIds.length ? check(await admin.from("restaurants").select("id,name").in("id", restaurantIds)) ?? [] : [];
-    const requests = bills.length ? check(await admin.from("bank_qr_test_requests").select("id,group_bill_id,status,due_date").in("group_bill_id", bills.map(bill => bill.id))
+    const requests = bills.length ? check(await admin.from("bank_qr_test_requests").select("id,group_bill_id,status,due_date,collection_route").in("group_bill_id", bills.map(bill => bill.id))
       .not("status", "in", "(failed,cancelled)").order("created_at", { ascending: false })) ?? [] : [];
     // One selected image only, never dozens of QR blobs in the group refresh.
     const selected = requests.find(row => row.group_bill_id === selectedId && row.status === "pending" && row.due_date >= boliviaDate());
@@ -65,6 +65,7 @@ export const bankGroupPaymentService = {
       return { ...pair, id: bill?.id, amount: bill ? Number(bill.amount) : Number(pair.amount.toFixed(2)),
         participantName: participants.find(row => row.id === pair.participantId)?.display_name ?? "Participante",
         restaurantName: restaurants.find(row => row.id === pair.restaurantId)?.name ?? "Local",
+        collectionRoute: request?.collection_route,
         status: bill?.paid_request_id ? "paid" : bill?.mode === "cash" ? "cash" : request?.status ?? "not_created",
         image: selected?.group_bill_id === bill?.id ? image : null, orderId: bill?.order_id,
         canReset: !bill?.paid_request_id && (access.host || actor.id === pair.participantId || bill?.cash_assumed_by === actor.id) };

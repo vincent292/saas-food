@@ -13,10 +13,13 @@ import { bankQrService, requireBankSuperadmin, safeBankError } from "@/lib/servi
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { bankConnectionOperationAction, bankTestQrOperationAction, generateBankTestQrAction, saveBankConnectionAction } from "./actions";
 import { BankQrAutoRefresh, DisconnectBankButton } from "./BankQrAutoRefresh";
+import { bankCollectionOverview } from "@/lib/services/bank-collection.service";
+import { bankCollectionAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const feedback: Record<string, string> = {
+  "collection-updated": "Configuración de respaldo actualizada. No se generó ningún QR ni se transfirió dinero.",
   saved: "Credenciales guardadas cifradas. No se realizó ninguna llamada al banco.",
   checked: "El banco aceptó las credenciales en el ambiente seleccionado.", generated: "QR generado. Ya puedes verlo, descargarlo y consultar su pago.",
   "production-ready": "Conexión de producción comprobada. Reutilizamos tus credenciales guardadas; ya puedes generar el QR.",
@@ -63,6 +66,7 @@ export default async function BankQrPage({ searchParams }: { searchParams: Promi
     ({ connections: [], requests: [], storageError: safeBankError(error) }));
   const storageError = data.storageError;
   const configured = bankVaultConfigured();
+  const collection = await bankCollectionOverview().catch(() => null);
   const restaurantNames = new Map(restaurants.map(restaurant => [restaurant.id, restaurant.name]));
   const active = data.connections.filter(item => item.active && item.check_result === "ok");
   const productionRestaurants = new Set(data.connections.filter(item => item.active && item.environment === "production").map(item => item.restaurant_id));
@@ -89,6 +93,18 @@ export default async function BankQrPage({ searchParams }: { searchParams: Promi
           <p className="font-bold">Estado del servidor</p>
           <div className="flex flex-wrap gap-x-5 gap-y-2"><span>Protección de credenciales: <strong>{configured ? "configurada" : "pendiente"}</strong></span><span>Base de datos privada: <strong>{storageError ? "no disponible" : "disponible"}</strong></span></div>
           {readiness.saveBlocker ? <p>{blockerText[readiness.saveBlocker]}</p> : <p>{active.length ? "Conexión comprobada: lista para generar QR." : "Comprueba tu conexión o reutilízala en producción desde la lista de abajo."}</p>}
+        </Card>
+        <Card>
+          <h2 className="text-lg font-black">Cuenta de respaldo Yopido</h2>
+          <p className="my-3 text-sm">Si un comercio no tiene una cuenta de producción activa, puede cobrar mediante esta cuenta autorizada. Una cuenta propia activa, aunque esté deshabilitada o sin comprobar, no se reemplaza silenciosamente. Los QR ya emitidos conservan su destinatario.</p>
+          {collection ? <form action={bankCollectionAction} className="grid gap-3">
+            <label className="grid gap-1 text-sm font-bold">Cuenta receptora<Select name="connectionId" defaultValue={collection.settings.connection_id ?? ""}><option value="">Sin cuenta de respaldo</option>{data.connections.filter(c => c.environment === "production" && c.active && c.orders_enabled && c.check_result === "ok").map(c => <option key={c.id} value={c.id}>{c.label} · {restaurantNames.get(c.restaurant_id) ?? "Comercio"}</option>)}</Select></label>
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" name="enabled" defaultChecked={collection.settings.enabled} />Habilitar respaldo para nuevos cobros</label>
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" name="authorized" />Confirmo que esta es la cuenta receptora de Yopido y está autorizada por su titular y por Baneco para recibir pagos de estos comercios.</label>
+            <p className="text-sm">Cada cobro guarda el comercio beneficiario y la cuenta receptora. Cobrar en Yopido no transfiere automáticamente el dinero al local: queda un importe pendiente de liquidar.</p>
+            <FormSubmitButton label="Guardar respaldo" pendingLabel="Guardando…" />
+          </form> : <p className="text-sm">Pendiente de aplicar la migración de cuentas de respaldo.</p>}
+          {collection?.receivables.length ? <details className="mt-4"><summary className="cursor-pointer font-bold">Últimos {collection.receivables.length} cobros recibidos por cuenta de comercios — sin liquidación automática</summary><div className="mt-3 space-y-2">{collection.receivables.map(row => <p key={row.request_id} className="break-words text-sm">{restaurantNames.get(row.restaurant_id) ?? "Comercio"} · {row.currency} {Number(row.amount).toFixed(2)} · recibido por {restaurantNames.get(row.receiver_restaurant_id) ?? "Yopido"} · referencia {row.request_id}</p>)}</div></details> : null}
         </Card>
         <div className="grid items-start gap-5 lg:grid-cols-2">
           <Card className="min-w-0 [&_select]:min-w-0">

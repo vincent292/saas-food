@@ -215,20 +215,19 @@ export const bankOrderPaymentService = {
   async availableForRestaurant(restaurantId: string, currency = "BOB") {
     if (currency !== "BOB" || !bankVaultConfigured()) return false;
     try {
-      const account = checked(await adminClient().from("bank_qr_connections").select("id").eq("restaurant_id", restaurantId)
-        .eq("environment", "production").eq("active", true).eq("orders_enabled", true).eq("check_result", "ok").maybeSingle());
+      const account = checked(await adminClient().rpc("resolve_baneco_collection", { p_restaurant: restaurantId }));
       return Boolean(account);
     } catch { return false; }
   },
   async get(orderId: string, token: string) {
     const admin = adminClient();
     const order = await publicOrder(admin, orderId, token);
-    const request = checked(await admin.from("bank_qr_test_requests").select("id,status,qr_image,amount,application_state,due_date")
+    const request = checked(await admin.from("bank_qr_test_requests").select("id,status,qr_image,amount,application_state,due_date,collection_route")
       .eq("order_id", order.id).not("status", "in", "(failed,cancelled)").order("created_at", { ascending: false }).limit(1).maybeSingle());
     if (request) {
       const compatible = order.status !== "cancelled" && !["cancelled", "refunded"].includes(order.payment_status)
         && Number(order.total) === Number(request.amount) && (order.payment_status !== "paid" || request.status === "paid");
-      return { available: true, requestId: request.id, status: compatible || request.status === "paid" ? request.status : "review", amount: Number(request.amount), applicationState: compatible ? request.application_state : "review",
+      return { available: true, requestId: request.id, collectionRoute: request.collection_route, status: compatible || request.status === "paid" ? request.status : "review", amount: Number(request.amount), applicationState: compatible ? request.application_state : "review",
         image: compatible && request.status === "pending" && request.due_date >= boliviaDate() ? request.qr_image : null };
     }
     if (order.payment_status === "paid") return { available: false, status: "paid" };
@@ -236,11 +235,12 @@ export const bankOrderPaymentService = {
       && !order.group_order_session_id && !order.payment_receipt_url && !order.payment_receipt_reference && Number(order.total) >= .01 && Number(order.total) <= 50000;
     if (!eligible) return { available: false, status: "unavailable" };
     const [account, child] = await Promise.all([
-      admin.from("bank_qr_connections").select("id").eq("restaurant_id", order.restaurant_id).eq("environment", "production")
-        .eq("active", true).eq("orders_enabled", true).eq("check_result", "ok").maybeSingle(),
-      admin.from("multisite_order_children").select("id").eq("order_id", order.id).limit(1).maybeSingle(),
+      admin.rpc("resolve_baneco_collection", { p_restaurant: order.restaurant_id }),
+      admin.from("multisite_order_children").select("id,multisite_order_id").eq("order_id", order.id).limit(1).maybeSingle(),
     ]);
-    return { available: Boolean(checked(account)) && !checked(child), status: "not_created", amount: Number(order.total) };
+    const childOrder = checked(child);
+    const multiBank = childOrder ? checked(await admin.from("multisite_orders").select("bank_payments").eq("id", childOrder.multisite_order_id).single())?.bank_payments : false;
+    return { available: Boolean(checked(account)) && (!childOrder || Boolean(multiBank)), status: "not_created", amount: Number(order.total) };
   },
   async generate(orderId: string, token: string) {
     const admin = adminClient();

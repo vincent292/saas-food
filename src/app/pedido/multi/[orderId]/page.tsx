@@ -19,7 +19,7 @@ export default async function PublicMultisiteOrderPage({
 
   const { data: order } = await admin
     .from("multisite_orders")
-    .select("id,tracking_token,status,subtotal,delivery_fee,total,bank_group_session_id,products_prepaid_amount")
+    .select("id,tracking_token,status,subtotal,delivery_fee,total,bank_group_session_id,products_prepaid_amount,bank_payments")
     .eq("id", orderId)
     .eq("tracking_token", token)
     .maybeSingle();
@@ -34,7 +34,7 @@ export default async function PublicMultisiteOrderPage({
   const orderIds = (children ?? []).map((child) => child.order_id);
   const [{ data: restaurants }, { data: childOrders }] = await Promise.all([
     restaurantIds.length ? admin.from("restaurants").select("id,name,slug").in("id", restaurantIds) : Promise.resolve({ data: [] }),
-    orderIds.length ? admin.from("orders").select("id,order_number,status,payment_status,group_cash_due").in("id", orderIds) : Promise.resolve({ data: [] }),
+    orderIds.length ? admin.from("orders").select("id,order_number,status,payment_status,group_cash_due,tracking_token").in("id", orderIds) : Promise.resolve({ data: [] }),
   ]);
   const restaurantById = new Map((restaurants ?? []).map((restaurant) => [restaurant.id, restaurant]));
   const orderById = new Map((childOrders ?? []).map((childOrder) => [childOrder.id, childOrder]));
@@ -47,11 +47,14 @@ export default async function PublicMultisiteOrderPage({
     deliveryFee: Number(order.delivery_fee),
     total: Number(order.total),
     bankGroup: Boolean(order.bank_group_session_id),
+    bankPayments: order.bank_payments,
     prepaidAmount: Number(order.products_prepaid_amount),
     children: (children ?? []).map((child) => {
       const restaurant = restaurantById.get(child.restaurant_id);
       const childOrder = orderById.get(child.order_id);
       return {
+        orderId: child.order_id,
+        trackingToken: order.bank_payments ? childOrder?.tracking_token : undefined,
         restaurantName: restaurant?.name ?? "Local",
         restaurantSlug: restaurant?.slug ?? "",
         orderNumber: childOrder?.order_number ?? child.order_id.slice(0, 8),

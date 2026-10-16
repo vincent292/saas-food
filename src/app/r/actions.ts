@@ -1333,7 +1333,7 @@ export async function updateGroupParticipantPaymentFormAction(formData: FormData
 
   const { data: sessionRow } = await writeClient
     .from("group_order_sessions")
-    .select("id,restaurant_id,status,expires_at")
+    .select("id,restaurant_id,status,expires_at,bank_payments")
     .eq("public_token", paymentData.sessionToken)
     .maybeSingle();
 
@@ -1341,6 +1341,9 @@ export async function updateGroupParticipantPaymentFormAction(formData: FormData
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "closed" }));
   }
   const session = sessionRow;
+  if (session.bank_payments) {
+    redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "group-use-bank-bills" }));
+  }
   if (paymentData.paymentStatus === "paid_qr" || paymentData.paymentStatus === "covered_by_host" || paymentData.paymentStatus === "excluded") {
     redirect(groupOrderUrl(restaurantSlug, sessionToken, { participant: participantToken, error: "host-only-payment-status" }));
   }
@@ -1418,7 +1421,7 @@ export async function updateGroupOrderSessionSettingsAction(formData: FormData) 
 
   const { data: sessionRow } = await writeClient
     .from("group_order_sessions")
-    .select("id,restaurant_id,status,expires_at")
+    .select("id,restaurant_id,status,expires_at,bank_payments")
     .eq("public_token", settingsData.sessionToken)
     .eq("host_access_token", settingsData.hostAccessToken)
     .maybeSingle();
@@ -1437,12 +1440,12 @@ export async function updateGroupOrderSessionSettingsAction(formData: FormData) 
   }
 
   const hostQrUrl =
-    collectMode === "host_collects" && isNonEmptyFile(hostQrFile)
+    !session.bank_payments && collectMode === "host_collects" && isNonEmptyFile(hostQrFile)
       ? await uploadPublicImage(hostQrFile, `restaurants/${session.restaurant_id}/group-host-qr`)
       : undefined;
 
   const updatePayload = {
-    collect_mode: collectMode,
+    collect_mode: session.bank_payments ? "restaurant_collects" as const : collectMode,
     multisite_enabled: settingsData.multisiteEnabled,
     ...(hostQrUrl ? { host_qr_url: hostQrUrl } : {}),
   };

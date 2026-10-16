@@ -20,7 +20,7 @@ test("table approval sends the order to preparation without charging it", async 
   assert.match(reviewCard, /Aprobar pedido/);
 });
 
-test("table closing supports QR review and real-time cash change", async () => {
+test("table closing waits for bank verification and preserves real-time cash change", async () => {
   const [actions, cash, migration] = await Promise.all([
     readFile(new URL("src/app/admin/actions.ts", root), "utf8"),
     readFile(new URL("src/components/cash/CashWorkspaceClient.tsx", root), "utf8"),
@@ -29,12 +29,15 @@ test("table closing supports QR review and real-time cash change", async () => {
 
   assert.match(actions, /export async function verifyTableQrPaymentAction/);
   assert.match(actions, /order\.order_type !== "table" \|\| order\.payment_method !== "qr"/);
-  assert.match(cash, /Aceptar pago QR/);
+  assert.doesNotMatch(cash, /Aceptar pago QR/);
+  assert.match(cash, /BankOrderPaymentCard/);
+  assert.match(cash, /paymentMethod === "qr" && pendingOrders.length > 0/);
+  assert.doesNotMatch(cash, /name="paymentReceiptFile"/);
   assert.match(cash, /ReceiptViewerButton/);
   assert.match(cash, /const changeDue =/);
   assert.match(cash, /Cambio a devolver/);
   assert.match(cash, /cashReceived/);
-  assert.match(cash, /QrPaymentViewer/);
+  assert.doesNotMatch(cash, /QrPaymentViewer/);
   assert.match(migration, /restaurant_order\.table_id = p_table_id/);
   assert.doesNotMatch(migration, /\nand table_id = p_table_id/);
   assert.match(migration, /approve_table_order_for_preparation/);

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import QRCode from "qrcode";
-import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, settleTableAction, verifyTableQrPaymentAction } from "@/app/admin/actions";
+import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, settleTableAction } from "@/app/admin/actions";
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
@@ -14,9 +14,9 @@ import { DeliveryDispatchPanel } from "@/components/delivery/DeliveryDispatchPan
 import { PendingOrderReviewCard } from "@/components/orders/PendingOrderReviewCard";
 import { READY_PICKUP_WARNING_MINUTES, elapsedLabel, kitchenDueDate, minutesSince, minutesUntil, orderPrepMinutes, paymentMethodLabels } from "@/components/orders/orderPresentation";
 import { printOrderTicket } from "@/components/orders/printOrder";
-import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
+import { BankOrderPaymentCard } from "@/components/orders/BankOrderPaymentCard";
+import { useBankQrAvailability } from "@/lib/client/use-bank-qr-availability";
 import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
-import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -31,7 +31,6 @@ import { formatShortDate, formatShortTime, isSameBusinessDay } from "@/lib/utils
 import { cn } from "@/lib/utils/cn";
 import { formatMoney } from "@/lib/utils/money";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
-import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { CashAuditSnapshot, CashMovement, CashSessionReport, CashSummary } from "@/types/cash.types";
 import type { Order, RestaurantTable } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration } from "@/types/product.types";
@@ -57,7 +56,7 @@ function statusMessage(status: CashPageStatus, businessType: Restaurant["busines
     return { tone: "success", text: hasKitchenFlow ? "Pedido aprobado, cobrado y enviado a cocina." : "Pedido aprobado, cobrado y marcado listo." };
   }
   if (status.pos) {
-    return { tone: "success", text: hasKitchenFlow ? "Venta POS cobrada y enviada a cocina." : "Venta POS cobrada y cerrada." };
+    return { tone: "success", text: "Pedido POS registrado. Si elegiste QR, se cobrará y aceptará al confirmar el banco." };
   }
   if (status.expense) {
     return { tone: "success", text: "Movimiento registrado correctamente." };
@@ -248,7 +247,6 @@ export function CashWorkspaceClient({
   const activeTabIsLoaded = activeTab === loadedTab || (instantOperationalTabs.has(activeTab) && instantOperationalTabs.has(loadedTab));
   const hasFullCashSummary = loadedTab === "venta" || loadedTab === "movimientos" || loadedTab === "egresos" || loadedTab === "cierre" || loadedTab === "reportes";
   const catalogLabelTitle = businessCatalogLabelTitle(restaurant.businessType);
-  const preparationArea = businessPreparationAreaLabel(restaurant.businessType);
   const hasKitchenFlow = businessTypeSupportsKitchen(restaurant.businessType) && (settings?.kitchenEnabled ?? true);
   const hasDirectPrintConnector = Boolean(printConnectorLink?.linkedAt || printConnectorLink?.lastSeenAt);
   const trackingUrl =
@@ -495,13 +493,13 @@ export function CashWorkspaceClient({
 
       {showPosCreatedModal && status.posOrderNumber ? (
         <div className="fixed inset-0 z-[85] grid place-items-end bg-[var(--color-overlay)] p-0 text-[var(--text)] backdrop-blur-sm sm:place-items-center sm:p-4">
-          <div className="w-full max-w-xl rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:rounded-[1.5rem]">
+          <div className="max-h-[94dvh] w-full max-w-xl overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] shadow-2xl sm:rounded-[1.5rem]">
             <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] p-4">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta confirmada</p>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Pedido registrado</p>
                 <h2 className="mt-1 text-2xl font-black text-[var(--color-heading)]">Pedido {status.posOrderNumber}</h2>
                 <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
-                  {hasKitchenFlow ? "Ya quedo enviado a cocina." : `Ya quedo enviado a ${preparationArea}.`} Puedes compartir el seguimiento al cliente desde aqui.
+                  Si elegiste QR, el pedido permanece pendiente hasta confirmar el banco. Puedes compartir el seguimiento al cliente desde aquí.
                 </p>
               </div>
               <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={() => setShowPosCreatedModal(false)} type="button">
@@ -510,6 +508,7 @@ export function CashWorkspaceClient({
             </div>
 
             <div className="grid gap-4 p-4">
+              {status.posOrderId ? <BankOrderPaymentCard orderId={status.posOrderId} token={status.posTrackingToken} initialPayment={null} staffRestaurantId={restaurant.id} /> : null}
               <div className="rounded-2xl bg-[var(--primary-light)] p-4">
                 <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Seguimiento</p>
                 <p className="mt-2 break-all text-sm font-semibold text-[var(--color-body)]">{trackingUrl || "Abriendo enlace..."}</p>
@@ -999,7 +998,6 @@ function TableSettlementCard({
   table,
   orders,
   restaurant,
-  settings,
   disabled,
   pendingOrderIds,
   onApprove,
@@ -1024,8 +1022,7 @@ function TableSettlementCard({
   const changeDue = Number(Math.max(cashReceivedAmount - amountDue, 0).toFixed(2));
   const needsCashAmount = pendingOrders.length > 0 && paymentMethod === "cash";
   const cashAmountIsValid = !needsCashAmount || (cashReceived.trim() !== "" && cashReceivedAmount >= amountDue);
-  const qrAvailable = hasQrPaymentConfigured(settings);
-  const qrPaymentUrl = normalizeQrPaymentUrl(settings?.qrPaymentUrl);
+  const qrAvailable = useBankQrAvailability(restaurant.id);
   const qrMethodIsValid = paymentMethod !== "qr" || qrAvailable;
 
   if (!orders.length) {
@@ -1100,7 +1097,7 @@ function TableSettlementCard({
                       <input name="orderId" type="hidden" value={order.id} />
                       <input name="source" type="hidden" value="caja" />
                       <p className="mb-2 text-xs font-bold text-[var(--muted)]">Aprobar solo lo envía a preparación; no registra ningún cobro.</p>
-                      <PendingSubmitButton className="w-full" disabled={isUpdating} pendingLabel="Aprobando pedido...">
+                      <PendingSubmitButton className="w-full" disabled={isUpdating || Boolean(order.bankPaymentRequired && order.paymentStatus !== "paid")} pendingLabel="Aprobando pedido...">
                         Aprobar pedido de mesa
                       </PendingSubmitButton>
                     </form>
@@ -1115,19 +1112,10 @@ function TableSettlementCard({
                           <ReceiptViewerButton className="mt-2" label="Ver comprobante QR" receiptLabel={`Comprobante ${order.orderNumber}`} subtitle={formatMoney(order.total)} url={order.paymentReceiptUrl} />
                         ) : null}
                       </div>
-                      <form action={verifyTableQrPaymentAction}>
-                        <input name="restaurantId" type="hidden" value={restaurant.id} />
-                        <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
-                        <input name="orderId" type="hidden" value={order.id} />
-                        <PendingSubmitButton disabled={disabled} pendingLabel="Validando...">
-                          Aceptar pago QR
-                        </PendingSubmitButton>
-                      </form>
+                      <p className="text-sm">Comprobante histórico: no confirma un pago bancario. Revisa este caso antes de volver a cobrar.</p>
                     </div>
                   ) : order.paymentStatus !== "paid" && order.paymentMethod === "qr" ? (
-                    <p className="mt-3 rounded-2xl bg-[var(--color-neutral-100)] p-3 text-xs font-bold text-[var(--color-secondary-text)]">
-                      Se indicó pago QR, pero todavía no hay comprobante. Puedes cobrar este pedido con el resto de la mesa al cerrar.
-                    </p>
+                    <BankOrderPaymentCard orderId={order.id} staffRestaurantId={restaurant.id} initialPayment={null} />
                   ) : null}
                 </div>
               );
@@ -1190,24 +1178,13 @@ function TableSettlementCard({
 
             {paymentMethod === "qr" && pendingOrders.length ? (
               <>
-                {qrPaymentUrl ? (
-                  <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                    <QrPaymentViewer
-                      downloadFileName={`${restaurant.slug}-mesa-${table.code}-qr.png`}
-                      subtitle={`Saldo completo de ${table.name}: ${formatMoney(amountDue)}`}
-                      title={`Cobro QR · ${table.name}`}
-                      url={qrPaymentUrl}
-                    />
-                    <p className="mt-2 text-center text-xs font-bold text-[var(--muted)]">Al confirmar, todo el saldo pendiente se registrará como QR. No se calcula cambio.</p>
-                  </div>
-                ) : null}
-                <Input disabled={disabled} maxLength={160} name="paymentReceiptReference" placeholder="Referencia QR (opcional)" />
-                <CompressedImageInput acceptPdf className={disabled ? "pointer-events-none opacity-60" : ""} help="Opcional. Puedes cerrar la mesa sin subir comprobante." label="Comprobante QR (opcional)" name="paymentReceiptFile" />
+                <p className="text-sm">Cada comanda tiene un QR de importe exacto. La mesa se libera después de que el banco confirme todas.</p>
+                {pendingOrders.filter(order => order.paymentMethod !== "qr").map(order => <BankOrderPaymentCard key={order.id} orderId={order.id} staffRestaurantId={restaurant.id} initialPayment={null} />)}
               </>
             ) : null}
             <FormSubmitButton
               className="w-full"
-              disabled={disabled || !cashAmountIsValid || !qrMethodIsValid}
+              disabled={disabled || !cashAmountIsValid || !qrMethodIsValid || (paymentMethod === "qr" && pendingOrders.length > 0)}
               label={pendingOrders.length ? "Cobrar y cerrar mesa" : "Liberar mesa"}
               overlayDescription="Registrando el cobro y cerrando la cuenta de la mesa."
               overlayTitle="Cerrando cuenta"

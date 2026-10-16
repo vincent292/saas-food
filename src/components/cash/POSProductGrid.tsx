@@ -2,12 +2,11 @@
 
 import { Check, Maximize2, Minimize2, Minus, Plus, Search, ShoppingCart, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { createPosSaleAction } from "@/app/admin/actions";
 import { orderOriginLabels } from "@/components/orders/orderPresentation";
-import { QrPaymentViewer } from "@/components/payments/QrPaymentViewer";
-import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
+import { useBankQrAvailability } from "@/lib/client/use-bank-qr-availability";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select } from "@/components/ui/Input";
@@ -16,7 +15,7 @@ import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { productImageFitStyle } from "@/lib/utils/product-image-fit";
-import { hasQrPaymentConfigured, normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
+import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { OrderOrigin } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
 import type { BusinessType, RestaurantSettings } from "@/types/restaurant.types";
@@ -100,7 +99,7 @@ export function POSProductGrid({
   const preparationAreaLabel = businessPreparationAreaLabel(businessType);
   const submitLabel = businessTypeSupportsKitchen(businessType) ? "Cobrar y enviar a cocina" : "Cobrar y registrar pedido";
   const qrPaymentUrl = normalizeQrPaymentUrl(settings?.qrPaymentUrl);
-  const qrAvailable = hasQrPaymentConfigured(settings);
+  const qrAvailable = useBankQrAvailability(restaurantId);
 
   function addConfiguredProduct(product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) {
     const price = product.price + (variant?.priceDelta ?? 0) + selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
@@ -323,8 +322,6 @@ function PosCartPanel({
   orderOrigin,
   paymentMethod,
   qrAvailable,
-  qrPaymentUrl,
-  qrSettings,
   source,
   submitLabel,
   preparationAreaLabel,
@@ -358,6 +355,8 @@ function PosCartPanel({
   totalItems: number;
 }) {
   const [cashReceived, setCashReceived] = useState("");
+  const [posRequestId, setPosRequestId] = useState("");
+  useEffect(() => { const timer = setTimeout(() => setPosRequestId(crypto.randomUUID()), 0); return () => clearTimeout(timer); }, []);
   const [orderType, setOrderType] = useState<"pos" | "pickup">("pos");
   const parsedCashReceived = Number(cashReceived);
   const cashReceivedAmount = Number.isFinite(parsedCashReceived) && parsedCashReceived >= 0 ? parsedCashReceived : 0;
@@ -421,6 +420,7 @@ function PosCartPanel({
       </div>
 
       <form action={createPosSaleAction} className="mt-4 space-y-3">
+        <input name="posRequestId" type="hidden" value={posRequestId} />
         <input name="restaurantId" type="hidden" value={restaurantId} />
         <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
         <input name="cartJson" type="hidden" value={cartJson} />
@@ -493,30 +493,12 @@ function PosCartPanel({
         </p>
         {paymentMethod === "qr" && qrAvailable ? (
           <div className="space-y-2 rounded-2xl border border-[var(--border)] p-3">
-            <div className="grid gap-3 rounded-2xl bg-[var(--primary-light)]/55 p-3 sm:grid-cols-[140px_1fr] sm:items-center">
-              <QrPaymentViewer
-                downloadFileName={`${restaurantSlug}-pos-qr-pago.png`}
-                imageClassName="h-24 w-24"
-                subtitle="QR de pago POS"
-                title="QR de pago"
-                url={qrPaymentUrl}
-              />
-              <div>
-                <p className="text-sm font-black text-[var(--text)]">QR listo para cobrar</p>
-                <p className="mt-1 text-xs font-semibold text-[var(--muted)]">
-                  {qrSettings?.qrAccountName || qrSettings?.qrBankName
-                    ? `${qrSettings?.qrAccountName ?? "Cuenta QR"}${qrSettings?.qrBankName ? ` - ${qrSettings.qrBankName}` : ""}`
-                    : "Muestra este QR al cliente y registra referencia o comprobante."}
-                </p>
-              </div>
-            </div>
-            <Input name="paymentReceiptReference" placeholder="Numero de comprobante o referencia QR" />
-            <CompressedImageInput acceptPdf help="Opcional: captura o PDF del pago. Las imagenes se optimizan en WebP." label="Comprobante QR" name="paymentReceiptFile" />
-            <p className="text-xs font-semibold text-[var(--muted)]">En POS puedes subir una captura o registrar la referencia del pago digital.</p>
+            <p className="text-sm font-black">QR bancario de importe exacto</p>
+            <p className="text-xs">Primero se guarda el pedido pendiente. Después muestra su QR desde Pedidos o el seguimiento. El banco confirma el pago automáticamente; no se acepta foto ni referencia como prueba de pago.</p>
           </div>
         ) : null}
         <p className="text-xs font-semibold text-[var(--muted)]">Al confirmar, el pedido queda registrado para {preparationAreaLabel} y seguimiento.</p>
-        <PosSubmitButton disabled={disabled || !cart.length || !cashAmountIsValid} label={submitLabel} />
+        <PosSubmitButton disabled={disabled || !posRequestId || !cart.length || !cashAmountIsValid} label={paymentMethod === "qr" ? "Crear pedido y cobrar con QR" : submitLabel} />
       </form>
     </Card>
   );

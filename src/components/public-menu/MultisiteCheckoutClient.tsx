@@ -28,6 +28,7 @@ const errorLabels: Record<string, string> = {
   invalid: "Completa los datos de entrega para continuar.",
   minimum: "Uno de los locales no alcanza su pedido mínimo.",
   "no-open-cash": "Uno de los locales no tiene caja operativa en este momento.",
+  "bank-unavailable": "Un local no tiene cuenta bancaria habilitada ni respaldo Yopido autorizado. Configura la cuenta o elige efectivo.",
   "product-not-found": "Un producto cambió o ya no está disponible.",
   "product-configuration": "Revisa las variantes o adicionales de un producto.",
   "restaurant-unavailable": "Uno de los locales ya no recibe pedidos a domicilio.",
@@ -192,7 +193,8 @@ export function MultisiteCheckoutClient({ error, restaurants }: { error?: string
                   <div className="mt-4 rounded-2xl border border-[var(--border)] p-4"><label className="grid gap-1.5 text-sm font-black text-[var(--color-heading)]">Oferta para la moto (Bs)<input className="min-h-11 rounded-xl border border-[var(--border)] px-3" max={plan.riderPricing.customerMaximumFee} min={plan.riderPricing.customerMinimumFee} name="riderFee" onChange={(event) => setRiderFee(event.target.value)} step="0.5" type="number" value={riderFee} /></label><p className="mt-2 text-xs font-semibold text-[var(--color-secondary-text)]">Sugerido: {formatMoney(plan.riderPricing.suggestedRiderFee)} · permitido de {formatMoney(plan.riderPricing.customerMinimumFee)} a {formatMoney(plan.riderPricing.customerMaximumFee)}.</p></div>
                 </> : null}
                 <div className="mt-5 space-y-2 border-t border-[var(--border)] pt-4 text-sm font-semibold text-[var(--color-secondary-text)]"><div className="flex justify-between"><span>Productos</span><span>{formatMoney(subtotal)}</span></div><div className="flex justify-between"><span>Entrega única</span><span>{Number.isFinite(selectedFee) ? formatMoney(selectedFee) : "—"}</span></div><div className="flex justify-between pt-2 text-base font-black text-[var(--color-heading)]"><span>Total</span><span>{formatMoney(total)}</span></div></div>
-                <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900">Pago habilitado: efectivo al recibir. El QR único requiere una cuenta de cobro de plataforma y se activará cuando esté configurada.</p>
+                <label className="mt-4 grid gap-2 text-sm font-black">Pago de productos<select name="paymentMethod" className="min-h-12 rounded-xl border px-3"><option value="cash">Efectivo al recibir</option><option value="qr">QR bancario por local</option></select></label>
+                <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900">Con QR, cada local tiene su propio cobro de productos y confirmación automática. El delivery se paga por separado a la moto. El respaldo Yopido solo se usa si está autorizado y habilitado.</p>
                 <SubmitButton disabled={!canSubmit} />
               </section>
             </aside>

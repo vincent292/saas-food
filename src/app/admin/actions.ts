@@ -34,7 +34,6 @@ import { defaultRestaurantPalette } from "@/lib/theme/design-tokens";
 import { directionsToMapsUrl, hasValidCoordinates } from "@/lib/utils/google-maps";
 import { clampProductImagePosition, clampProductImageZoom } from "@/lib/utils/product-image-fit";
 import { publicRestaurantPath } from "@/lib/utils/public-routes";
-import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import { toSlug } from "@/lib/utils/slug";
 import type { Json } from "@/types/database.types";
 import type { MenuImportAnalyzeResult, MenuImportCommitResult } from "@/types/menu-import.types";
@@ -7808,21 +7807,8 @@ export async function verifyTableQrPaymentAction(formData: FormData) {
   if (!order || order.order_type !== "table" || order.payment_method !== "qr") {
     redirect(`${redirectPath}&error=invalid-table-qr-payment`);
   }
-  if (!order.payment_receipt_url && !order.payment_receipt_reference) {
-    redirect(`${redirectPath}&error=receipt-required`);
-  }
-
   if (order.payment_status !== "paid") {
-    const { error } = await supabase.rpc("charge_order_with_cash_movement", {
-      p_restaurant_id: parsed.data.restaurantId,
-      p_order_id: parsed.data.orderId,
-      p_payment_method: "qr",
-      p_receipt_url: null,
-      p_receipt_reference: null,
-    });
-    if (error) {
-      redirect(`${redirectPath}&error=${cashErrorKey(error, "table-qr-payment")}`);
-    }
+    redirect(`${redirectPath}&error=bank-payment-required`);
   }
 
   await revalidateOrderDecisionPaths(parsed.data.restaurantId, parsed.data.restaurantSlug);
@@ -8014,28 +8000,20 @@ export async function createPosSaleAction(formData: FormData) {
   void user;
 
   if (parsed.data.paymentMethod === "qr") {
-    const { data: settings } = await supabase
-      .from("restaurant_settings")
-      .select("qr_payment_url")
-      .eq("restaurant_id", parsed.data.restaurantId)
-      .maybeSingle();
-
-    if (!normalizeQrPaymentUrl(settings?.qr_payment_url)) {
+    const { bankOrderPaymentService } = await import("@/lib/services/bank-qr.service");
+    if (!await bankOrderPaymentService.availableForRestaurant(parsed.data.restaurantId)) {
       redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=qr-unavailable`);
     }
   }
 
   const receiptFile = formData.get("paymentReceiptFile") as File | null;
   const paymentReceiptUrl =
-    parsed.data.paymentMethod === "qr" && receiptFile && receiptFile.size > 0
+    parsed.data.paymentMethod !== "qr" && receiptFile && receiptFile.size > 0
       ? await uploadPrivateFile(receiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
       : null;
 
-  if (parsed.data.paymentMethod === "qr" && !paymentReceiptUrl && !parsed.data.paymentReceiptReference) {
-    redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=receipt-required`);
-  }
-
-  const orderNumber = `POS-${Date.now()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
+  const posRequest = z.string().uuid().safeParse(formData.get("posRequestId"));
+  const orderNumber = `POS-${posRequest.success ? posRequest.data : crypto.randomUUID()}`;
 
   const { data: orderId, error } = await supabase.rpc("create_pos_sale_with_tender", {
     p_restaurant_id: parsed.data.restaurantId,
@@ -8047,7 +8025,7 @@ export async function createPosSaleAction(formData: FormData) {
     p_payment_method: parsed.data.paymentMethod,
     p_cash_received: parsed.data.cashReceived ?? null,
     p_receipt_url: paymentReceiptUrl,
-    p_receipt_reference: parsed.data.paymentReceiptReference ?? null,
+    p_receipt_reference: parsed.data.paymentMethod === "qr" ? null : parsed.data.paymentReceiptReference ?? null,
     p_items: parsed.data.cart as unknown as Json,
   });
 
@@ -8055,7 +8033,7 @@ export async function createPosSaleAction(formData: FormData) {
     redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=${cashErrorKey(error, "pos-order")}`);
   }
 
-  if (orderId && !(await restaurantUsesKitchenFlow(supabase, parsed.data.restaurantId))) {
+  if (orderId && parsed.data.paymentMethod !== "qr" && !(await restaurantUsesKitchenFlow(supabase, parsed.data.restaurantId))) {
     const now = new Date().toISOString();
     await supabase
       .from("orders")

@@ -41,7 +41,16 @@ async function fixture(){
   for(const name of ['0063_public_order_cash_and_schedule_rules.sql','0066_group_order_sessions.sql','0067_group_order_host_controls.sql','0068_group_order_multisite_planning.sql',
     '0072_group_order_submission_guard.sql','0073_group_order_payment_review_and_limits.sql','0074_group_order_structured_order_link.sql','0112_public_multisite_orders.sql','0113_group_multisite_checkout_link.sql','0119_multisite_creation_retry_guard.sql',
     '0120_baneco_superadmin_test_panel.sql','0121_baneco_production_pilot.sql','0122_baneco_automatic_reconciliation.sql','0125_baneco_notifications_and_realtime.sql','0126_baneco_order_payments.sql',
-    '0127_baneco_public_checkout.sql','0128_baneco_checkout_recovery_and_acceptance.sql','0129_baneco_group_bills.sql','0130_baneco_group_submission.sql'])await db.exec(read(name));
+    '0127_baneco_public_checkout.sql','0128_baneco_checkout_recovery_and_acceptance.sql','0129_baneco_group_bills.sql','0130_baneco_group_submission.sql','0131_baneco_group_scheduled_release.sql','0132_baneco_collection_routing.sql'])await db.exec(read(name));
+  await db.exec(`create table restaurant_memberships(user_id uuid,restaurant_id uuid,is_active boolean,role app_role);
+    alter table products add column name text default 'Producto',add column price numeric default 10;
+    alter table product_variants add column restaurant_id uuid,add column product_id uuid,add column name text,add column price_delta numeric,add column is_active boolean;
+    create table product_option_groups(id uuid primary key,restaurant_id uuid,product_id uuid,name text,min_choices integer,max_choices integer,is_required boolean,is_active boolean);
+    create table product_options(id uuid primary key,restaurant_id uuid,product_id uuid,option_group_id uuid,name text,price_delta numeric,is_active boolean,sort_order integer);`);
+  await db.exec(read('0053_fix_pos_sale_rpc_signature.sql'));
+  const tender=read('0107_pos_tenders_and_pickup_sales.sql');await db.exec(tender.slice(tender.indexOf('create or replace function create_pos_sale_with_tender('),tender.indexOf('create or replace function settle_table_with_tender(')));
+  await db.exec(read('0133_baneco_pos_and_staff.sql'));
+  await db.exec(read('0134_baneco_multisite_checkout.sql'));
   const charge=read('0103_fix_table_settlement_and_payment_flow.sql');
   await db.exec(charge.slice(charge.indexOf('create or replace function charge_order_with_cash_movement('),charge.indexOf('create or replace function settle_table_with_cash_movements(')));
   const products=[];for(const [i,id] of restaurants.entries()){
@@ -122,5 +131,61 @@ test('a pending/unknown generation prevents closing; stock failure rolls back or
     assert.equal((await f.db.query('select count(*)::int n from orders')).rows[0].n,0);
     assert.equal((await f.db.query('select count(*)::int n from cash_movements')).rows[0].n,0);
     assert.equal((await f.db.query('select paid_request_id from bank_group_bills where id=$1',[paid.billId])).rows[0].paid_request_id,paid.request.id);
+  }finally{await f.db.close();}
+});
+
+test('fallback is opt-in, own active accounts take precedence, and verified central payments create one payable',async()=>{
+  const f=await fixture();try{
+    const central=(await f.db.query('select id from bank_qr_connections where restaurant_id=$1',[f.restaurants[0]])).rows[0].id;
+    await f.db.query('update bank_qr_connections set active=false where restaurant_id=$1',[f.restaurants[1]]);
+    assert.equal((await f.db.query('select resolve_baneco_collection($1) id',[f.restaurants[1]])).rows[0].id,null);
+    await f.db.query('update bank_collection_settings set connection_id=$1,enabled=true,authorized_at=now(),authorized_by=$2',[central,f.admin]);
+    assert.equal((await f.db.query('select resolve_baneco_collection($1) id',[f.restaurants[1]])).rows[0].id,central);
+    await f.item(1,1,18);const bill=await f.pending(1,1);assert.equal(bill.request.restaurant_id,f.restaurants[1]);assert.equal(bill.request.receiver_restaurant_id,f.restaurants[0]);assert.equal(bill.request.collection_route,'platform');
+    await f.pay(bill.request);await f.pay(bill.request);
+    const ledger=(await f.db.query('select * from bank_collection_receivables')).rows;assert.equal(ledger.length,1);assert.equal(Number(ledger[0].amount),18);assert.equal(ledger[0].restaurant_id,f.restaurants[1]);
+    await f.db.query('update bank_collection_settings set enabled=false');
+    assert.equal((await f.db.query('select resolve_baneco_collection($1) id',[f.restaurants[1]])).rows[0].id,null);
+    await assert.rejects(f.db.query('update bank_qr_test_requests set receiver_restaurant_id=$2 where id=$1',[bill.request.id,f.restaurants[2]]),/bank-recipient-immutable/);
+    await f.db.query('update bank_qr_connections set active=true,orders_enabled=false where restaurant_id=$1',[f.restaurants[1]]);
+    await f.db.query('update bank_collection_settings set enabled=true');
+    assert.equal((await f.db.query('select resolve_baneco_collection($1) id',[f.restaurants[1]])).rows[0].id,null);
+    await f.db.exec('set role anon');await assert.rejects(f.db.query('select * from bank_collection_receivables'),/permission denied/);await assert.rejects(f.db.query('select resolve_baneco_collection($1)',[f.restaurants[0]]),/permission denied/);
+  }finally{await f.db.close();}
+});
+
+test('POS QR draft uses catalog prices, stays unpaid, replays safely, and cannot be manually approved',async()=>{
+  const f=await fixture();try{
+    await f.db.query("select set_config('test.uid',$1,false)",[f.admin]);
+    const cart=[{productId:f.products[0],quantity:2,price:.01,optionIds:[]}];
+    const sale=()=>f.db.query("select create_pos_sale_with_tender($1,'POS-RETRY','Cliente',null,'pos_counter','pickup','qr',null,null,null,$2) id",[f.restaurants[0],cart]);
+    const id=(await sale()).rows[0].id;assert.equal((await sale()).rows[0].id,id);
+    const order=(await f.db.query('select * from orders where id=$1',[id])).rows[0];assert.equal(Number(order.total),20);assert.equal(order.payment_status,'pending');assert.equal(order.status,'pending');assert.equal(order.bank_payment_required,true);assert.equal(order.order_type,'pickup');
+    assert.equal((await f.db.query('select count(*)::int n from cash_movements')).rows[0].n,0);
+    await assert.rejects(f.db.query("update orders set payment_status='paid',payment_receipt_reference='FAKE' where id=$1",[id]),/bank-payment-required/);
+    await assert.rejects(f.db.query('select prepare_baneco_staff_order($1,$2,$3)',[f.restaurants[0],id,randomUUID()]),/bank-forbidden/);
+    const reserved=(await f.db.query('select reserve_baneco_order_qr($1,$2) r',[id,order.tracking_token])).rows[0].r;
+    await f.db.query("update bank_qr_test_requests set status='pending',qr_id=$2 where id=$1",[reserved.request.id,'POS-'+id]);
+    await assert.rejects(f.db.query("update orders set payment_method='cash' where id=$1",[id]),/bank-cancel-qr-first/);
+    await f.pay(reserved.request);assert.equal((await f.db.query('select payment_status from orders where id=$1',[id])).rows[0].payment_status,'paid');
+    assert.equal((await f.db.query('select count(*)::int n from cash_movements where order_id=$1',[id])).rows[0].n,1);
+  }finally{await f.db.close();}
+});
+
+test('standalone multi-local QR uses separate branch payments and keeps delivery outside bank amounts',async()=>{
+  const f=await fixture();try{
+    const request=randomUUID(), payload={customer_name:'Cliente',customer_address:'Destino',delivery_latitude:-17.3,delivery_longitude:-66.1,payment_method:'qr',subtotal:20,delivery_fee:8,total:28,rider_fee_suggested:8,rider_fee_minimum:8,rider_fee_maximum:8};
+    const children=[0,1].map((index)=>({restaurant_id:f.restaurants[index],order_number:'MULTI-'+index,pickup_position:index+1,release_delay_minutes:0,estimated_ready_minutes:20,subtotal:10,items:[{product_id:f.products[index],product_name:'Producto',unit_price:10,quantity:1,subtotal:10,option_ids:[]}]}));
+    const create=()=>f.db.query('select * from create_public_multisite_order_transaction($1,$2,$3)',[request,payload,children]);
+    const master=(await create()).rows[0];assert.equal((await create()).rows[0].id,master.id);
+    const orders=(await f.db.query('select * from orders order by order_number')).rows;assert.equal(orders.length,2);assert.ok(orders.every(o=>o.payment_method==='qr'&&o.bank_payment_required&&o.payment_status==='pending'));
+    const reservations=[];
+    for(const order of orders){const reserved=(await f.db.query('select reserve_baneco_order_qr($1,$2) r',[order.id,order.tracking_token])).rows[0].r;assert.equal(Number(reserved.request.amount),10);reservations.push(reserved.request);await f.db.query("update bank_qr_test_requests set qr_id=$2,status='pending' where id=$1",[reserved.request.id,'MULTI-'+reserved.request.id]);}
+    assert.notEqual(reservations[0].connection_id,reservations[1].connection_id);
+    await f.pay(reservations[0]);assert.equal(Number((await f.db.query('select products_prepaid_amount from multisite_orders where id=$1',[master.id])).rows[0].products_prepaid_amount),10);
+    await f.pay(reservations[1]);await f.pay(reservations[1]);
+    const paid=(await f.db.query('select * from multisite_orders where id=$1',[master.id])).rows[0];assert.equal(paid.bank_payments,true);assert.equal(Number(paid.products_prepaid_amount),20);assert.equal(Number(paid.delivery_fee),8);
+    assert.equal(Number((await f.db.query('select sum(amount) n from cash_movements')).rows[0].n),20);
+    assert.equal((await f.db.query('select count(*)::int n from bank_order_activations')).rows[0].n,2);
   }finally{await f.db.close();}
 });

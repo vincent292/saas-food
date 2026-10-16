@@ -45,12 +45,13 @@ export function GroupBankPayments({ sessionToken, secret, host, onEligibleItems 
   }
   const editable = view?.status === "open" || view?.status === "locked";
   return <section className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4" aria-live="polite">
-    <h2 className="text-lg font-black">Tu pago, directo a cada local</h2>
+    <h2 className="text-lg font-black">Tu pago, separado por local</h2>
     <p className="text-sm text-[var(--muted)]">Cada parte tiene su propio QR. Solo entra lo pagado o asumido en efectivo. El delivery se acuerda y paga por separado al cerrar.</p>
     <p className="text-xs text-[var(--muted)]">Puedes descargar el QR y abrir tu banco en este celular. Al volver verás el mismo pago. Una parte confirmada queda congelada; no necesitas subir comprobante.</p>
     <button className="min-h-11 text-sm font-bold underline" type="button" onClick={() => setOthers(!others)}>{others ? "Ver solo mi parte" : "Ver y pagar por otra persona"}</button>
     {!view ? <p className="text-sm">Recuperando pagos…</p> : view.rows.filter(row => others || row.participantId === view.actorId).map(row => <article className="space-y-2 rounded-xl border border-[var(--border)] p-3" key={row.participantId + row.restaurantId}>
       <div className="flex flex-wrap justify-between gap-2"><div><h3 className="font-bold">{row.restaurantName}</h3><p className="text-xs text-[var(--muted)]">{row.participantName}</p></div><strong>{formatMoney(row.amount)}</strong></div>
+      {row.collectionRoute === "platform" ? <p className="text-xs font-semibold">Yopido recibe este pago por cuenta del local.</p> : null}
       <p className={`text-sm font-bold ${row.status === "paid" ? "text-emerald-700" : "text-[var(--primary)]"}`}>{row.status === "paid" ? "Pagado · verificado por el banco" : row.status === "cash" ? "Efectivo asumido · pendiente de cobro" : row.status === "not_created" ? "Sin confirmar · no se enviará" : row.status === "pending" ? "Esperando pago" : "Verificación en curso · no vuelvas a pagar"}</p>
       {row.image && row.status === "pending" ? <>
         {/* eslint-disable-next-line @next/next/no-img-element */}

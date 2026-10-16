@@ -6,8 +6,19 @@ import { z } from "zod";
 import { bankAmount, bankCredentialSchema, bankErrorDetails, boliviaDate, validBankDate } from "@/lib/payments/baneco";
 import { bankQrService, requireBankSuperadmin, safeBankError } from "@/lib/services/bank-qr.service";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { configureBankCollection } from "@/lib/services/bank-collection.service";
 
 const path = "/admin/pagos-qr";
+export async function bankCollectionAction(form: FormData) {
+  let failure: string | undefined;
+  try {
+    await limited();
+    const enabled = form.get("enabled") === "on";
+    const connectionId = z.string().uuid().nullable().parse(form.get("connectionId") || null);
+    await configureBankCollection(connectionId, enabled, form.get("authorized") === "on");
+  } catch (error) { failure = safeBankError(error); }
+  feedback(failure ?? "collection-updated");
+}
 const connectionSchema = z.object({
   restaurantId: z.string().uuid(), label: z.string().trim().min(1).max(100),
   environment: z.enum(["certification", "production"]), branchCode: z.string().trim().max(5).regex(/^[A-Za-z0-9]*$/),

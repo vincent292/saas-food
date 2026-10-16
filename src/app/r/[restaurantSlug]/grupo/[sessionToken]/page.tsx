@@ -81,14 +81,19 @@ export default async function GroupOrderPage({
     : undefined;
   const validatedHostAccessToken = query.host === sessionRow.host_access_token ? query.host : undefined;
   let submittedOrderTrackingToken: string | undefined;
+  let submittedRestaurantSlug: string | undefined;
   let submittedMultisiteOrderTrackingToken: string | undefined;
   if (sessionRow.submitted_order_id && (validatedHostAccessToken || currentParticipant)) {
     const { data: submittedOrder } = await admin
       .from("orders")
-      .select("tracking_token")
+      .select("tracking_token,restaurant_id")
       .eq("id", sessionRow.submitted_order_id)
       .maybeSingle();
     submittedOrderTrackingToken = submittedOrder?.tracking_token ?? undefined;
+    if (submittedOrder) {
+      const { data: submittedRestaurant } = await admin.from("restaurants").select("slug").eq("id", submittedOrder.restaurant_id).maybeSingle();
+      submittedRestaurantSlug = submittedRestaurant?.slug;
+    }
   }
   if (sessionRow.submitted_multisite_order_id && (validatedHostAccessToken || currentParticipant)) {
     const { data: submittedMultisiteOrder } = await admin
@@ -143,6 +148,7 @@ export default async function GroupOrderPage({
     expiresAt: sessionRow.expires_at,
     submittedOrderId: sessionRow.submitted_order_id ?? undefined,
     submittedOrderTrackingToken,
+    submittedRestaurantSlug,
     submittedMultisiteOrderId: sessionRow.submitted_multisite_order_id ?? undefined,
     submittedMultisiteOrderTrackingToken,
     subtotal: Number(sessionRow.subtotal),

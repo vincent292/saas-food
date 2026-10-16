@@ -7,8 +7,11 @@ import { useRouter } from "next/navigation";
 import { clearCart } from "@/lib/utils/cart";
 import { formatMoney } from "@/lib/utils/money";
 import { MultisiteDeliverySearchRadar } from "@/components/public-menu/MultisiteDeliverySearchRadar";
+import { BankOrderPaymentCard } from "@/components/orders/BankOrderPaymentCard";
 
 type Child = {
+  orderId?: string;
+  trackingToken?: string;
   restaurantName: string;
   restaurantSlug: string;
   orderNumber: string;
@@ -40,6 +43,7 @@ export function MultisiteOrderSuccessClient({
     deliveryFee: number;
     children: Child[];
     bankGroup?: boolean;
+    bankPayments?: boolean;
     prepaidAmount?: number;
   };
 }) {
@@ -64,13 +68,14 @@ export function MultisiteOrderSuccessClient({
         <span className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-100 text-emerald-700"><CheckCircle2 className="h-7 w-7" /></span>
         <p className="mt-5 text-sm font-black text-emerald-700">Pedido recibido</p>
         <h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--color-heading)]">Tus locales ya recibieron el pedido</h1>
-        <p className="mt-3 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">{order.bankGroup ? "Solo se enviaron las partes pagadas o asumidas en efectivo, directamente a cada local. Los QR pagados no se vuelven a cobrar. El delivery se paga aparte." : "El total se cobra una sola vez en efectivo al recibir. Esta pantalla se actualiza automáticamente mientras los locales preparan tu pedido."}</p>
+        <p className="mt-3 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">{order.bankGroup ? "Solo se enviaron las partes pagadas o asumidas en efectivo, directamente a cada local. Los QR pagados no se vuelven a cobrar. El delivery se paga aparte." : order.bankPayments ? "Paga los productos de cada local con su QR. Cada parte se acepta al confirmar el banco; la búsqueda de moto espera a que el conjunto esté listo. El delivery se paga aparte." : "El total se cobra una sola vez en efectivo al recibir. Esta pantalla se actualiza automáticamente mientras los locales preparan tu pedido."}</p>
 
         <div className="mt-6 rounded-2xl bg-[var(--color-surface)] p-4">
           <div className="flex justify-between text-sm font-semibold text-[var(--color-secondary-text)]"><span>Productos</span><span>{formatMoney(order.subtotal)}</span></div>
           <div className="mt-2 flex justify-between text-sm font-semibold text-[var(--color-secondary-text)]"><span>Entrega única</span><span>{formatMoney(order.deliveryFee)}</span></div>
           {order.bankGroup ? <><div className="mt-2 flex justify-between text-sm font-bold text-emerald-700"><span>QR ya pagados a los locales</span><span>{formatMoney(order.prepaidAmount ?? 0)}</span></div><div className="mt-2 flex justify-between text-sm font-bold"><span>Saldo efectivo de productos</span><span>{formatMoney(order.children.reduce((sum, child) => sum + (child.cashDue ?? 0), 0))}</span></div><p className="mt-2 text-xs">El local confirma el efectivo antes de preparar esa parte. El delivery no está incluido en los QR.</p></> : null}
-          <div className="mt-3 flex justify-between border-t border-[var(--border)] pt-3 text-lg font-black text-[var(--color-heading)]"><span>{order.bankGroup ? "Total de la compra y delivery" : "Total a cobrar"}</span><span>{formatMoney(order.total)}</span></div>
+          {order.bankPayments ? <p className="mt-2 text-sm font-bold">Productos confirmados: {formatMoney(order.prepaidAmount ?? 0)} · pendientes: {formatMoney(Math.max(0, order.subtotal - (order.prepaidAmount ?? 0)))}</p> : null}
+          <div className="mt-3 flex justify-between border-t border-[var(--border)] pt-3 text-lg font-black text-[var(--color-heading)]"><span>{order.bankGroup || order.bankPayments ? "Total de la compra y delivery" : "Total a cobrar"}</span><span>{formatMoney(order.total)}</span></div>
         </div>
 
         <div className="mt-6 space-y-3">
@@ -82,6 +87,7 @@ export function MultisiteOrderSuccessClient({
           ))}
         </div>
         {allReady && order.status === "ready_for_dispatch" ? <p className="mt-6 flex gap-2 rounded-2xl bg-[var(--accent-soft)] p-4 text-sm font-bold leading-6 text-[var(--primary)]"><Bike className="mt-0.5 h-5 w-5 shrink-0" />Los locales reportan el pedido listo. Ya estamos buscando una moto para seguir el orden de recojo.</p> : <p className="mt-6 flex gap-2 rounded-2xl bg-[var(--accent-soft)] p-4 text-sm font-bold leading-6 text-[var(--primary)]"><PackageCheck className="mt-0.5 h-5 w-5 shrink-0" />Los locales preparan de acuerdo con el orden de la ruta. La salida se coordina cuando el conjunto esté listo.</p>}
+        {order.bankPayments ? <div className="mt-5 space-y-4">{order.children.filter(child => child.orderId && child.trackingToken).map(child => <div key={child.orderId}><h2 className="font-black">Pago a {child.restaurantName}</h2><BankOrderPaymentCard orderId={child.orderId!} token={child.trackingToken!} initialPayment={{ available: true, status: "not_created", amount: child.subtotal }} /></div>)}</div> : null}
         <MultisiteDeliverySearchRadar initialStatus={order.status} orderId={order.id} token={order.trackingToken} />
         <Link className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-full bg-[var(--primary)] px-5 text-sm font-black text-white" href="/"><MapPin className="h-4 w-4" />Seguir explorando yopido.shop</Link>
       </section>

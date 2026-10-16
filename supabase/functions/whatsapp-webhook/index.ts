@@ -203,6 +203,7 @@ type WhatsAppOrderDraftRow = {
 };
 
 type RestaurantSettingsRow = {
+  bank_qr_available: boolean;
   delivery_enabled: boolean;
   pickup_enabled: boolean;
   delivery_fee: number | string;
@@ -2891,7 +2892,7 @@ function formatCheckoutGuide(
     ...(settings.delivery_enabled ? ["delivery"] : []),
     ...(settings.pickup_enabled ? ["recojo"] : []),
   ].join(" o ");
-  const paymentOptions = settings.qr_payment_url?.trim() ? "efectivo o QR" : "efectivo";
+  const paymentOptions = settings.bank_qr_available ? "efectivo o QR bancario" : "efectivo";
   const lines = [
     checkoutIntroCopy(botSettings),
     "",
@@ -3216,28 +3217,9 @@ async function consumeDraftInput(
   }
 
   if (draft.checkout_step === "receipt") {
-    if (row.message_type !== "image" && row.message_type !== "document") {
-      await sendWhatsAppTextMessage({
-        to: row.from_phone,
-        body: receiptRequestCopy(await getWhatsAppBotSettings(supabase, draft.restaurant_id)),
-      });
-      return true;
-    }
-
-    try {
-      const receipt = await storeInboundPaymentReceipt(supabase, row, draft);
-      const updated = await updateOpenDraft(supabase, conversation.id, {
-        payment_receipt_url: receipt.url,
-        payment_receipt_media_id: receipt.mediaId,
-      });
-      await showDraftConfirmation(supabase, row, conversation, updated);
-    } catch (error) {
-      console.error("Could not store WhatsApp payment receipt", error);
-      await sendWhatsAppTextMessage({
-        to: row.from_phone,
-        body: "No pude guardar ese comprobante. Envia una imagen JPG, PNG, WebP o un PDF de hasta 5 MB.",
-      });
-    }
+    await sendWhatsAppTextMessage({ to: row.from_phone, body: "Ahora el pago QR se confirma directamente con el banco. No envíes comprobantes; confirma tu pedido para obtener el enlace de pago seguro." });
+    const updated = await updateOpenDraft(supabase, conversation.id, { checkout_step: "confirmation", payment_receipt_url: null, payment_receipt_media_id: null });
+    await showDraftConfirmation(supabase, row, conversation, updated);
     return true;
   }
 
@@ -3773,7 +3755,7 @@ async function moveDraftToPayment(
       return;
     }
 
-    if (!quote.settings.qr_payment_url?.trim()) {
+    if (!quote.settings.bank_qr_available) {
       await selectDraftPayment(supabase, row, conversation, "cash");
       return;
     }
@@ -3810,7 +3792,7 @@ async function selectDraftPayment(
       });
       paymentMethod = "qr";
     }
-    if (paymentMethod === "qr" && !quote.settings.qr_payment_url?.trim()) {
+    if (paymentMethod === "qr" && !quote.settings.bank_qr_available) {
       throw new Error("qr-unavailable");
     }
 
@@ -3818,21 +3800,11 @@ async function selectDraftPayment(
       payment_method: paymentMethod,
       payment_receipt_url: null,
       payment_receipt_media_id: null,
-      checkout_step: paymentMethod === "qr" ? "receipt" : "confirmation",
+      checkout_step: "confirmation",
       delivery_distance_km: quote.deliveryPolicy?.distanceKm ?? null,
       delivery_fee: quote.deliveryPolicy?.deliveryFee ?? 0,
       requires_prepayment: quote.deliveryPolicy?.requiresQrPrepayment ?? false,
     });
-    if (paymentMethod === "qr") {
-      await sendQrPaymentInstructions(
-        row.from_phone,
-        quote.settings.qr_payment_url ?? "",
-        quote.total,
-        quote.restaurant.name,
-        await getWhatsAppBotSettings(supabase, quote.restaurant.id),
-      );
-      return;
-    }
     await showDraftConfirmation(supabase, row, conversation, updated);
   } catch (error) {
     await sendDraftValidationError(supabase, row, conversation, error);
@@ -3916,9 +3888,9 @@ async function showDraftConfirmation(
         `Revisa tu pedido en ${quote.restaurant.name}\n\n${formatDraftItems(draft)}\n\n` +
         `Entrega: ${formatDraftFulfillment(draft)}\n` +
         `${quote.deliveryPolicy ? `Distancia: ${quote.deliveryPolicy.distanceKm.toFixed(1)} km${quote.deliveryPolicy.zoneName ? `\nZona: ${quote.deliveryPolicy.zoneName}` : ""}\nDelivery: Bs ${formatMoney(quote.deliveryPolicy.deliveryFee)}\n` : ""}` +
-        `Pago: ${draft.payment_method === "qr" ? "QR con comprobante" : "Efectivo"}\n` +
+        `Pago: ${draft.payment_method === "qr" ? "QR bancario de uso único; confirmación automática" : "Efectivo"}\n` +
         `Subtotal: Bs ${formatMoney(quote.subtotal)}\nTotal: Bs ${formatMoney(quote.total)}\n\n` +
-        "Al confirmar entrara al panel del restaurante.",
+        (draft.payment_method === "qr" ? "Al confirmar recibirás el enlace de pago. El pedido se acepta cuando el banco confirme el pago." : "Al confirmar entrara al panel del restaurante."),
       buttons: [
         { id: "DRAFT_CONFIRM", title: "Confirmar pedido" },
         { id: "DRAFT_ADD_MORE", title: "Agregar producto" },
@@ -3941,7 +3913,6 @@ async function confirmDraftOrder(
     const quote = await validateDraftOrder(supabase, await getOpenDraft(supabase, conversation.id), true);
     const draft = quote.draft;
     const orderNumber = `W-${draft.id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
-    const paymentReceiptUploadedAt = draft.payment_receipt_url ? new Date().toISOString() : null;
     const { data, error } = await supabase.rpc("create_public_order_transaction", {
       p_request_id: draft.id,
       p_order: {
@@ -3966,8 +3937,9 @@ async function confirmDraftOrder(
         order_type: draft.order_type,
         order_origin: "phone_whatsapp",
         payment_method: draft.payment_method,
-        payment_receipt_url: draft.payment_receipt_url,
-        payment_receipt_uploaded_at: paymentReceiptUploadedAt,
+        bank_checkout: draft.payment_method === "qr",
+        payment_receipt_url: null,
+        payment_receipt_uploaded_at: null,
         subtotal: quote.subtotal,
         delivery_fee: quote.deliveryPolicy?.deliveryFee ?? 0,
         discount_total: 0,
@@ -4007,7 +3979,7 @@ async function confirmDraftOrder(
       body:
         `Pedido ${orderNumber} enviado a ${quote.restaurant.name}.\n` +
         `Total: Bs ${formatMoney(quote.total)}.\n\n` +
-        `Puedes seguir su estado aqui:\n${trackingUrl}`,
+        (draft.payment_method === "qr" ? `Paga con el QR de este enlace. El banco confirma automáticamente; no envíes comprobantes:\n${trackingUrl}` : `Puedes seguir su estado aqui:\n${trackingUrl}`),
       previewUrl: true,
     });
   } catch (error) {
@@ -4104,11 +4076,8 @@ async function validateDraftOrder(
     if (deliveryPolicy?.requiresQrPrepayment && draft.payment_method !== "qr") {
       throw new Error("qr-required-distance");
     }
-    if (draft.payment_method === "qr" && !settings.qr_payment_url?.trim()) {
+    if (draft.payment_method === "qr" && !settings.bank_qr_available) {
       throw new Error("qr-unavailable");
-    }
-    if (draft.payment_method === "qr" && !draft.payment_receipt_url?.trim()) {
-      throw new Error("receipt-required");
     }
   }
 
@@ -4282,7 +4251,9 @@ async function getRestaurantSettings(supabase: ReturnType<typeof createSupabaseA
     console.error("Could not read WhatsApp restaurant settings", error);
     return null;
   }
-  return data as RestaurantSettingsRow | null;
+  if (!data) return null;
+  const collection = data.currency === "BOB" ? await supabase.rpc("resolve_baneco_collection", { p_restaurant: restaurantId }) : { data: null, error: null };
+  return { ...data, bank_qr_available: !collection.error && Boolean(collection.data) } as RestaurantSettingsRow;
 }
 
 async function getWhatsAppBotSettings(supabase: ReturnType<typeof createSupabaseAdminClient>, restaurantId: string | null) {

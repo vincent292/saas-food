@@ -31,7 +31,7 @@ test("WhatsApp checkout reuses the canonical order RPC with a stable request id"
   assert.match(source, /option_ids: item\.option_ids/);
 });
 
-test("WhatsApp checkout collects delivery location and QR receipt evidence", async () => {
+test("WhatsApp checkout collects delivery location and uses bank confirmation instead of receipt evidence", async () => {
   const source = await readFile(webhookPath, "utf8");
 
   assert.match(source, /location_request_message/);
@@ -39,6 +39,13 @@ test("WhatsApp checkout collects delivery location and QR receipt evidence", asy
   assert.match(source, /requires_prepayment/);
   assert.match(source, /storeInboundPaymentReceipt/);
   assert.match(source, /whatsapp-payment-receipts/);
+  const select = source.slice(source.indexOf("async function selectDraftPayment("), source.indexOf("async function sendQrPaymentInstructions("));
+  assert.match(select, /bank_qr_available/);
+  assert.match(select, /checkout_step: "confirmation"/);
+  assert.doesNotMatch(select, /sendQrPaymentInstructions\(/);
+  const create = source.slice(source.indexOf("async function confirmDraftOrder("), source.indexOf("async function validateDraftOrder("));
+  assert.match(create, /bank_checkout: draft.payment_method === "qr"/);
+  assert.match(create, /payment_receipt_url: null/);
 });
 
 test("WhatsApp ordering supports compact text shortcuts", async () => {

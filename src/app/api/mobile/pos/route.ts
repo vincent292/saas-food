@@ -14,8 +14,10 @@ import { claimRiderDeliveryOrder, offerNextRiderForOrder } from "@/lib/services/
 import { getBusinessStatus, DEFAULT_RESTAURANT_TIME_ZONE } from "@/lib/utils/business-hours";
 import { cartSchema, resolveCart } from "./_cart";
 import { allRows, checked, cors, failure, json, PosError, restaurantAccess, session } from "./_shared";
+import { bankOrderPaymentService } from "@/lib/services/bank-qr.service";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 export function OPTIONS() { return new Response(null, { status: 204, headers: cors }); }
 
 const base = z.object({ restaurantId: z.string().uuid() });
@@ -205,7 +207,7 @@ export async function GET(request: Request) {
     }
     const client = auth.client;
     const catalog = params.get("catalog") !== "0";
-    let ordersQuery = client.from("orders").select("id,restaurant_id,table_id,order_number,order_type,status,payment_status,payment_method,payment_receipt_url,payment_receipt_reference,customer_name,customer_phone,total,notes,created_at,eta_adjustment_minutes,order_items(id,product_name,quantity,subtotal,prep_minutes,notes)").eq("restaurant_id", id).order("created_at", { ascending: false }).order("id");
+    let ordersQuery = client.from("orders").select("id,restaurant_id,table_id,order_number,order_type,status,payment_status,payment_method,payment_receipt_url,payment_receipt_reference,bank_payment_required,bank_group_session_id,group_prepaid_amount,group_cash_due,customer_name,customer_phone,total,notes,created_at,eta_adjustment_minutes,order_items(id,product_name,quantity,subtotal,prep_minutes,notes)").eq("restaurant_id", id).order("created_at", { ascending: false }).order("id");
     // Keep every active order, including those created before today's shift.
     ordersQuery = ordersQuery.or(`status.in.(pending,accepted,preparing,ready),created_at.gte.${new Date(Date.now() - 86400000).toISOString()}`);
     if (!restaurant.canManage) ordersQuery = ordersQuery.eq("order_type", "table");
@@ -276,7 +278,8 @@ export async function GET(request: Request) {
     const tables = restaurant.role === "waiter" && assignments.length
       ? (checked(tablesResult) ?? []).filter((table) => assignedTableIds.includes(table.id))
       : checked(tablesResult);
-    return json({ restaurant, orders, tables, settings, cashSession, cashOpen, movements, waiterShift, products, categories, variants, groups, options, riders, deliveryAssignments });
+    const bankQrAvailable = await bankOrderPaymentService.availableForRestaurant(id, settings.currency);
+    return json({ restaurant, orders, tables, settings: { ...settings, qr_payment_url: null, bankQrAvailable }, cashSession, cashOpen, movements, waiterShift, products, categories, variants, groups, options, riders, deliveryAssignments });
   } catch (error) { return failure(error); }
 }
 
@@ -333,11 +336,11 @@ export async function POST(request: Request) {
       const hours = checked(await client.from("business_hours").select("day_of_week,opens_at,closes_at,is_closed").eq("restaurant_id", id));
       const business = getBusinessStatus((hours ?? []).map((h) => ({ dayOfWeek: h.day_of_week, opensAt: h.opens_at ?? "", closesAt: h.closes_at ?? "", isClosed: h.is_closed })), new Date(), DEFAULT_RESTAURANT_TIME_ZONE);
       if (business.hasSchedule && !business.isOpen) throw new PosError("El restaurante esta fuera de horario.");
-      if (input.paymentMethod === "qr" && !settings.qr_payment_url) throw new PosError("El restaurante no tiene QR de pago.");
+      if (input.paymentMethod === "qr" && !await bankOrderPaymentService.availableForRestaurant(id)) throw new PosError("bank-connection-unavailable", 409);
       const items = await resolveCart(auth, id, input.items);
       const total = Number(items.reduce((sum, i) => sum + i.subtotal, 0).toFixed(2));
       if (total < Number(settings.min_order_amount)) throw new PosError("No se alcanza el pedido minimo del restaurante.");
-      const receipt = await upload();
+      const receipt = input.paymentMethod === "qr" ? null : await upload();
       const orderNumber = `M-${input.requestId.slice(0, 8).toUpperCase()}`;
       // Attribution is generated from the authenticated account, never from the payload.
       const notes = `${table.name} (${table.code}) | Mesero: ${auth.profile.full_name || "Personal"} | Usuario: ${auth.profile.id}${input.notes ? ` | ${input.notes}` : ""}`;
@@ -370,8 +373,8 @@ export async function POST(request: Request) {
       const existing = checked(await client.from("orders").select("id,order_number").eq("restaurant_id", id).eq("order_number", orderNumber).maybeSingle());
       if (existing) return json(existing);
       await resolveCart(auth, id, input.items);
-      const receipt = await upload();
-      const sale = await client.rpc("create_pos_sale_with_tender", { p_restaurant_id: id, p_order_number: orderNumber, p_customer_name: input.customerName || "Venta mostrador", p_customer_phone: input.customerPhone || null, p_order_origin: "pos_counter", p_order_type: input.orderType, p_payment_method: input.paymentMethod, p_cash_received: input.cashReceived ?? null, p_receipt_url: receipt, p_receipt_reference: input.reference ?? null, p_items: input.items });
+      const receipt = input.paymentMethod === "qr" ? null : await upload();
+      const sale = await client.rpc("create_pos_sale_with_tender", { p_restaurant_id: id, p_order_number: orderNumber, p_customer_name: input.customerName || "Venta mostrador", p_customer_phone: input.customerPhone || null, p_order_origin: "pos_counter", p_order_type: input.orderType, p_payment_method: input.paymentMethod, p_cash_received: input.cashReceived ?? null, p_receipt_url: receipt, p_receipt_reference: input.paymentMethod === "qr" ? null : input.reference ?? null, p_items: input.items });
       if (sale.error?.code === "23505") {
         const duplicate = checked(await client.from("orders").select("id,order_number").eq("restaurant_id", id).eq("order_number", orderNumber).maybeSingle());
         if (duplicate) return json(duplicate);
@@ -506,6 +509,7 @@ export async function POST(request: Request) {
         checked(await auth.admin.from("tables").update({ status: "available" }).eq("restaurant_id", id).eq("id", table.id));
         result = { tableId: table.id, orders: 0 };
       } else {
+        if (input.paymentMethod === "qr" && orders.some(order => order.payment_status !== "paid")) throw new PosError("bank-payment-required", 409);
         const receipt = await upload();
         for (const order of orders) {
           if (order.payment_status === "pending") {
@@ -569,16 +573,12 @@ export async function POST(request: Request) {
       const order = checked(await client.from("orders").select("id,status,order_type,payment_status").eq("restaurant_id", id).eq("id", input.orderId).maybeSingle());
       if (!order) throw new PosError("Pedido no encontrado.", 404);
       if (input.action === "receipt") {
-        if ((!restaurant.canManage && order.order_type !== "table") || order.payment_status !== "pending" || order.status === "cancelled") throw new PosError("No se puede adjuntar un comprobante a este pedido.", 403);
-        if (!file) throw new PosError("Selecciona un comprobante.");
-        const receipt = await upload();
-        const updated = checked(await client.from("orders").update({ payment_receipt_url: receipt, payment_receipt_uploaded_at: new Date().toISOString() }).eq("restaurant_id", id).eq("id", order.id).eq("payment_status", "pending").neq("status", "cancelled").select("id").maybeSingle());
-        if (!updated) throw new PosError("El pedido cambio. Actualiza para continuar.", 409);
-        result = updated;
+        throw new PosError("Usa el QR bancario del pedido; no se aceptan comprobantes para confirmar pagos.", 409);
       } else {
         let changed = false;
         let next: "accepted" | "preparing" | "ready" | "delivered" = "accepted";
         if (input.action === "charge") {
+          if (input.paymentMethod === "qr") throw new PosError("bank-payment-required", 409);
           checked(await client.rpc("charge_order_with_cash_movement", { p_restaurant_id: id, p_order_id: order.id, p_payment_method: input.paymentMethod, p_receipt_url: await upload(), p_receipt_reference: input.reference ?? null }));
           changed = order.status === "pending";
           const settings = checked(await client.from("restaurant_settings").select("kitchen_enabled").eq("restaurant_id", id).maybeSingle());

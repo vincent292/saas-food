@@ -51,6 +51,7 @@ export type GroupOrderSessionView = {
   expiresAt: string;
   submittedOrderId?: string;
   submittedOrderTrackingToken?: string;
+  submittedRestaurantSlug?: string;
   submittedMultisiteOrderId?: string;
   submittedMultisiteOrderTrackingToken?: string;
   subtotal: number;
@@ -516,7 +517,7 @@ export function GroupOrderSessionClient({
               </Link>
             ) : null}
             {session.submittedOrderId && session.submittedOrderTrackingToken ? (
-              <Link className={buttonClasses("primary", "w-fit")} href={`${publicRestaurantPath(restaurant.slug, `pedido/${session.submittedOrderId}`)}?token=${session.submittedOrderTrackingToken}&group=1`}>
+              <Link className={buttonClasses("primary", "w-fit")} href={`${publicRestaurantPath(session.submittedRestaurantSlug ?? restaurant.slug, `pedido/${session.submittedOrderId}`)}?token=${session.submittedOrderTrackingToken}&group=1`}>
                 Ver seguimiento
                 <ArrowRight className="h-4 w-4" />
               </Link>

@@ -6,6 +6,7 @@ import { getMobileCustomerSession } from "@/lib/services/customer-account.servic
 import { sendRestaurantNewOrderPush, subscribeOrderToMobilePush } from "@/lib/services/mobile-push.service";
 import { getRestaurantDeliveryQuote } from "@/lib/services/delivery-quote.service";
 import { DEFAULT_RESTAURANT_TIME_ZONE, getBusinessStatus } from "@/lib/utils/business-hours";
+import { bankOrderPaymentService } from "@/lib/services/bank-qr.service";
 
 const itemSchema = z.object({
   productId: z.string().uuid(),
@@ -243,6 +244,9 @@ export async function POST(request: Request) {
   }
   const deliveryFee = parsed.data.orderType === "delivery" ? deliveryQuote?.deliveryFee ?? Number(settings?.delivery_fee ?? 0) : 0;
   const total = Number((subtotal + deliveryFee).toFixed(2));
+  if (parsed.data.paymentMethod === "qr" && !await bankOrderPaymentService.availableForRestaurant(parsed.data.restaurantId)) {
+    return NextResponse.json({ error: "bank-connection-unavailable" }, { status: 409 });
+  }
   const orderNumber = `P-${Date.now().toString().slice(-6)}`;
 
   const { data: createdOrders, error } = await supabase.rpc("create_public_order_transaction", {
@@ -269,6 +273,7 @@ export async function POST(request: Request) {
       order_type: parsed.data.orderType,
       order_origin: "web_checkout",
       payment_method: parsed.data.paymentMethod,
+      bank_checkout: parsed.data.paymentMethod === "qr",
       payment_receipt_url: null,
       payment_receipt_uploaded_at: null,
       subtotal,
@@ -332,5 +337,7 @@ export async function POST(request: Request) {
     orderId: order.id,
     orderNumber: savedOrder?.order_number ?? orderNumber,
     trackingToken: order.tracking_token,
+    bankPaymentRequired: parsed.data.paymentMethod === "qr",
+    paymentUrl: parsed.data.paymentMethod === "qr" ? `/r/${restaurant.slug}/pedido/${order.id}?token=${encodeURIComponent(order.tracking_token)}` : null,
   });
 }

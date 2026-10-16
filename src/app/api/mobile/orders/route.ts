@@ -338,6 +338,6 @@ export async function POST(request: Request) {
     orderNumber: savedOrder?.order_number ?? orderNumber,
     trackingToken: order.tracking_token,
     bankPaymentRequired: parsed.data.paymentMethod === "qr",
-    paymentUrl: parsed.data.paymentMethod === "qr" ? `/r/${restaurant.slug}/pedido/${order.id}?token=${encodeURIComponent(order.tracking_token)}` : null,
+    paymentUrl: parsed.data.paymentMethod === "qr" ? `/r/${restaurant.slug}/pago/${order.id}?token=${encodeURIComponent(order.tracking_token)}` : null,
   });
 }

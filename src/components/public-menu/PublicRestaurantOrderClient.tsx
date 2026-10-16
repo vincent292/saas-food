@@ -1885,7 +1885,7 @@ function PublicOrderPanel({
               </span>
             ) : (
               <>
-                Confirmar pedido
+                {effectivePaymentMethod === "qr" ? "Continuar al pago QR" : "Confirmar pedido"}
                 <span>{formatMoney(grandTotal, settings?.currency)}</span>
                 <ArrowRight className="h-5 w-5" />
               </>

@@ -205,7 +205,7 @@ export async function acceptBanecoPaymentNotice(qrId: string) {
 }
 
 async function publicOrder(admin: ReturnType<typeof adminClient>, orderId: string, token: string) {
-  const order = checked(await admin.from("orders").select("id,restaurant_id,total,payment_status,payment_method,status,group_order_session_id,payment_receipt_url,payment_receipt_reference")
+  const order = checked(await admin.from("orders").select("id,restaurant_id,total,payment_status,payment_method,status,bank_checkout_hold,group_order_session_id,payment_receipt_url,payment_receipt_reference")
     .eq("id", orderId).eq("tracking_token", token).maybeSingle());
   if (!order) throw new BanecoError("bank-request-unavailable");
   return order;
@@ -222,25 +222,26 @@ export const bankOrderPaymentService = {
   async get(orderId: string, token: string) {
     const admin = adminClient();
     const order = await publicOrder(admin, orderId, token);
+    const lifecycle = { checkoutHeld: order.bank_checkout_hold, paymentStatus: order.payment_status, orderStatus: order.status };
     const request = checked(await admin.from("bank_qr_test_requests").select("id,status,qr_image,amount,application_state,due_date,collection_route")
       .eq("order_id", order.id).not("status", "in", "(failed,cancelled)").order("created_at", { ascending: false }).limit(1).maybeSingle());
     if (request) {
       const compatible = order.status !== "cancelled" && !["cancelled", "refunded"].includes(order.payment_status)
         && Number(order.total) === Number(request.amount) && (order.payment_status !== "paid" || request.status === "paid");
-      return { available: true, requestId: request.id, collectionRoute: request.collection_route, status: compatible || request.status === "paid" ? request.status : "review", amount: Number(request.amount), applicationState: compatible ? request.application_state : "review",
+      return { ...lifecycle, available: true, requestId: request.id, collectionRoute: request.collection_route, status: compatible || request.status === "paid" ? request.status : "review", amount: Number(request.amount), applicationState: compatible ? request.application_state : "review",
         image: compatible && request.status === "pending" && request.due_date >= boliviaDate() ? request.qr_image : null };
     }
-    if (order.payment_status === "paid") return { available: false, status: "paid" };
+    if (order.payment_status === "paid") return { ...lifecycle, available: false, status: "paid" };
     const eligible = order.payment_status === "pending" && order.payment_method === "qr" && order.status !== "cancelled" && order.status !== "delivered"
       && !order.group_order_session_id && !order.payment_receipt_url && !order.payment_receipt_reference && Number(order.total) >= .01 && Number(order.total) <= 50000;
-    if (!eligible) return { available: false, status: "unavailable" };
+    if (!eligible) return { ...lifecycle, available: false, status: "unavailable" };
     const [account, child] = await Promise.all([
       admin.rpc("resolve_baneco_collection", { p_restaurant: order.restaurant_id }),
       admin.from("multisite_order_children").select("id,multisite_order_id").eq("order_id", order.id).limit(1).maybeSingle(),
     ]);
     const childOrder = checked(child);
     const multiBank = childOrder ? checked(await admin.from("multisite_orders").select("bank_payments").eq("id", childOrder.multisite_order_id).single())?.bank_payments : false;
-    return { available: Boolean(checked(account)) && (!childOrder || Boolean(multiBank)), status: "not_created", amount: Number(order.total) };
+    return { ...lifecycle, available: Boolean(checked(account)) && (!childOrder || Boolean(multiBank)), status: "not_created", amount: Number(order.total) };
   },
   async generate(orderId: string, token: string) {
     const admin = adminClient();
@@ -271,6 +272,15 @@ export const bankOrderPaymentService = {
     if (!row) throw new BanecoError("bank-operation-busy");
     await reconcileClaim(admin, row, operationToken, true);
     return this.get(orderId, token);
+  },
+  async abandonCheckout(orderId: string, token: string) {
+    const admin = adminClient();
+    const order = await publicOrder(admin, orderId, token);
+    if (!order.bank_checkout_hold || order.payment_status !== "pending") throw new BanecoError("bank-order-ineligible");
+    await this.cancel(orderId, token);
+    const abandoned = checked(await admin.rpc("abandon_baneco_checkout", { p_order: orderId, p_token: token }));
+    if (!abandoned) throw new BanecoError("bank-operation-busy");
+    return { abandoned: true };
   },
 };
 

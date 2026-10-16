@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     if (!order) return NextResponse.json({ error: "not-found" }, { status: 404, headers });
     const { data: restaurant } = await createAdminClient()!.from("restaurants").select("slug").eq("id", order.restaurant_id).maybeSingle();
     if (!restaurant) return NextResponse.json({ error: "not-found" }, { status: 404, headers });
-    return NextResponse.json({ path: `/${restaurant.slug}/pedido/${order.id}?token=${encodeURIComponent(order.tracking_token)}`,
+    return NextResponse.json({ path: `/${restaurant.slug}/${order.bank_checkout_hold ? "pago" : "pedido"}/${order.id}?token=${encodeURIComponent(order.tracking_token)}`,
       terminal: ["delivered", "cancelled"].includes(order.status) }, { headers });
   } catch { return NextResponse.json({ error: "unavailable" }, { status: 503, headers }); }
 }

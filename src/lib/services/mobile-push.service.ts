@@ -295,6 +295,7 @@ async function getRestaurantAndOrder(supabase: AdminClient, orderId: string) {
   const { data: order } = await supabase
     .from("orders")
     .select("id,restaurant_id,order_number,order_type,status,tracking_token")
+    .eq("bank_checkout_hold", false)
     .eq("id", orderId)
     .maybeSingle();
 

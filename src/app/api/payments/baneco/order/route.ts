@@ -15,7 +15,8 @@ async function handle(request: Request, generate: boolean, cancel = false) {
     maxAttempts: generate ? 10 : 90, windowSeconds: 60, blockSeconds: 60 });
   if (!limit.allowed) return NextResponse.json({ error: "bank-operation-busy" }, { status: 429 });
   try {
-    const result = cancel ? await bankOrderPaymentService.cancel(orderId.data, token) : generate ? await bankOrderPaymentService.generate(orderId.data, token) : await bankOrderPaymentService.get(orderId.data, token);
+    const result = cancel && new URL(request.url).searchParams.get("abandon") === "1" ? await bankOrderPaymentService.abandonCheckout(orderId.data, token)
+      : cancel ? await bankOrderPaymentService.cancel(orderId.data, token) : generate ? await bankOrderPaymentService.generate(orderId.data, token) : await bankOrderPaymentService.get(orderId.data, token);
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ error: safeBankError(error) }, { status: 409, headers: { "Cache-Control": "no-store" } });

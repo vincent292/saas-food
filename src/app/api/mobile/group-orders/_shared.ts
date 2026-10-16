@@ -513,8 +513,8 @@ export async function submitMobileGroupOrder(supabase: SupabaseDatabaseClient, s
       supabase.from("business_hours").select("restaurant_id,day_of_week,opens_at,closes_at,is_closed").in("restaurant_id", sourceRestaurantIds),
       supabase.from("cash_sessions").select("restaurant_id").in("restaurant_id", sourceRestaurantIds).eq("status", "open"),
       supabase.from("restaurant_queue_settings").select("restaurant_id,queue_enabled,base_prep_minutes,kitchen_capacity,rush_multiplier").in("restaurant_id", sourceRestaurantIds),
-      supabase.from("orders").select("restaurant_id,status").in("restaurant_id", sourceRestaurantIds).in("status", ["pending", "accepted", "preparing"]),
-      supabase.from("orders").select("restaurant_id").in("restaurant_id", sourceRestaurantIds).neq("status", "cancelled").gte("created_at", new Date(Date.now() - 20 * 60 * 1000).toISOString()),
+      supabase.from("orders").select("restaurant_id,status").eq("bank_checkout_hold", false).in("restaurant_id", sourceRestaurantIds).in("status", ["pending", "accepted", "preparing"]),
+      supabase.from("orders").select("restaurant_id").eq("bank_checkout_hold", false).in("restaurant_id", sourceRestaurantIds).neq("status", "cancelled").gte("created_at", new Date(Date.now() - 20 * 60 * 1000).toISOString()),
     ]);
     const restaurantsById = new Map((restaurantsResult.data ?? []).map((row) => [row.id, row]));
     const settingsByRestaurant = new Map((settingsResult.data ?? []).map((row) => [row.restaurant_id, row]));

@@ -45,6 +45,6 @@ export async function recoverOrder(row: RecoverableOrder) {
   if (response.status === 404) return null;
   if (!response.ok) throw new Error("recovery-unavailable");
   const data = await response.json() as { path: string; terminal: boolean };
-  if (!data.path.startsWith(`/${row.restaurantSlug}/pedido/`)) throw new Error("recovery-unavailable");
+  if (!data.path.startsWith(`/${row.restaurantSlug}/pedido/`) && !data.path.startsWith(`/${row.restaurantSlug}/pago/`)) throw new Error("recovery-unavailable");
   return data;
 }

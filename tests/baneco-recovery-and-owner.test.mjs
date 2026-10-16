@@ -39,6 +39,33 @@ test('blocked local storage fails before an unrecoverable submission and server 
   const key='a'.repeat(64);assert.equal(server.orderRecoveryHash(key),createHash('sha256').update('yopido-order-recovery-v1:'+key).digest('hex'));
   assert.notEqual(server.orderRecoveryHash(key),key);assert.throws(()=>server.orderRecoveryHash('short'),/bank-invalid-input/);
 });
+test('reopening an unpaid checkout returns to payment, not received tracking, and rejects unrelated recovery paths',async()=>{
+  const values=new Map();let path='/pruebas/pago/reservation?token=opaque';
+  const client=load('src/lib/client/order-recovery.ts',{}, {localStorage:{getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value)},
+    crypto:webcrypto,Event:class{},window:{dispatchEvent(){}},fetch:async()=>({ok:true,json:async()=>({path,terminal:false})})});
+  const row=client.prepareOrderRecovery(randomUUID(),'pruebas');
+  assert.equal((await client.recoverOrder(row)).path,path);
+  assert.equal(client.prepareOrderRecovery(row.restaurantId,'pruebas').requestId,row.requestId);
+  for(const unsafe of ['https://example.test/pruebas/pago/id','/otro/pago/id','/pruebas/pagofalso/id']){
+    path=unsafe;await assert.rejects(client.recoverOrder(row),/recovery-unavailable/);
+  }
+});
+test('payment has a separate route, tracking redirects before querying the queue, and only paid submission opens tracking',()=>{
+  const action=read('src/app/r/actions.ts');
+  assert.match(action,/dynamicQr \? "pago" : "pedido"/);
+  assert.match(read('src/app/api/mobile/orders/route.ts'),/pago\/\$\{order\.id\}/);
+  const tracking=read('src/app/r/[restaurantSlug]/pedido/[orderId]/page.tsx');
+  assert.ok(tracking.indexOf('`pago/${orderId}`')<tracking.indexOf('orderService.getPublicQueueState'));
+  const page=read('src/app/r/[restaurantSlug]/pago/[orderId]/page.tsx');
+  assert.match(page,/eq\("tracking_token", token\)/);assert.match(page,/Paga para enviar tu pedido/);
+  assert.doesNotMatch(page,/VirtualQueue|ClearCartOnMount|RememberOrder/);
+  const ui=read('src/components/orders/BankCheckoutPayment.tsx');
+  assert.match(ui,/next.paymentStatus === "paid" && !next.checkoutHeld/);
+  assert.match(ui,/!\["pending", "cancelled"\]\.includes\(next.orderStatus\)/);
+  assert.match(ui,/visibilitychange/);assert.match(ui,/"online"/);
+  assert.ok(read('src/components/customer/PublicBottomNavigation.tsx').includes('\\/pago(?:\\/|$)'));
+  assert.match(read('src/lib/services/mobile-push.service.ts'),/eq\("bank_checkout_hold", false\)/);
+});
 test('owner access is branch-scoped, denies staff and support before decryption or bank calls',async()=>{
   const owner=randomUUID(),merchant=randomUUID();let profile={id:owner,globalRole:null},support=null,dbCalls=0,opened=0;
   const row={id:merchant,owner_user_id:owner,status:'active',deleted_at:null};

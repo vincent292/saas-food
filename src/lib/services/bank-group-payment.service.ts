@@ -135,7 +135,7 @@ export async function submitBankGroupOrder(sessionToken: string, input: BankGrou
       admin.from("business_hours").select("*").in("restaurant_id", ids),
       admin.from("cash_sessions").select("restaurant_id").in("restaurant_id", ids).eq("status", "open"),
       admin.from("restaurant_queue_settings").select("*").in("restaurant_id", ids),
-      admin.from("orders").select("restaurant_id,status,created_at").in("restaurant_id", ids).in("status", ["pending", "accepted", "preparing"]),
+      admin.from("orders").select("restaurant_id,status,created_at").eq("bank_checkout_hold", false).in("restaurant_id", ids).in("status", ["pending", "accepted", "preparing"]),
       admin.from("products").select("id,restaurant_id,prep_minutes,is_available").in("id", [...new Set(items.map(item => item.product_id))]),
     ]);
     const restaurants = check(restaurantsR) ?? [], settings = check(settingsR) ?? [], hours = check(hoursR) ?? [], cash = check(cashR) ?? [];

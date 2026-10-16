@@ -352,6 +352,7 @@ export async function getCustomerAccount(
     session.admin
       .from("orders")
       .select("id,restaurant_id,order_number,customer_phone,tracking_token,order_type,status,total,created_at")
+      .eq("bank_checkout_hold", false)
       .or(orderFilters.join(","))
       .order("created_at", { ascending: false })
       .limit(50),

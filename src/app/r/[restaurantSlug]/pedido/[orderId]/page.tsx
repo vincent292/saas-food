@@ -1,4 +1,5 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { publicRestaurantPath } from "@/lib/utils/public-routes";
 import { RestaurantLayout } from "@/components/layout/RestaurantLayout";
 import { OrderTrackingLiveRefresh } from "@/components/orders/OrderTrackingLiveRefresh";
 import { BankOrderPaymentCard } from "@/components/orders/BankOrderPaymentCard";
@@ -36,6 +37,11 @@ export default async function TrackingPage({
     notFound();
   }
 
+  const recovery = token ? await createAdminClient()?.from("orders").select("public_request_id,bank_payment_required,bank_auto_accept,bank_checkout_hold,payment_status,status").eq("id", orderId).eq("restaurant_id", restaurant.id).eq("tracking_token", token).maybeSingle() : null;
+  if (token && (recovery?.data?.bank_checkout_hold || (recovery?.data?.bank_payment_required && recovery.data.payment_status !== "paid") || (recovery?.data?.bank_auto_accept && recovery.data.payment_status === "paid" && recovery.data.status === "pending"))) {
+    redirect(`${publicRestaurantPath(restaurantSlug, `pago/${orderId}`)}?token=${encodeURIComponent(token)}`);
+  }
+
   const [order, queueState] = await Promise.all([
     token ? orderService.getPublicByTracking(restaurant.id, orderId, token) : orderService.getById(restaurant.id, orderId),
     token ? orderService.getPublicQueueState(restaurant.id, orderId, token) : Promise.resolve(null),
@@ -45,7 +51,6 @@ export default async function TrackingPage({
     notFound();
   }
   const bankPayment = token && order.paymentMethod === "qr" ? await bankOrderPaymentService.get(order.id, token).catch(() => null) : null;
-  const recovery = token ? await createAdminClient()?.from("orders").select("public_request_id,bank_payment_required,bank_auto_accept").eq("id", order.id).eq("tracking_token", token).maybeSingle() : null;
   const trackingOrder = { ...order, bankPaymentRequired: recovery?.data?.bank_payment_required, bankAutoAccept: recovery?.data?.bank_auto_accept };
 
   return (

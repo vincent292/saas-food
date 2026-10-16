@@ -1,5 +1,15 @@
 # Baneco: laboratorio de QR dinámicos por comercio
 
+## Pago antes de enviar al restaurante (16/10/2026)
+
+- Migración `0136`: el checkout QR individual/web/mesa conserva una reserva interna recuperable (`bank_checkout_hold`), no un pedido operativo. Queda excluida mediante RLS de caja/cocina y explícitamente de cola, dashboard, pronósticos y avisos. Los hijos QR del multicomercio individual también esperan su pago. El POS conserva sus solicitudes de cobro visibles al cajero y los grupales conservan su cierre de partes pagadas/efectivo.
+- El checkout y la recuperación dirigen a `/<slug>/pago/<id>?token=...`, sin «Recibido», cola de comida ni vaciado anticipado del carrito. Los enlaces anteriores de seguimiento redirigen a pago si corresponde. La API móvil entrega la misma URL de pago; no se modificó la interfaz de la app de clientes en este cambio.
+- Solo la conciliación bancaria correspondiente al importe/referencia libera la reserva. La activación existente acepta automáticamente el pedido pagado y la pantalla pasa al seguimiento sin otra confirmación del cliente. Si stock falla después del pago, se conserva para revisión sin reenviar ni cobrar otra vez.
+- Realtime, recuperación al volver al navegador/conexión y consulta del estado local cada 5 segundos recuperan la misma solicitud/QR. Esa consulta de interfaz no llama al banco ni garantiza detección bancaria instantánea: sigue dependiendo del aviso bancario o del trabajador de conciliación.
+- «Cancelar solicitud y volver al menú» anula y verifica primero el QR; si el pago gana la carrera no cancela ni elimina la reserva. No se borran pagos ni comprobantes históricos.
+- Validación: migración `0136` aplicada; 80 pruebas de regresión, TypeScript, ESLint dirigido, seguridad y compilación. Las pruebas SQL ejercitan la cola real y RLS, pago repetido, inventario, activación y cancelación concurrente. Chromium local con la solicitud pendiente existente de Pruebas confirmó redirección al pago, ausencia de «Recibido» y de desbordamiento horizontal a 320/360/450 px, sin generar ni pagar QR. No equivalen a un nuevo pago real ni a una prueba en el teléfono del usuario.
+- La protección de filas se apoya en políticas restrictivas y la vista operativa usa `security_invoker`, conforme a la [documentación de RLS de Supabase](https://supabase.com/docs/guides/database/postgres/row-level-security).
+
 ## Cuenta de respaldo y cobros web / caja Android (16/10/2026)
 
 - Estado de publicación: migraciones `0132`–`0134` aplicadas; servidor commit `5aa80de` publicado en Vercel. La publicación de `whatsapp-webhook` fue rechazada por Supabase con HTTP 403 («Your account does not have the necessary privileges to access this endpoint»). Se necesita un acceso de Management API autorizado para desplegar esa función; la service-role de PostgREST no sustituye ese permiso.

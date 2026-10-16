@@ -614,7 +614,7 @@ export async function createPublicOrderAction(formData: FormData) {
   // even if the local closed while the payer was in their banking app.
   if (parsed.data.recoveryKey) {
     const existing = await findRecoverableOrder(parsed.data.restaurantId, parsed.data.requestId, parsed.data.recoveryKey);
-    if (existing) redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `pedido/${existing.id}`)}?token=${encodeURIComponent(existing.tracking_token)}`);
+    if (existing) redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `${existing.bank_checkout_hold ? "pago" : "pedido"}/${existing.id}`)}?token=${encodeURIComponent(existing.tracking_token)}`);
   }
 
   if (parsed.data.orderType === "table") {
@@ -830,7 +830,7 @@ export async function createPublicOrderAction(formData: FormData) {
     redirect(publicRestaurantOrderPath(parsed.data.restaurantSlug, errorKey));
   }
 
-  if (parsed.data.orderType === "table" && parsed.data.tableId) {
+  if (parsed.data.orderType === "table" && parsed.data.tableId && !dynamicQr) {
     await writeClient
       .from("tables")
       .update({ status: "occupied" })
@@ -847,7 +847,7 @@ export async function createPublicOrderAction(formData: FormData) {
       await bankOrderPaymentService.generate(order.id, order.tracking_token).catch(() => null);
     } else after(async () => { await sendRestaurantNewOrderPush(order.id); });
   }
-  redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `pedido/${order.id}`)}?token=${order.tracking_token}${tableNotice}`);
+  redirect(`${publicRestaurantPath(parsed.data.restaurantSlug, `${dynamicQr ? "pago" : "pedido"}/${order.id}`)}?token=${order.tracking_token}${dynamicQr ? "" : tableNotice}`);
 }
 
 export async function trackPublicOrderAction(formData: FormData) {

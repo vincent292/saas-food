@@ -9,7 +9,7 @@ export function orderRecoveryHash(key: string) {
 export async function findRecoverableOrder(restaurantId: string, requestId: string, recoveryKey: string) {
   const admin = createAdminClient();
   if (!admin) throw new BanecoError("bank-storage-unavailable");
-  const { data, error } = await admin.from("orders").select("id,tracking_token,status,restaurant_id")
+  const { data, error } = await admin.from("orders").select("id,tracking_token,status,restaurant_id,bank_checkout_hold")
     .eq("restaurant_id", restaurantId).eq("public_request_id", requestId).eq("recovery_key_hash", orderRecoveryHash(recoveryKey)).maybeSingle();
   if (error) throw new BanecoError("bank-storage-unavailable");
   return data;

@@ -51,6 +51,10 @@ async function fixture(){
   const tender=read('0107_pos_tenders_and_pickup_sales.sql');await db.exec(tender.slice(tender.indexOf('create or replace function create_pos_sale_with_tender('),tender.indexOf('create or replace function settle_table_with_tender(')));
   await db.exec(read('0133_baneco_pos_and_staff.sql'));
   await db.exec(read('0134_baneco_multisite_checkout.sql'));
+  await db.exec('create table tables(id uuid primary key,restaurant_id uuid,status text);alter table orders enable row level security;grant select on orders to authenticated;create policy test_staff_orders on orders for select to authenticated using(true);');
+  const queue=read('0023_virtual_order_queue.sql');await db.exec(queue.slice(0,queue.indexOf('create index')));
+  await db.exec(read('0025_queue_ignores_stale_active_orders.sql'));
+  await db.exec(read('0136_baneco_payment_before_submission.sql'));
   const charge=read('0103_fix_table_settlement_and_payment_flow.sql');
   await db.exec(charge.slice(charge.indexOf('create or replace function charge_order_with_cash_movement('),charge.indexOf('create or replace function settle_table_with_cash_movements(')));
   const products=[];for(const [i,id] of restaurants.entries()){
@@ -72,7 +76,13 @@ async function fixture(){
     const stops=bills.map((bill,i)=>({...bill,order_number:'QA-'+i,pickup_position:i+1,release_delay_minutes:0,estimated_ready_minutes:20}));
     return {token,run:()=>db.query('select finalize_baneco_group($1,$2,$3,$4,$5) result',[session,hostSecret,token,{customer_name:'QA host',customer_address:'Destino',customer_phone:'59170000000',delivery_latitude:-17.3,delivery_longitude:-66.1,order_type:'delivery',delivery_fee:8,rider_fee_suggested:8,rider_fee_minimum:8,rider_fee_maximum:8},stops])};
   };
-  return {db,admin,restaurants,products,session,people,hostSecret,item,reserve,pending,pay,close};
+  const checkout=async()=>{
+    const id=randomUUID();const payload={restaurant_id:restaurants[0],order_number:'PAY-'+id,order_type:'pickup',order_origin:'web_checkout',payment_method:'qr',customer_name:'Cliente',subtotal:10,total:10,delivery_fee:0,discount_total:0,bank_checkout:true,recovery_key_hash:'a'.repeat(64)};
+    const items=[{product_id:products[0],product_name:'Producto',unit_price:10,quantity:1,subtotal:10,option_ids:[]}];
+    const replay=()=>db.query('select * from create_public_order_transaction($1,$2,$3)',[id,payload,items]);
+    const result=(await replay()).rows[0];return {...result,replay};
+  };
+  return {db,admin,restaurants,products,session,people,hostSecret,item,reserve,pending,pay,close,checkout};
 }
 test('group bills bind participant, branch, snapshot and payer; concurrent retries reserve a single QR',async()=>{
   const f=await fixture();try{
@@ -178,7 +188,7 @@ test('standalone multi-local QR uses separate branch payments and keeps delivery
     const children=[0,1].map((index)=>({restaurant_id:f.restaurants[index],order_number:'MULTI-'+index,pickup_position:index+1,release_delay_minutes:0,estimated_ready_minutes:20,subtotal:10,items:[{product_id:f.products[index],product_name:'Producto',unit_price:10,quantity:1,subtotal:10,option_ids:[]}]}));
     const create=()=>f.db.query('select * from create_public_multisite_order_transaction($1,$2,$3)',[request,payload,children]);
     const master=(await create()).rows[0];assert.equal((await create()).rows[0].id,master.id);
-    const orders=(await f.db.query('select * from orders order by order_number')).rows;assert.equal(orders.length,2);assert.ok(orders.every(o=>o.payment_method==='qr'&&o.bank_payment_required&&o.payment_status==='pending'));
+    const orders=(await f.db.query('select * from orders order by order_number')).rows;assert.equal(orders.length,2);assert.ok(orders.every(o=>o.payment_method==='qr'&&o.bank_payment_required&&o.payment_status==='pending'&&o.bank_checkout_hold));
     const reservations=[];
     for(const order of orders){const reserved=(await f.db.query('select reserve_baneco_order_qr($1,$2) r',[order.id,order.tracking_token])).rows[0].r;assert.equal(Number(reserved.request.amount),10);reservations.push(reserved.request);await f.db.query("update bank_qr_test_requests set qr_id=$2,status='pending' where id=$1",[reserved.request.id,'MULTI-'+reserved.request.id]);}
     assert.notEqual(reservations[0].connection_id,reservations[1].connection_id);
@@ -198,5 +208,53 @@ test('retiring static QR references preserves a private recovery archive and blo
     assert.equal((await f.db.query('select count(*)::int n from restaurant_settings where qr_payment_url is not null')).rows[0].n,0);
     await assert.rejects(f.db.query("update restaurant_settings set qr_payment_url='https://example.test/new-static.png'"),/bank-qr-only/);
     await f.db.exec('set role anon');await assert.rejects(f.db.query('select * from bank_legacy_static_qr_archive'),/permission denied/);
+  }finally{await f.db.close();}
+});
+
+test('web QR remains a private payment reservation, outside staff and real queue, until verified and auto-approved once',async()=>{
+  const f=await fixture();try{
+    const checkout=await f.checkout();assert.equal((await checkout.replay()).rows[0].id,checkout.id);
+    let order=(await f.db.query('select * from orders where id=$1',[checkout.id])).rows[0];assert.equal(order.bank_checkout_hold,true);assert.equal(order.status,'pending');
+    const cash=randomUUID();await f.db.query("insert into orders(id,restaurant_id,order_number,order_type,order_origin,payment_method,total) values($1,$2,'CASH','pickup','web_checkout','cash',10)",[cash,f.restaurants[0]]);
+    const cashToken=(await f.db.query('select tracking_token from orders where id=$1',[cash])).rows[0].tracking_token;
+    assert.equal((await f.db.query('select get_public_order_queue_state($1,$2) result',[checkout.id,checkout.tracking_token])).rows[0].result,null);
+    assert.equal((await f.db.query('select get_public_order_queue_state($1,$2) result',[cash,cashToken])).rows[0].result.active_orders,1);
+    await f.db.exec('set role authenticated');assert.deepEqual((await f.db.query('select id from orders')).rows.map(r=>r.id),[cash]);await f.db.exec('reset role');
+    await f.db.query('update orders set bank_checkout_hold=false where id=$1',[checkout.id]);assert.equal((await f.db.query('select bank_checkout_hold from orders where id=$1',[checkout.id])).rows[0].bank_checkout_hold,true);
+    const request=(await f.db.query('select reserve_baneco_order_qr($1,$2) result',[checkout.id,checkout.tracking_token])).rows[0].result.request;
+    await f.db.query("update bank_qr_test_requests set qr_id=$2,status='pending' where id=$1",[request.id,'CHECKOUT-'+request.id]);
+    await assert.rejects(f.db.query("update orders set status='accepted' where id=$1",[checkout.id]),/bank-payment-required/);
+    assert.equal((await f.db.query('select count(*)::int n from cash_movements')).rows[0].n,0);
+    await f.pay(request);await f.pay(request);
+    const token=randomUUID();const job=(await f.db.query('select claim_baneco_order_activation($1) result',[token])).rows[0].result;assert.equal(job.requestId,request.id);
+    await f.db.query('select activate_baneco_paid_order($1,$2,true)',[request.id,token]);await f.db.query('select finish_baneco_order_activation($1,$2,true)',[request.id,token]);
+    order=(await f.db.query('select * from orders where id=$1',[checkout.id])).rows[0];assert.equal(order.bank_checkout_hold,false);assert.equal(order.payment_status,'paid');assert.equal(order.status,'accepted');
+    await f.db.exec('set role authenticated');assert.equal((await f.db.query('select count(*)::int n from orders')).rows[0].n,2);await f.db.exec('reset role');
+    assert.equal((await f.db.query('select count(*)::int n from cash_movements')).rows[0].n,1);assert.equal((await f.db.query('select count(*)::int n from inventory_applied')).rows[0].n,1);
+  }finally{await f.db.close();}
+});
+
+test('abandoning an unpaid checkout requires bank-confirmed cancellation and does not drop a paid request',async()=>{
+  const f=await fixture();try{
+    const a=await f.checkout();const request=(await f.db.query('select reserve_baneco_order_qr($1,$2) result',[a.id,a.tracking_token])).rows[0].result.request;
+    await f.db.query("update bank_qr_test_requests set qr_id=$2,status='pending' where id=$1",[request.id,'CANCEL-'+request.id]);
+    assert.equal((await f.db.query('select abandon_baneco_checkout($1,$2) result',[a.id,a.tracking_token])).rows[0].result,false);
+    const token=randomUUID();await f.db.query('select claim_baneco_reconciliation($1,$2,true)',[token,request.id]);await f.db.query("select finish_baneco_reconciliation($1,$2,'cancelled',null,null,'{}')",[request.id,token]);
+    assert.equal((await f.db.query('select abandon_baneco_checkout($1,$2) result',[a.id,a.tracking_token])).rows[0].result,true);
+    const b=await f.checkout();const paid=(await f.db.query('select reserve_baneco_order_qr($1,$2) result',[b.id,b.tracking_token])).rows[0].result.request;
+    await f.db.query("update bank_qr_test_requests set qr_id=$2,status='pending' where id=$1",[paid.id,'PAID-'+paid.id]);await f.pay(paid);
+    assert.equal((await f.db.query('select abandon_baneco_checkout($1,$2) result',[b.id,b.tracking_token])).rows[0].result,false);
+  }finally{await f.db.close();}
+});
+
+test('bank payment with a local stock failure stays held for review and cannot be re-submitted or silently cancelled',async()=>{
+  const f=await fixture();try{
+    const a=await f.checkout();const request=(await f.db.query('select reserve_baneco_order_qr($1,$2) result',[a.id,a.tracking_token])).rows[0].result.request;
+    await f.db.query("update bank_qr_test_requests set qr_id=$2,status='pending' where id=$1",[request.id,'STOCK-'+request.id]);
+    await f.db.exec("set test.stock_failure='yes'");await f.pay(request);
+    assert.equal((await f.db.query('select application_state from bank_qr_test_requests where id=$1',[request.id])).rows[0].application_state,'review');
+    assert.equal((await f.db.query('select bank_checkout_hold from orders where id=$1',[a.id])).rows[0].bank_checkout_hold,true);
+    assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders')).rows[0].n,0);
+    assert.equal((await f.db.query('select abandon_baneco_checkout($1,$2) result',[a.id,a.tracking_token])).rows[0].result,false);
   }finally{await f.db.close();}
 });

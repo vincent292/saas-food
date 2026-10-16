@@ -189,3 +189,14 @@ test('standalone multi-local QR uses separate branch payments and keeps delivery
     assert.equal((await f.db.query('select count(*)::int n from bank_order_activations')).rows[0].n,2);
   }finally{await f.db.close();}
 });
+
+test('retiring static QR references preserves a private recovery archive and blocks old clients from configuring photos',async()=>{
+  const f=await fixture();try{
+    await f.db.exec("alter table restaurant_settings add column qr_payment_url text;update restaurant_settings set qr_payment_url='https://example.test/previous-qr.png';");
+    await f.db.exec(read('0135_retire_static_payment_qr.sql'));
+    assert.equal((await f.db.query('select count(*)::int n from bank_legacy_static_qr_archive')).rows[0].n,3);
+    assert.equal((await f.db.query('select count(*)::int n from restaurant_settings where qr_payment_url is not null')).rows[0].n,0);
+    await assert.rejects(f.db.query("update restaurant_settings set qr_payment_url='https://example.test/new-static.png'"),/bank-qr-only/);
+    await f.db.exec('set role anon');await assert.rejects(f.db.query('select * from bank_legacy_static_qr_archive'),/permission denied/);
+  }finally{await f.db.close();}
+});

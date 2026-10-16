@@ -2,6 +2,9 @@
 
 ## Cuenta de respaldo y cobros web / caja Android (16/10/2026)
 
+- Estado de publicación: migraciones `0132`–`0134` aplicadas; servidor commit `5aa80de` publicado en Vercel. La publicación de `whatsapp-webhook` fue rechazada por Supabase con HTTP 403 («Your account does not have the necessary privileges to access this endpoint»). Se necesita un acceso de Management API autorizado para desplegar esa función; la service-role de PostgREST no sustituye ese permiso.
+- Migración `0135`: retira las referencias activas de QR estático para que un cliente/bot antiguo no anuncie cobros por una imagen que no puede conciliarse. Conserva las referencias originales en `bank_legacy_static_qr_archive` privado, sin borrar archivos ni comprobantes. Impide volver a configurar fotos como método de QR. Hasta desplegar la nueva función, el bot antiguo no ofrece QR por esa configuración (puede continuar efectivo si las reglas lo permiten); los pedidos que exigen prepago deben pasar al checkout web bancario.
+
 - Migraciones `0132`–`0134`: resolución centralizada de receptor, registro de cobros por cuenta de locales, POS pendiente de confirmación y QR por sucursal en multicomercio individual. `0129`–`0131` cubren las cuentas por persona/local en grupales y su cierre parcial.
 - Prioridad: cuenta propia activa, comprobada y habilitada; si no existe cuenta propia activa, respaldo de Yopido habilitado expresamente por superadmin. Una cuenta propia activa pero sin comprobar/deshabilitada **bloquea** QR: no se cambia silenciosamente el receptor por un error o fallo del banco.
 - El respaldo arranca **desactivado y sin cuenta seleccionada**. Superadmin elige en `/admin/pagos-qr` una conexión de producción ya comprobada/habilitada y confirma la autorización de titular y banco para cobrar por cuenta de comercios. Esta implementación no demuestra ni sustituye esa autorización; no se activó por suponer que la conexión de Pruebas pertenece a Yopido.

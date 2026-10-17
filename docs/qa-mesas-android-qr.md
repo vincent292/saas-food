@@ -17,7 +17,7 @@ Fecha: 17/10/2026. Alcance de esta entrega: pedidos individuales y de mesa en la
 ## Verificado
 
 - 86 pruebas dirigidas del backend: incluyen SQL real en PostgreSQL embebido para pagos, reintentos concurrentes, reservas, aislamiento, llamadas, turnos, sucursales y expiración.
-- 11 pruebas unitarias de la app cliente: recuperación tras reinicio, almacenamiento fallido/corrupto, reintento tras desconexión y enlaces confiables, entre otras.
+- 13 pruebas unitarias de la app cliente: recuperación tras reinicio, pago confirmado con la app cerrada, almacenamiento fallido/corrupto, reintento tras desconexión y enlaces confiables, entre otras.
 - 19 pruebas de interfaz del POS; la nueva bandeja y sus botones se comprueban a 320, 360 y 450 dp. La prueba antigua de cobro se actualizó para introducir efectivo recibido mediante «Pago exacto», como exige la interfaz existente.
 - App cliente: pago y recuperación a 320, 360 y 450 dp; prueba adicional del carrito de mesa que comprueba `orderType=table`, QR obligatorio, capacidad persistida y ausencia de seguimiento previo al pago. Respuestas controladas: **no son pagos bancarios reales**.
 - TypeScript en los tres proyectos, ESLint dirigido, comprobaciones de seguridad web, compilación Next y exportaciones Android de ambas apps.

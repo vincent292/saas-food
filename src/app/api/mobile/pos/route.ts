@@ -301,7 +301,7 @@ export async function POST(request: Request) {
     const parsed = schema.safeParse(raw);
     if (!parsed.success) throw new PosError("Revisa los datos de la operacion.");
     const input = parsed.data;
-    const waiterActions = ["table-order", "receipt", "open-waiter-shift", "close-waiter-shift"];
+    const waiterActions = ["table-order", "receipt", "open-waiter-shift", "close-waiter-shift", "register-pos-push"];
     const restaurant = restaurantAccess(auth, input.restaurantId, !waiterActions.includes(input.action));
     const client = auth.client;
     const id = restaurant.id;

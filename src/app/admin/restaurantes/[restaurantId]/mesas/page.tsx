@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { TableManagementClient } from "@/components/tables/TableManagementClient";
+import { TableServiceInbox } from "@/components/tables/TableServiceInbox";
 import { hasRestaurantModule } from "@/lib/modules";
 import { restaurantService } from "@/lib/services/restaurant.service";
 import { tableService } from "@/lib/services/table.service";
@@ -20,5 +21,5 @@ export default async function TablesPage({
 
   const tables = await tableService.listByRestaurant(restaurant.id);
 
-  return <TableManagementClient restaurant={restaurant} status={status} tables={tables} />;
+  return <div className="space-y-4"><TableServiceInbox restaurantId={restaurant.id} /><TableManagementClient restaurant={restaurant} status={status} tables={tables} /></div>;
 }

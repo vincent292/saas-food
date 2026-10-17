@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import QRCode from "qrcode";
 import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, settleTableAction } from "@/app/admin/actions";
+import { TableServiceInbox } from "@/components/tables/TableServiceInbox";
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
 import { POSProductGrid } from "@/components/cash/POSProductGrid";
@@ -204,7 +205,7 @@ export function CashWorkspaceClient({
     return () => window.clearInterval(timer);
   }, []);
 
-  const todaysOrders = useMemo(() => liveOrders.filter((order) => isSameBusinessDay(order.createdAt)), [liveOrders]);
+  const todaysOrders = useMemo(() => liveOrders.filter((order) => isSameBusinessDay(order.createdAt) || Boolean(order.acceptedAt && isSameBusinessDay(order.acceptedAt))), [liveOrders]);
   const pendingOrders = useMemo(() => todaysOrders.filter((order) => order.status === "pending" && !["delivery", "pickup", "table"].includes(order.orderType)), [todaysOrders]);
   const activeTableOrders = useMemo(() => liveOrders.filter((order) => order.orderType === "table" && ["pending", "accepted", "preparing", "ready"].includes(order.status)), [liveOrders]);
   const deliveryOrders = useMemo(
@@ -668,6 +669,7 @@ export function CashWorkspaceClient({
       {activeTab === "mesas" ? (
         <section className="space-y-4">
           <SectionTitle title="Mesas" description="Busca una mesa, revisa su cuenta abierta y cobra todo desde caja. Al cobrar, la mesa queda liberada." />
+          <TableServiceInbox restaurantId={restaurant.id} />
           {!activeTabIsLoaded ? (
             <TabLoadingState />
           ) : visibleTableAccounts.length ? (

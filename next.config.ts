@@ -65,6 +65,14 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/api/mobile/:path*",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Headers", value: "Authorization, Content-Type, x-table-call-token" },
+          { key: "Access-Control-Allow-Methods", value: "GET, POST, OPTIONS" },
+        ],
+      },
+      {
         source: "/(.*)",
         headers: [
           {

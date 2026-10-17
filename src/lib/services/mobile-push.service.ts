@@ -45,6 +45,40 @@ type ExpoPushResponse = {
 
 const expoPushEndpoint = "https://exp.host/--/api/v2/push/send";
 
+/** The durable staff inbox is authoritative; push is a best-effort wake-up. */
+export async function sendTableServicePush(callId: string) {
+  const db = createAdminClient();
+  if (!db) return { ok: false, sent: 0 };
+  const { data: call } = await db.from("table_service_calls").select("id,restaurant_id,table_id,assigned_waiter_id,created_at")
+    .eq("id", callId).eq("status", "pending").is("notification_claimed_at", null).maybeSingle();
+  if (!call || Date.parse(call.created_at) < Date.now() - 15 * 60000) return { ok: true, sent: 0 };
+  const [registrations, memberships, table] = await Promise.all([
+    db.from("restaurant_pos_push_tokens").select("expo_push_token,user_id").eq("restaurant_id", call.restaurant_id)
+      .eq("is_enabled", true).gte("last_seen_at", new Date(Date.now() - 90 * 86400000).toISOString()),
+    db.from("restaurant_memberships").select("user_id,role").eq("restaurant_id", call.restaurant_id).eq("is_active", true),
+    db.from("tables").select("name").eq("id", call.table_id).eq("restaurant_id", call.restaurant_id).maybeSingle(),
+  ]);
+  if (registrations.error || memberships.error || table.error) return { ok: false, sent: 0 };
+  const allowed = new Set((memberships.data ?? []).filter(row => ["restaurant_admin", "cashier"].includes(row.role)).map(row => row.user_id));
+  if (call.assigned_waiter_id && memberships.data?.some(row => row.user_id === call.assigned_waiter_id && row.role === "waiter")) {
+    const shift = await db.from("admin_audit_logs").select("action").eq("restaurant_id", call.restaurant_id).eq("actor_user_id", call.assigned_waiter_id)
+      .in("action", ["waiter_shift_opened", "waiter_shift_closed"]).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+    if (!shift.error && shift.data?.action === "waiter_shift_opened") allowed.add(call.assigned_waiter_id);
+  }
+  const tokens = [...new Set((registrations.data ?? []).filter(row => row.user_id && allowed.has(row.user_id)).map(row => row.expo_push_token).filter(isExpoPushToken))];
+  if (!tokens.length) return { ok: true, sent: 0 };
+  // Atomic claim prevents a repeated customer tap from sending duplicate pushes.
+  // Never blindly retry an ambiguous Expo timeout; the inbox remains visible.
+  const claim = await db.from("table_service_calls").update({ notification_claimed_at: new Date().toISOString() })
+    .eq("id", call.id).eq("status", "pending").is("notification_claimed_at", null).select("id").maybeSingle();
+  if (claim.error || !claim.data) return { ok: !claim.error, sent: 0 };
+  const title = `${table.data?.name ?? "Mesa"} solicita atención`;
+  const body = "Un cliente está llamando al mesero. Confirma la atención en Mesas.";
+  return sendExpoMessages(db, { title, body, eventType: "table_service_call", restaurantId: call.restaurant_id,
+    messages: tokens.map(to => ({ to, title, body, priority: "high", sound: "notificaiones.mp3", channelId: "pos-orders",
+      data: { type: "table_service_call", restaurantId: call.restaurant_id, tableId: call.table_id, callId: call.id } })) });
+}
+
 const statusCopy: Record<OrderStatus | "arrived", { body: string; title: string }> = {
   accepted: {
     body: "El restaurante confirmo tu pedido.",
@@ -208,6 +242,7 @@ export async function sendRestaurantNewOrderPush(orderId: string) {
           .select("user_id")
           .eq("restaurant_id", order.restaurant_id)
           .eq("is_active", true)
+          .in("role", ["restaurant_admin", "cashier"])
           .in("user_id", userIds),
         supabase.from("profiles").select("id,global_role").in("id", userIds),
       ])

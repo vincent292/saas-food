@@ -99,7 +99,7 @@ export async function buildMobileOrderTrackingPayload({
   supabase: SupabaseClient;
   trackingToken: string;
 }) {
-  const [{ data: restaurant }, order, queue] = await Promise.all([
+  const [{ data: restaurant }, order, queue, { data: bankState }] = await Promise.all([
     supabase
       .from("restaurants")
       .select("id,name,slug,city,address,address_reference,latitude,longitude,maps_url,logo_url,business_type,whatsapp")
@@ -109,9 +109,10 @@ export async function buildMobileOrderTrackingPayload({
       .maybeSingle(),
     orderService.getPublicByTracking(restaurantId, orderId, trackingToken),
     orderService.getPublicQueueState(restaurantId, orderId, trackingToken),
+    supabase.from("orders").select("bank_payment_required,bank_checkout_hold,bank_schedule_hold,table_id").eq("id", orderId).eq("restaurant_id", restaurantId).eq("tracking_token", trackingToken).maybeSingle(),
   ]);
 
-  if (!restaurant || !order) {
+  if (!restaurant || !order || !bankState) {
     return null;
   }
 
@@ -132,7 +133,7 @@ export async function buildMobileOrderTrackingPayload({
       businessType: restaurantRow.business_type ?? "food",
       whatsapp: restaurantRow.whatsapp ?? "",
     },
-    order: serializeOrder(order, trackingToken),
+    order: { ...serializeOrder(order, trackingToken), bankPaymentRequired: bankState?.bank_payment_required ?? false, checkoutHeld: bankState?.bank_checkout_hold ?? false, scheduleHeld: bankState?.bank_schedule_hold ?? false, tableId: bankState?.table_id ?? null },
     queue: serializeQueue(queue),
     updatedAt: new Date().toISOString(),
   };

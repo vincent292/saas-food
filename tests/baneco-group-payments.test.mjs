@@ -62,6 +62,10 @@ async function fixture(){
     create table admin_audit_logs(id uuid default gen_random_uuid(),actor_user_id uuid,restaurant_id uuid,action text,created_at timestamptz default now());`);
   await db.exec(read('0137_public_table_bank_only_and_waiter_access.sql'));
   await db.exec(read('0138_baneco_scheduled_cash_day_and_preparation.sql'));
+  await db.exec(`alter table tables add column is_active boolean default true,add column name text default 'Mesa';
+    alter table restaurant_settings add column table_orders_enabled boolean default true;
+    alter table admin_audit_logs add column entity_id uuid;`);
+  await db.exec(read('0139_table_service_calls.sql'));
   const charge=read('0103_fix_table_settlement_and_payment_flow.sql');
   await db.exec(charge.slice(charge.indexOf('create or replace function charge_order_with_cash_movement('),charge.indexOf('create or replace function settle_table_with_cash_movements(')));
   const products=[];for(const [i,id] of restaurants.entries()){
@@ -91,6 +95,50 @@ async function fixture(){
   };
   return {db,admin,restaurants,products,session,people,hostSecret,item,reserve,pending,pay,close,checkout};
 }
+test('table service is durable and idempotent, targets assigned waiter, enforces shift/branch and never creates an order',async()=>{
+  const f=await fixture();try{
+    const table=randomUUID(),waiter=randomUUID(),other=randomUUID(),cashier=randomUUID(),request=randomUUID();
+    await f.db.query("insert into tables(id,restaurant_id,status) values($1,$2,'available')",[table,f.restaurants[0]]);
+    await f.db.query('insert into profiles values($1,null),($2,null),($3,null)',[waiter,other,cashier]);
+    await f.db.query("insert into restaurant_memberships values($1,$4,true,'waiter'),($2,$4,true,'waiter'),($3,$4,true,'cashier')",[waiter,other,cashier,f.restaurants[0]]);
+    await f.db.query('insert into waiter_table_assignments values($1,$2,$3)',[f.restaurants[0],table,waiter]);
+    const ask=(id=request,branch=f.restaurants[0])=>f.db.query('select request_table_service($1,$2,$3) result',[branch,table,id]);
+    const retries=await Promise.all(Array.from({length:8},()=>ask()));
+    assert.equal(retries.filter(row=>row.rows[0].result.created).length,1);
+    const call=retries[0].rows[0].result.call;
+    assert.equal(call.assigned_waiter_id,waiter);assert.match(call.tracking_token,/^[a-f0-9]{64}$/);
+    assert.equal((await ask(randomUUID())).rows[0].result.call.id,call.id);
+    assert.equal((await f.db.query('select count(*)::int n from orders')).rows[0].n,0);
+    const attend=(actor=waiter,branch=f.restaurants[0])=>f.db.query('select attend_table_service($1,$2,$3) result',[branch,call.id,actor]);
+    await assert.rejects(attend(),/table-service-forbidden/);
+    await f.db.query("insert into admin_audit_logs(actor_user_id,restaurant_id,action) values($1,$2,'waiter_shift_opened')",[waiter,f.restaurants[0]]);
+    await assert.rejects(attend(other),/table-service-forbidden/);await assert.rejects(attend(cashier,f.restaurants[1]),/table-service-forbidden/);
+    assert.equal((await attend()).rows[0].result,true);assert.equal((await attend(cashier)).rows[0].result,true);
+    await assert.rejects(ask(randomUUID()),/table-call-cooldown/);
+    await f.db.query("update table_service_calls set created_at=now()-interval '3 minutes' where id=$1",[call.id]);
+    assert.notEqual((await ask(randomUUID())).rows[0].result.call.id,call.id);
+    await assert.rejects(ask(request,f.restaurants[1]),/table-unavailable/);
+    await f.db.exec('set role authenticated');
+    await assert.rejects(ask(),/permission denied/);await assert.rejects(f.db.query('select tracking_token from table_service_calls'),/permission denied/);
+  }finally{await f.db.close();}
+});
+test('table service falls back to serving waiter in the current visit and expires abandoned calls',async()=>{
+  const f=await fixture();try{
+    const table=randomUUID(),waiter=randomUUID();
+    await f.db.query("insert into tables(id,restaurant_id,status) values($1,$2,'occupied')",[table,f.restaurants[0]]);
+    await f.db.query('insert into profiles values($1,null)',[waiter]);
+    await f.db.query("insert into restaurant_memberships values($1,$2,true,'waiter')",[waiter,f.restaurants[0]]);
+    const order=await f.checkout({order_type:'table',order_origin:'pos_counter',table_id:table,payment_method:'cash'});
+    await f.db.query("insert into admin_audit_logs(actor_user_id,restaurant_id,action,entity_id) values($1,$2,'waiter_order_created',$3)",[waiter,f.restaurants[0],order.id]);
+    const ask=()=>f.db.query('select request_table_service($1,$2,$3) result',[f.restaurants[0],table,randomUUID()]);
+    const first=(await ask()).rows[0].result.call;assert.equal(first.assigned_waiter_id,waiter);
+    await f.db.query("update table_service_calls set created_at=now()-interval '16 minutes' where id=$1",[first.id]);
+    const second=(await ask()).rows[0].result.call;assert.notEqual(first.id,second.id);
+    assert.equal((await f.db.query('select status from table_service_calls where id=$1',[first.id])).rows[0].status,'expired');
+    await f.db.query("update cash_sessions set status='closed' where restaurant_id=$1",[f.restaurants[0]]);
+    await assert.rejects(ask(),/table-service-closed/);
+  }finally{await f.db.close();}
+});
 test('group bills bind participant, branch, snapshot and payer; concurrent retries reserve a single QR',async()=>{
   const f=await fixture();try{
     const item=await f.item(1,0,12);await f.item(1,1,18);

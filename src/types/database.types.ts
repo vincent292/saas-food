@@ -10,6 +10,12 @@ type Row<T> = {
 export type Database = {
   public: {
     Tables: {
+      waiter_table_assignments: Row<{ restaurant_id: string; table_id: string; waiter_user_id: string }>;
+      table_service_calls: Row<{
+        id: string; restaurant_id: string; table_id: string; request_id: string; tracking_token: string;
+        assigned_waiter_id: string | null; status: "pending" | "attended" | "expired";
+        attended_by: string | null; created_at: string; attended_at: string | null; notification_claimed_at: string | null;
+      }>;
       bank_collection_settings: Row<{ singleton: boolean; connection_id: string | null; enabled: boolean; authorized_at: string | null; authorized_by: string | null; updated_at: string }>;
       bank_collection_receivables: Row<{ request_id: string; restaurant_id: string; receiver_restaurant_id: string; amount: number; currency: string; created_at: string }>;
       bank_group_bills: Row<{
@@ -1455,6 +1461,8 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      request_table_service: { Args: { p_restaurant: string; p_table: string; p_request: string }; Returns: Json };
+      attend_table_service: { Args: { p_restaurant: string; p_call: string; p_actor: string }; Returns: boolean };
       release_baneco_group_ready: { Args: Record<string, never>; Returns: Json };
       reserve_baneco_group_bill: { Args: { p_session: string; p_secret: string; p_host: boolean; p_participant: string; p_restaurant: string; p_mode: string; p_paying_other: boolean }; Returns: Json };
       begin_bank_group_submission: { Args: { p_session: string; p_secret: string; p_token: string }; Returns: undefined };

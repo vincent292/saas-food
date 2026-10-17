@@ -7,6 +7,10 @@ import { sendRestaurantNewOrderPush, subscribeOrderToMobilePush } from "@/lib/se
 import { getRestaurantDeliveryQuote } from "@/lib/services/delivery-quote.service";
 import { DEFAULT_RESTAURANT_TIME_ZONE, getBusinessStatus } from "@/lib/utils/business-hours";
 import { bankOrderPaymentService } from "@/lib/services/bank-qr.service";
+import { findRecoverableOrder, orderRecoveryHash } from "@/lib/payments/order-recovery";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { announcementService } from "@/lib/services/announcement.service";
+import { businessTypeSupportsTableQr } from "@/lib/restaurant-directory-options";
 
 const itemSchema = z.object({
   productId: z.string().uuid(),
@@ -18,6 +22,7 @@ const itemSchema = z.object({
 
 const orderSchema = z.object({
   requestId: z.string().uuid(),
+  recoveryKey: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   restaurantId: z.string().uuid(),
   restaurantSlug: z.string().min(1),
   customerName: z.string().trim().min(1).max(120),
@@ -26,8 +31,11 @@ const orderSchema = z.object({
   deliveryLatitude: z.coerce.number().min(-90).max(90).optional(),
   deliveryLongitude: z.coerce.number().min(-180).max(180).optional(),
   deliveryMapsUrl: z.string().url().max(500).optional(),
-  orderType: z.enum(["delivery", "pickup"]),
+  orderType: z.enum(["delivery", "pickup", "table"]),
+  tableId: z.string().uuid().optional(),
+  tableCode: z.string().min(1).max(100).optional(),
   paymentMethod: z.enum(["cash", "qr"]),
+  requestedFulfillmentAt: z.string().datetime({ offset: true }).optional(),
   push: z
     .object({
       appVersion: z.string().trim().max(40).optional(),
@@ -98,15 +106,25 @@ export async function POST(request: Request) {
   if (parsed.data.orderType === "delivery" && !parsed.data.customerAddress?.trim()) {
     return NextResponse.json({ error: "delivery-address-required" }, { status: 400 });
   }
+  const scheduledFor = parsed.data.requestedFulfillmentAt ? new Date(parsed.data.requestedFulfillmentAt) : null;
 
   const supabase = createAdminClient();
   if (!supabase) {
     return NextResponse.json({ error: "service-role-required" }, { status: 500 });
   }
+  const limit = await consumeRateLimit({ scope: "mobile-public-order", identity: `${parsed.data.restaurantId}:${parsed.data.customerPhone}`, maxAttempts: 12, windowSeconds: 600, blockSeconds: 600 });
+  if (!limit.allowed) return NextResponse.json({ error: "rate-limit" }, { status: 429 });
+  // Recovery precedes hours, stock and cash checks: returning from the bank
+  // must recover the same reservation, never create another order.
+  if (parsed.data.recoveryKey) {
+    const existing = await findRecoverableOrder(parsed.data.restaurantId, parsed.data.requestId, parsed.data.recoveryKey);
+    if (existing) return NextResponse.json({ orderId: existing.id, orderNumber: existing.order_number, trackingToken: existing.tracking_token, bankPaymentRequired: existing.bank_payment_required });
+  }
+  if (scheduledFor && (parsed.data.orderType === "table" || scheduledFor.getTime() <= Date.now())) return NextResponse.json({ error: "invalid-schedule" }, { status: 409 });
 
   const { data: restaurant } = await supabase
     .from("restaurants")
-    .select("id,slug,status,deleted_at")
+    .select("id,slug,status,deleted_at,business_type")
     .eq("id", parsed.data.restaurantId)
     .eq("slug", parsed.data.restaurantSlug)
     .eq("status", "active")
@@ -115,6 +133,18 @@ export async function POST(request: Request) {
 
   if (!restaurant) {
     return NextResponse.json({ error: "invalid-restaurant" }, { status: 404 });
+  }
+  if (await announcementService.hasActiveClosure(restaurant.id)) return NextResponse.json({ error: "temporarily-closed" }, { status: 409 });
+  let tableId: string | null = null;
+  if (parsed.data.orderType === "table") {
+    if (parsed.data.paymentMethod !== "qr") return NextResponse.json({ error: "table-qr-required" }, { status: 409 });
+    if (!parsed.data.recoveryKey || !parsed.data.tableId || !parsed.data.tableCode || !businessTypeSupportsTableQr(restaurant.business_type)) return NextResponse.json({ error: "invalid-table" }, { status: 400 });
+    const [{ data: table }, { data: tableSettings }] = await Promise.all([
+      supabase.from("tables").select("id").eq("restaurant_id", restaurant.id).eq("id", parsed.data.tableId).eq("code", parsed.data.tableCode).eq("is_active", true).maybeSingle(),
+      supabase.from("restaurant_settings").select("table_orders_enabled").eq("restaurant_id", restaurant.id).maybeSingle(),
+    ]);
+    if (!table || !tableSettings?.table_orders_enabled) return NextResponse.json({ error: "invalid-table" }, { status: 404 });
+    tableId = table.id;
   }
 
   const { data: businessHours } = await supabase
@@ -129,7 +159,7 @@ export async function POST(request: Request) {
       isClosed: Boolean(hour.is_closed),
       opensAt: hour.opens_at ?? "",
     })),
-    new Date(),
+    scheduledFor ?? new Date(),
     DEFAULT_RESTAURANT_TIME_ZONE,
   );
 
@@ -253,7 +283,8 @@ export async function POST(request: Request) {
     p_request_id: parsed.data.requestId,
     p_order: {
       restaurant_id: parsed.data.restaurantId,
-      table_id: null,
+      table_id: tableId,
+      recovery_key_hash: parsed.data.recoveryKey ? orderRecoveryHash(parsed.data.recoveryKey) : null,
       order_number: orderNumber,
       customer_name: parsed.data.customerName,
       customer_phone: parsed.data.customerPhone,
@@ -265,13 +296,13 @@ export async function POST(request: Request) {
       delivery_maps_url: parsed.data.deliveryMapsUrl ?? null,
       delivery_distance_km: deliveryQuote?.distanceKm ?? null,
       requires_prepayment: deliveryQuote?.requiresQrPrepayment ?? false,
-      requested_fulfillment_at: null,
+      requested_fulfillment_at: scheduledFor?.toISOString() ?? null,
       invoice_required: false,
       invoice_document_type: null,
       invoice_document_number: null,
       invoice_name: null,
       order_type: parsed.data.orderType,
-      order_origin: "web_checkout",
+      order_origin: parsed.data.orderType === "table" ? "table_qr" : "web_checkout",
       payment_method: parsed.data.paymentMethod,
       bank_checkout: parsed.data.paymentMethod === "qr",
       payment_receipt_url: null,

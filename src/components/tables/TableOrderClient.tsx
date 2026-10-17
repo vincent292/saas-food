@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { createPublicOrderAction } from "@/app/r/actions";
 import { RecoverOrderNotice } from "@/components/orders/RecoverOrderNotice";
 import { prepareOrderRecovery } from "@/lib/client/order-recovery";
+import { CallWaiterButton } from "./CallWaiterButton";
 import { FormSubmitButton } from "@/components/ui/FormSubmitButton";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
@@ -150,6 +151,7 @@ export function TableOrderClient({
 
       <div className="mx-auto grid max-w-7xl gap-6 px-3 pb-28 pt-5 sm:px-6 lg:grid-cols-[1fr_360px] lg:px-8 lg:pb-8 lg:pt-8">
         <section className="min-w-0">
+          <div className="mb-4"><CallWaiterButton slug={restaurant.slug} code={table.code} /></div>
           <div className="mb-5 overflow-hidden rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-card)]">
             <div className="relative min-h-[11rem] p-5 sm:min-h-[14rem] sm:p-7">
               {/* eslint-disable-next-line @next/next/no-img-element */}

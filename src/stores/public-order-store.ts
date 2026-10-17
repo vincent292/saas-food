@@ -51,7 +51,7 @@ export const usePublicOrderStore = create<PublicOrderStore>((set, get) => ({
   },
 
   addCartItem: (metadata, item) => {
-    const current = get().carts[metadata.restaurantSlug] ?? [];
+    const current = readCart(metadata.restaurantSlug) as PublicCartItem[];
     const existing = current.find((cartItem) => cartItem.cartId === item.cartId);
     const next = existing
       ? current.map((cartItem) => (cartItem.cartId === item.cartId ? { ...cartItem, quantity: cartItem.quantity + 1 } : cartItem))
@@ -62,7 +62,7 @@ export const usePublicOrderStore = create<PublicOrderStore>((set, get) => ({
   },
 
   changeCartItemQuantity: (metadata, cartId, delta) => {
-    const next = (get().carts[metadata.restaurantSlug] ?? [])
+    const next = (readCart(metadata.restaurantSlug) as PublicCartItem[])
       .map((item) => (item.cartId === cartId ? { ...item, quantity: item.quantity + delta } : item))
       .filter((item) => item.quantity > 0);
 

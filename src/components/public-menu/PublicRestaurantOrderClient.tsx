@@ -8,6 +8,7 @@ import { PublicCustomerAccountButton } from "@/components/customer/PublicCustome
 import { GoogleLocationFields } from "@/components/location/GoogleLocationFields";
 import { RecoverOrderNotice } from "@/components/orders/RecoverOrderNotice";
 import { prepareOrderRecovery } from "@/lib/client/order-recovery";
+import { cartUpdatedEventName, listActiveCarts } from "@/lib/utils/cart";
 import { Button } from "@/components/ui/Button";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
 import { Input } from "@/components/ui/Input";
@@ -222,11 +223,23 @@ export function PublicRestaurantOrderClient({
   }, []);
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const sync = () => {
       hydrateCart(restaurant.slug);
-    }, 0);
-
-    return () => window.clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
+      const saved = listActiveCarts().find(cart => cart.restaurantSlug === restaurant.slug);
+      if (saved) timeoutId = setTimeout(sync, Math.max(1, Date.parse(saved.expiresAt) - Date.now()));
+    };
+    timeoutId = setTimeout(sync, 0);
+    window.addEventListener(cartUpdatedEventName, sync);
+    window.addEventListener("storage", sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener(cartUpdatedEventName, sync);
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("focus", sync);
+    };
   }, [hydrateCart, restaurant.slug]);
 
   useEffect(() => {

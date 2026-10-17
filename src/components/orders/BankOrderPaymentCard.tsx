@@ -56,7 +56,7 @@ export function BankOrderPaymentCard({ orderId, token = "", initialPayment, staf
         <a className="flex min-h-11 items-center justify-center font-bold underline" href={payment.image} download={`yopido-pedido-${orderId}.png`}>Descargar QR</a>
         {!checkoutMode ? <button className="min-h-11 w-full text-sm font-semibold underline" type="button" disabled={busy} onClick={cancel}>Anular este QR</button> : null}
       </> : !["not_created", "unavailable"].includes(status) ? <p className="mt-3 text-sm">{status === "generating" ? "Estamos recuperando el QR de tu solicitud." : "La emisión necesita revisión del local. No generes otro pago."}</p> : null}
-      <p className="mt-3 text-sm text-[var(--muted)]">Descarga el QR, abre tu banco e impórtalo desde tu galería. Al volver, consultaremos el mismo pago automáticamente. Si se cierra el navegador, usa «Retoma tu pedido o pago» en el inicio o menú de Yopido.</p>
+      <p className="mt-3 text-sm text-[var(--muted)]">Descarga el QR y ábrelo desde tu banco. Al volver, consultaremos el mismo pago automáticamente. El acceso de «Continúa donde lo dejaste» aparece durante 30 minutos; después puedes volver con el enlace de esta página.</p>
       <button className="mt-2 min-h-11 w-full text-sm font-bold underline" type="button" onClick={async () => {
         try { await navigator.clipboard.writeText(window.location.href); setCopied(true); }
         catch { setError("Conserva la dirección de esta página o vuelve desde el inicio de Yopido en este navegador."); }

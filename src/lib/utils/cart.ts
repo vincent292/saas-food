@@ -1,3 +1,5 @@
+import { pendingActivityMaxAgeMs } from "../client/pending-activity-policy";
+
 export type CartProduct = {
   cartId?: string;
   productId: string;
@@ -34,14 +36,10 @@ export const legacyCartStorageKey = "restaurant-saas-cart";
 export const cartStorageKey = "restaurant-saas-cart-v2";
 export const cartUpdatedEventName = "restaurant-saas-cart-updated";
 
-function endOfTodayIso() {
-  const date = new Date();
-  date.setHours(23, 59, 59, 999);
-  return date.toISOString();
-}
-
 function isExpired(cart: StoredRestaurantCart) {
-  return new Date(cart.expiresAt).getTime() <= Date.now();
+  const updated = Date.parse(cart.updatedAt), expires = Date.parse(cart.expiresAt);
+  return !Number.isFinite(updated) || !Number.isFinite(expires) || updated > Date.now()
+    || Math.min(expires, updated + pendingActivityMaxAgeMs) <= Date.now();
 }
 
 function readCartMap(): StoredCartMap {
@@ -52,10 +50,12 @@ function readCartMap(): StoredCartMap {
   try {
     const raw = window.localStorage.getItem(cartStorageKey);
     const parsed = raw ? (JSON.parse(raw) as StoredCartMap) : {};
-    const activeEntries = Object.entries(parsed).filter(([, cart]) => cart?.items?.length && !isExpired(cart));
+    const activeEntries = Object.entries(parsed).filter(([, cart]) => cart?.items?.length && !isExpired(cart)).map(([slug, cart]) => [slug, {
+      ...cart, expiresAt: new Date(Math.min(Date.parse(cart.expiresAt), Date.parse(cart.updatedAt) + pendingActivityMaxAgeMs)).toISOString(),
+    }] as const);
     const activeMap = Object.fromEntries(activeEntries) as StoredCartMap;
 
-    if (activeEntries.length !== Object.entries(parsed).length) {
+    if (activeEntries.length !== Object.entries(parsed).length || activeEntries.some(([slug, cart]) => parsed[slug].expiresAt !== cart.expiresAt)) {
       window.localStorage.setItem(cartStorageKey, JSON.stringify(activeMap));
     }
 
@@ -118,7 +118,7 @@ export function writeCart(
         restaurantId: options.restaurantId,
         items,
         updatedAt: new Date().toISOString(),
-        expiresAt: endOfTodayIso(),
+        expiresAt: new Date(Date.now() + pendingActivityMaxAgeMs).toISOString(),
       };
     } else {
       delete carts[options.restaurantSlug];
@@ -157,7 +157,7 @@ export function listPendingCarts(): PendingCartSummary[] {
       itemCount: cart.items.reduce((sum, item) => sum + item.quantity, 0),
       total: cart.items.reduce((sum, item) => sum + item.price * item.quantity, 0),
       updatedAt: cart.updatedAt,
-      expiresAt: cart.expiresAt,
+      expiresAt: new Date(Math.min(Date.parse(cart.expiresAt), Date.parse(cart.updatedAt) + pendingActivityMaxAgeMs)).toISOString(),
     }))
     .filter((cart) => cart.itemCount > 0)
     .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());

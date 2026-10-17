@@ -10,7 +10,7 @@ const read=path=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
 function load(path,mocks={},globals={}) {
   const exports={};
   vm.runInNewContext(ts.transpileModule(read(path),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
-    {exports,require:name=>name==='server-only'?{}:name in mocks?mocks[name]:require(name),process,Buffer,URL,Date,Intl,Error,console,setTimeout,clearTimeout,...globals});
+    {exports,require:name=>name==='server-only'?{}:name==='./pending-activity-policy'?load('src/lib/client/pending-activity-policy.ts',{},globals):name in mocks?mocks[name]:require(name),process,Buffer,URL,Date,Intl,Error,console,setTimeout,clearTimeout,...globals});
   return exports;
 }
 const bank=load('src/lib/payments/baneco.ts');

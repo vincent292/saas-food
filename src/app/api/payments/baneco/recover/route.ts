@@ -32,10 +32,13 @@ export async function POST(request: Request) {
   try {
     const order = await findRecoverableOrder(input.data.restaurantId, input.data.requestId, input.data.recoveryKey);
     if (!order) return NextResponse.json({ error: "not-found" }, { status: 404, headers });
-    const { data: restaurant } = await createAdminClient()!.from("restaurants").select("slug").eq("id", order.restaurant_id).maybeSingle();
+    const { data: restaurant } = await createAdminClient()!.from("restaurants").select("slug,name,logo_url").eq("id", order.restaurant_id).maybeSingle();
     if (!restaurant) return NextResponse.json({ error: "not-found" }, { status: 404, headers });
+    const needsPayment = order.bank_checkout_hold || (order.bank_payment_required && order.payment_status !== "paid" && !["cancelled", "delivered"].includes(order.status))
+      || (order.bank_auto_accept && order.payment_status === "paid" && order.status === "pending" && !order.bank_schedule_hold);
     return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, trackingToken: order.tracking_token, bankPaymentRequired: order.bank_payment_required,
-      path: `/${restaurant.slug}/${order.bank_checkout_hold ? "pago" : "pedido"}/${order.id}?token=${encodeURIComponent(order.tracking_token)}`,
+      stage: needsPayment ? "payment" : "tracking", paymentStatus: order.payment_status, restaurantName: restaurant.name, logoUrl: restaurant.logo_url, amount: Number(order.total),
+      path: `/${restaurant.slug}/${needsPayment ? "pago" : "pedido"}/${order.id}?token=${encodeURIComponent(order.tracking_token)}`,
       terminal: ["delivered", "cancelled"].includes(order.status) }, { headers });
   } catch { return NextResponse.json({ error: "unavailable" }, { status: 503, headers }); }
 }

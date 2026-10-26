@@ -40,3 +40,17 @@ Fecha: 17/10/2026. Alcance de esta entrega: pedidos individuales y de mesa en la
 3. Crear un pedido de mesa: debe quedar solo en «pendiente de QR», sin comanda ni cocina. Guardar QR, salir al banco, cerrar/reabrir Yopido y recuperar el mismo pedido y QR.
 4. Pagar una vez. Confirmar que aparece una única comanda pagada/aceptada, una aplicación de inventario y un movimiento de caja. Verificar que una captura anterior no permite otro pago.
 5. Repetir con internet interrumpido, caja cerrada durante el pago, otro mesero y otra sucursal. No aprobar manualmente un pago desconocido ni volver a cobrar para desbloquear una pantalla.
+
+## Revisión adicional del recorrido de mesa en Android — 17/10/2026
+
+Se comprobó que el QR impreso de cada mesa abre el menú del local y conserva su código e identificador en la solicitud; no es el QR bancario. El QR bancario corresponde a la compra y se recupera al reabrir, sin emitir otro automáticamente. Esta revisión se limita al pedido individual de mesa, no completa los grupales nativos heredados.
+
+- La respuesta de contexto debe corresponder exactamente al local y código escaneados, con disponibilidad bancaria explícita. Se consulta sin caché y con tiempo límite; respuestas incompletas o de otra mesa quedan bloqueadas.
+- El contexto se vuelve a consultar al regresar a primer plano. Hay un botón para revalidar tras una desconexión o habilitación de cuenta/caja, sin escanear de nuevo. Las respuestas antiguas no sustituyen una consulta más reciente.
+- El cliente rechaza efectivo o una mesa sin identificador/código antes de enviar. Si una API antigua omite la confirmación de checkout bancario, conserva la reserva recuperable y no muestra el pedido como recibido ni borra el carrito.
+- El checkout y el escáner identifican el recorrido de mesa. El pago muestra local, número de pedido y la diferencia entre ambos QR. La falta de cuenta bancaria o atención abierta bloquea el envío con una explicación específica; no se disfraza como un problema de horario.
+- Dentro de la mesa se oculta el acceso rápido a un grupal independiente para no cambiar accidentalmente de recorrido. El mesero sigue siendo una alternativa de atención, no un requisito para realizar el pedido público pagado.
+
+Validación de esta pasada: TypeScript aprobado; 16 pruebas unitarias de la app cliente, 12 pruebas de interfaz y 45 pruebas dirigidas del backend aprobadas. Interfaz a 320, 360 y 450 dp: pago antes del seguimiento, recuperación del mismo QR, contexto incorrecto, reintento de validación, cuenta/caja no disponibles, pago retenido para revisión y respuesta de API antigua. Las respuestas de interfaz son controladas: **no certifican un pago bancario real**.
+
+Exportación Android completada en `/tmp/yopido-table-android-fCT57w` (bundle aproximado de 5,5 MB). No se generó ni instaló un APK, no se hicieron nuevas migraciones ni se cambiaron cuentas bancarias. `adb devices -l` no mostró dispositivos en esta pasada; quedan pendientes cámara, galería, retorno desde el banco, recepción operativa en caja/cocina y pago real en teléfono.

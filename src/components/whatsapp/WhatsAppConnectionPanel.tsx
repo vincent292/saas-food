@@ -96,7 +96,7 @@ export function WhatsAppConnectionPanel({ restaurantId, restaurantName, initialS
       window.dispatchEvent(new Event('yopido-whatsapp-code'));
     }, {
       config_id: prepared.configId, response_type: 'code', override_default_response_type: true,
-      extras: { setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' },
+      extras: { version: 'v4', setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' },
     });
     } catch {
       pending.current = null; setBusy(false); setPrepared(null);

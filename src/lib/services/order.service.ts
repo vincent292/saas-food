@@ -49,6 +49,7 @@ type OrderRow = {
   notes: string | null;
   created_at: string;
   accepted_at: string | null;
+  eta_adjustment_minutes?: number;
   preparing_at: string | null;
   ready_at: string | null;
   delivered_at: string | null;
@@ -282,6 +283,7 @@ function mapOrder(row: OrderRow, items: OrderItem[], deliveryDispatch?: OrderDel
     notes: row.notes ?? undefined,
     createdAt: row.created_at,
     acceptedAt: row.accepted_at ?? undefined,
+    etaAdjustmentMinutes: Number(row.eta_adjustment_minutes ?? 0),
     preparingAt: row.preparing_at ?? undefined,
     readyAt: row.ready_at ?? undefined,
     deliveredAt: row.delivered_at ?? undefined,
@@ -490,7 +492,7 @@ export const orderService = {
     const { data: orders, error } = await supabase
       .from("orders")
       .select(
-        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,bank_payment_required,bank_auto_accept,bank_group_session_id,group_prepaid_amount,group_cash_due,subtotal,delivery_fee,discount_total,total,notes,created_at,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
+        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,bank_payment_required,bank_auto_accept,bank_group_session_id,group_prepaid_amount,group_cash_due,subtotal,delivery_fee,discount_total,total,notes,created_at,eta_adjustment_minutes,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
       )
       .eq("restaurant_id", restaurantId)
       .or(`created_at.gte.${startOfBusinessDayIso()},accepted_at.gte.${startOfBusinessDayIso()},and(order_type.eq.table,status.in.(pending,accepted,preparing,ready))`)
@@ -552,7 +554,7 @@ export const orderService = {
     const { data: orders, error } = await supabase
       .from("orders")
       .select(
-        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,bank_payment_required,bank_auto_accept,bank_group_session_id,group_prepaid_amount,group_cash_due,subtotal,delivery_fee,discount_total,total,notes,created_at,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
+        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,bank_payment_required,bank_auto_accept,bank_group_session_id,group_prepaid_amount,group_cash_due,subtotal,delivery_fee,discount_total,total,notes,created_at,eta_adjustment_minutes,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
       )
       .eq("restaurant_id", restaurantId)
       .gte("created_at", startOfBusinessDayIso())
@@ -584,7 +586,7 @@ export const orderService = {
     let query = supabase
       .from("orders")
       .select(
-        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,invoice_required,invoice_document_type,invoice_document_number,invoice_name,invoice_issued_at,invoice_issued_by,invoice_number,invoice_notes,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,bank_payment_required,bank_auto_accept,bank_group_session_id,group_prepaid_amount,group_cash_due,subtotal,delivery_fee,discount_total,total,notes,created_at,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
+        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,invoice_required,invoice_document_type,invoice_document_number,invoice_name,invoice_issued_at,invoice_issued_by,invoice_number,invoice_notes,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,bank_payment_required,bank_auto_accept,bank_group_session_id,group_prepaid_amount,group_cash_due,subtotal,delivery_fee,discount_total,total,notes,created_at,eta_adjustment_minutes,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
       )
       .eq("restaurant_id", restaurantId)
       .eq("invoice_required", true)

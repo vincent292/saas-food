@@ -96,6 +96,7 @@ export type Order = {
   notes?: string;
   createdAt: string;
   acceptedAt?: string;
+  etaAdjustmentMinutes?: number;
   preparingAt?: string;
   readyAt?: string;
   deliveredAt?: string;

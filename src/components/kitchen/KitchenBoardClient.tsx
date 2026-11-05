@@ -1,8 +1,8 @@
 "use client";
 
-import { AlertTriangle, Clock, History, Maximize2, Minimize2, RefreshCw, Truck } from "lucide-react";
+import { AlertTriangle, Clock, History, Maximize2, Minimize2, RefreshCw, Truck, Volume2, VolumeX } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   READY_PICKUP_WARNING_MINUTES,
   elapsedLabel,
@@ -13,13 +13,17 @@ import {
   minutesSince,
   minutesUntil,
 } from "@/components/orders/orderPresentation";
+import { NewOrderSoundAlert } from "@/components/orders/NewOrderSoundAlert";
+import { getOrderAlertAudio, readOrderAlertSoundEnabled, writeOrderAlertSoundEnabled } from "@/lib/client/order-notification-sound";
 import { ReceiptViewerButton } from "@/components/payments/ReceiptViewerButton";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useLiveOrders } from "@/lib/client/use-live-orders";
 import { cn } from "@/lib/utils/cn";
-import type { Order } from "@/types/order.types";
+import type { Order, OrderStatus } from "@/types/order.types";
 import type { Restaurant } from "@/types/restaurant.types";
+
+const kitchenAlertStatuses: OrderStatus[] = ["accepted", "preparing"];
 
 type KitchenView = "operacion" | "historial";
 
@@ -50,7 +54,7 @@ export function KitchenBoardClient({
   const [activeView, setActiveView] = useState<KitchenView>("operacion");
   const [now, setNow] = useState(() => new Date());
   const [focusMode, setFocusMode] = useState(false);
-  const { orders: liveOrders } = useLiveOrders({
+  const { orders: liveOrders, extendPreparationTime, extendingOrderIds, statusError } = useLiveOrders({
     initialOrders: orders,
     restaurantId: restaurant.id,
     restaurantSlug: restaurant.slug,
@@ -83,9 +87,10 @@ export function KitchenBoardClient({
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Cocina</p>
             <h1 className="text-3xl font-black text-[var(--text)]">{restaurant.name}</h1>
-            <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Pantalla pasiva para cocina: prepara mirando tiempos y avisa el numero de pedido; caja o despacho actualizan listo y entregado.</p>
+            <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Recibe pedidos con sonido y amplía el tiempo si necesitas más preparación. Caja o despacho marcan listo y entregado.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {!focusMode ? <KitchenSoundControl restaurantId={restaurant.id} /> : null}
             <button
               className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--primary)] px-4 text-sm font-black text-[var(--color-on-primary)] shadow-sm"
               onClick={() => {
@@ -110,12 +115,25 @@ export function KitchenBoardClient({
               <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Cocina en pantalla grande</p>
               <p className="truncate text-lg font-black text-[var(--text)]">{restaurant.name}</p>
             </div>
+            <KitchenSoundControl restaurantId={restaurant.id} />
             <button className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full border border-[var(--border)] px-4 text-sm font-black text-[var(--text)]" onClick={() => setFocusMode(false)} type="button">
               <Minimize2 className="h-4 w-4" />
               Salir
             </button>
           </section>
         ) : null}
+
+        <NewOrderSoundAlert
+          acknowledgementScope="kitchen"
+          actionLabel="Ver cocina"
+          description="Hay pedidos que acaban de entrar a preparación."
+          onOpenAlerts={() => setActiveView("operacion")}
+          orders={liveOrders}
+          restaurantId={restaurant.id}
+          title="Nuevo en cocina"
+          watchStatuses={kitchenAlertStatuses}
+        />
+        {statusError ? <p role="alert" className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">{statusError}</p> : null}
 
         <section className={cn("grid grid-cols-2 gap-3 lg:grid-cols-4", focusMode && "hidden")}>
           <KitchenSummary icon={<Clock className="h-5 w-5" />} label="En cocina" value={groups.cocina.length} />
@@ -140,6 +158,8 @@ export function KitchenBoardClient({
                 focusMode={focusMode}
                 now={now}
                 orders={groups.cocina}
+                extendingOrderIds={extendingOrderIds}
+                onExtendTime={extendPreparationTime}
                 tone="info"
                 title="En cocina"
               />
@@ -151,6 +171,8 @@ export function KitchenBoardClient({
                 focusMode={focusMode}
                 now={now}
                 orders={groups.vencidos}
+                extendingOrderIds={extendingOrderIds}
+                onExtendTime={extendPreparationTime}
                 tone="danger"
                 title="Tiempo cumplido"
               />
@@ -211,7 +233,11 @@ function KitchenColumn({
   tone,
   orders,
   now,
+  extendingOrderIds,
+  onExtendTime,
 }: {
+  extendingOrderIds?: Set<string>;
+  onExtendTime?: (orderId: string, minutes: 5 | 10) => Promise<void>;
   title: string;
   description: string;
   emptyTitle: string;
@@ -255,7 +281,7 @@ function KitchenColumn({
       {orders.length ? (
         <div className="grid gap-3">
           {orders.map((order) => (
-            <KitchenCard key={order.id} now={now} order={order} />
+            <KitchenCard key={order.id} now={now} order={order} extending={extendingOrderIds?.has(order.id)} onExtendTime={onExtendTime} />
           ))}
         </div>
       ) : (
@@ -271,7 +297,11 @@ function KitchenColumn({
 function KitchenCard({
   order,
   now,
+  extending,
+  onExtendTime,
 }: {
+  extending?: boolean;
+  onExtendTime?: (orderId: string, minutes: 5 | 10) => Promise<void>;
   order: Order;
   now: Date;
 }) {
@@ -331,6 +361,21 @@ function KitchenCard({
             </div>
           ))}
         </div>
+
+        {!isReady && !isDelivered && onExtendTime ? (
+          <div className="rounded-xl border border-[var(--border)] p-2.5">
+            <p className="text-xs font-bold text-[var(--muted)]">{order.etaAdjustmentMinutes ? `Tiempo ampliado: +${order.etaAdjustmentMinutes} min` : "¿Necesitas más tiempo?"}</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {([5, 10] as const).map((minutes) => <button
+                aria-label={`Ampliar ${minutes} minutos el pedido ${order.orderNumber}`}
+                className="min-h-11 rounded-xl bg-[var(--primary-light)] text-sm font-black text-[var(--primary)] disabled:opacity-50"
+                disabled={extending || (order.etaAdjustmentMinutes ?? 0) + minutes > 180}
+                key={minutes} onClick={() => void onExtendTime(order.id, minutes)} type="button"
+              >{extending ? "Guardando…" : `+${minutes} min`}</button>)}
+            </div>
+            <p className="mt-2 text-[11px] font-semibold text-[var(--muted)]">También actualiza el tiempo del cliente.</p>
+          </div>
+        ) : null}
 
         {order.paymentReceiptUrl || groupReceiptLinksFromNotes(order.notes).length ? (
           <details className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2">
@@ -409,4 +454,25 @@ function kitchenCardTone({
     value: `${remainingMinutes} min`,
     className: "border-[var(--color-info-soft)] bg-[var(--color-info-soft)] text-[var(--color-info-strong)]",
   };
+}
+
+function KitchenSoundControl({ restaurantId }: { restaurantId: string }) {
+  const [enabled, setEnabled] = useState(() => readOrderAlertSoundEnabled(restaurantId));
+  const [error, setError] = useState("");
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => () => { audioRef.current?.pause(); }, []);
+  return <div>
+    <button aria-pressed={enabled} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-black" onClick={() => {
+      const next = !enabled;
+      setEnabled(next);
+      writeOrderAlertSoundEnabled(restaurantId, next);
+      setError("");
+      if (next) {
+        audioRef.current ??= getOrderAlertAudio();
+        audioRef.current.volume = 0.78;
+        void audioRef.current.play().catch(() => { setError("No se pudo reproducir. Revisa el volumen y vuelve a activar."); });
+      } else audioRef.current?.pause();
+    }} type="button">{enabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}{enabled ? "Sonido activado" : "Activar sonido"}</button>
+    {error ? <p role="alert" className="max-w-xs text-xs">{error}</p> : null}
+  </div>;
 }

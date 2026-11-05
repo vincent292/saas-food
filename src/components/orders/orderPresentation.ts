@@ -204,7 +204,7 @@ export function groupKitchenOrderItems(items: Order["items"]): KitchenGroupedOrd
 }
 
 export function kitchenDueDate(order: Order) {
-  return new Date(new Date(kitchenStartDate(order)).getTime() + orderPrepMinutes(order) * 60000);
+  return new Date(new Date(kitchenStartDate(order)).getTime() + (orderPrepMinutes(order) + (order.etaAdjustmentMinutes ?? 0)) * 60000);
 }
 
 export function minutesSince(date: string, now: Date) {

@@ -4,27 +4,29 @@ import { BellRing, Eye } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buttonClasses } from "@/components/ui/Button";
 import {
-  ORDER_ALERT_AUDIO_SRC,
+  getOrderAlertAudio,
   ORDER_ALERT_SOUND_CHANGE_EVENT,
   ORDER_ALERT_SOUND_STOP_EVENT,
   readOrderAlertSoundEnabled,
 } from "@/lib/client/order-notification-sound";
 import { cn } from "@/lib/utils/cn";
-import type { Order, OrderType } from "@/types/order.types";
+import type { Order, OrderStatus, OrderType } from "@/types/order.types";
+
+const pendingStatuses: OrderStatus[] = ["pending"];
 
 function sameOrderIds(left: Order[], right: Order[]) {
   return left.length === right.length && left.every((order, index) => order.id === right[index]?.id);
 }
 
-function acknowledgedStorageKey(restaurantId: string) {
-  return `yopido:order-alert-sound:acknowledged:${restaurantId}`;
+function acknowledgedStorageKey(restaurantId: string, scope: string) {
+  return `yopido:order-alert-sound:acknowledged:${restaurantId}${scope === "reception" ? "" : `:${scope}`}`;
 }
 
-function readAcknowledgedOrderIds(restaurantId: string) {
+function readAcknowledgedOrderIds(restaurantId: string, scope: string) {
   if (typeof window === "undefined") return new Set<string>();
 
   try {
-    const raw = window.localStorage.getItem(acknowledgedStorageKey(restaurantId));
+    const raw = window.localStorage.getItem(acknowledgedStorageKey(restaurantId, scope));
     const ids = raw ? JSON.parse(raw) : [];
     return new Set(Array.isArray(ids) ? ids.filter((id) => typeof id === "string") : []);
   } catch {
@@ -32,11 +34,11 @@ function readAcknowledgedOrderIds(restaurantId: string) {
   }
 }
 
-function writeAcknowledgedOrderIds(restaurantId: string, ids: Set<string>) {
+function writeAcknowledgedOrderIds(restaurantId: string, scope: string, ids: Set<string>) {
   if (typeof window === "undefined") return;
 
   try {
-    window.localStorage.setItem(acknowledgedStorageKey(restaurantId), JSON.stringify(Array.from(ids).slice(-160)));
+    window.localStorage.setItem(acknowledgedStorageKey(restaurantId, scope), JSON.stringify(Array.from(ids).slice(-160)));
   } catch {
     // Local alert state is a convenience; failing to persist it should not block orders.
   }
@@ -48,6 +50,8 @@ export function NewOrderSoundAlert({
   title = "Pedido nuevo",
   description = "Hay pedidos nuevos esperando revision.",
   watchOrderTypes,
+  watchStatuses = pendingStatuses,
+  acknowledgementScope = "reception",
   onOpenAlerts,
   actionLabel = "Ver pedidos",
   className,
@@ -57,6 +61,8 @@ export function NewOrderSoundAlert({
   title?: string;
   description?: string;
   watchOrderTypes?: OrderType[];
+  watchStatuses?: OrderStatus[];
+  acknowledgementScope?: string;
   onOpenAlerts?: (orders: Order[]) => void;
   actionLabel?: string;
   className?: string;
@@ -73,7 +79,7 @@ export function NewOrderSoundAlert({
 
   const ensureAudio = useCallback(() => {
     if (!audioRef.current) {
-      audioRef.current = new Audio(ORDER_ALERT_AUDIO_SRC);
+      audioRef.current = getOrderAlertAudio();
       audioRef.current.loop = false;
       audioRef.current.preload = "auto";
       audioRef.current.volume = 0.78;
@@ -127,18 +133,18 @@ export function NewOrderSoundAlert({
   const alertCandidates = useMemo(
     () =>
       orders.filter((order) => {
-        if (order.status !== "pending") {
+        if (!watchStatuses.includes(order.status)) {
           return false;
         }
         return watchOrderTypes?.length ? watchOrderTypes.includes(order.orderType) : true;
       }),
-    [orders, watchOrderTypes],
+    [orders, watchOrderTypes, watchStatuses],
   );
 
   const ensureAcknowledgedOrderIds = useCallback(() => {
-    acknowledgedOrderIdsRef.current ??= readAcknowledgedOrderIds(restaurantId);
+    acknowledgedOrderIdsRef.current ??= readAcknowledgedOrderIds(restaurantId, acknowledgementScope);
     return acknowledgedOrderIdsRef.current;
-  }, [restaurantId]);
+  }, [restaurantId, acknowledgementScope]);
 
   const rememberAcknowledgedOrders = useCallback(
     (ordersToAcknowledge: Order[]) => {
@@ -148,9 +154,9 @@ export function NewOrderSoundAlert({
       for (const order of ordersToAcknowledge) {
         acknowledgedOrderIds.add(order.id);
       }
-      writeAcknowledgedOrderIds(restaurantId, acknowledgedOrderIds);
+      writeAcknowledgedOrderIds(restaurantId, acknowledgementScope, acknowledgedOrderIds);
     },
-    [ensureAcknowledgedOrderIds, restaurantId],
+    [ensureAcknowledgedOrderIds, restaurantId, acknowledgementScope],
   );
 
   useEffect(() => {
@@ -246,10 +252,15 @@ export function NewOrderSoundAlert({
           <p className="text-base font-black">
             {title}: {unseenOrders.length}
           </p>
-          <p className="mt-1 text-sm font-bold leading-5">{soundBlocked ? "El navegador bloqueo el audio. Habilitalo en Configuracion > Notificaciones." : description}</p>
+          <p className="mt-1 text-sm font-bold leading-5">{soundBlocked ? "Pulsa Activar audio para permitir el sonido en este navegador." : description}</p>
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
+        {soundBlocked ? <button className={buttonClasses("secondary")} onClick={() => {
+          const audio = ensureAudio();
+          audio.currentTime = 0;
+          void audio.play().then(() => setSoundBlocked(false), () => setSoundBlocked(true));
+        }} type="button">Activar audio</button> : null}
         <button className={buttonClasses("primary")} onClick={openAlerts} type="button">
           <Eye className="h-4 w-4" />
           {actionLabel}

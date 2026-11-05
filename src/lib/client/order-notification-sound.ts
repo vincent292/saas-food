@@ -4,6 +4,14 @@ export const ORDER_ALERT_AUDIO_SRC = "/notificaciones/notificaiones.mp3";
 export const ORDER_ALERT_SOUND_CHANGE_EVENT = "yopido:order-alert-sound-change";
 export const ORDER_ALERT_SOUND_STOP_EVENT = "yopido:order-alert-sound-stop";
 
+let orderAlertAudio: HTMLAudioElement | null = null;
+export function getOrderAlertAudio() {
+  orderAlertAudio ??= new Audio(ORDER_ALERT_AUDIO_SRC);
+  orderAlertAudio.preload = "auto";
+  orderAlertAudio.volume = 0.78;
+  return orderAlertAudio;
+}
+
 type SoundChangeDetail = {
   restaurantId: string;
   enabled: boolean;
@@ -19,7 +27,8 @@ export function orderAlertSoundEnabledKey(restaurantId: string) {
 
 export function readOrderAlertSoundEnabled(restaurantId: string) {
   if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(orderAlertSoundEnabledKey(restaurantId)) === "1";
+  try { return window.localStorage.getItem(orderAlertSoundEnabledKey(restaurantId)) === "1"; }
+  catch { return false; }
 }
 
 export function writeOrderAlertSoundEnabled(restaurantId: string, enabled: boolean) {

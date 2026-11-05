@@ -7963,16 +7963,48 @@ export async function observeOrderCancellationReviewAction(formData: FormData) {
   redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}observed=1`);
 }
 
-export async function createPosSaleAction(formData: FormData) {
+export async function extendKitchenOrderTimeAction(input: {
+  restaurantId: string; orderId: string; expectedMinutes: number; extraMinutes: number;
+}) {
+  const parsed = z.object({
+    restaurantId: z.string().uuid(), orderId: z.string().uuid(),
+    expectedMinutes: z.number().int().min(0).max(180), extraMinutes: z.union([z.literal(5), z.literal(10)]),
+  }).safeParse(input);
+  if (!parsed.success || parsed.data.expectedMinutes + parsed.data.extraMinutes > 180) {
+    return { ok: false as const, error: "El máximo de ampliación es 180 minutos." };
+  }
+  const { restaurantId, orderId, expectedMinutes, extraMinutes } = parsed.data;
+  await requireRestaurantAccess(restaurantId, `/admin/restaurantes/${restaurantId}/cocina`);
+  const { supabase, user } = await requireUser();
+  const [profile, membership] = await Promise.all([
+    supabase.from("profiles").select("global_role").eq("id", user.id).maybeSingle(),
+    supabase.from("restaurant_memberships").select("role").eq("restaurant_id", restaurantId)
+      .eq("user_id", user.id).eq("is_active", true).in("role", ["restaurant_admin", "cashier", "kitchen"]).maybeSingle(),
+  ]);
+  if (profile.data?.global_role !== "superadmin" && !membership.data) {
+    return { ok: false as const, error: "No tienes acceso a cocina." };
+  }
+  const minutes = expectedMinutes + extraMinutes;
+  const { data, error } = await supabase.from("orders").update({
+    eta_adjustment_minutes: minutes, eta_adjusted_at: new Date().toISOString(), eta_adjusted_by: user.id,
+  }).eq("restaurant_id", restaurantId).eq("id", orderId).eq("eta_adjustment_minutes", expectedMinutes)
+    .in("status", ["accepted", "preparing"]).select("id").maybeSingle();
+  if (error || !data) return { ok: false as const, error: "El pedido cambió. Actualiza la pantalla antes de ampliar su tiempo." };
+  await supabase.rpc("write_admin_audit", {
+    p_action: "order_eta_adjusted", p_entity_type: "order", p_entity_id: orderId,
+    p_restaurant_id: restaurantId, p_severity: "info", p_metadata: { extraMinutes, adjustmentMinutes: minutes },
+  });
+  after(() => revalidateOrderDecisionPaths(restaurantId));
+  return { ok: true as const, minutes };
+}
+
+export async function createPosSaleInPlaceAction(formData: FormData) {
   const rawCart = String(formData.get("cartJson") ?? "[]");
-  const rawRestaurantId = String(formData.get("restaurantId") ?? "");
-  const rawSource = formData.get("source") === "pedidos" ? "pedidos" : "caja";
-  const fallbackPath = posSaleRedirectPath(rawRestaurantId, rawSource);
   let cart: unknown;
   try {
     cart = JSON.parse(rawCart);
   } catch {
-    redirect(`${fallbackPath}${fallbackPath.includes("?") ? "&" : "?"}error=invalid-pos-sale`);
+    return { ok: false as const, error: "invalid-pos-sale" };
   }
 
   const parsed = createPosSaleSchema.safeParse({
@@ -7990,19 +8022,40 @@ export async function createPosSaleAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`${fallbackPath}${fallbackPath.includes("?") ? "&" : "?"}error=invalid-pos-sale`);
+    return { ok: false as const, error: "invalid-pos-sale" };
   }
 
   const redirectPath = posSaleRedirectPath(parsed.data.restaurantId, parsed.data.source);
   await requireRestaurantAccess(parsed.data.restaurantId, redirectPath);
 
   const { supabase, user } = await requireUser();
-  void user;
+  const [profileResult, membershipResult] = await Promise.all([
+    supabase.from("profiles").select("global_role").eq("id", user.id).maybeSingle(),
+    supabase.from("restaurant_memberships").select("role").eq("restaurant_id", parsed.data.restaurantId)
+      .eq("user_id", user.id).eq("is_active", true).in("role", ["restaurant_admin", "cashier"]).maybeSingle(),
+  ]);
+  if (profileResult.data?.global_role !== "superadmin" && !membershipResult.data) {
+    return { ok: false as const, error: "cash-access-denied" };
+  }
+  // QR reservations may be hidden by operational RLS. Only an authorized
+  // cashier may recover these minimal receipt fields for this restaurant.
+  const receiptClient = createAdminClient() ?? supabase;
+
+  const posRequest = z.string().uuid().safeParse(formData.get("posRequestId"));
+  if (!posRequest.success) return { ok: false as const, error: "invalid-pos-sale" };
+  const orderNumber = `POS-${posRequest.data}`;
+
+  // Recover the same sale after a lost response, including its bank QR.
+  const { data: existingOrder, error: recoveryError } = await receiptClient.from("orders")
+    .select("id,order_number,tracking_token,customer_phone,payment_method,total")
+    .eq("restaurant_id", parsed.data.restaurantId).eq("order_number", orderNumber).maybeSingle();
+  if (recoveryError) throw new Error("pos-recovery-unavailable");
+  if (existingOrder) return { ok: true as const, order: existingOrder };
 
   if (parsed.data.paymentMethod === "qr") {
     const { bankOrderPaymentService } = await import("@/lib/services/bank-qr.service");
     if (!await bankOrderPaymentService.availableForRestaurant(parsed.data.restaurantId)) {
-      redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=qr-unavailable`);
+      return { ok: false as const, error: "qr-unavailable" };
     }
   }
 
@@ -8011,9 +8064,6 @@ export async function createPosSaleAction(formData: FormData) {
     parsed.data.paymentMethod !== "qr" && receiptFile && receiptFile.size > 0
       ? await uploadPrivateFile(receiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
       : null;
-
-  const posRequest = z.string().uuid().safeParse(formData.get("posRequestId"));
-  const orderNumber = `POS-${posRequest.success ? posRequest.data : crypto.randomUUID()}`;
 
   const { data: orderId, error } = await supabase.rpc("create_pos_sale_with_tender", {
     p_restaurant_id: parsed.data.restaurantId,
@@ -8030,7 +8080,14 @@ export async function createPosSaleAction(formData: FormData) {
   });
 
   if (error) {
-    redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=${cashErrorKey(error, "pos-order")}`);
+    if (!/^[0-9A-Z]{5}$/.test(error.code ?? "")) throw new Error("pos-sale-outcome-unknown");
+    if (error.code === "23505") {
+      const { data: recovered } = await receiptClient.from("orders")
+        .select("id,order_number,tracking_token,customer_phone,payment_method,total")
+        .eq("restaurant_id", parsed.data.restaurantId).eq("order_number", orderNumber).maybeSingle();
+      if (recovered) return { ok: true as const, order: recovered };
+    }
+    return { ok: false as const, error: cashErrorKey(error, "pos-order") };
   }
 
   if (orderId && parsed.data.paymentMethod !== "qr" && !(await restaurantUsesKitchenFlow(supabase, parsed.data.restaurantId))) {
@@ -8054,12 +8111,22 @@ export async function createPosSaleAction(formData: FormData) {
     revalidatePath(`/cocina/${parsed.data.restaurantSlug}`);
   }
 
-  const { data: createdOrder } = await supabase
+  const { data: createdOrder } = await receiptClient
     .from("orders")
-    .select("id,order_number,tracking_token,customer_phone")
+    .select("id,order_number,tracking_token,customer_phone,payment_method,total")
     .eq("id", orderId ?? "")
+    .eq("restaurant_id", parsed.data.restaurantId)
     .maybeSingle();
 
+  if (!createdOrder) throw new Error("pos-receipt-unavailable");
+  return { ok: true as const, order: createdOrder };
+}
+
+export async function createPosSaleAction(formData: FormData) {
+  const result = await createPosSaleInPlaceAction(formData);
+  const redirectPath = posSaleRedirectPath(String(formData.get("restaurantId") ?? ""), formData.get("source") === "pedidos" ? "pedidos" : "caja");
+  if (!result.ok) redirect(`${redirectPath}${redirectPath.includes("?") ? "&" : "?"}error=${result.error}`);
+  const createdOrder = result.order;
   const redirectUrl = new URL(redirectPath, await currentPublicOrigin());
   redirectUrl.searchParams.set("pos", "1");
 
@@ -8073,6 +8140,34 @@ export async function createPosSaleAction(formData: FormData) {
   }
 
   redirect(redirectUrl.pathname + redirectUrl.search);
+}
+
+export async function cancelPosQrSaleAction(input: { restaurantId: string; orderId: string }) {
+  const parsed = z.object({ restaurantId: z.string().uuid(), orderId: z.string().uuid() }).safeParse(input);
+  if (!parsed.success) return { ok: false as const };
+  const { restaurantId, orderId } = parsed.data;
+  await requireRestaurantAccess(restaurantId);
+  const { supabase, user } = await requireUser();
+  const [profile, membership] = await Promise.all([
+    supabase.from("profiles").select("global_role").eq("id", user.id).maybeSingle(),
+    supabase.from("restaurant_memberships").select("role").eq("restaurant_id", restaurantId)
+      .eq("user_id", user.id).eq("is_active", true).in("role", ["restaurant_admin", "cashier"]).maybeSingle(),
+  ]);
+  if (profile.data?.global_role !== "superadmin" && !membership.data) return { ok: false as const };
+  const admin = createAdminClient();
+  if (!admin) return { ok: false as const };
+  const { data: order } = await admin.from("orders").select("tracking_token,order_number,payment_method,status,payment_status")
+    .eq("restaurant_id", restaurantId).eq("id", orderId).maybeSingle();
+  if (!order || !order.order_number.startsWith("POS-") || order.payment_method !== "qr" || order.status !== "pending" || order.payment_status !== "pending") return { ok: false as const };
+  const { bankOrderPaymentService } = await import("@/lib/services/bank-qr.service");
+  const payment = await bankOrderPaymentService.cancel(orderId, order.tracking_token);
+  if (!["not_created", "unavailable"].includes(payment.status)) return { ok: false as const };
+  // The bank guard and conditional update also protect a payment racing with cancellation.
+  const { data, error } = await admin.from("orders").update({ status: "cancelled", payment_status: "cancelled", cancelled_at: new Date().toISOString(), cancellation_reason: "Cliente desistió del cobro QR en POS." })
+    .eq("restaurant_id", restaurantId).eq("id", orderId).eq("status", "pending").eq("payment_status", "pending").select("id").maybeSingle();
+  if (error || !data) return { ok: false as const };
+  after(() => revalidateOrderDecisionPaths(restaurantId));
+  return { ok: true as const };
 }
 
 export async function refundOrderAction(formData: FormData) {

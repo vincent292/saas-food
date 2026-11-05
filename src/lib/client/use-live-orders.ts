@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { approvePendingOrderAction, updateOperationalOrderStatusAction } from "@/app/admin/actions";
+import { approvePendingOrderAction, extendKitchenOrderTimeAction, updateOperationalOrderStatusAction } from "@/app/admin/actions";
 import {
   useRestaurantRealtimeRefresh,
   type RealtimeScope,
@@ -49,6 +49,7 @@ function patchOrderFromRealtime(order: Order, record: Record<string, unknown>) {
     paymentReceiptUrl: typeof record.payment_receipt_url === "string" ? record.payment_receipt_url : order.paymentReceiptUrl,
     paymentReceiptReference: typeof record.payment_receipt_reference === "string" ? record.payment_receipt_reference : order.paymentReceiptReference,
     acceptedAt: typeof record.accepted_at === "string" ? record.accepted_at : order.acceptedAt,
+    etaAdjustmentMinutes: typeof record.eta_adjustment_minutes === "number" ? record.eta_adjustment_minutes : order.etaAdjustmentMinutes,
     preparingAt: typeof record.preparing_at === "string" ? record.preparing_at : order.preparingAt,
     readyAt: typeof record.ready_at === "string" ? record.ready_at : order.readyAt,
     deliveredAt: typeof record.delivered_at === "string" ? record.delivered_at : order.deliveredAt,
@@ -85,6 +86,8 @@ export function useLiveOrders({
   const [orders, setOrders] = useState(initialOrders);
   const [pendingOrderIds, setPendingOrderIds] = useState<Set<string>>(() => new Set());
   const [statusError, setStatusError] = useState("");
+  const [extendingOrderIds, setExtendingOrderIds] = useState<Set<string>>(() => new Set());
+  const extendingRef = useRef(new Set<string>());
   const ordersRef = useRef(initialOrders);
   const pendingChangesRef = useRef(new Map<string, PendingStatusChange>());
 
@@ -248,7 +251,27 @@ export function useLiveOrders({
     }
   }, [commitOrders, restaurantId, restaurantSlug]);
 
+  const extendPreparationTime = useCallback(async (orderId: string, extraMinutes: 5 | 10) => {
+    const order = ordersRef.current.find((item) => item.id === orderId);
+    if (!order || extendingRef.current.has(orderId)) return;
+    extendingRef.current.add(orderId);
+    setExtendingOrderIds(new Set(extendingRef.current));
+    setStatusError("");
+    try {
+      const result = await extendKitchenOrderTimeAction({ restaurantId, orderId, expectedMinutes: order.etaAdjustmentMinutes ?? 0, extraMinutes });
+      if (!result.ok) throw new Error(result.error);
+      commitOrders((current) => current.map((item) => item.id === orderId ? { ...item, etaAdjustmentMinutes: result.minutes } : item));
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : "No se pudo ampliar el tiempo.");
+    } finally {
+      extendingRef.current.delete(orderId);
+      setExtendingOrderIds(new Set(extendingRef.current));
+    }
+  }, [commitOrders, restaurantId]);
+
   return {
+    extendPreparationTime,
+    extendingOrderIds,
     approveOrder,
     clearStatusError: () => setStatusError(""),
     orders,

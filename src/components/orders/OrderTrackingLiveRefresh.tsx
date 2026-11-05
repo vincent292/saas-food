@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, ChefHat, ClipboardCheck, KeyRound, MessageCircle, PackageCheck, Phone, ReceiptText, ShoppingBag, Store, Truck, XCircle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { IllustrationAsset } from "@/components/ui/IllustrationAsset";
@@ -353,6 +354,8 @@ export function OrderTrackingLiveRefresh({
   businessType: BusinessType;
   token?: string;
 }) {
+  const router = useRouter();
+  const lastQueueRefreshRef = useRef<string | null>(null);
   const [order, setOrder] = useState<Order & { businessType: BusinessType }>({ ...initialOrder, businessType });
   const statusUrl = useMemo(() => {
     const params = token ? `?token=${encodeURIComponent(token)}` : "";
@@ -384,10 +387,16 @@ export function OrderTrackingLiveRefresh({
 
       const status = (await response.json()) as OrderTrackingStatus;
       setOrder((current) => mergeTrackingStatus(current, status));
+      // The queue estimate also changes when kitchen extends preparation while
+      // the order keeps its status. Refresh it on a new server revision.
+      if (status.updatedAt !== lastQueueRefreshRef.current) {
+        lastQueueRefreshRef.current = status.updatedAt;
+        router.refresh();
+      }
     } catch {
       // The next interval or realtime event will try again.
     }
-  }, [statusUrl]);
+  }, [statusUrl, router]);
 
   useRealtimeBroadcast({
     enabled: !isTerminal && Boolean(token),

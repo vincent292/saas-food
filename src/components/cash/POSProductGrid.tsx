@@ -2,20 +2,18 @@
 
 import { Check, Maximize2, Minimize2, Minus, Plus, Search, ShoppingCart, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { useFormStatus } from "react-dom";
-import { createPosSaleAction } from "@/app/admin/actions";
+import { useDeferredValue, useMemo, useState } from "react";
+import { PosCheckoutModal, type PosCheckoutSession } from "@/components/cash/PosCheckoutModal";
 import { orderOriginLabels } from "@/components/orders/orderPresentation";
 import { useBankQrAvailability } from "@/lib/client/use-bank-qr-availability";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input, Select } from "@/components/ui/Input";
-import { businessPreparationAreaLabel, businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
+import { businessTypeSupportsKitchen } from "@/lib/restaurant-directory-options";
 import { cn } from "@/lib/utils/cn";
 import { defaultProductImage } from "@/lib/utils/default-images";
 import { formatMoney } from "@/lib/utils/money";
 import { productImageFitStyle } from "@/lib/utils/product-image-fit";
-import { normalizeQrPaymentUrl } from "@/lib/utils/qr-payment";
 import type { OrderOrigin } from "@/types/order.types";
 import type { Category, Product, ProductConfiguration, ProductOption, ProductOptionGroup, ProductVariant } from "@/types/product.types";
 import type { BusinessType, RestaurantSettings } from "@/types/restaurant.types";
@@ -62,10 +60,13 @@ export function POSProductGrid({
   const [query, setQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<PosCartItem[]>([]);
-  const [paymentMethod, setPaymentMethod] = useState("cash");
   const [orderOrigin, setOrderOrigin] = useState<OrderOrigin>("pos_counter");
   const [expanded, setExpanded] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
+  const [orderType, setOrderType] = useState<"pos" | "pickup">("pos");
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutLocked, setCheckoutLocked] = useState(false);
+  const [checkoutSession, setCheckoutSession] = useState<PosCheckoutSession | null>(null);
   const deferredQuery = useDeferredValue(query);
 
   const configByProduct = useMemo<ProductConfigMap>(() => {
@@ -96,12 +97,19 @@ export function POSProductGrid({
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartJson = JSON.stringify(cart.map(({ productId, variantId, optionIds, name, price, quantity, notes }) => ({ productId, variantId, optionIds, name, price, quantity, notes })));
-  const preparationAreaLabel = businessPreparationAreaLabel(businessType);
-  const submitLabel = businessTypeSupportsKitchen(businessType) ? "Cobrar y enviar a cocina" : "Cobrar y registrar pedido";
-  const qrPaymentUrl = normalizeQrPaymentUrl(settings?.qrPaymentUrl);
+  const hasKitchenFlow = businessTypeSupportsKitchen(businessType) && settings?.kitchenEnabled !== false;
   const qrAvailable = useBankQrAvailability(restaurantId);
+  const cartDisabled = disabled || checkoutLocked;
+
+  function openCheckout() {
+    if (!checkoutLocked) {
+      setCheckoutSession({ requestId: crypto.randomUUID(), cartJson, total, totalItems, orderOrigin, orderType });
+    }
+    setCheckoutOpen(true);
+  }
 
   function addConfiguredProduct(product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) {
+    if (cartDisabled) return;
     const price = product.price + (variant?.priceDelta ?? 0) + selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
     const detailParts = [variant?.name, ...selectedOptions.map((option) => option.name)].filter(Boolean);
     const notes = detailParts.length ? detailParts.join(" | ") : undefined;
@@ -134,6 +142,7 @@ export function POSProductGrid({
   }
 
   function changeQuantity(cartId: string, delta: number) {
+    if (cartDisabled) return;
     const nextCart = cart
       .map((item) => (item.cartId === cartId ? { ...item, quantity: item.quantity + delta } : item))
       .filter((item) => item.quantity > 0);
@@ -144,6 +153,7 @@ export function POSProductGrid({
   }
 
   function removeItem(cartId: string) {
+    if (cartDisabled) return;
     const nextCart = cart.filter((item) => item.cartId !== cartId);
     setCart(nextCart);
     if (!nextCart.length) {
@@ -157,10 +167,10 @@ export function POSProductGrid({
 
   return (
     <>
-      <div className={cn(expanded && "fixed inset-0 z-[65] overflow-y-auto bg-[var(--background)] p-3 sm:p-5 xl:p-6")}>
+      <div className={cn(expanded && "fixed inset-0 z-[65] overflow-y-auto xl:overflow-hidden bg-[var(--background)] p-3 sm:p-5 xl:p-6")}>
         <div className={cn("grid gap-3 sm:gap-4", expanded ? "xl:grid-cols-[minmax(0,1fr)_420px]" : "xl:grid-cols-[1fr_360px]", cart.length ? "pb-28 xl:pb-0" : "")}>
-          <section className="min-w-0 space-y-3 sm:space-y-4">
-            <Card className="rounded-[1.1rem] p-2.5 sm:rounded-[1.25rem] sm:p-3">
+          <section className={cn("min-w-0 space-y-3 sm:space-y-4", expanded && "xl:h-[calc(100dvh-3rem)] xl:overflow-y-auto xl:pr-1")}>
+            <Card className="sticky top-0 z-10 rounded-[1.1rem] p-2.5 sm:rounded-[1.25rem] sm:p-3">
               <div className="grid gap-2 sm:gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
                 <label className="relative block">
                   <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
@@ -197,7 +207,7 @@ export function POSProductGrid({
                 return (
                   <ProductCard
                     config={productConfig}
-                    disabled={disabled}
+                    disabled={cartDisabled}
                     key={product.id}
                     onSelect={() => {
                       if (hasConfiguration) {
@@ -219,24 +229,17 @@ export function POSProductGrid({
           <aside className="hidden xl:block">
             <PosCartPanel
               cart={cart}
-              cartJson={cartJson}
               changeQuantity={changeQuantity}
               className={cn("xl:sticky", expanded ? "xl:top-6" : "xl:top-4")}
               disabled={disabled}
-              onClear={() => setCart([])}
+              onClear={() => { if (!cartDisabled) setCart([]); }}
               onOrderOriginChange={setOrderOrigin}
-              onPaymentMethodChange={setPaymentMethod}
+              orderType={orderType}
+              onOrderTypeChange={setOrderType}
+              checkoutLocked={checkoutLocked}
+              onCheckout={openCheckout}
               orderOrigin={orderOrigin}
-              paymentMethod={paymentMethod}
-              qrAvailable={qrAvailable}
-              qrPaymentUrl={qrPaymentUrl}
-              qrSettings={settings}
-              source={source}
-              submitLabel={submitLabel}
-              preparationAreaLabel={preparationAreaLabel}
               removeItem={removeItem}
-              restaurantId={restaurantId}
-              restaurantSlug={restaurantSlug}
               total={total}
               totalItems={totalItems}
             />
@@ -269,33 +272,40 @@ export function POSProductGrid({
           <div className="absolute inset-x-0 bottom-0 max-h-[92vh] overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] p-3 text-[var(--text)] shadow-2xl sm:p-4">
             <PosCartPanel
               cart={cart}
-              cartJson={cartJson}
               changeQuantity={changeQuantity}
               disabled={disabled}
               onClear={() => {
-                setCart([]);
+                if (!cartDisabled) setCart([]);
                 setMobileCartOpen(false);
               }}
               onClose={() => setMobileCartOpen(false)}
               onOrderOriginChange={setOrderOrigin}
-              onPaymentMethodChange={setPaymentMethod}
+              orderType={orderType}
+              onOrderTypeChange={setOrderType}
+              checkoutLocked={checkoutLocked}
+              onCheckout={openCheckout}
               orderOrigin={orderOrigin}
-              paymentMethod={paymentMethod}
-              qrAvailable={qrAvailable}
-              qrPaymentUrl={qrPaymentUrl}
-              qrSettings={settings}
-              source={source}
-              submitLabel={submitLabel}
-              preparationAreaLabel={preparationAreaLabel}
               removeItem={removeItem}
-              restaurantId={restaurantId}
-              restaurantSlug={restaurantSlug}
               total={total}
               totalItems={totalItems}
             />
           </div>
         </div>
       ) : null}
+
+      {checkoutSession ? <PosCheckoutModal
+        key={checkoutSession.requestId}
+        open={checkoutOpen}
+        session={checkoutSession}
+        restaurantId={restaurantId}
+        restaurantSlug={restaurantSlug}
+        source={source}
+        hasKitchenFlow={hasKitchenFlow}
+        qrAvailable={qrAvailable}
+        onClose={() => setCheckoutOpen(false)}
+        onReserved={() => setCheckoutLocked(true)}
+        onCompleted={() => { setCart([]); setCheckoutLocked(false); setMobileCartOpen(false); }}
+      /> : null}
 
       {selectedProduct ? (
         <ProductOptionModal
@@ -310,208 +320,58 @@ export function POSProductGrid({
 }
 
 function PosCartPanel({
-  cart,
-  cartJson,
-  changeQuantity,
-  className,
-  disabled,
-  onClear,
-  onClose,
-  onOrderOriginChange,
-  onPaymentMethodChange,
-  orderOrigin,
-  paymentMethod,
-  qrAvailable,
-  source,
-  submitLabel,
-  preparationAreaLabel,
-  removeItem,
-  restaurantId,
-  restaurantSlug,
-  total,
-  totalItems,
+  cart, changeQuantity, className, disabled, onClear, onClose, onOrderOriginChange,
+  orderOrigin, orderType, onOrderTypeChange, removeItem, total, totalItems,
+  checkoutLocked, onCheckout,
 }: {
   cart: PosCartItem[];
-  cartJson: string;
   changeQuantity: (cartId: string, delta: number) => void;
   className?: string;
   disabled?: boolean;
   onClear: () => void;
   onClose?: () => void;
   onOrderOriginChange: (value: OrderOrigin) => void;
-  onPaymentMethodChange: (value: string) => void;
   orderOrigin: OrderOrigin;
-  paymentMethod: string;
-  qrAvailable: boolean;
-  qrPaymentUrl: string;
-  qrSettings: RestaurantSettings | null;
-  source: "caja" | "pedidos";
-  submitLabel: string;
-  preparationAreaLabel: string;
+  orderType: "pos" | "pickup";
+  onOrderTypeChange: (value: "pos" | "pickup") => void;
   removeItem: (cartId: string) => void;
-  restaurantId: string;
-  restaurantSlug: string;
   total: number;
   totalItems: number;
+  checkoutLocked: boolean;
+  onCheckout: () => void;
 }) {
-  const [cashReceived, setCashReceived] = useState("");
-  const [posRequestId, setPosRequestId] = useState("");
-  useEffect(() => { const timer = setTimeout(() => setPosRequestId(crypto.randomUUID()), 0); return () => clearTimeout(timer); }, []);
-  const [orderType, setOrderType] = useState<"pos" | "pickup">("pos");
-  const parsedCashReceived = Number(cashReceived);
-  const cashReceivedAmount = Number.isFinite(parsedCashReceived) && parsedCashReceived >= 0 ? parsedCashReceived : 0;
-  const cashAmountIsValid = paymentMethod !== "cash" || (cashReceived.trim() !== "" && cashReceivedAmount >= total);
-  const changeDue = Number(Math.max(cashReceivedAmount - total, 0).toFixed(2));
-  const cashShortfall = Number(Math.max(total - cashReceivedAmount, 0).toFixed(2));
   const headerAction: ReactNode = onClose ? (
-    <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={onClose} type="button">
-      <X className="h-5 w-5" />
-    </button>
-  ) : (
-    <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--primary-light)] text-[var(--primary)]">
-      <ShoppingCart className="h-5 w-5" />
-    </span>
-  );
-
-  return (
-    <Card className={cn("h-fit max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-[1.25rem] p-3 sm:p-4", className)}>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta rapida</p>
-          <h2 className="text-2xl font-black text-[var(--text)]">Pedido POS</h2>
-          <p className="mt-1 text-sm font-semibold text-[var(--muted)]">{totalItems} productos listos para revisar antes del cobro.</p>
-        </div>
-        {headerAction}
-      </div>
-
-      <div className="mt-4 space-y-2">
-        {cart.length ? (
-          cart.map((item) => (
-            <div className="grid grid-cols-[56px_1fr_auto] gap-3 rounded-2xl bg-[var(--color-surface)] p-3" key={item.cartId}>
-              <div className="overflow-hidden rounded-xl bg-[var(--primary-light)]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img alt={item.name} className="h-14 w-14 object-cover" src={item.imageUrl || defaultImage} />
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-black">{item.name}</p>
-                {item.notes ? <p className="line-clamp-2 text-xs font-semibold text-[var(--muted)]">{item.notes}</p> : null}
-                <p className="text-xs font-semibold text-[var(--muted)]">{formatMoney(item.price)} c/u</p>
-                <p className="mt-1 text-sm font-black text-[var(--text)]">{formatMoney(item.price * item.quantity)}</p>
-              </div>
-              <div className="flex flex-col items-end gap-2">
-                <button className="text-[11px] font-black text-[var(--color-danger-strong)]" onClick={() => removeItem(item.cartId)} type="button">
-                  Quitar
-                </button>
-                <div className="flex items-center gap-2">
-                  <button className="grid h-8 w-8 place-items-center rounded-full bg-[var(--surface)]" onClick={() => changeQuantity(item.cartId, -1)} type="button">
-                    {item.quantity === 1 ? <Trash2 className="h-4 w-4 text-[var(--color-danger)]" /> : <Minus className="h-4 w-4" />}
-                  </button>
-                  <span className="w-5 text-center text-sm font-black">{item.quantity}</span>
-                  <button className="grid h-8 w-8 place-items-center rounded-full bg-[var(--primary)] text-[var(--color-on-primary)]" onClick={() => changeQuantity(item.cartId, 1)} type="button">
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))
-        ) : (
-          <p className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--muted)]">Agrega productos para iniciar la venta.</p>
-        )}
-      </div>
-
-      <form action={createPosSaleAction} className="mt-4 space-y-3">
-        <input name="posRequestId" type="hidden" value={posRequestId} />
-        <input name="restaurantId" type="hidden" value={restaurantId} />
-        <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
-        <input name="cartJson" type="hidden" value={cartJson} />
-        <input name="source" type="hidden" value={source} />
-        <div className="grid gap-3 rounded-2xl border border-[var(--border)] p-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Origen del pedido</p>
-            {cart.length ? (
-              <button className="text-xs font-black text-[var(--color-danger-strong)]" onClick={onClear} type="button">
-                Vaciar carrito
-              </button>
-            ) : null}
+    <button aria-label="Cerrar carrito" className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={onClose} type="button"><X className="h-5 w-5" /></button>
+  ) : <ShoppingCart className="h-6 w-6 text-[var(--primary)]" />;
+  return <Card className={cn("flex h-[min(780px,calc(100dvh-7rem))] flex-col overflow-hidden rounded-[1.25rem] p-0", className)}>
+    <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] p-4">
+      <div><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta rápida</p><h2 className="text-xl font-black">Pedido POS <span className="text-sm text-[var(--muted)]">({totalItems})</span></h2></div>
+      {headerAction}
+    </div>
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+      {checkoutLocked ? <p className="rounded-xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Cobro en curso. Reabre la modal para revisar el mismo QR.</p> : null}
+      {cart.length ? cart.map((item) => <div className="rounded-xl border border-[var(--border)] p-3" key={item.cartId}>
+        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-black">{item.name}</p>{item.notes ? <p className="mt-1 text-xs text-[var(--muted)]">{item.notes}</p> : null}<p className="mt-1 text-xs text-[var(--muted)]">{formatMoney(item.price)} c/u</p></div><strong className="shrink-0 text-sm">{formatMoney(item.price * item.quantity)}</strong></div>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <button aria-label={`Quitar una unidad de ${item.name}`} className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-surface)] disabled:opacity-40" disabled={checkoutLocked} onClick={() => changeQuantity(item.cartId, -1)} type="button"><Minus className="h-4 w-4" /></button>
+            <span className="w-5 text-center text-sm font-black">{item.quantity}</span>
+            <button aria-label={`Agregar una unidad de ${item.name}`} className="grid h-11 w-11 place-items-center rounded-full bg-[var(--primary-light)] text-[var(--primary)] disabled:opacity-40" disabled={checkoutLocked} onClick={() => changeQuantity(item.cartId, 1)} type="button"><Plus className="h-4 w-4" /></button>
           </div>
-          <Select name="orderOrigin" onChange={(event) => onOrderOriginChange(event.target.value as OrderOrigin)} value={orderOrigin}>
-            <option value="pos_counter">{orderOriginLabels.pos_counter}</option>
-            <option value="phone_whatsapp">{orderOriginLabels.phone_whatsapp}</option>
-            <option value="external_platform">{orderOriginLabels.external_platform}</option>
-          </Select>
-          <Select aria-label="Tipo de servicio" name="orderType" onChange={(event) => setOrderType(event.target.value as "pos" | "pickup")} value={orderType}>
-            <option value="pos">Servir en mostrador / local</option>
-            <option value="pickup">Para llevar</option>
-          </Select>
+          <button aria-label={`Quitar ${item.name}`} className="grid h-11 w-11 place-items-center text-[var(--color-danger-strong)] disabled:opacity-40" disabled={checkoutLocked} onClick={() => removeItem(item.cartId)} type="button"><Trash2 className="h-4 w-4" /></button>
         </div>
-        <div className="flex items-center justify-between border-t border-[var(--border)] pt-4 text-xl font-black">
-          <span>Total</span>
-          <span>{formatMoney(total)}</span>
-        </div>
-        <Input name="customerName" placeholder="Cliente opcional" />
-        <Input name="customerPhone" placeholder="Telefono o WhatsApp del cliente" />
-        <Select name="paymentMethod" onChange={(event) => onPaymentMethodChange(event.target.value)} value={paymentMethod}>
-          <option value="cash">Efectivo</option>
-          <option disabled={!qrAvailable} value="qr">QR {qrAvailable ? "activo" : "sin configurar"}</option>
-          <option value="bank_transfer">Transferencia</option>
-          <option value="card">Tarjeta</option>
-          <option value="other">Otro</option>
-        </Select>
-        {paymentMethod === "cash" ? (
-          <div className="grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--color-surface)] p-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Paga con</p>
-                <p className="mt-1 text-xs font-semibold text-[var(--muted)]">Indica el efectivo que entregó el cliente.</p>
-              </div>
-              <Button className="min-h-9 px-3 text-xs" onClick={() => setCashReceived(total.toFixed(2))} type="button" variant="secondary">
-                Pago exacto
-              </Button>
-            </div>
-            <Input
-              min={total}
-              name="cashReceived"
-              onChange={(event) => setCashReceived(event.target.value)}
-              placeholder={`Mínimo ${formatMoney(total)}`}
-              required
-              step="0.01"
-              type="number"
-              value={cashReceived}
-            />
-            <div className={cn(
-              "rounded-2xl p-3",
-              cashAmountIsValid ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]",
-            )}>
-              <p className="text-xs font-black uppercase tracking-[0.12em]">{cashAmountIsValid ? "Cambio a devolver" : "Monto faltante"}</p>
-              <p className="mt-1 text-2xl font-black">{formatMoney(cashAmountIsValid ? changeDue : cashShortfall)}</p>
-              <p className="mt-1 text-xs font-bold">Total: {formatMoney(total)} · recibido: {formatMoney(cashReceivedAmount)}</p>
-            </div>
-          </div>
-        ) : null}
-        <p className={cn("rounded-2xl p-3 text-xs font-bold", qrAvailable ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-card-muted)] text-[var(--muted)]")}>
-          {qrAvailable ? "QR activo para esta sucursal." : "Sin QR configurado para esta sucursal."}
-        </p>
-        {paymentMethod === "qr" && qrAvailable ? (
-          <div className="space-y-2 rounded-2xl border border-[var(--border)] p-3">
-            <p className="text-sm font-black">QR bancario de importe exacto</p>
-            <p className="text-xs">Primero se guarda el pedido pendiente. Después muestra su QR desde Pedidos o el seguimiento. El banco confirma el pago automáticamente; no se acepta foto ni referencia como prueba de pago.</p>
-          </div>
-        ) : null}
-        <p className="text-xs font-semibold text-[var(--muted)]">Al confirmar, el pedido queda registrado para {preparationAreaLabel} y seguimiento.</p>
-        <PosSubmitButton disabled={disabled || !posRequestId || !cart.length || !cashAmountIsValid} label={paymentMethod === "qr" ? "Crear pedido y cobrar con QR" : submitLabel} />
-      </form>
-    </Card>
-  );
-}
-
-function PosSubmitButton({ disabled, label }: { disabled?: boolean; label: string }) {
-  const { pending } = useFormStatus();
-
-  return (
-    <Button aria-busy={pending} className="sticky bottom-0 z-10 w-full shadow-lg" disabled={disabled || pending} type="submit">
-      {pending ? "Enviando venta..." : label}
-    </Button>
-  );
+      </div>) : <div className="grid min-h-40 place-items-center rounded-2xl bg-[var(--color-surface)] p-5 text-center text-sm font-semibold text-[var(--muted)]">Agrega productos para iniciar la venta.</div>}
+    </div>
+    <div className="shrink-0 space-y-3 border-t border-[var(--border)] bg-[var(--surface)] p-4">
+      <Select aria-label="Origen del pedido" disabled={checkoutLocked} onChange={(event) => onOrderOriginChange(event.target.value as OrderOrigin)} value={orderOrigin}>
+        <option value="pos_counter">{orderOriginLabels.pos_counter}</option><option value="phone_whatsapp">{orderOriginLabels.phone_whatsapp}</option><option value="external_platform">{orderOriginLabels.external_platform}</option>
+      </Select>
+      <Select aria-label="Tipo de servicio" disabled={checkoutLocked} onChange={(event) => onOrderTypeChange(event.target.value as "pos" | "pickup")} value={orderType}><option value="pos">Servir en mostrador / local</option><option value="pickup">Para llevar</option></Select>
+      <div className="flex items-center justify-between text-xl font-black"><span>Total</span><span>{formatMoney(total)}</span></div>
+      <Button className="w-full" disabled={disabled || !cart.length} onClick={onCheckout} type="button">{checkoutLocked ? "Continuar cobro" : `Cobrar ${formatMoney(total)}`}</Button>
+      {cart.length && !checkoutLocked ? <button className="min-h-9 w-full text-xs font-bold text-[var(--muted)]" onClick={onClear} type="button">Vaciar carrito</button> : null}
+    </div>
+  </Card>;
 }
 
 function CategoryButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
@@ -542,7 +402,7 @@ function ProductCard({
       onClick={onSelect}
       type="button"
     >
-      <div className="aspect-square overflow-hidden rounded-[0.9rem] bg-[var(--primary-light)] sm:aspect-[4/3] sm:rounded-2xl">
+      <div className="aspect-square overflow-hidden rounded-[0.9rem] bg-[var(--primary-light)] sm:aspect-[16/9] sm:rounded-2xl">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img alt={product.name} className="h-full w-full object-cover" src={product.imageUrl || defaultImage} style={productImageFitStyle(product)} />
       </div>
@@ -554,7 +414,7 @@ function ProductCard({
           </div>
           {hasConfiguration ? <span className="hidden shrink-0 rounded-full bg-[var(--primary-light)] px-2 py-1 text-[10px] font-black text-[var(--primary-dark)] sm:inline-flex">Configurable</span> : null}
         </div>
-        {product.description ? <p className="mt-1 line-clamp-1 text-xs font-semibold text-[var(--muted)] sm:mt-2 sm:line-clamp-2 sm:text-sm sm:font-normal">{product.description}</p> : null}
+        {product.description ? <p className="mt-1 line-clamp-1 text-xs font-semibold text-[var(--muted)] sm:mt-2 sm:text-xs sm:font-normal">{product.description}</p> : null}
         <span className={buttonClasses("secondary", "mt-2 min-h-9 w-full bg-[var(--color-neutral-100)] px-3 text-xs font-black sm:mt-3 sm:min-h-10 sm:text-sm")}>{hasConfiguration ? "Personalizar" : "Agregar"}</span>
       </div>
     </button>

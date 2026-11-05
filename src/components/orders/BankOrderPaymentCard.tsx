@@ -1,24 +1,39 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRealtimeBroadcast } from "@/lib/client/use-realtime-broadcast";
+import { bankOrderIsSettled, type BankOrderPaymentState as Payment } from "@/lib/payments/bank-order-state";
 import { formatMoney } from "@/lib/utils/money";
 
-type Payment = { available: boolean; status: string; amount?: number; image?: string | null; applicationState?: string; collectionRoute?: string; realtimeToken?: string; checkoutHeld?: boolean; orderStatus?: string };
-export function BankOrderPaymentCard({ orderId, token = "", initialPayment, staffRestaurantId, checkoutMode = false }: { orderId: string; token?: string; initialPayment: Payment | null; staffRestaurantId?: string; checkoutMode?: boolean }) {
+export function BankOrderPaymentCard({ orderId, token = "", initialPayment, staffRestaurantId, checkoutMode = false, autoGenerate = false, onSettled, onPaymentReceived }: { orderId: string; token?: string; initialPayment: Payment | null; staffRestaurantId?: string; checkoutMode?: boolean; autoGenerate?: boolean; onSettled?: () => void; onPaymentReceived?: () => void }) {
   const [payment, setPayment] = useState<Payment | null>(initialPayment);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const generationAttemptedRef = useRef(false);
+  const settled = bankOrderIsSettled(payment);
+  useEffect(() => { if (settled) onSettled?.(); }, [settled, onSettled]);
+  useEffect(() => { if (payment?.status === "paid") onPaymentReceived?.(); }, [payment?.status, onPaymentReceived]);
   const endpoint = staffRestaurantId ? `/api/mobile/pos/bank-qr?restaurantId=${encodeURIComponent(staffRestaurantId)}&orderId=${encodeURIComponent(orderId)}` : `/api/payments/baneco/order?orderId=${encodeURIComponent(orderId)}`;
   const refresh = useCallback(async () => {
     try {
       const response = await fetch(endpoint, { cache: "no-store", headers: { "x-order-tracking-token": token } });
       if (response.ok) setPayment(await response.json());
+      else setError("No pudimos consultar el pago. Vuelve a verificar antes de cobrar otra vez.");
     } catch { /* Reconnect resync and the server worker recover connectivity loss. */ }
   }, [endpoint, token]);
   const realtimeToken = payment?.realtimeToken || token;
   useEffect(() => { const timer = setTimeout(() => void refresh(), 0); return () => clearTimeout(timer); }, [refresh]);
+  useEffect(() => {
+    if (!autoGenerate || generationAttemptedRef.current || !payment?.available || payment.status !== "not_created") return;
+    generationAttemptedRef.current = true;
+    void generate();
+  });
+  useEffect(() => {
+    if (!staffRestaurantId || settled) return;
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [staffRestaurantId, settled, refresh]);
   useRealtimeBroadcast({ enabled: Boolean(realtimeToken) && (payment?.status !== "paid" || Boolean(payment?.checkoutHeld) || payment?.orderStatus === "pending"), topic: `bank-order-payment:${realtimeToken}`, onChange: refresh, onSync: refresh });
   const mutate = (cancel = false) => staffRestaurantId ? fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ restaurantId: staffRestaurantId, orderId, action: cancel ? "cancel" : "generate" }) })
     : fetch(endpoint, { method: cancel ? "DELETE" : "POST", headers: { "x-order-tracking-token": token } });
@@ -42,12 +57,11 @@ export function BankOrderPaymentCard({ orderId, token = "", initialPayment, staf
     finally { setBusy(false); }
   }
   if (!payment?.available && !staffRestaurantId) return null;
-  if (staffRestaurantId && payment?.status === "paid" && !payment.available) return <p className="text-sm">Este pedido ya figura pagado. No generes otro cobro.</p>;
   const status = payment?.status ?? "not_created";
   return <section className="my-4 min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4" aria-live="polite">
-    <h2 className="text-lg font-black">{status === "paid" ? "Pago confirmado" : "Paga tu pedido con QR"}</h2>
+    <h2 className="text-lg font-black">{status === "paid" ? settled ? "Pago confirmado" : "Pago recibido · Confirmando pedido" : "Paga tu pedido con QR"}</h2>
     {payment?.collectionRoute === "platform" ? <p className="mt-2 text-sm">Yopido recibe este pago por cuenta del local.</p> : null}
-    {status === "paid" ? <p className="mt-2 text-sm font-semibold text-emerald-700">Recibimos tu pago. Este QR es de uso único; no vuelvas a pagarlo.{payment?.applicationState === "review" ? " La aplicación del pago requiere revisión." : checkoutMode ? " Enviaremos el pedido automáticamente; no necesitas confirmar otra vez." : " El avance de tu pedido aparecerá en esta pantalla."}</p> : <>
+    {status === "paid" ? <p className="mt-2 text-sm font-semibold text-emerald-700">Recibimos tu pago. Este QR es de uso único; no vuelvas a pagarlo.{payment?.applicationState === "review" ? " La aplicación del pago requiere revisión." : !settled ? " Estamos terminando de registrar el pedido; se enviará automáticamente." : checkoutMode ? " El pedido fue confirmado automáticamente." : " El avance de tu pedido aparecerá en esta pantalla."}</p> : <>
       {payment?.amount !== undefined ? <p className="mt-2 text-xl font-black">{formatMoney(payment.amount, "BOB")}</p> : null}
       {["not_created", "unavailable"].includes(status) ? <button disabled={busy} type="button" onClick={generate} className="mt-3 min-h-12 w-full rounded-xl bg-[var(--accent)] px-4 font-bold text-[var(--primary)]">{busy ? "Generando QR…" : "Generar QR de este pedido"}</button> : null}
       {payment?.image && status === "pending" ? <>
@@ -56,12 +70,13 @@ export function BankOrderPaymentCard({ orderId, token = "", initialPayment, staf
         <a className="flex min-h-11 items-center justify-center font-bold underline" href={payment.image} download={`yopido-pedido-${orderId}.png`}>Descargar QR</a>
         {!checkoutMode ? <button className="min-h-11 w-full text-sm font-semibold underline" type="button" disabled={busy} onClick={cancel}>Anular este QR</button> : null}
       </> : !["not_created", "unavailable"].includes(status) ? <p className="mt-3 text-sm">{status === "generating" ? "Estamos recuperando el QR de tu solicitud." : "La emisión necesita revisión del local. No generes otro pago."}</p> : null}
-      <p className="mt-3 text-sm text-[var(--muted)]">Descarga el QR y ábrelo desde tu banco. Al volver, consultaremos el mismo pago automáticamente. El acceso de «Continúa donde lo dejaste» aparece durante 30 minutos; después puedes volver con el enlace de esta página.</p>
-      <button className="mt-2 min-h-11 w-full text-sm font-bold underline" type="button" onClick={async () => {
+      <p className="mt-3 text-sm text-[var(--muted)]">{staffRestaurantId ? "Muestra este QR al cliente. Verificamos el pago con el banco y enviamos el pedido automáticamente al confirmarlo." : "Descarga el QR y ábrelo desde tu banco. Al volver, consultaremos el mismo pago automáticamente. El acceso de «Continúa donde lo dejaste» aparece durante 30 minutos; después puedes volver con el enlace de esta página."}</p>
+      {!staffRestaurantId ? <button className="mt-2 min-h-11 w-full text-sm font-bold underline" type="button" onClick={async () => {
         try { await navigator.clipboard.writeText(window.location.href); setCopied(true); }
         catch { setError("Conserva la dirección de esta página o vuelve desde el inicio de Yopido en este navegador."); }
-      }}>{copied ? "Enlace copiado" : "Copiar enlace de mi pedido"}</button>
-      {error ? <p className="mt-2 text-sm" role="alert">{error}</p> : null}
+      }}>{copied ? "Enlace copiado" : "Copiar enlace de mi pedido"}</button> : null}
     </>}
+    {!settled ? <button className="mt-2 min-h-11 w-full text-sm font-bold underline disabled:opacity-40" disabled={busy} type="button" onClick={() => void refresh()}>Verificar pago</button> : null}
+    {error ? <p className="mt-2 text-sm" role="alert">{error}</p> : null}
   </section>;
 }

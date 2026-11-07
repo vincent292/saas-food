@@ -77,7 +77,7 @@ async function setup(browser,width,view='pos') {
       await modal.getByRole('img',{name:'QR de pago del pedido'}).waitFor();
       assert.equal(t.generations(),1);
       await page.screenshot({path:path.join(dir,`qr-code-${width}.png`)});
-      await t.setPayment({status:'paid',orderStatus:'pending',applicationState:'posted'});
+      await t.setPayment({status:'paid',paymentStatus:'paid',checkoutHeld:true,orderStatus:'pending',applicationState:'posted'});
       await modal.getByRole('heading',{name:'Pago recibido · Confirmando pedido'}).waitFor();
       assert.equal(await modal.getByText('Pedido enviado a cocina',{exact:true}).count(),0);
       await modal.getByRole('button',{name:'Cerrar cobro'}).click();

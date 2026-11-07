@@ -10,7 +10,17 @@
 - Cocina avisa con el sonido existente cuando un pedido entra a `accepted` o `preparing`. **Activar sonido** habilita y prueba el audio en ese navegador. El reconocimiento de alertas de recepción es independiente del de cocina.
 - Cocina ofrece **+5 min** y **+10 min** por pedido activo, hasta 180 minutos acumulados. El contador conserva su hora de inicio. Los cambios actualizan el estimado del seguimiento del cliente y quedan auditados. Se rechazan cambios concurrentes con un valor anterior.
 
-No se requieren migraciones nuevas: se reutilizan las columnas ETA de `0101_order_eta_adjustments.sql` y el flujo bancario existente. Los cambios se realizaron en el repositorio local; no se desplegó ni se hizo un cobro real.
+La revisión inicial reutilizó las columnas ETA de `0101_order_eta_adjustments.sql` y el flujo bancario existente. La corrección posterior del 7 de noviembre sí requiere la migración indicada a continuación. No se realizaron cobros reales en las pruebas.
+
+## Corrección del 7 de noviembre: pagar antes de enviar
+
+Se reprodujo una brecha en `guard_bank_checkout_hold`: excluía `pos_counter`, el origen que también utilizan las comandas autenticadas de meseros. La migración `0141_pos_qr_payment_before_kitchen.sql` protege las reservas bancarias individuales de cualquier origen y conserva el bloqueo hasta que el pago verificado se active como pedido operativo. Una recepción bancaria pendiente de aplicación sigue fuera de caja, pedidos, cola y cocina. Si no se paga, no se envía.
+
+La mesa y su visita se abren durante la activación, sin ocuparlas al generar un QR. El mesero puede recuperar un QR de origen POS con turno abierto y dentro de sus mesas autorizadas; los borradores públicos continúan privados. La API recupera el mismo identificador mediante una consulta privada después de validar los permisos, aunque RLS lo oculte del listado operativo. El flujo de efectivo del personal se conserva.
+
+La modal web y la app solo completan un QR cuando el banco y el pedido están pagados, el pedido está activado y no quedan bloqueos ni revisión. La app muestra «Generar QR y esperar pago». No se imprimen comandas nuevas ni se notifican pedidos QR antes de la confirmación.
+
+La migración 0141 se aplicó al Supabase de producción. Las comprobaciones automáticas incluyeron 18 pruebas SQL con las migraciones reales (la prueba POS falló antes de la corrección), 31 pruebas de API/acciones/recuperación, 20 pruebas de interfaz de la app y 7 unitarias de la app. También pasó la prueba visual web en 1440, 1024 y 390 px, TypeScript y ESLint de los archivos cambiados. Banco y respuestas de servidor se simularon en las pruebas de interfaz; no certifican un pago bancario real.
 
 ## Validación
 

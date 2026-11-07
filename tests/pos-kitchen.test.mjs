@@ -116,10 +116,12 @@ test('POS cancellation waits for authoritative bank cancellation and cannot disc
 test('paid QR is complete only after the restaurant order is operational, without held or review states', () => {
   const { bankOrderIsSettled } = load(read('src/lib/payments/bank-order-state.ts'));
   for (const orderStatus of ['pending', 'cancelled', undefined]) assert.equal(bankOrderIsSettled({ status: 'paid', orderStatus }), false);
-  assert.equal(bankOrderIsSettled({ status: 'paid', orderStatus: 'accepted', checkoutHeld: true }), false);
-  assert.equal(bankOrderIsSettled({ status: 'paid', orderStatus: 'accepted', applicationState: 'review' }), false);
+  assert.equal(bankOrderIsSettled({ status: 'paid', paymentStatus: 'paid', orderStatus: 'accepted', checkoutHeld: true }), false);
+  assert.equal(bankOrderIsSettled({ status: 'paid', paymentStatus: 'paid', orderStatus: 'accepted', scheduleHeld: true }), false);
+  assert.equal(bankOrderIsSettled({ status: 'paid', paymentStatus: 'paid', orderStatus: 'accepted', applicationState: 'review' }), false);
+  for (const paymentStatus of ['pending', 'cancelled', 'refunded', undefined]) assert.equal(bankOrderIsSettled({ status: 'paid', paymentStatus, orderStatus: 'accepted' }), false);
   assert.equal(bankOrderIsSettled({ status: 'pending', orderStatus: 'accepted' }), false);
-  for (const orderStatus of ['accepted', 'preparing', 'ready', 'delivered']) assert.equal(bankOrderIsSettled({ status: 'paid', orderStatus }), true);
+  for (const orderStatus of ['accepted', 'preparing', 'ready', 'delivered']) assert.equal(bankOrderIsSettled({ status: 'paid', paymentStatus: 'paid', orderStatus }), true);
 });
 
 test('preparation extensions shift the kitchen countdown from acceptance, without resetting its start', () => {

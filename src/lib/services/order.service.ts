@@ -453,6 +453,8 @@ export const orderService = {
       .from("orders")
       .select("*")
       .eq("restaurant_id", restaurantId)
+      .eq("bank_checkout_hold", false)
+      .eq("bank_schedule_hold", false)
       .order("created_at", { ascending: false });
 
     if (error || !orders?.length) {
@@ -495,6 +497,8 @@ export const orderService = {
         "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,bank_payment_required,bank_auto_accept,bank_group_session_id,group_prepaid_amount,group_cash_due,subtotal,delivery_fee,discount_total,total,notes,created_at,eta_adjustment_minutes,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
       )
       .eq("restaurant_id", restaurantId)
+      .eq("bank_checkout_hold", false)
+      .eq("bank_schedule_hold", false)
       .or(`created_at.gte.${startOfBusinessDayIso()},accepted_at.gte.${startOfBusinessDayIso()},and(order_type.eq.table,status.in.(pending,accepted,preparing,ready))`)
       .order("created_at", { ascending: false })
       .limit(160);
@@ -557,6 +561,8 @@ export const orderService = {
         "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,bank_payment_required,bank_auto_accept,bank_group_session_id,group_prepaid_amount,group_cash_due,subtotal,delivery_fee,discount_total,total,notes,created_at,eta_adjustment_minutes,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
       )
       .eq("restaurant_id", restaurantId)
+      .eq("bank_checkout_hold", false)
+      .eq("bank_schedule_hold", false)
       .gte("created_at", startOfBusinessDayIso())
       .eq("status", "pending")
       .in("order_type", ["table", "delivery", "pickup"])

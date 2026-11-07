@@ -66,6 +66,7 @@ async function fixture(){
     alter table restaurant_settings add column table_orders_enabled boolean default true;
     alter table admin_audit_logs add column entity_id uuid;`);
   await db.exec(read('0139_table_service_calls.sql'));
+  await db.exec(read('0141_pos_qr_payment_before_kitchen.sql'));
   const charge=read('0103_fix_table_settlement_and_payment_flow.sql');
   await db.exec(charge.slice(charge.indexOf('create or replace function charge_order_with_cash_movement('),charge.indexOf('create or replace function settle_table_with_cash_movements(')));
   const products=[];for(const [i,id] of restaurants.entries()){
@@ -226,6 +227,11 @@ test('POS QR draft uses catalog prices, stays unpaid, replays safely, and cannot
     const sale=()=>f.db.query("select create_pos_sale_with_tender($1,'POS-RETRY','Cliente',null,'pos_counter','pickup','qr',null,null,null,$2) id",[f.restaurants[0],cart]);
     const id=(await sale()).rows[0].id;assert.equal((await sale()).rows[0].id,id);
     const order=(await f.db.query('select * from orders where id=$1',[id])).rows[0];assert.equal(Number(order.total),20);assert.equal(order.payment_status,'pending');assert.equal(order.status,'pending');assert.equal(order.bank_payment_required,true);assert.equal(order.order_type,'pickup');
+    assert.equal(order.bank_checkout_hold,true);
+    await f.db.exec('set role authenticated');assert.equal((await f.db.query('select count(*)::int n from orders where id=$1',[id])).rows[0].n,0);await f.db.exec('reset role');
+    assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders where id=$1',[id])).rows[0].n,0);
+    assert.equal((await f.db.query('select count(*)::int n from inventory_applied')).rows[0].n,0);
+    await assert.rejects(f.db.query("update orders set status='accepted' where id=$1",[id]),/bank-payment-required/);
     assert.equal((await f.db.query('select count(*)::int n from cash_movements')).rows[0].n,0);
     await assert.rejects(f.db.query("update orders set payment_status='paid',payment_receipt_reference='FAKE' where id=$1",[id]),/bank-payment-required/);
     await assert.rejects(f.db.query('select prepare_baneco_staff_order($1,$2,$3)',[f.restaurants[0],id,randomUUID()]),/bank-forbidden/);
@@ -233,7 +239,49 @@ test('POS QR draft uses catalog prices, stays unpaid, replays safely, and cannot
     await f.db.query("update bank_qr_test_requests set status='pending',qr_id=$2 where id=$1",[reserved.request.id,'POS-'+id]);
     await assert.rejects(f.db.query("update orders set payment_method='cash' where id=$1",[id]),/bank-cancel-qr-first/);
     await f.pay(reserved.request);assert.equal((await f.db.query('select payment_status from orders where id=$1',[id])).rows[0].payment_status,'paid');
+    // A bank receipt alone is not an operational order until activation finishes.
+    assert.equal((await f.db.query('select bank_checkout_hold from orders where id=$1',[id])).rows[0].bank_checkout_hold,true);
+    assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders where id=$1',[id])).rows[0].n,0);
+    const token=randomUUID();const job=(await f.db.query('select claim_baneco_order_activation($1) r',[token])).rows[0].r;
+    assert.equal(job.requestId,reserved.request.id);
+    const activate=()=>f.db.query('select activate_baneco_paid_order($1,$2,true) r',[reserved.request.id,token]);
+    assert.equal((await activate()).rows[0].r.notify,true);assert.equal((await activate()).rows[0].r.notify,false);
+    await f.pay(reserved.request);
+    assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders where id=$1',[id])).rows[0].n,1);
+    assert.equal((await f.db.query('select status from orders where id=$1',[id])).rows[0].status,'accepted');
+    assert.equal((await f.db.query('select count(*)::int n from inventory_applied where order_id=$1',[id])).rows[0].n,1);
     assert.equal((await f.db.query('select count(*)::int n from cash_movements where order_id=$1',[id])).rows[0].n,1);
+  }finally{await f.db.close();}
+});
+
+test('waiter QR drafts stay out of kitchen and table visits, but the assigned active waiter can recover the same payment',async()=>{
+  const f=await fixture();try{
+    const waiter=randomUUID(),other=randomUUID(),table=randomUUID();
+    await f.db.query("insert into tables(id,restaurant_id,status) values($1,$2,'available')",[table,f.restaurants[0]]);
+    await f.db.query('insert into profiles values($1,null),($2,null)',[waiter,other]);
+    await f.db.query("insert into restaurant_memberships values($1,$3,true,'waiter'),($2,$3,true,'waiter')",[waiter,other,f.restaurants[0]]);
+    await f.db.query("insert into admin_audit_logs(actor_user_id,restaurant_id,action) values($1,$3,'waiter_shift_opened'),($2,$3,'waiter_shift_opened')",[waiter,other,f.restaurants[0]]);
+    await f.db.query('insert into waiter_table_assignments values($1,$2,$3)',[f.restaurants[0],table,waiter]);
+    const order=await f.checkout({order_type:'table',order_origin:'pos_counter',table_id:table});
+    assert.equal((await order.replay()).rows[0].id,order.id);
+    assert.equal((await f.db.query('select bank_checkout_hold from orders where id=$1',[order.id])).rows[0].bank_checkout_hold,true);
+    assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders')).rows[0].n,0);
+    assert.equal((await f.db.query('select count(*)::int n from table_visits')).rows[0].n,0);
+    assert.equal((await f.db.query('select status from tables where id=$1',[table])).rows[0].status,'available');
+    const authorize=actor=>f.db.query('select authorize_baneco_staff_order($1,$2,$3)',[f.restaurants[0],order.id,actor]);
+    await authorize(waiter);await assert.rejects(authorize(other),/bank-forbidden/);
+    await f.db.query('select prepare_baneco_staff_order($1,$2,$3)',[f.restaurants[0],order.id,waiter]);
+    const publicOrder=await f.checkout({order_type:'table',order_origin:'table_qr',table_id:table});
+    await assert.rejects(f.db.query('select authorize_baneco_staff_order($1,$2,$3)',[f.restaurants[0],publicOrder.id,waiter]),/bank-forbidden/);
+    const request=(await f.db.query('select reserve_baneco_order_qr($1,$2) r',[order.id,order.tracking_token])).rows[0].r.request;
+    await f.db.query("update bank_qr_test_requests set status='pending',qr_id=$2 where id=$1",[request.id,'WAITER-'+request.id]);
+    await f.pay(request);
+    assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders')).rows[0].n,0);
+    const operation=randomUUID();await f.db.query('select claim_baneco_order_activation($1)',[operation]);
+    await f.db.query('select activate_baneco_paid_order($1,$2,true)',[request.id,operation]);
+    assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders')).rows[0].n,1);
+    assert.equal((await f.db.query('select count(*)::int n from table_visits')).rows[0].n,1);
+    assert.equal((await f.db.query('select status from tables where id=$1',[table])).rows[0].status,'occupied');
   }finally{await f.db.close();}
 });
 
@@ -323,6 +371,9 @@ test('public tables require bank QR, open no visit until paid, while authenticat
     const request=(await f.db.query('select reserve_baneco_order_qr($1,$2) r',[order.id,order.tracking_token])).rows[0].r.request;
     await f.db.query("update bank_qr_test_requests set status='pending',qr_id=$2 where id=$1",[request.id,'TABLE-'+request.id]);
     await f.pay(request);await f.pay(request);
+    assert.equal((await f.db.query('select count(*)::int n from table_visits')).rows[0].n,0);
+    const operation=randomUUID();await f.db.query('select claim_baneco_order_activation($1)',[operation]);
+    await f.db.query('select activate_baneco_paid_order($1,$2,true)',[request.id,operation]);
     assert.equal((await f.db.query('select count(*)::int n from table_visits')).rows[0].n,1);
     assert.ok((await f.db.query('select table_visit_id from orders where id=$1',[order.id])).rows[0].table_visit_id);
     assert.equal((await f.db.query('select status from tables where id=$1',[table])).rows[0].status,'occupied');
@@ -363,7 +414,7 @@ test('scheduled bank payment waits for start and correct cash day, then releases
     const request=(await f.db.query('select reserve_baneco_order_qr($1,$2) r',[order.id,order.tracking_token])).rows[0].r.request;
     await f.db.query("update bank_qr_test_requests set status='pending',qr_id=$2 where id=$1",[request.id,'SCHEDULE-'+request.id]);await f.pay(request);
     let row=(await f.db.query('select * from orders where id=$1',[order.id])).rows[0];
-    const paidAt=row.payment_verified_at;assert.equal(row.payment_status,'paid');assert.equal(row.status,'pending');assert.equal(row.bank_checkout_hold,false);assert.equal(row.bank_schedule_hold,true);
+    const paidAt=row.payment_verified_at;assert.equal(row.payment_status,'paid');assert.equal(row.status,'pending');assert.equal(row.bank_checkout_hold,true);assert.equal(row.bank_schedule_hold,true);
     assert.equal((await f.db.query('select application_state from bank_qr_test_requests where id=$1',[request.id])).rows[0].application_state,'waiting_cash');
     assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders')).rows[0].n,0);
     await assert.rejects(f.db.query("update orders set status='accepted' where id=$1",[order.id]),/bank-schedule-not-due/);

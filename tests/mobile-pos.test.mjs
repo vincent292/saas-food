@@ -18,12 +18,13 @@ const userId = "22222222-2222-4222-8222-222222222222";
 const productId = "33333333-3333-4333-8333-333333333333";
 const tableId = "44444444-4444-4444-8444-444444444444";
 const requestId = "55555555-5555-4555-8555-555555555555";
-function clientFor(rows, user = { id: userId, user_metadata: {} }) {
+function clientFor(rows, user = { id: userId, user_metadata: {} }, operational = false) {
   return {
     auth: { getUser: async () => ({ data: { user }, error: null }) },
     rpc: async () => ({ data: "audit", error: null }),
     from(table) {
       let data = rows[table] ?? [], single = false, updateValues = null, insertValues = null, head = false;
+      if (operational && table === "orders") data = data.filter(row => !row.bank_checkout_hold);
       const query = {
         select(_columns, options) { head = options?.head === true; return query; }, order() { return query; }, limit() { return query; },
         update(values) { updateValues = values; return query; },
@@ -47,14 +48,14 @@ function fixture(role = "waiter") {
     profiles: [{ id: userId, full_name: "Ana Mesera", global_role: null }],
     restaurant_memberships: [{ user_id: userId, restaurant_id: restaurantId, role, is_active: true }],
     restaurants: [{ id: restaurantId, name: "Local de prueba", slug: "local", status: "active", deleted_at: null, business_type: "food" }],
-    tables: [{ id: tableId, name: "Mesa 4", code: "M4", restaurant_id: restaurantId, is_active: true }],
+    tables: [{ id: tableId, name: "Mesa 4", code: "M4", restaurant_id: restaurantId, is_active: true, status: "available" }],
     products: [{ id: productId, restaurant_id: restaurantId, name: "Almuerzo", price: 25, is_available: true }],
     product_variants: [], product_options: [], product_option_groups: [],
     restaurant_settings: [{ restaurant_id: restaurantId, table_orders_enabled: true, min_order_amount: 0, qr_payment_url: null }],
     business_hours: [], orders: [],
     admin_audit_logs: [{ actor_user_id: userId, restaurant_id: restaurantId, action: "waiter_shift_opened", created_at: new Date().toISOString() }],
   };
-  const client = clientFor(rows), calls = [], rpcCalls = [], backgroundCalls = [], notificationCalls = [], signedReceiptCalls = [];
+  const client = clientFor(rows, undefined, true), adminClient = clientFor(rows), calls = [], rpcCalls = [], backgroundCalls = [], notificationCalls = [], signedReceiptCalls = [];
   client.rpc = async (name, args) => {
     rpcCalls.push({ name, args });
     if (name === "charge_order_with_cash_movement") {
@@ -78,7 +79,7 @@ function fixture(role = "waiter") {
     return { data: "audit", error: null };
   };
   const admin = {
-    from: (table) => client.from(table),
+    from: (table) => adminClient.from(table),
     rpc: async (name, args) => { calls.push({ name, args }); return { data: [{ id: "created" }], error: null }; },
     storage: {
       from: (bucket) => ({
@@ -104,6 +105,7 @@ function fixture(role = "waiter") {
       uploadPrivateFile: async () => null,
     },
     "@/lib/services/announcement.service": { announcementService: { hasActiveClosure: async () => false } },
+    "@/lib/services/bank-qr.service": { bankOrderPaymentService: { availableForRestaurant: async () => true } },
     "@/lib/services/mobile-push.service": {
       registerRestaurantPosPushToken: async (input) => { notificationCalls.push({ kind: "register", input }); return { ok: true }; },
       sendOrderStatusPush: async (input) => { notificationCalls.push({ kind: "status", input }); },
@@ -158,10 +160,35 @@ test("table from another restaurant or disabled table is rejected", async () => 
 });
 test("retry returns the existing order without creating or uploading again", async () => {
   const f = fixture();
-  f.rows.orders.push({ restaurant_id: restaurantId, public_request_id: requestId, id: "existing", order_number: "M-1" });
+  f.rows.orders.push({ restaurant_id: restaurantId, table_id: tableId, public_request_id: requestId, id: "existing", order_number: "M-1", bank_checkout_hold: true });
   const response = await post(f.route, tableOrder);
   assert.equal((await response.json()).id, "existing");
   assert.equal(f.calls.length, 0);
+});
+test("unpaid waiter QR creates no kitchen notification and does not occupy the table", async () => {
+  const f = fixture();
+  const response = await post(f.route, { ...tableOrder, paymentMethod: "qr" });
+  assert.equal(response.status, 200);
+  assert.equal(f.calls[0].name, "create_public_order_transaction");
+  assert.equal(f.calls[0].args.p_order.payment_method, "qr");
+  assert.equal(f.rows.tables[0].status, "available");
+  assert.equal(f.backgroundCalls.length, 0);
+  assert.equal(f.notificationCalls.length, 0);
+});
+test("hidden QR recovery still requires the waiter's active shift and assigned table", async () => {
+  const f = fixture();
+  f.rows.orders.push({ restaurant_id: restaurantId, table_id: tableId, public_request_id: requestId, id: "existing", bank_checkout_hold: true });
+  f.rows.admin_audit_logs.length = 0;
+  assert.equal((await post(f.route, { ...tableOrder, paymentMethod: "qr" })).status, 409);
+  assert.equal(f.calls.length, 0);
+});
+test("cashier recovers a hidden POS QR reservation without submitting a second sale", async () => {
+  const f = fixture("cashier");
+  f.rows.orders.push({ restaurant_id: restaurantId, order_number: `POS-${requestId}`, id: "existing", bank_checkout_hold: true });
+  const response = await post(f.route, { action: "sale", restaurantId, requestId, customerName: "Cliente", paymentMethod: "qr", items: tableOrder.items });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).id, "existing");
+  assert.equal(f.rpcCalls.length, 0);
 });
 test("required variants and options cannot be bypassed", async () => {
   const f = fixture();
@@ -266,7 +293,7 @@ test("receipt viewer signs absolute private and WhatsApp storage routes for the 
   });
 });
 
-test("ETA changes are stored and notify WhatsApp orders in the background", async () => {
+test("ETA changes are stored for live tracking without sending paid WhatsApp messages", async () => {
   const f = fixture("cashier");
   f.rows.orders.push({
     id: requestId,
@@ -286,11 +313,11 @@ test("ETA changes are stored and notify WhatsApp orders in the background", asyn
   assert.equal(f.rows.orders[0].eta_adjustment_minutes, 15);
   assert.equal(f.rows.orders[0].eta_adjusted_by, userId);
   await Promise.all(f.backgroundCalls.map((callback) => callback()));
-  assert.ok(f.notificationCalls.some((call) =>
+  assert.equal(f.notificationCalls.some((call) =>
     call.kind === "whatsapp" &&
     call.input.event === "eta_updated" &&
     call.input.orderId === requestId
-  ));
+  ), false);
 });
 
 test("large cash shifts are not truncated at the database page limit", async () => {

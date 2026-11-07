@@ -207,7 +207,7 @@ export async function GET(request: Request) {
     }
     const client = auth.client;
     const catalog = params.get("catalog") !== "0";
-    let ordersQuery = client.from("orders").select("id,restaurant_id,table_id,order_number,order_type,status,payment_status,payment_method,payment_receipt_url,payment_receipt_reference,bank_payment_required,bank_group_session_id,group_prepaid_amount,group_cash_due,customer_name,customer_phone,total,notes,created_at,eta_adjustment_minutes,order_items(id,product_name,quantity,subtotal,prep_minutes,notes)").eq("restaurant_id", id).order("created_at", { ascending: false }).order("id");
+    let ordersQuery = client.from("orders").select("id,restaurant_id,table_id,order_number,order_type,status,payment_status,payment_method,payment_receipt_url,payment_receipt_reference,bank_payment_required,bank_group_session_id,group_prepaid_amount,group_cash_due,customer_name,customer_phone,total,notes,created_at,eta_adjustment_minutes,order_items(id,product_name,quantity,subtotal,prep_minutes,notes)").eq("restaurant_id", id).eq("bank_checkout_hold", false).eq("bank_schedule_hold", false).order("created_at", { ascending: false }).order("id");
     // Keep every active order, including those created before today's shift.
     ordersQuery = ordersQuery.or(`status.in.(pending,accepted,preparing,ready),created_at.gte.${new Date(Date.now() - 86400000).toISOString()}`);
     if (!restaurant.canManage) ordersQuery = ordersQuery.eq("order_type", "table");
@@ -318,8 +318,6 @@ export async function POST(request: Request) {
       result = { active: opening, openedAt: opening ? current?.openedAt ?? new Date().toISOString() : null };
     } else if (input.action === "table-order") {
       if (!["cash", "qr"].includes(input.paymentMethod)) throw new PosError("En mesa usa efectivo tomado por el personal o QR bancario.", 409);
-      const existing = checked(await auth.client.from("orders").select("id,order_number").eq("restaurant_id", id).eq("public_request_id", input.requestId).maybeSingle());
-      if (existing) return json(existing);
       if (restaurant.role === "waiter" && !(await getWaiterShift(auth, id))?.active) {
         throw new PosError("Abre tu turno antes de enviar pedidos.", 409);
       }
@@ -331,6 +329,10 @@ export async function POST(request: Request) {
           throw new PosError("Esta mesa esta asignada a otro mesero.", 403);
         }
       }
+      // Operational RLS hides unpaid QR reservations. Recover only after the
+      // authenticated shift and table scope have been checked above.
+      const existing = checked(await auth.admin.from("orders").select("id,order_number").eq("restaurant_id", id).eq("table_id", table.id).eq("public_request_id", input.requestId).maybeSingle());
+      if (existing) return json(existing);
       const settings = checked(await client.from("restaurant_settings").select("table_orders_enabled,min_order_amount,qr_payment_url").eq("restaurant_id", id).single());
       if (!settings?.table_orders_enabled || !businessTypeSupportsTableQr(restaurant.business_type)) throw new PosError("Los pedidos de mesa estan desactivados.");
       if (await announcementService.hasActiveClosure(id)) throw new PosError("El restaurante esta cerrado temporalmente.");
@@ -349,12 +351,12 @@ export async function POST(request: Request) {
       // assignment above. Public table QR clients can never choose this origin.
       const created = await auth.admin.rpc("create_public_order_transaction", { p_request_id: input.requestId, p_order: { restaurant_id: id, table_id: table.id, order_number: orderNumber, customer_name: input.customerName || table.name, customer_phone: input.customerPhone || null, order_type: "table", order_origin: "pos_counter", payment_method: input.paymentMethod, payment_receipt_url: receipt, payment_receipt_uploaded_at: receipt ? new Date().toISOString() : null, subtotal: total, total, delivery_fee: 0, discount_total: 0, notes }, p_items: items });
       if (created.error?.code === "23505") {
-        const retry = checked(await client.from("orders").select("id,order_number").eq("restaurant_id", id).eq("public_request_id", input.requestId).maybeSingle());
+        const retry = checked(await auth.admin.from("orders").select("id,order_number").eq("restaurant_id", id).eq("table_id", table.id).eq("public_request_id", input.requestId).maybeSingle());
         if (retry) return json(retry);
       }
       const createdOrderId = checked(created)?.[0]?.id;
       if (createdOrderId) {
-        checked(await auth.admin.from("tables").update({ status: "occupied" }).eq("restaurant_id", id).eq("id", table.id));
+        if (input.paymentMethod !== "qr") checked(await auth.admin.from("tables").update({ status: "occupied" }).eq("restaurant_id", id).eq("id", table.id));
         if (restaurant.role === "waiter") {
           await writeWaiterAudit(auth, id, "waiter_order_created", { orderId: createdOrderId, orderNumber, tableId: table.id, tableName: table.name });
         }
@@ -371,13 +373,13 @@ export async function POST(request: Request) {
         : checked(await client.rpc("close_cash_session_atomic", { p_restaurant_id: id, p_counted_amount: input.amount, p_notes: input.notes ?? null }));
     } else if (input.action === "sale") {
       const orderNumber = `POS-${input.requestId}`;
-      const existing = checked(await client.from("orders").select("id,order_number").eq("restaurant_id", id).eq("order_number", orderNumber).maybeSingle());
+      const existing = checked(await auth.admin.from("orders").select("id,order_number").eq("restaurant_id", id).eq("order_number", orderNumber).maybeSingle());
       if (existing) return json(existing);
       await resolveCart(auth, id, input.items);
       const receipt = input.paymentMethod === "qr" ? null : await upload();
       const sale = await client.rpc("create_pos_sale_with_tender", { p_restaurant_id: id, p_order_number: orderNumber, p_customer_name: input.customerName || "Venta mostrador", p_customer_phone: input.customerPhone || null, p_order_origin: "pos_counter", p_order_type: input.orderType, p_payment_method: input.paymentMethod, p_cash_received: input.cashReceived ?? null, p_receipt_url: receipt, p_receipt_reference: input.paymentMethod === "qr" ? null : input.reference ?? null, p_items: input.items });
       if (sale.error?.code === "23505") {
-        const duplicate = checked(await client.from("orders").select("id,order_number").eq("restaurant_id", id).eq("order_number", orderNumber).maybeSingle());
+        const duplicate = checked(await auth.admin.from("orders").select("id,order_number").eq("restaurant_id", id).eq("order_number", orderNumber).maybeSingle());
         if (duplicate) return json(duplicate);
       }
       const orderId = checked(sale);

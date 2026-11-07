@@ -11,6 +11,9 @@ export function BankOrderPaymentCard({ orderId, token = "", initialPayment, staf
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const generationAttemptedRef = useRef(false);
+  const acceptPayment = useCallback((next: Payment) => {
+    setPayment(current => current?.status === "paid" && next.status !== "paid" ? current : next);
+  }, []);
   const settled = bankOrderIsSettled(payment);
   useEffect(() => { if (settled) onSettled?.(); }, [settled, onSettled]);
   useEffect(() => { if (payment?.status === "paid") onPaymentReceived?.(); }, [payment?.status, onPaymentReceived]);
@@ -18,10 +21,10 @@ export function BankOrderPaymentCard({ orderId, token = "", initialPayment, staf
   const refresh = useCallback(async () => {
     try {
       const response = await fetch(endpoint, { cache: "no-store", headers: { "x-order-tracking-token": token } });
-      if (response.ok) setPayment(await response.json());
+      if (response.ok) { acceptPayment(await response.json()); setError(""); }
       else setError("No pudimos consultar el pago. Vuelve a verificar antes de cobrar otra vez.");
     } catch { /* Reconnect resync and the server worker recover connectivity loss. */ }
-  }, [endpoint, token]);
+  }, [endpoint, token, acceptPayment]);
   const realtimeToken = payment?.realtimeToken || token;
   useEffect(() => { const timer = setTimeout(() => void refresh(), 0); return () => clearTimeout(timer); }, [refresh]);
   useEffect(() => {
@@ -41,17 +44,17 @@ export function BankOrderPaymentCard({ orderId, token = "", initialPayment, staf
     setBusy(true); setError("");
     try {
       const response = await mutate();
-      if (response.ok) setPayment(await response.json());
+      if (response.ok) acceptPayment(await response.json());
       else { await refresh(); setError("No se pudo completar la emisión. Revisa el estado o contacta al local antes de volver a pagar."); }
     } catch { await refresh(); setError("Se interrumpió la conexión. Conservamos la solicitud; revisa su estado antes de volver a pagar."); }
     finally { setBusy(false); }
   }
   async function cancel() {
-    if (!window.confirm("¿Anular este QR? Primero comprobaremos si ya fue pagado. Esto no cancela el pedido.")) return;
+    if (payment?.status === "paid" || !window.confirm("¿Anular este QR? Primero comprobaremos si ya fue pagado. Esto no cancela el pedido.")) return;
     setBusy(true); setError("");
     try {
       const response = await mutate(true);
-      if (response.ok) { const result = await response.json(); setPayment(result); if (result.status === "not_created") setError("QR anulado por el banco. No pagues una copia anterior. Puedes emitir uno nuevo para el mismo pedido."); }
+      if (response.ok) { const result = await response.json(); acceptPayment(result); if (result.status === "not_created") setError("QR anulado por el banco. No pagues una copia anterior. Puedes emitir uno nuevo para el mismo pedido."); }
       else setError("Hay una verificación en curso. Espera unos segundos antes de volver a anular.");
     } catch { setError("No pudimos confirmar la anulación. No cambies de pago hasta comprobar el estado."); }
     finally { setBusy(false); }

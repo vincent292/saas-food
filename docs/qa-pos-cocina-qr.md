@@ -20,7 +20,9 @@ La mesa y su visita se abren durante la activación, sin ocuparlas al generar un
 
 La modal web y la app solo completan un QR cuando el banco y el pedido están pagados, el pedido está activado y no quedan bloqueos ni revisión. La app muestra «Generar QR y esperar pago». No se imprimen comandas nuevas ni se notifican pedidos QR antes de la confirmación.
 
-La migración 0141 se aplicó al Supabase de producción. Las comprobaciones automáticas incluyeron 18 pruebas SQL con las migraciones reales (la prueba POS falló antes de la corrección), 31 pruebas de API/acciones/recuperación, 20 pruebas de interfaz de la app y 7 unitarias de la app. También pasó la prueba visual web en 1440, 1024 y 390 px, TypeScript y ESLint de los archivos cambiados. Banco y respuestas de servidor se simularon en las pruebas de interfaz; no certifican un pago bancario real.
+La migración 0141 se aplicó al Supabase de producción. La migración complementaria `0142_preserve_paid_scheduled_qr_tracking.sql` conserva el seguimiento del cliente después de pagar un pedido futuro: el bloqueo independiente de programación lo mantiene fuera de cocina, cola y visitas de mesa hasta su activación a la hora prevista. No adelanta la preparación ni la ocupación de la mesa.
+
+Las comprobaciones automáticas incluyeron 19 pruebas SQL con las migraciones reales (la prueba POS falló antes de la corrección), 31 pruebas de API/acciones/recuperación, 20 pruebas de interfaz de la app y 7 unitarias de la app. También pasó la prueba visual web en 1440, 1024 y 390 px, TypeScript y ESLint de los archivos cambiados. Banco y respuestas de servidor se simularon en las pruebas de interfaz; no certifican un pago bancario real.
 
 ## Validación
 

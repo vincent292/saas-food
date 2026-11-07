@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
 const read=name=>readFileSync(new URL('../supabase/migrations/'+name,import.meta.url),'utf8');
-async function fixture(){
+async function fixture({scheduledTracking=true}={}){
   const db=new PGlite();const admin=randomUUID(), restaurants=[randomUUID(),randomUUID(),randomUUID()], session=randomUUID();
   await db.exec(`create role anon;create role authenticated;create role service_role;create schema auth;create schema realtime;
     create function auth.uid() returns uuid language sql as $$select nullif(current_setting('test.uid',true),'')::uuid$$;
@@ -67,6 +67,7 @@ async function fixture(){
     alter table admin_audit_logs add column entity_id uuid;`);
   await db.exec(read('0139_table_service_calls.sql'));
   await db.exec(read('0141_pos_qr_payment_before_kitchen.sql'));
+  if(scheduledTracking) await db.exec(read('0142_preserve_paid_scheduled_qr_tracking.sql'));
   const charge=read('0103_fix_table_settlement_and_payment_flow.sql');
   await db.exec(charge.slice(charge.indexOf('create or replace function charge_order_with_cash_movement('),charge.indexOf('create or replace function settle_table_with_cash_movements(')));
   const products=[];for(const [i,id] of restaurants.entries()){
@@ -405,6 +406,23 @@ test('waiter bank access requires membership, active shift and assigned table an
   }finally{await f.db.close();}
 });
 
+test('migrating a paid scheduled checkout restores customer tracking without releasing kitchen or reposting the payment',async()=>{
+  const f=await fixture({scheduledTracking:false});try{
+    const order=await f.checkout({requested_fulfillment_at:'2030-01-01T12:00:00Z'});
+    const request=(await f.db.query('select reserve_baneco_order_qr($1,$2) r',[order.id,order.tracking_token])).rows[0].r.request;
+    await f.db.query("update bank_qr_test_requests set status='pending',qr_id=$2 where id=$1",[request.id,'SCHEDULE-MIGRATE-'+request.id]);
+    await f.pay(request);
+    assert.equal((await f.db.query('select bank_checkout_hold from orders where id=$1',[order.id])).rows[0].bank_checkout_hold,true);
+    const inventory=(await f.db.query('select count(*)::int n from inventory_applied')).rows[0].n;
+    await f.db.exec(read('0142_preserve_paid_scheduled_qr_tracking.sql'));
+    const row=(await f.db.query('select * from orders where id=$1',[order.id])).rows[0];
+    assert.equal(row.payment_status,'paid');assert.equal(row.bank_checkout_hold,false);assert.equal(row.bank_schedule_hold,true);assert.equal(row.status,'pending');
+    assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders')).rows[0].n,0);
+    assert.equal((await f.db.query('select count(*)::int n from cash_movements')).rows[0].n,0);
+    assert.equal((await f.db.query('select count(*)::int n from inventory_applied')).rows[0].n,inventory);
+  }finally{await f.db.close();}
+});
+
 test('scheduled bank payment waits for start and correct cash day, then releases and posts exactly once without recharging',async()=>{
   const f=await fixture();try{
     const start=new Date(Date.now()+3500);
@@ -414,7 +432,7 @@ test('scheduled bank payment waits for start and correct cash day, then releases
     const request=(await f.db.query('select reserve_baneco_order_qr($1,$2) r',[order.id,order.tracking_token])).rows[0].r.request;
     await f.db.query("update bank_qr_test_requests set status='pending',qr_id=$2 where id=$1",[request.id,'SCHEDULE-'+request.id]);await f.pay(request);
     let row=(await f.db.query('select * from orders where id=$1',[order.id])).rows[0];
-    const paidAt=row.payment_verified_at;assert.equal(row.payment_status,'paid');assert.equal(row.status,'pending');assert.equal(row.bank_checkout_hold,true);assert.equal(row.bank_schedule_hold,true);
+    const paidAt=row.payment_verified_at;assert.equal(row.payment_status,'paid');assert.equal(row.status,'pending');assert.equal(row.bank_checkout_hold,false);assert.equal(row.bank_schedule_hold,true);
     assert.equal((await f.db.query('select application_state from bank_qr_test_requests where id=$1',[request.id])).rows[0].application_state,'waiting_cash');
     assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders')).rows[0].n,0);
     await assert.rejects(f.db.query("update orders set status='accepted' where id=$1",[order.id]),/bank-schedule-not-due/);

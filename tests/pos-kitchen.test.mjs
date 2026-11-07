@@ -110,7 +110,7 @@ test('POS cancellation waits for authoritative bank cancellation and cannot disc
   assert.equal(f.rows.orders[0].status, 'pending');
   f.bankStatus('not_created'); assert.equal((await f.actions.cancelPosQrSaleAction({ restaurantId, orderId })).ok, true);
   assert.equal(f.rows.orders[0].status, 'cancelled');
-  assert.equal((await f.actions.cancelPosQrSaleAction({ restaurantId, orderId })).ok, false);
+  assert.equal((await f.actions.cancelPosQrSaleAction({ restaurantId, orderId })).ok, true);
 });
 
 test('paid QR is complete only after the restaurant order is operational, without held or review states', () => {

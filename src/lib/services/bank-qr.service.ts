@@ -276,8 +276,14 @@ export const bankOrderPaymentService = {
   async abandonCheckout(orderId: string, token: string) {
     const admin = adminClient();
     const order = await publicOrder(admin, orderId, token);
+    if (order.bank_checkout_hold && order.status === "cancelled" && order.payment_status === "cancelled") {
+      const payment = await this.get(orderId, token);
+      if (["not_created", "unavailable"].includes(payment.status)) return { abandoned: true };
+      throw new BanecoError("bank-operation-busy");
+    }
     if (!order.bank_checkout_hold || order.payment_status !== "pending") throw new BanecoError("bank-order-ineligible");
-    await this.cancel(orderId, token);
+    const payment = await this.cancel(orderId, token);
+    if (!["not_created", "unavailable"].includes(payment.status)) throw new BanecoError("bank-operation-busy");
     const abandoned = checked(await admin.rpc("abandon_baneco_checkout", { p_order: orderId, p_token: token }));
     if (!abandoned) throw new BanecoError("bank-operation-busy");
     return { abandoned: true };

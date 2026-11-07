@@ -5,7 +5,7 @@
 - El POS conserva el catálogo y el resumen del carrito en pantalla completa. Las imágenes son más compactas; el listado del carrito se desplaza sin ocultar total y cobro.
 - El botón **Cobrar** abre una modal con efectivo, QR, tarjeta y otros métodos. Los datos del cliente son opcionales. Efectivo calcula el cambio.
 - QR crea una reserva pendiente con el mismo identificador de venta, muestra automáticamente el QR bancario y espera la confirmación. La recepción de dinero y la activación del pedido son estados distintos: la modal solo muestra «Pedido enviado a cocina» después de la activación real.
-- Cerrar y reabrir la modal conserva el mismo cobro durante la sesión de la pantalla. Una respuesta perdida obliga a recuperar el mismo identificador y conserva el efectivo original. No se envía el pedido a cocina desde el navegador ni se ofrece una confirmación manual de pago.
+- En mostrador, cerrar un QR sin pagar ofrece descartarlo: primero verifica y anula el QR con el banco, luego cancela la reserva y limpia el carrito. Una respuesta perdida obliga a recuperar el mismo identificador. Los pagos recibidos y las verificaciones inciertas conservan su acceso para revisión. No se envía el pedido a cocina desde el navegador ni se ofrece una confirmación manual de pago.
 - La anulación de una venta QR sin pagar verifica primero la cancelación bancaria. Un pago recibido no puede descartarse desde este flujo.
 - Cocina avisa con el sonido existente cuando un pedido entra a `accepted` o `preparing`. **Activar sonido** habilita y prueba el audio en ese navegador. El reconocimiento de alertas de recepción es independiente del de cocina.
 - Cocina ofrece **+5 min** y **+10 min** por pedido activo, hasta 180 minutos acumulados. El contador conserva su hora de inicio. Los cambios actualizan el estimado del seguimiento del cliente y quedan auditados. Se rechazan cambios concurrentes con un valor anterior.
@@ -25,6 +25,14 @@ La migración 0141 se aplicó al Supabase de producción. La migración compleme
 Las comprobaciones automáticas incluyeron 19 pruebas SQL con las migraciones reales (la prueba POS falló antes de la corrección), 31 pruebas de API/acciones/recuperación, 20 pruebas de interfaz de la app y 7 unitarias de la app. También pasó la prueba visual web en 1440, 1024 y 390 px, TypeScript y ESLint de los archivos cambiados. Banco y respuestas de servidor se simularon en las pruebas de interfaz; no certifican un pago bancario real.
 
 ## Validación
+
+### Descarte de cobros sin finalizar
+
+La app ya no presenta una lista fija de «Retomar cobro QR». El cobro de mostrador se descarta al salir, previa confirmación y verificación bancaria. Las mesas pueden mantener sus cuentas. El botón de basurero abre los pendientes identificados por número, destino e importe, y permite descartar individualmente los que siguen sin pagar. El rechazo o la incertidumbre bancaria conserva el cobro para revisión; no declara que se eliminó. Los accesos de pagos completados y anulaciones confirmadas se limpian automáticamente.
+
+`POST /api/mobile/pos/bank-qr` admite `action: discard` con los mismos permisos de sucursal, turno y asignación de mesa del resto del flujo bancario. Reutiliza `abandon_baneco_checkout` después de la anulación bancaria y tolera una respuesta perdida de una anulación ya completada. No descarta comandas operativas ni pagos recibidos. No requiere migración nueva.
+
+Se validó el descarte con 17 pruebas de servicio/API/acciones/permisos, dos pruebas SQL sobre cancelación y carreras con pagos, y pruebas visuales de la web que conservan el QR si el banco rechaza la anulación. Las pruebas no efectúan pagos ni anulaciones bancarias reales.
 
 38 pruebas relacionadas pasaron, incluyendo las 8 nuevas pruebas de acciones, permisos, recuperación, anulación, estado bancario y tiempos:
 

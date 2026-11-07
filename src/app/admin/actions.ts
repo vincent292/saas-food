@@ -8158,10 +8158,12 @@ export async function cancelPosQrSaleAction(input: { restaurantId: string; order
   if (!admin) return { ok: false as const };
   const { data: order } = await admin.from("orders").select("tracking_token,order_number,payment_method,status,payment_status")
     .eq("restaurant_id", restaurantId).eq("id", orderId).maybeSingle();
-  if (!order || !order.order_number.startsWith("POS-") || order.payment_method !== "qr" || order.status !== "pending" || order.payment_status !== "pending") return { ok: false as const };
+  if (!order || !order.order_number.startsWith("POS-") || order.payment_method !== "qr") return { ok: false as const };
+  if (!((order.status === "pending" && order.payment_status === "pending") || (order.status === "cancelled" && order.payment_status === "cancelled"))) return { ok: false as const };
   const { bankOrderPaymentService } = await import("@/lib/services/bank-qr.service");
   const payment = await bankOrderPaymentService.cancel(orderId, order.tracking_token);
   if (!["not_created", "unavailable"].includes(payment.status)) return { ok: false as const };
+  if (order.status === "cancelled") return { ok: true as const };
   // The bank guard and conditional update also protect a payment racing with cancellation.
   const { data, error } = await admin.from("orders").update({ status: "cancelled", payment_status: "cancelled", cancelled_at: new Date().toISOString(), cancellation_reason: "Cliente desistió del cobro QR en POS." })
     .eq("restaurant_id", restaurantId).eq("id", orderId).eq("status", "pending").eq("payment_status", "pending").select("id").maybeSingle();

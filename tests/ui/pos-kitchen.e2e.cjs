@@ -93,6 +93,20 @@ async function setup(browser,width,view='pos') {
       assert.deepEqual(t.errors,[]);await t.context.close();console.log(`PASS ${width}px: exact QR, pending gate, resume, automatic completion, empty basket`);
     }
     {
+      const t=await setup(browser,390),{page}=t;await page.goto(base);await page.getByRole('button',{name:/Jamón y queso/}).first().click();
+      await page.getByRole('button',{name:/1 productos/}).click();await page.getByRole('button',{name:/^Cobrar Bs/}).last().click();
+      const modal=page.getByRole('dialog');await modal.getByRole('button',{name:'QR bancario',exact:true}).click();await modal.getByRole('button',{name:'Generar QR y esperar pago'}).click();
+      await modal.getByRole('img',{name:'QR de pago del pedido'}).waitFor();
+      await page.evaluate(()=>window.__qa.cancelAllowed=false);page.once('dialog',dialog=>dialog.accept());
+      await modal.getByRole('button',{name:'Descartar cobro sin pagar',exact:true}).click();
+      await modal.getByText(/No se pudo descartar/).waitFor();assert.equal(await modal.isVisible(),true);
+      await page.evaluate(()=>window.__qa.cancelAllowed=true);page.once('dialog',dialog=>dialog.accept());
+      await modal.getByRole('button',{name:'Cerrar cobro',exact:true}).click();await modal.waitFor({state:'hidden'});
+      assert.equal(await page.evaluate(()=>window.__qa.cancelled),2);
+      assert.equal(await page.getByText('Agrega productos para iniciar la venta.').first().count(),1);
+      assert.deepEqual(t.errors,[]);await t.context.close();console.log('PASS discard: bank rejection preserves the QR; confirmed discard removes the unpaid counter sale');
+    }
+    {
       const t=await setup(browser,1440),{page}=t;await page.goto(base);await page.getByRole('button',{name:/Jamón y queso/}).first().click();await page.getByRole('button',{name:/^Cobrar Bs/}).click();
       const modal=page.getByRole('dialog');await modal.getByLabel('Paga con',{exact:true}).fill('100');await modal.getByText('Bs 40,00',{exact:true}).waitFor();
       await page.evaluate(()=>window.__qa.loseResponse=true);await modal.getByRole('button',{name:'Confirmar cobro y enviar a cocina'}).click();await modal.getByRole('button',{name:'Recuperar venta'}).click();

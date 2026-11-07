@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, CreditCard, QrCode, Wallet, X } from "lucide-react";
+import { CheckCircle2, CreditCard, QrCode, Trash2, Wallet, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cancelPosQrSaleAction, createPosSaleInPlaceAction } from "@/app/admin/actions";
 import { BankOrderPaymentCard } from "@/components/orders/BankOrderPaymentCard";
@@ -82,15 +82,32 @@ export function PosCheckoutModal({ open, session, restaurantId, restaurantSlug, 
     } finally { submittingRef.current = false; setBusy(false); }
   }
 
+  async function discard() {
+    if (submittingRef.current || busy || !receipt || completed || paymentReceived) return;
+    if (!window.confirm("¿Descartar este cobro? Primero comprobaremos con el banco que no se haya pagado. No se enviará a cocina.")) return;
+    submittingRef.current = true; setBusy(true); setError("");
+    try {
+      const result = await cancelPosQrSaleAction({ restaurantId, orderId: receipt.id });
+      if (!result.ok) { setError("No se pudo descartar: el pago puede estar recibido o en verificación. Comprueba su estado antes de volver a cobrar."); return; }
+      setReceipt(null); onCompleted(); onClose();
+    } catch { setError("No pudimos confirmar la anulación bancaria. El cobro sigue pendiente de revisión."); }
+    finally { submittingRef.current = false; setBusy(false); }
+  }
+  function closeCheckout() {
+    if (busy) return;
+    if (receipt?.payment_method === "qr" && !completed && !paymentReceived) void discard();
+    else onClose();
+  }
+
   return <dialog aria-labelledby="pos-checkout-title" ref={dialogRef}
     className="fixed inset-0 m-auto max-h-[94dvh] w-[calc(100%-1.5rem)] max-w-lg overflow-y-auto rounded-3xl bg-[var(--surface)] p-0 text-[var(--text)] shadow-2xl backdrop:bg-black/55 backdrop:backdrop-blur-sm"
-    onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
+    onCancel={(event) => { event.preventDefault(); closeCheckout(); }}>
     <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] p-5">
       <div><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">{completed ? "Venta completada" : receipt ? "Cobro QR" : "Cobrar pedido"}</p>
         <h2 id="pos-checkout-title" className="mt-1 text-2xl font-black">{completed ? "Pago confirmado" : formatMoney(amountDue)}</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">{receipt ? `Pedido ${receipt.order_number}` : `${session.totalItems} productos · ${session.orderType === "pickup" ? "Para llevar" : "Mostrador / local"}`}</p>
       </div>
-      <button aria-label="Cerrar cobro" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-surface)] disabled:opacity-40" disabled={busy} onClick={onClose} type="button"><X className="h-5 w-5" /></button>
+      <button aria-label="Cerrar cobro" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-surface)] disabled:opacity-40" disabled={busy} onClick={closeCheckout} type="button"><X className="h-5 w-5" /></button>
     </div>
     <div className="p-5">
       {completed ? <div className="space-y-4">
@@ -100,18 +117,10 @@ export function PosCheckoutModal({ open, session, restaurantId, restaurantSlug, 
       </div> : receipt ? <>
         <ol className="flex justify-between gap-2 rounded-xl bg-[var(--color-surface)] p-3 text-xs font-bold"><li>1. Mostrar QR</li><li>2. Confirmar pago</li><li>3. {hasKitchenFlow ? "Enviar a cocina" : "Registrar venta"}</li></ol>
         <BankOrderPaymentCard orderId={receipt.id} token={receipt.tracking_token ?? ""} initialPayment={null} staffRestaurantId={restaurantId} autoGenerate onSettled={complete} onPaymentReceived={() => setPaymentReceived(true)} checkoutMode />
-        <p className="text-center text-xs font-semibold text-[var(--muted)]">Puedes cerrar y retomar este cobro. El pedido se enviará automáticamente cuando el banco confirme.</p>
-        {!paymentReceived ? <button className="mt-3 min-h-11 w-full text-sm font-bold text-[var(--color-danger-strong)] disabled:opacity-40" disabled={busy} onClick={async () => {
-          if (!window.confirm("¿Anular esta venta? Primero verificaremos con el banco que el QR no se haya pagado.")) return;
-          setBusy(true); setError("");
-          try {
-            const result = await cancelPosQrSaleAction({ restaurantId, orderId: receipt.id });
-            if (!result.ok) { setError("No se pudo anular: el pago puede estar confirmado o en verificación. Conserva este cobro y verifica su estado."); return; }
-            setReceipt(null); onCompleted(); onClose();
-          } catch { setError("No pudimos confirmar la anulación. Mantén este cobro abierto y verifica el estado."); }
-          finally { setBusy(false); }
-        }} type="button">{busy ? "Verificando anulación…" : "Anular venta sin pagar"}</button> : null}
+        <p className="text-center text-xs font-semibold text-[var(--muted)]">Si el cliente no paga, descarta el cobro con el basurero. Primero verificaremos y anularemos su QR con el banco.</p>
+        {!paymentReceived ? <button className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 text-sm font-bold text-[var(--color-danger-strong)] disabled:opacity-40" disabled={busy} onClick={() => void discard()} type="button"><Trash2 className="h-4 w-4" />{busy ? "Verificando anulación…" : "Descartar cobro sin pagar"}</button> : null}
         {error ? <p role="alert" className="mt-2 text-sm font-semibold text-[var(--color-danger-strong)]">{error}</p> : null}
+        {error ? <button className="mt-2 min-h-11 w-full text-sm font-bold underline" onClick={onClose} type="button">Salir y revisar después</button> : null}
       </> : <form action={submit} className="space-y-4">
         <input name="posRequestId" type="hidden" value={session.requestId} /><input name="restaurantId" type="hidden" value={restaurantId} /><input name="restaurantSlug" type="hidden" value={restaurantSlug} /><input name="cartJson" type="hidden" value={session.cartJson} /><input name="source" type="hidden" value={source} /><input name="orderOrigin" type="hidden" value={session.orderOrigin} /><input name="orderType" type="hidden" value={session.orderType} /><input name="paymentMethod" type="hidden" value={method} />
         <fieldset className="space-y-4" disabled={busy || uncertain}>

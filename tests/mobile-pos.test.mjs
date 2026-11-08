@@ -190,11 +190,33 @@ test("cashier recovers a hidden POS QR reservation without submitting a second s
   assert.equal((await response.json()).id, "existing");
   assert.equal(f.rpcCalls.length, 0);
 });
-test("required variants and options cannot be bypassed", async () => {
+test("a product with an optional variant keeps its base price unless selected", async () => {
   const f = fixture();
-  f.rows.product_variants.push({ id: tableId, product_id: productId, restaurant_id: restaurantId, is_active: true });
-  assert.equal((await post(f.route, tableOrder)).status, 400);
-  f.rows.product_variants.length = 0;
+  f.rows.products[0].price = 0.5;
+  f.rows.product_variants.push({ id: tableId, product_id: productId, restaurant_id: restaurantId, name: "Extra", price_delta: 0.1, is_active: true });
+  const base = await f.cart.resolveCart(f.auth, restaurantId, [{ productId, quantity: 1, optionIds: [], price: 0.01 }]);
+  assert.equal(base[0].unit_price, 0.5);
+  assert.equal(base[0].variant_id, null);
+  const extra = await f.cart.resolveCart(f.auth, restaurantId, [{ productId, variantId: tableId, quantity: 2, optionIds: [] }]);
+  assert.equal(extra[0].unit_price, 0.6);
+  assert.equal(extra[0].subtotal, 1.2);
+  assert.equal(extra[0].variant_id, tableId);
+  f.rows.products[0].price = 0.1;
+  f.rows.product_variants[0].price_delta = 0.2;
+  const cents = await f.cart.resolveCart(f.auth, restaurantId, [{ productId, variantId: tableId, quantity: 3, optionIds: [] }]);
+  assert.equal(cents[0].unit_price, 0.3);
+  assert.equal(cents[0].subtotal, 0.9);
+});
+test("optional variants still reject unknown, inactive and cross-product selections", async () => {
+  for (const variant of [null, { is_active: false, product_id: productId }, { is_active: true, product_id: tableId }]) {
+    const f = fixture();
+    if (variant) f.rows.product_variants.push({ id: tableId, restaurant_id: restaurantId, price_delta: 0.1, ...variant });
+    await assert.rejects(f.cart.resolveCart(f.auth, restaurantId, [{ productId, variantId: tableId, quantity: 1, optionIds: [] }]), /Variante no disponible/);
+  }
+});
+test("required option groups remain required without a variant", async () => {
+  const f = fixture();
+  f.rows.product_variants.push({ id: tableId, product_id: productId, restaurant_id: restaurantId, is_active: true, price_delta: 0.1 });
   f.rows.product_option_groups.push({ id: tableId, product_id: productId, restaurant_id: restaurantId, is_active: true, name: "Guarnicion", is_required: true, min_choices: 1, max_choices: 1 });
   assert.equal((await post(f.route, tableOrder)).status, 400);
   assert.equal(f.calls.length, 0);

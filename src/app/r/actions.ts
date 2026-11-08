@@ -469,15 +469,6 @@ async function resolvePublicCartItems(supabase: SupabaseDatabaseClient, restaura
 
   const products = new Map((productRows as ProductPriceRow[]).map((product) => [product.id, product]));
   const variants = new Map(((variantRows ?? []) as VariantPriceRow[]).map((variant) => [variant.id, variant]));
-  const activeVariantsByProduct = new Map<string, VariantPriceRow[]>();
-  for (const variant of (variantRows ?? []) as VariantPriceRow[]) {
-    if (!variant.is_active) {
-      continue;
-    }
-    const current = activeVariantsByProduct.get(variant.product_id) ?? [];
-    current.push(variant);
-    activeVariantsByProduct.set(variant.product_id, current);
-  }
   const options = new Map(((optionRows ?? []) as OptionPriceRow[]).map((option) => [option.id, option]));
   const groupsByProduct = new Map<string, OptionGroupPriceRow[]>();
 
@@ -492,10 +483,6 @@ async function resolvePublicCartItems(supabase: SupabaseDatabaseClient, restaura
 
     if (!product || !isProductCurrentlyOrderable(product)) {
       throw new Error("product-not-found");
-    }
-
-    if (!item.variantId && (activeVariantsByProduct.get(item.productId)?.length ?? 0) > 0) {
-      throw new Error("product-configuration");
     }
 
     const variant = item.variantId ? variants.get(item.variantId) : null;
@@ -528,7 +515,7 @@ async function resolvePublicCartItems(supabase: SupabaseDatabaseClient, restaura
     }
 
     const detailParts = [variant?.name, ...selectedOptionRows.map((option) => option.name)].filter(Boolean);
-    const unitPrice = Number(product.price) + Number(variant?.price_delta ?? 0) + selectedOptionRows.reduce((sum, option) => sum + Number(option.price_delta), 0);
+    const unitPrice = Number((Number(product.price) + Number(variant?.price_delta ?? 0) + selectedOptionRows.reduce((sum, option) => sum + Number(option.price_delta), 0)).toFixed(2));
     const name = variant ? `${product.name} - ${variant.name}` : product.name;
     const detailNotes = detailParts.length ? detailParts.join(" | ") : "";
     const notes = [detailNotes, item.notes?.trim()].filter(Boolean).join(" | ") || undefined;
@@ -540,7 +527,7 @@ async function resolvePublicCartItems(supabase: SupabaseDatabaseClient, restaura
       name,
       price: unitPrice,
       quantity: item.quantity,
-      subtotal: unitPrice * item.quantity,
+      subtotal: Number((unitPrice * item.quantity).toFixed(2)),
       notes,
       prepMinutes: Math.max(1, Number(product.prep_minutes ?? 12)),
     };

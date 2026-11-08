@@ -299,25 +299,6 @@ test("catalog availability days do not turn an empty form value into Sunday-only
   assert.doesNotMatch(publicPage, /PUBLIC_RESTAURANT_PAGE_TTL_MS|publicRestaurantPageCache/);
 });
 
-test("configurable products require an explicit variant before ordering", () => {
-  const actions = read("src/app/r/actions.ts");
-  const publicOrder = read("src/components/public-menu/PublicRestaurantOrderClient.tsx");
-  const tableOrder = read("src/components/tables/TableOrderClient.tsx");
-  const pos = read("src/components/cash/POSProductGrid.tsx");
-
-  assert.match(actions, /resolvedCart = await resolvePublicCartItems\(writeClient, parsed\.data\.restaurantId, parsed\.data\.cart\)/);
-  assert.match(actions, /if \(!item\.variantId && \(activeVariantsByProduct\.get\(item\.productId\)\?\.length \?\? 0\) > 0\)/);
-  assert.match(publicOrder, /const \[variantId, setVariantId\] = useState\(""\)/);
-  assert.match(tableOrder, /const \[variantId, setVariantId\] = useState\(""\)/);
-  assert.match(pos, /const \[variantId, setVariantId\] = useState\(""\)/);
-  assert.match(publicOrder, /const canAdd = \(!variants\.length \|\| Boolean\(selectedVariant\)\) &&/);
-  assert.match(tableOrder, /const canAdd = \(!variants\.length \|\| Boolean\(selectedVariant\)\) &&/);
-  assert.match(pos, /const canAdd = \(!variants\.length \|\| Boolean\(selectedVariant\)\) &&/);
-  assert.match(publicOrder, /setVariantId\(\(current\) => \(current === variant\.id \? "" : variant\.id\)\)/);
-  assert.match(tableOrder, /setVariantId\(\(current\) => \(current === variant\.id \? "" : variant\.id\)\)/);
-  assert.match(pos, /setVariantId\(\(current\) => \(current === variant\.id \? "" : variant\.id\)\)/);
-  assert.match(tableOrder, /error === "product-configuration"/);
-});
 
 test("public home requests location and promotes nearest branches first", () => {
   const home = read("src/app/page.tsx");

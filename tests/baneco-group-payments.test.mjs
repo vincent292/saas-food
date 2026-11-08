@@ -68,6 +68,7 @@ async function fixture({scheduledTracking=true}={}){
   await db.exec(read('0139_table_service_calls.sql'));
   await db.exec(read('0141_pos_qr_payment_before_kitchen.sql'));
   if(scheduledTracking) await db.exec(read('0142_preserve_paid_scheduled_qr_tracking.sql'));
+  await db.exec(read('0143_optional_product_variants.sql'));
   const charge=read('0103_fix_table_settlement_and_payment_flow.sql');
   await db.exec(charge.slice(charge.indexOf('create or replace function charge_order_with_cash_movement('),charge.indexOf('create or replace function settle_table_with_cash_movements(')));
   const products=[];for(const [i,id] of restaurants.entries()){
@@ -449,5 +450,37 @@ test('scheduled bank payment waits for start and correct cash day, then releases
     await f.db.query('select activate_baneco_paid_order($1,$2,true)',[request.id,token]);await f.db.query('select finish_baneco_order_activation($1,$2,true)',[request.id,token]);
     row=(await f.db.query('select * from orders where id=$1',[order.id])).rows[0];assert.equal(row.status,'accepted');assert.equal(row.bank_schedule_hold,false);assert.deepEqual(row.payment_verified_at,paidAt);assert.ok(new Date(row.accepted_at)>=start);
     const movements=(await f.db.query('select * from cash_movements where order_id=$1',[order.id])).rows;assert.equal(movements.length,1);assert.equal(movements[0].cash_session_id,current);
+  }finally{await f.db.close();}
+});
+
+for (const method of ['cash', 'qr']) test(`POS ${method} accepts the base product or its optional surcharge without weakening payment gates`, async () => {
+  const f=await fixture();try {
+    const variant=randomUUID();
+    await f.db.exec('create table cash_payment_tenders(id uuid default gen_random_uuid(),restaurant_id uuid,cash_session_id uuid,order_id uuid,payment_method payment_method_type,amount_due numeric,amount_received numeric,change_given numeric,created_by uuid)');
+    await f.db.query("select set_config('test.uid',$1,false)",[f.admin]);
+    await f.db.query('update products set price=.50 where id=$1',[f.products[0]]);
+    await f.db.query("insert into product_variants(id,restaurant_id,product_id,name,price_delta,is_active) values($1,$2,$3,'Extra',.10,true)",[variant,f.restaurants[0],f.products[0]]);
+    const create=async(selected)=>{
+      const cart=[{productId:f.products[0],...(selected?{variantId:selected}:{}),optionIds:[],quantity:1,price:.01}];
+      const id=(await f.db.query("select create_pos_sale_with_tender($1,$2,'Cliente',null,'pos_counter','pos',$3,$4,null,null,$5) id",[f.restaurants[0],'OPTIONAL-'+randomUUID(),method,method==='cash'?1:null,cart])).rows[0].id;
+      const order=(await f.db.query('select * from orders where id=$1',[id])).rows[0];
+      const line=(await f.db.query('select * from order_items where order_id=$1',[id])).rows[0];
+      assert.equal(Number(order.total),selected ? 0.60 : 0.50);
+      assert.equal(Number(line.unit_price),selected ? 0.60 : 0.50);
+      assert.equal(line.variant_id,selected||null);
+      assert.equal(order.payment_status,method==='cash'?'paid':'pending');
+      if(method==='qr'){
+        assert.equal(order.status,'pending');assert.equal(order.bank_checkout_hold,true);
+        assert.equal((await f.db.query('select count(*)::int n from cash_movements where order_id=$1',[id])).rows[0].n,0);
+        assert.equal((await f.db.query('select count(*)::int n from bank_visible_orders where id=$1',[id])).rows[0].n,0);
+      }
+    };
+    await create(null);await create(variant);
+    await f.db.query('update product_variants set is_active=false where id=$1',[variant]);
+    await assert.rejects(create(variant),/product-not-found/);
+    const group=randomUUID();
+    await f.db.query("insert into product_option_groups(id,restaurant_id,product_id,name,min_choices,max_choices,is_required,is_active) values($1,$2,$3,'Bebida',1,1,true,true)",[group,f.restaurants[0],f.products[0]]);
+    await assert.rejects(create(null),/product-configuration/);
+    await f.db.exec(read('0143_optional_product_variants.sql'));
   }finally{await f.db.close();}
 });

@@ -355,9 +355,12 @@ function ProductOptionModal({
     .flat()
     .map((optionId) => flatOptions.find((option) => option.id === optionId))
     .filter((option): option is ProductOption => Boolean(option));
-  const total = product.price + (selectedVariant?.priceDelta ?? 0) + chosenOptions.reduce((sum, option) => sum + option.priceDelta, 0);
-  const canAdd = (!variants.length || Boolean(selectedVariant)) && optionGroups.every((group) => (selectedOptions[group.id]?.length ?? 0) >= group.minChoices);
-  const totalLabel = variants.length && !selectedVariant ? `Desde ${formatMoney(product.price)}` : formatMoney(total);
+  const total = Number((product.price + (selectedVariant?.priceDelta ?? 0) + chosenOptions.reduce((sum, option) => sum + option.priceDelta, 0)).toFixed(2));
+  const canAdd = optionGroups.every((group) => {
+    const count = selectedOptions[group.id]?.length ?? 0;
+    return count >= Math.max(group.minChoices, group.isRequired ? 1 : 0) && count <= group.maxChoices;
+  });
+  const totalLabel = formatMoney(total);
   const availabilityLabels = productAvailabilityLabels(product);
 
   function toggleOption(group: ProductOptionGroup, option: ProductOption) {
@@ -418,12 +421,22 @@ function ProductOptionModal({
           {variants.length ? (
             <section>
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-black">Variante</h3>
-                {!selectedVariant ? <span className="rounded-full bg-[var(--color-warning-soft)] px-3 py-1 text-xs font-black text-[var(--color-warning-strong)]">Elige una</span> : null}
+                <h3 className="text-sm font-black">Variante opcional</h3>
+                <span className="text-xs font-semibold text-[var(--muted)]">Puedes mantener el precio base</span>
               </div>
               <div className="mt-2 grid gap-2">
+                <button
+                  aria-pressed={!selectedVariant}
+                  className={cn("flex min-h-12 items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left", !selectedVariant ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]")}
+                  onClick={() => setVariantId("")}
+                  type="button"
+                >
+                  <span className="text-sm font-black">Sin variante · Precio base</span>
+                  <span className="shrink-0 text-sm font-black">{formatMoney(product.price)}</span>
+                </button>
                 {variants.map((variant) => (
                   <button
+                    aria-pressed={variantId === variant.id}
                     className={cn(
                       "flex min-h-14 items-center justify-between rounded-2xl border px-4 text-left transition",
                       variantId === variant.id ? "border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]" : "border-[var(--border)] bg-[var(--surface)]",
@@ -497,7 +510,7 @@ function ProductOptionModal({
             <p className="text-2xl font-black text-[var(--primary)]">{totalLabel}</p>
           </div>
           <Button className="min-h-12 px-8" disabled={!canAdd} onClick={() => onAdd(product, selectedVariant, chosenOptions)} type="button">
-            {canAdd ? "Agregar al pedido" : variants.length && !selectedVariant ? "Elige una variante" : "Completa opciones"}
+            {canAdd ? "Agregar al pedido" : "Completa opciones"}
           </Button>
         </div>
       </div>

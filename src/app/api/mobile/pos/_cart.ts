@@ -31,7 +31,7 @@ export async function resolveCart(auth: PosSession, restaurantId: string, cart: 
     if (start !== null && end === null && minutes < start) throw new PosError("Producto fuera de horario.");
     if (end !== null && start === null && minutes > end) throw new PosError("Producto fuera de horario.");
     const variant = variants.find((v) => v.id === item.variantId && v.product_id === product.id);
-    if ((item.variantId && !variant) || (!variant && variants.some((v) => v.product_id === product.id))) throw new PosError("Selecciona la variante del producto.");
+    if (item.variantId && !variant) throw new PosError("Variante no disponible para este producto.");
     if (new Set(item.optionIds).size !== item.optionIds.length) throw new PosError("Opciones duplicadas.");
     const selected = item.optionIds.map((id) => options.find((o) => o.id === id && o.product_id === product.id));
     if (selected.some((o) => !o)) throw new PosError("Opcion no disponible.");
@@ -39,7 +39,7 @@ export async function resolveCart(auth: PosSession, restaurantId: string, cart: 
       const count = selected.filter((o) => o?.option_group_id === group.id).length;
       if (count < Math.max(group.min_choices, group.is_required ? 1 : 0) || count > group.max_choices) throw new PosError(`Revisa las opciones de ${group.name}.`);
     }
-    const price = Number(product.price) + Number(variant?.price_delta ?? 0) + selected.reduce((sum, o) => sum + Number(o?.price_delta ?? 0), 0);
+    const price = Number((Number(product.price) + Number(variant?.price_delta ?? 0) + selected.reduce((sum, o) => sum + Number(o?.price_delta ?? 0), 0)).toFixed(2));
     return { product_id: product.id, product_name: variant ? `${product.name} - ${variant.name}` : product.name, variant_id: variant?.id ?? null, option_ids: item.optionIds, quantity: item.quantity, unit_price: price, subtotal: Number((price * item.quantity).toFixed(2)), notes: [variant?.name, ...selected.map((o) => o?.name), item.notes].filter(Boolean).join(" | ") };
   });
 }

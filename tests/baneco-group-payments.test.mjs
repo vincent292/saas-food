@@ -71,6 +71,11 @@ async function fixture({scheduledTracking=true}={}){
   await db.exec(read('0143_optional_product_variants.sql'));
   const charge=read('0103_fix_table_settlement_and_payment_flow.sql');
   await db.exec(charge.slice(charge.indexOf('create or replace function charge_order_with_cash_movement('),charge.indexOf('create or replace function settle_table_with_cash_movements(')));
+  await db.exec(`alter table table_visits add column opened_at timestamptz default now(),add column closed_at timestamptz,add column closed_by uuid;
+    alter table orders add column delivered_at timestamptz;
+    create table cash_payment_tenders(id uuid default gen_random_uuid(),restaurant_id uuid,cash_session_id uuid,table_id uuid,order_id uuid,payment_method payment_method_type,amount_due numeric,amount_received numeric,change_given numeric,created_by uuid);`);
+  await db.exec(`create function write_admin_audit(p_action text,p_entity_type text default 'platform',p_entity_id uuid default null,p_restaurant_id uuid default null,p_severity text default 'info',p_ip_address text default null,p_user_agent text default null,p_metadata jsonb default '{}') returns uuid language sql as $$select gen_random_uuid()$$;`);
+  await db.exec(read('0144_table_accounts_and_first_waiter.sql'));
   const products=[];for(const [i,id] of restaurants.entries()){
     await db.query('insert into restaurants(id,name) values($1,$2)',[id,'Local '+i]);await db.query('insert into restaurant_settings(restaurant_id) values($1)',[id]);
     await db.query("insert into cash_sessions(restaurant_id,status) values($1,'open')",[id]);
@@ -456,7 +461,6 @@ test('scheduled bank payment waits for start and correct cash day, then releases
 for (const method of ['cash', 'qr']) test(`POS ${method} accepts the base product or its optional surcharge without weakening payment gates`, async () => {
   const f=await fixture();try {
     const variant=randomUUID();
-    await f.db.exec('create table cash_payment_tenders(id uuid default gen_random_uuid(),restaurant_id uuid,cash_session_id uuid,order_id uuid,payment_method payment_method_type,amount_due numeric,amount_received numeric,change_given numeric,created_by uuid)');
     await f.db.query("select set_config('test.uid',$1,false)",[f.admin]);
     await f.db.query('update products set price=.50 where id=$1',[f.products[0]]);
     await f.db.query("insert into product_variants(id,restaurant_id,product_id,name,price_delta,is_active) values($1,$2,$3,'Extra',.10,true)",[variant,f.restaurants[0],f.products[0]]);
@@ -482,5 +486,66 @@ for (const method of ['cash', 'qr']) test(`POS ${method} accepts the base produc
     await f.db.query("insert into product_option_groups(id,restaurant_id,product_id,name,min_choices,max_choices,is_required,is_active) values($1,$2,$3,'Bebida',1,1,true,true)",[group,f.restaurants[0],f.products[0]]);
     await assert.rejects(create(null),/product-configuration/);
     await f.db.exec(read('0143_optional_product_variants.sql'));
+  }finally{await f.db.close();}
+});
+
+test('a served table account retains paid and unpaid orders; closing charges only the balance and closes the visit once',async()=>{
+  const f=await fixture();try{
+    const table=randomUUID();
+    await f.db.query("insert into tables(id,restaurant_id,status) values($1,$2,'occupied')",[table,f.restaurants[0]]);
+    const first=await f.checkout({order_type:'table',order_origin:'pos_counter',table_id:table,payment_method:'cash'});
+    const second=await f.checkout({order_type:'table',order_origin:'pos_counter',table_id:table,payment_method:'cash'});
+    await f.db.query("select set_config('test.uid',$1,false)",[f.admin]);
+    await f.db.query("select charge_order_with_cash_movement($1,$2,'cash')",[f.restaurants[0],first.id]);
+    await f.db.query("update orders set status='delivered' where id in($1,$2)",[first.id,second.id]);
+    const visit=(await f.db.query('select table_visit_id from orders where id=$1',[first.id])).rows[0].table_visit_id;
+    const close=(cash=10,id=visit,branch=f.restaurants[0])=>f.db.query("select * from close_table_account($1,$2,$3,'cash',$4)",[branch,table,id,cash]);
+    await assert.rejects(close(9),/insufficient-cash-received/);
+    assert.equal((await f.db.query('select payment_status from orders where id=$1',[second.id])).rows[0].payment_status,'pending');
+    assert.equal((await f.db.query('select status from table_visits where id=$1',[visit])).rows[0].status,'open');
+    await assert.rejects(close(10,visit,f.restaurants[1]),/table-account-changed/);
+    const done=(await close(20)).rows[0];assert.equal(done.settled_order_count,2);assert.equal(done.charged_order_count,1);
+    const tender=(await f.db.query('select * from cash_payment_tenders')).rows[0];assert.equal(Number(tender.amount_due),10);assert.equal(Number(tender.change_given),10);
+    assert.equal((await f.db.query('select count(*)::int n from cash_movements where order_id in($1,$2)',[first.id,second.id])).rows[0].n,2);
+    assert.equal((await f.db.query('select status from table_visits where id=$1',[visit])).rows[0].status,'closed');
+    assert.equal((await f.db.query('select status from tables where id=$1',[table])).rows[0].status,'available');
+    const next=await f.checkout({order_type:'table',order_origin:'pos_counter',table_id:table,payment_method:'cash'});
+    const nextVisit=(await f.db.query('select table_visit_id from orders where id=$1',[next.id])).rows[0].table_visit_id;
+    assert.notEqual(nextVisit,visit);
+    assert.equal((await close()).rows[0].charged_order_count,0);
+    assert.equal((await f.db.query('select status from table_visits where id=$1',[nextVisit])).rows[0].status,'open');
+    assert.equal((await f.db.query('select payment_status from orders where id=$1',[next.id])).rows[0].payment_status,'pending');
+    assert.equal((await f.db.query('select count(*)::int n from cash_payment_tenders')).rows[0].n,1);
+  }finally{await f.db.close();}
+});
+
+test('first waiter in the current visit takes precedence over a later helper or static assignment',async()=>{
+  const f=await fixture();try{
+    const table=randomUUID(),first=randomUUID(),second=randomUUID(),assigned=randomUUID();
+    await f.db.query("insert into tables(id,restaurant_id,status) values($1,$2,'occupied')",[table,f.restaurants[0]]);
+    for(const id of [first,second,assigned]){
+      await f.db.query('insert into profiles values($1,null)',[id]);
+      await f.db.query("insert into restaurant_memberships values($1,$2,true,'waiter')",[id,f.restaurants[0]]);
+    }
+    await f.db.query('insert into waiter_table_assignments values($1,$2,$3)',[f.restaurants[0],table,assigned]);
+    const order=await f.checkout({order_type:'table',order_origin:'pos_counter',table_id:table,payment_method:'cash'});
+    await f.db.query("insert into admin_audit_logs(actor_user_id,restaurant_id,action,entity_id,created_at) values($1,$3,'waiter_order_created',$4,now()-interval '1 minute'),($2,$3,'waiter_order_created',$4,now())",[first,second,f.restaurants[0],order.id]);
+    const result=(await f.db.query('select request_table_service($1,$2,$3) result',[f.restaurants[0],table,randomUUID()])).rows[0].result;
+    assert.equal(result.call.assigned_waiter_id,first);
+  }finally{await f.db.close();}
+});
+
+test('served staff table orders can collect a bank QR without restarting kitchen or releasing the account',async()=>{
+  const f=await fixture();try{
+    const table=randomUUID();await f.db.query("insert into tables(id,restaurant_id,status) values($1,$2,'occupied')",[table,f.restaurants[0]]);
+    const order=await f.checkout({order_type:'table',order_origin:'pos_counter',table_id:table,payment_method:'cash'});
+    await f.db.query("update orders set status='delivered' where id=$1",[order.id]);
+    const token=(await f.db.query('select prepare_baneco_staff_order($1,$2,$3) token',[f.restaurants[0],order.id,f.admin])).rows[0].token;
+    const qr=(await f.db.query('select reserve_baneco_order_qr($1,$2) result',[order.id,token])).rows[0].result;
+    await f.db.query("update bank_qr_test_requests set status='pending',qr_id=$2 where id=$1",[qr.request.id,'QA-'+qr.request.id]);
+    await f.pay(qr.request);
+    const paid=(await f.db.query('select status,payment_status,table_visit_id from orders where id=$1',[order.id])).rows[0];
+    assert.equal(paid.status,'delivered');assert.equal(paid.payment_status,'paid');
+    assert.equal((await f.db.query('select status from table_visits where id=$1',[paid.table_visit_id])).rows[0].status,'open');
   }finally{await f.db.close();}
 });

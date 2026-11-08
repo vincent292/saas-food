@@ -10,6 +10,7 @@ type Row<T> = {
 export type Database = {
   public: {
     Tables: {
+      table_visits: Row<{ id: string; restaurant_id: string; table_id: string; status: "open" | "closed" | "cancelled"; opened_by: string | null; opened_at: string; closed_by: string | null; closed_at: string | null; notes: string | null }>;
       waiter_table_assignments: Row<{ restaurant_id: string; table_id: string; waiter_user_id: string }>;
       table_service_calls: Row<{
         id: string; restaurant_id: string; table_id: string; request_id: string; tracking_token: string;
@@ -581,6 +582,7 @@ export type Database = {
         restaurant_id: string;
         customer_id: string | null;
         table_id: string | null;
+        table_visit_id: string | null;
         order_number: string;
         public_request_id: string | null;
         recovery_key_hash: string | null;
@@ -1599,6 +1601,10 @@ export type Database = {
           settled_order_count: number;
           table_id: string;
         }[];
+      };
+      close_table_account: {
+        Args: { p_restaurant_id: string; p_table_id: string; p_visit_id: string; p_payment_method: Database["public"]["Enums"]["payment_method_type"]; p_cash_received?: number | null };
+        Returns: { table_id: string; settled_order_count: number; charged_order_count: number }[];
       };
       settle_table_with_tender: {
         Args: {

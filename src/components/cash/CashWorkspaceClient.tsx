@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import QRCode from "qrcode";
 import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, settleTableAction } from "@/app/admin/actions";
+import { TableAccountDialog } from "@/components/tables/TableAccountDialog";
+import { belongsToOpenTableAccount, tableOrderSource } from "@/lib/table-account";
 import { TableServiceInbox } from "@/components/tables/TableServiceInbox";
 import { CashMovementRow } from "@/components/cash/CashMovementRow";
 import { CashSummaryCard } from "@/components/cash/CashSummaryCard";
@@ -97,6 +99,8 @@ function statusMessage(status: CashPageStatus, businessType: Restaurant["busines
     "order-not-paid": "Solo se pueden reembolsar pedidos pagados.",
     "pending-cancellation-review": "Hay anulaciones cobradas pendientes de aprobacion del dueno. Revisa Anulaciones antes de cerrar caja.",
     "table-not-found": "No encontramos esa mesa activa.",
+    "table-account-changed": "La cuenta de esta mesa cambió. Actualiza las mesas antes de cerrar.",
+    "insufficient-cash-received": "El efectivo recibido no cubre el saldo actual de la mesa.",
     "invalid-table-settlement": "Revisa los datos de la mesa antes de cobrar.",
     "invalid-table-qr-payment": "Ese pedido no corresponde a un pago QR pendiente de esta mesa.",
     "column-reference-table-id-is-ambiguous": "La función de cierre de mesa está desactualizada. Aplica la migración 0103 e intenta nuevamente.",
@@ -207,7 +211,7 @@ export function CashWorkspaceClient({
 
   const todaysOrders = useMemo(() => liveOrders.filter((order) => isSameBusinessDay(order.createdAt) || Boolean(order.acceptedAt && isSameBusinessDay(order.acceptedAt))), [liveOrders]);
   const pendingOrders = useMemo(() => todaysOrders.filter((order) => order.status === "pending" && !["delivery", "pickup", "table"].includes(order.orderType)), [todaysOrders]);
-  const activeTableOrders = useMemo(() => liveOrders.filter((order) => order.orderType === "table" && ["pending", "accepted", "preparing", "ready"].includes(order.status)), [liveOrders]);
+  const activeTableOrders = useMemo(() => liveOrders.filter(belongsToOpenTableAccount), [liveOrders]);
   const deliveryOrders = useMemo(
     () => todaysOrders.filter((order) => order.orderType === "delivery" && ["pending", "accepted", "preparing", "ready", "delivered"].includes(order.status)),
     [todaysOrders],
@@ -996,7 +1000,25 @@ function PickupOrderCard({ order, businessType, now, isUpdating, onStatusChange 
   );
 }
 
-function TableSettlementCard({
+export function TableSettlementCard(props: Parameters<typeof TableAccountDetails>[0]) {
+  const [open, setOpen] = useState(false);
+  const { table, orders } = props;
+  const due = orders.filter(order => order.paymentStatus !== "paid").reduce((sum, order) => sum + order.total, 0);
+  const total = orders.reduce((sum, order) => sum + order.total, 0);
+  const occupied = Boolean(table.activeVisitId || orders.length);
+  return <>
+    <Card className="rounded-[1.25rem] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div><h3 className="text-xl font-black">{table.name}</h3><p className="text-sm text-[var(--muted)]">{occupied ? `${orders.length} pedidos · Cuenta abierta` : "Disponible · Sin cuenta abierta"}</p></div>
+        {occupied ? <div className="text-right"><p className="font-black">Pendiente: {formatMoney(due)}</p><p className="text-sm text-[var(--muted)]">Consumo: {formatMoney(total)}</p></div> : null}
+        {occupied ? <Button type="button" variant="secondary" onClick={() => setOpen(true)}>Ver cuenta de {table.name}</Button> : null}
+      </div>
+    </Card>
+    {open ? <TableAccountDialog title={`Cuenta de ${table.name}`} onClose={() => setOpen(false)}><TableAccountDetails {...props} /></TableAccountDialog> : null}
+  </>;
+}
+
+function TableAccountDetails({
   table,
   orders,
   restaurant,
@@ -1027,7 +1049,7 @@ function TableSettlementCard({
   const qrAvailable = useBankQrAvailability(restaurant.id);
   const qrMethodIsValid = paymentMethod !== "qr" || qrAvailable;
 
-  if (!orders.length) {
+  if (!orders.length && !table.activeVisitId) {
     return (
       <Card className="rounded-[1.25rem] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1054,7 +1076,7 @@ function TableSettlementCard({
             <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">{table.code}</span>
           </div>
           <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
-            {orders.length} pedido{orders.length === 1 ? "" : "s"} activo{orders.length === 1 ? "" : "s"} · {table.capacity} persona{table.capacity === 1 ? "" : "s"}
+            {orders.length} pedido{orders.length === 1 ? "" : "s"} de esta cuenta · {table.capacity} persona{table.capacity === 1 ? "" : "s"}
           </p>
           <div className="mt-4 grid gap-2">
             {orders.map((order) => {
@@ -1078,7 +1100,7 @@ function TableSettlementCard({
                           {order.status === "pending" ? "Por aprobar" : businessOrderStatusLabel(order.status, restaurant.businessType)}
                         </span>
                       </div>
-                      <p className="mt-0.5 truncate text-sm font-semibold text-[var(--muted)]">{order.customerName || "Cliente"} · {itemCount} producto{itemCount === 1 ? "" : "s"}</p>
+                      <p className="mt-0.5 truncate text-sm font-semibold text-[var(--muted)]">{tableOrderSource(order)} · {formatShortTime(new Date(order.createdAt))} · {itemCount} producto{itemCount === 1 ? "" : "s"}</p>
                     </div>
                     <div className="text-right">
                       <p className="font-black text-[var(--text)]">{formatMoney(order.total)}</p>
@@ -1091,6 +1113,8 @@ function TableSettlementCard({
                       </p>
                     </div>
                   </div>
+
+                  <ul className="mt-2 space-y-1 text-sm text-[var(--muted)]">{order.items.map(item => <li key={item.id} className="flex justify-between gap-3"><span>{item.quantity} × {item.productName}{item.notes ? ` · ${item.notes}` : ""}</span><strong className="shrink-0">{formatMoney(item.subtotal)}</strong></li>)}</ul>
 
                   {order.status === "pending" ? (
                     <form action={async (formData) => { await onApprove(order.id, formData); }} className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3">
@@ -1129,6 +1153,7 @@ function TableSettlementCard({
           <input name="restaurantId" type="hidden" value={restaurant.id} />
           <input name="restaurantSlug" type="hidden" value={restaurant.slug} />
           <input name="tableId" type="hidden" value={table.id} />
+          <input name="visitId" type="hidden" value={table.activeVisitId ?? orders[0]?.tableVisitId ?? ""} />
           <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--primary)]">Cerrar cuenta</p>
           <p className="mt-1 text-3xl font-black text-[var(--primary-dark)]">{formatMoney(amountDue)}</p>
           <p className="mt-1 text-sm font-semibold text-[var(--muted)]">

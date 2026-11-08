@@ -29,6 +29,8 @@ export const tableService = {
     }
 
     const supabase = await createClient();
+    const { data: visits, error: visitsError } = await supabase.from("table_visits").select("id,table_id").eq("restaurant_id", restaurantId).eq("status", "open");
+    if (visitsError) throw visitsError;
     const { data, error } = await supabase
       .from("tables")
       .select("*")
@@ -40,7 +42,7 @@ export const tableService = {
       return [];
     }
 
-    return data.map(mapTable);
+    return data.map(row => ({ ...mapTable(row), activeVisitId: visits?.find(visit => visit.table_id === row.id)?.id }));
   },
 
   async getByCode(restaurantId: string, tableCode: string) {

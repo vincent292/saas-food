@@ -664,6 +664,7 @@ function OrderPanel({
         {bankQrAvailable ? "En la siguiente pantalla verás el QR de importe exacto. El banco verifica el pago automáticamente; no necesitas subir comprobante. Para pedir en efectivo, llama a un mesero." : "El cobro QR no está habilitado. No se enviará un pedido sin pagar; llama a un mesero para que tome tu pedido."}
       </p>
       {recoveryError ? <p role="alert" className="mt-3 text-sm text-red-700">{recoveryError}</p> : null}
+      <div className="mt-3"><CallWaiterButton slug={restaurant.slug} code={table.code} /></div>
       <FormSubmitButton className="mt-5 min-h-13 w-full" disabled={!cart.length || !bankQrAvailable} label="Continuar al pago QR" pendingLabel="Preparando tu pago…" overlayTitle="Preparando tu pago" overlayDescription="Conservamos la misma solicitud para que puedas salir a tu banco y volver." />
     </form>
   );

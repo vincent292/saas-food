@@ -1,3 +1,4 @@
+import { tableAccountActors } from "@/lib/services/table-account-actor.service";
 import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -44,7 +45,7 @@ const schema = z.discriminatedUnion("action", [
   base.extend({ action: z.literal("open-waiter-shift") }),
   base.extend({ action: z.literal("close-waiter-shift") }),
   base.extend({ action: z.literal("cancel-order"), orderId: z.string().uuid(), reason: z.string().trim().min(5).max(500) }),
-  base.extend({ action: z.literal("settle-table"), tableId: z.string().uuid(), paymentMethod: payment, cashReceived: z.number().nonnegative().optional(), reference: z.string().max(160).optional() }),
+  base.extend({ action: z.literal("settle-table"), tableId: z.string().uuid(), visitId: z.string().uuid().optional(), paymentMethod: payment, cashReceived: z.number().nonnegative().optional(), reference: z.string().max(160).optional() }),
 ]);
 
 async function getWaiterShift(auth: Awaited<ReturnType<typeof session>>, restaurantId: string) {
@@ -83,6 +84,8 @@ async function writeWaiterAudit(
 
 async function releaseTableWhenEmpty(auth: Awaited<ReturnType<typeof session>>, restaurantId: string, tableId: string | null) {
   if (!tableId) return;
+  const visit = checked(await auth.admin.from("table_visits").select("id").eq("restaurant_id", restaurantId).eq("table_id", tableId).eq("status", "open").maybeSingle());
+  if (visit) return;
   const { count, error } = await auth.admin
     .from("orders")
     .select("id", { count: "exact", head: true })
@@ -207,9 +210,11 @@ export async function GET(request: Request) {
     }
     const client = auth.client;
     const catalog = params.get("catalog") !== "0";
-    let ordersQuery = client.from("orders").select("id,restaurant_id,table_id,order_number,order_type,status,payment_status,payment_method,payment_receipt_url,payment_receipt_reference,bank_payment_required,bank_group_session_id,group_prepaid_amount,group_cash_due,customer_name,customer_phone,total,notes,created_at,eta_adjustment_minutes,order_items(id,product_name,quantity,subtotal,prep_minutes,notes)").eq("restaurant_id", id).eq("bank_checkout_hold", false).eq("bank_schedule_hold", false).order("created_at", { ascending: false }).order("id");
+    const visits = checked(await client.from("table_visits").select("id,table_id").eq("restaurant_id", id).eq("status", "open")) ?? [];
+    const visitIds = visits.map(visit => visit.id);
+    let ordersQuery = client.from("orders").select("id,restaurant_id,table_id,table_visit_id,order_number,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_reference,bank_payment_required,bank_group_session_id,group_prepaid_amount,group_cash_due,customer_name,customer_phone,total,notes,created_at,eta_adjustment_minutes,order_items(id,product_name,quantity,subtotal,prep_minutes,notes)").eq("restaurant_id", id).eq("bank_checkout_hold", false).eq("bank_schedule_hold", false).order("created_at", { ascending: false }).order("id");
     // Keep every active order, including those created before today's shift.
-    ordersQuery = ordersQuery.or(`status.in.(pending,accepted,preparing,ready),created_at.gte.${new Date(Date.now() - 86400000).toISOString()}`);
+    ordersQuery = ordersQuery.or(`status.in.(pending,accepted,preparing,ready),created_at.gte.${new Date(Date.now() - 86400000).toISOString()}${visitIds.length ? `,table_visit_id.in.(${visitIds.join(",")})` : ""}`);
     if (!restaurant.canManage) ordersQuery = ordersQuery.eq("order_type", "table");
     const [ordersResult, tablesResult, settingsResult, openResult, waiterShift, waiterAssignmentsResult] = await Promise.all([
       allRows((from, to) => ordersQuery.range(from, to)),
@@ -269,15 +274,19 @@ export async function GET(request: Request) {
     const whatsappConversationByOrder = new Map(
       (checked(whatsappChannelsResult) ?? []).map((channel) => [channel.order_id, channel.conversation_id]),
     );
+    const actors = await tableAccountActors(auth.admin, id, ordersResult.filter(order => order.order_type === "table"));
     const orders = ordersResult.map((order) => ({
       ...order,
+      taken_by: actors.get(order.id),
+      table_account_open: Boolean(order.table_visit_id && visitIds.includes(order.table_visit_id)),
       whatsappConversationId: whatsappConversationByOrder.get(order.id) ?? null,
     }));
     const assignments = (checked(waiterAssignmentsResult) ?? []) as Array<{ table_id: string; waiter_user_id: string }>;
     const assignedTableIds = assignments.filter((assignment) => assignment.waiter_user_id === auth.profile.id).map((assignment) => assignment.table_id);
-    const tables = restaurant.role === "waiter" && assignments.length
+    const visibleTables = restaurant.role === "waiter" && assignments.length
       ? (checked(tablesResult) ?? []).filter((table) => assignedTableIds.includes(table.id))
       : checked(tablesResult);
+    const tables = (visibleTables ?? []).map(table => ({ ...table, activeVisitId: visits.find(visit => visit.table_id === table.id)?.id ?? null }));
     const bankQrAvailable = await bankOrderPaymentService.availableForRestaurant(id, settings.currency);
     return json({ restaurant, orders, tables, settings: { ...settings, qr_payment_url: null, bankQrAvailable }, cashSession, cashOpen, movements, waiterShift, products, categories, variants, groups, options, riders, deliveryAssignments });
   } catch (error) { return failure(error); }
@@ -346,7 +355,7 @@ export async function POST(request: Request) {
       const receipt = input.paymentMethod === "qr" ? null : await upload();
       const orderNumber = `M-${input.requestId.slice(0, 8).toUpperCase()}`;
       // Attribution is generated from the authenticated account, never from the payload.
-      const notes = `${table.name} (${table.code}) | Mesero: ${auth.profile.full_name || "Personal"} | Usuario: ${auth.profile.id}${input.notes ? ` | ${input.notes}` : ""}`;
+      const notes = `${table.name} (${table.code}) | ${restaurant.role === "waiter" ? "Mesero" : "Caja"}: ${auth.profile.full_name || "Personal"} | Usuario: ${auth.profile.id}${input.notes ? ` | ${input.notes}` : ""}`;
       // Staff-only origin: this endpoint authenticated membership, shift and table
       // assignment above. Public table QR clients can never choose this origin.
       const created = await auth.admin.rpc("create_public_order_transaction", { p_request_id: input.requestId, p_order: { restaurant_id: id, table_id: table.id, order_number: orderNumber, customer_name: input.customerName || table.name, customer_phone: input.customerPhone || null, order_type: "table", order_origin: "pos_counter", payment_method: input.paymentMethod, payment_receipt_url: receipt, payment_receipt_uploaded_at: receipt ? new Date().toISOString() : null, subtotal: total, total, delivery_fee: 0, discount_total: 0, notes }, p_items: items });
@@ -494,84 +503,19 @@ export async function POST(request: Request) {
     } else if (input.action === "settle-table") {
       const table = checked(await client.from("tables").select("id,name").eq("restaurant_id", id).eq("id", input.tableId).eq("is_active", true).maybeSingle());
       if (!table) throw new PosError("Mesa no encontrada.", 404);
-      const orders = checked(await client
-        .from("orders")
-        .select("id,status,payment_status,total")
-        .eq("restaurant_id", id)
-        .eq("table_id", table.id)
-        .in("status", ["pending", "accepted", "preparing", "ready"])
-        .order("created_at")) ?? [];
-      const amountDue = Number(orders
-        .filter((order) => order.payment_status !== "paid")
-        .reduce((sum, order) => sum + Number(order.total), 0)
-        .toFixed(2));
-      if (input.paymentMethod === "cash" && amountDue > 0 && (input.cashReceived === undefined || input.cashReceived < amountDue)) {
-        throw new PosError("El efectivo recibido no cubre el total de la mesa.", 409);
+      const visit = checked(await client.from("table_visits").select("id").eq("restaurant_id", id).eq("table_id", table.id).eq("status", "open").maybeSingle());
+      const visitId = input.visitId ?? visit?.id;
+      if (!visitId) throw new PosError("La cuenta ya está cerrada. Actualiza las mesas.", 409);
+      const settled = checked(await client.rpc("close_table_account", {
+        p_restaurant_id: id, p_table_id: table.id, p_visit_id: visitId,
+        p_payment_method: input.paymentMethod, p_cash_received: input.cashReceived ?? null,
+      }));
+      const count = settled?.[0]?.settled_order_count ?? 0;
+      if (count > 0) {
+        const orders = checked(await client.from("orders").select("id").eq("restaurant_id", id).eq("table_visit_id", visitId).eq("status", "delivered")) ?? [];
+        after(async () => { await Promise.allSettled(orders.map(order => sendOrderStatusPush({ orderId: order.id, status: "delivered" }))); });
       }
-      if (!orders.length) {
-        checked(await auth.admin.from("tables").update({ status: "available" }).eq("restaurant_id", id).eq("id", table.id));
-        result = { tableId: table.id, orders: 0 };
-      } else {
-        if (input.paymentMethod === "qr" && orders.some(order => order.payment_status !== "paid")) throw new PosError("bank-payment-required", 409);
-        const receipt = await upload();
-        for (const order of orders) {
-          if (order.payment_status === "pending") {
-            checked(await client.rpc("charge_order_with_cash_movement", {
-              p_restaurant_id: id,
-              p_order_id: order.id,
-              p_payment_method: input.paymentMethod,
-              p_receipt_url: receipt,
-              p_receipt_reference: input.reference ?? null,
-            }));
-          }
-          let current = checked(await client.from("orders").select("status,payment_status").eq("restaurant_id", id).eq("id", order.id).maybeSingle());
-          if (!current || current.payment_status !== "paid") throw new PosError("No se pudo confirmar el pago completo de la mesa.", 409);
-          if (current.status === "pending") {
-            current = checked(await client
-              .from("orders")
-              .update({ status: "accepted", accepted_at: new Date().toISOString() })
-              .eq("restaurant_id", id)
-              .eq("id", order.id)
-              .eq("status", "pending")
-              .select("status,payment_status")
-              .maybeSingle());
-            if (!current) throw new PosError("El pedido cambio. Actualiza para continuar.", 409);
-          }
-          let status = current.status;
-          if (status === "accepted") {
-            checked(await client.rpc("update_operational_order_status", { p_restaurant_id: id, p_order_id: order.id, p_expected_status: "accepted", p_next_status: "ready" }));
-            status = "ready";
-          } else if (status === "preparing") {
-            checked(await client.rpc("update_operational_order_status", { p_restaurant_id: id, p_order_id: order.id, p_expected_status: "preparing", p_next_status: "ready" }));
-            status = "ready";
-          }
-          if (status === "ready") {
-            checked(await client.rpc("update_operational_order_status", { p_restaurant_id: id, p_order_id: order.id, p_expected_status: "ready", p_next_status: "delivered" }));
-          }
-        }
-        if (amountDue > 0) {
-          checked(await client.rpc("record_cash_payment_tender", {
-            p_restaurant_id: id,
-            p_table_id: table.id,
-            p_payment_method: input.paymentMethod,
-            p_amount_due: amountDue,
-            p_cash_received: input.paymentMethod === "cash" ? input.cashReceived ?? null : null,
-          }));
-        }
-        await releaseTableWhenEmpty(auth, id, table.id);
-        checked(await client.rpc("write_admin_audit", {
-          p_action: "table_settled",
-          p_entity_type: "restaurant_table",
-          p_entity_id: table.id,
-          p_restaurant_id: id,
-          p_severity: "info",
-          p_metadata: { orderCount: orders.length, tableName: table.name },
-        }));
-        after(async () => {
-          await Promise.allSettled(orders.map((order) => sendOrderStatusPush({ orderId: order.id, status: "delivered" })));
-        });
-        result = { tableId: table.id, orders: orders.length };
-      }
+      result = { tableId: table.id, orders: count };
     } else {
       const order = checked(await client.from("orders").select("id,status,order_type,payment_status").eq("restaurant_id", id).eq("id", input.orderId).maybeSingle());
       if (!order) throw new PosError("Pedido no encontrado.", 404);

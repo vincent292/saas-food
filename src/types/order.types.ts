@@ -12,6 +12,7 @@ export type RestaurantTable = {
   name: string;
   code: string;
   status: TableStatus;
+  activeVisitId?: string;
   capacity: number;
   isActive: boolean;
 };
@@ -58,6 +59,9 @@ export type Order = {
   id: string;
   restaurantId: string;
   tableId?: string;
+  tableVisitId?: string;
+  tableAccountOpen?: boolean;
+  takenBy?: string;
   orderNumber: string;
   customerName: string;
   customerPhone: string;

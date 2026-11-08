@@ -598,6 +598,7 @@ const chargeOrderSchema = z.object({
 });
 
 const settleTableSchema = z.object({
+  visitId: z.string().uuid(),
   restaurantId: z.string().uuid(),
   restaurantSlug: z.string().min(1).optional(),
   tableId: z.string().uuid(),
@@ -7733,6 +7734,7 @@ export async function chargeOrderAction(formData: FormData) {
 
 export async function settleTableAction(formData: FormData) {
   const parsed = settleTableSchema.safeParse({
+    visitId: formData.get("visitId"),
     restaurantId: formData.get("restaurantId"),
     restaurantSlug: formData.get("restaurantSlug") || undefined,
     tableId: formData.get("tableId"),
@@ -7751,24 +7753,12 @@ export async function settleTableAction(formData: FormData) {
   const { supabase } = await requireUser();
   await requireRestaurantAccess(parsed.data.restaurantId, redirectPath);
 
-  let uploadedReceiptUrl: string | null = null;
-  try {
-    const receiptFile = formData.get("paymentReceiptFile") as File | null;
-    uploadedReceiptUrl = receiptFile && receiptFile.size > 0
-      ? await uploadPrivateFile(receiptFile, `restaurants/${parsed.data.restaurantId}/payment-receipts`)
-      : null;
-  } catch (error) {
-    console.error("table-settlement-receipt-upload-failed", error);
-    redirect(`${redirectPath}&error=receipt-upload-failed`);
-  }
-
-  const { data, error } = await supabase.rpc("settle_table_with_tender", {
+  const { data, error } = await supabase.rpc("close_table_account", {
     p_restaurant_id: parsed.data.restaurantId,
     p_table_id: parsed.data.tableId,
+    p_visit_id: parsed.data.visitId,
     p_payment_method: parsed.data.paymentMethod,
     p_cash_received: parsed.data.cashReceived ?? null,
-    p_receipt_url: uploadedReceiptUrl,
-    p_receipt_reference: parsed.data.paymentReceiptReference ?? null,
   });
 
   if (error) {

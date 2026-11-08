@@ -27,6 +27,7 @@ function clientFor(rows, user = { id: userId, user_metadata: {} }, operational =
       if (operational && table === "orders") data = data.filter(row => !row.bank_checkout_hold);
       const query = {
         select(_columns, options) { head = options?.head === true; return query; }, order() { return query; }, limit() { return query; },
+        or() { return query; }, gte() { return query; }, range(from,to) { data=data.slice(from,to+1);return query; },
         update(values) { updateValues = values; return query; },
         insert(values) { insertValues = Array.isArray(values) ? values : [values]; return query; },
         eq(key, value) { data = data.filter((r) => r[key] === value); return query; },
@@ -95,6 +96,7 @@ function fixture(role = "waiter") {
   const auth = { client, admin, profile: rows.profiles[0], restaurants: [{ ...rows.restaurants[0], role, canManage: role !== "waiter" }] };
   const route = load("src/app/api/mobile/pos/route.ts", {
     "./_shared": { ...shared, session: async () => auth }, "./_cart": cart,
+    "@/lib/services/table-account-actor.service": load("src/lib/services/table-account-actor.service.ts", { "@/lib/table-account": load("src/lib/table-account.ts") }),
     "next/server": { after: (callback) => backgroundCalls.push(callback) }, "next/cache": { revalidatePath: () => {} },
     "@/lib/restaurant-directory-options": { businessTypeSupportsTableQr: () => true, businessTypeSupportsKitchen: () => true },
     "@/lib/supabase/storage": {
@@ -350,18 +352,29 @@ test("large cash shifts are not truncated at the database page limit", async () 
   assert.equal(result.at(-1).id, "1204");
 });
 
-test("cashier settles every active order before releasing the table", async () => {
+test("cashier closes the displayed visit with one atomic RPC, including already served orders", async () => {
   const f = fixture("cashier");
-  f.rows.orders.push({
-    id: requestId, restaurant_id: restaurantId, table_id: tableId, order_number: "M-10", order_type: "table",
-    status: "pending", payment_status: "pending", payment_method: "cash", total: 50,
-  });
-  const response = await post(f.route, { action: "settle-table", restaurantId, tableId, paymentMethod: "cash", cashReceived: 50 });
-  assert.equal(response.status, 200);
-  assert.equal(f.rows.orders[0].payment_status, "paid");
-  assert.equal(f.rows.orders[0].status, "delivered");
-  assert.equal(f.rows.tables[0].status, "available");
-  assert.ok(f.rpcCalls.some((call) => call.name === "charge_order_with_cash_movement"));
+  const visitId = "77777777-7777-4777-8777-777777777777";
+  f.rows.table_visits = [{id: visitId,restaurant_id:restaurantId,table_id:tableId,status:"open"}];
+  f.rows.orders.push({id:requestId,restaurant_id:restaurantId,table_id:tableId,table_visit_id:visitId,status:"delivered",payment_status:"pending",total:50});
+  const response = await post(f.route, {action:"settle-table",restaurantId,tableId,visitId,paymentMethod:"cash",cashReceived:50});
+  assert.equal(response.status,200);
+  assert.deepEqual(f.rpcCalls.map(call=>call.name),["close_table_account"]);
+  assert.equal(f.rpcCalls[0].args.p_visit_id,visitId);
+  assert.equal(f.rpcCalls[0].args.p_cash_received,50);
+});
+
+test("snapshot retains delivered orders in the open visit and separates past visits", async()=>{
+  const f=fixture("cashier"), visitId="77777777-7777-4777-8777-777777777777";
+  f.rows.table_visits=[{id:visitId,restaurant_id:restaurantId,table_id:tableId,status:"open"}];
+  f.rows.orders=[{id:requestId,restaurant_id:restaurantId,table_id:tableId,table_visit_id:visitId,order_type:"table",order_origin:"pos_counter",status:"delivered",payment_status:"pending",bank_checkout_hold:false,bank_schedule_hold:false,notes:`Mesa 4 | Mesero: Ana Mesera | Usuario: ${userId}`},
+    {id:productId,restaurant_id:restaurantId,table_id:tableId,table_visit_id:"old-visit",order_type:"table",status:"delivered",payment_status:"paid",bank_checkout_hold:false,bank_schedule_hold:false}];
+  const response=await f.route.GET(new Request(`http://localhost/api/mobile/pos?restaurantId=${restaurantId}&catalog=0`));
+  assert.equal(response.status,200);const data=await response.json();
+  assert.equal(data.tables[0].activeVisitId,visitId);
+  assert.equal(data.orders.find(order=>order.id===requestId).table_account_open,true);
+  assert.equal(data.orders.find(order=>order.id===requestId).taken_by,"Caja · Ana Mesera");
+  assert.equal(data.orders.find(order=>order.id===productId).table_account_open,false);
 });
 
 test("cashier cancellation keeps an owner review with actor and reason", async () => {

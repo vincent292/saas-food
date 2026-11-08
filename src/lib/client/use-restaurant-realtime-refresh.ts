@@ -18,7 +18,7 @@ export type RestaurantRealtimeChange = {
 const tablesByScope: Record<RealtimeScope, readonly RealtimeTable[]> = {
   orders: ["orders"],
   kitchen: ["orders"],
-  cash: ["orders", "order_delivery_links", "cash_sessions", "cash_movements", "order_cancellation_reviews"],
+  cash: ["tables", "table_visits", "orders", "order_delivery_links", "cash_sessions", "cash_movements", "order_cancellation_reviews"],
   notifications: ["orders", "cash_sessions", "order_cancellation_reviews"],
   dashboard: ["orders", "cash_sessions", "cash_movements", "inventory_items", "tables", "products"],
   owner: ["orders", "cash_sessions", "cash_movements", "inventory_items", "order_cancellation_reviews"],

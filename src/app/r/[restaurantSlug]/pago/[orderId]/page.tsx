@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { CallWaiterButton } from "@/components/tables/CallWaiterButton";
 import { BankCheckoutPayment } from "@/components/orders/BankCheckoutPayment";
 import { RestaurantLayout } from "@/components/layout/RestaurantLayout";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -21,13 +22,14 @@ export default async function PaymentPage({ params, searchParams }: {
   const submitted = order.payment_status === "paid" && !order.bank_checkout_hold && order.status !== "cancelled" && (order.bank_schedule_hold || order.status !== "pending");
   if (order.payment_method !== "qr" || !order.bank_payment_required || submitted) redirect(`${publicRestaurantPath(restaurantSlug, `pedido/${orderId}`)}?token=${encodeURIComponent(token)}`);
   const payment = await bankOrderPaymentService.get(orderId, token).catch(() => null);
-  const table = order.table_id ? await admin.from("tables").select("name").eq("id", order.table_id).eq("restaurant_id", restaurant.id).maybeSingle() : null;
+  const table = order.table_id ? await admin.from("tables").select("name,code").eq("id", order.table_id).eq("restaurant_id", restaurant.id).maybeSingle() : null;
   return <RestaurantLayout restaurant={restaurant} showCart={false} showMobileNav={false}>
     <main className="mx-auto w-full max-w-xl px-4 pb-12 pt-6 sm:px-6">
       <p className="text-xs font-black uppercase tracking-widest text-[var(--muted)]">Revisar → Pagar → Pedido aprobado</p>
       <h1 className="mt-3 text-2xl font-black text-[var(--primary)] sm:text-3xl">Paga para enviar tu pedido</h1>
       <p className="mt-2 text-sm text-[var(--muted)]">{restaurant.name} · Total {formatMoney(Number(order.total), "BOB")}</p>
       {table?.data ? <p className="mt-2 text-sm font-bold">Para {table.data.name}. Revisa que sea tu mesa antes de pagar.</p> : null}
+      {table?.data ? <div className="mt-4"><p className="mb-2 text-sm text-[var(--muted)]">¿Necesitas ayuda con el pago? Avisa al mesero de tu mesa.</p><CallWaiterButton slug={restaurant.slug} code={table.data.code} /></div> : null}
       <div className="mt-5"><BankCheckoutPayment orderId={orderId} token={token} restaurantSlug={restaurantSlug} requestId={order.public_request_id} initialPayment={payment} /></div>
     </main>
   </RestaurantLayout>;

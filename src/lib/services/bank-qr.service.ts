@@ -205,7 +205,7 @@ export async function acceptBanecoPaymentNotice(qrId: string) {
 }
 
 async function publicOrder(admin: ReturnType<typeof adminClient>, orderId: string, token: string) {
-  const order = checked(await admin.from("orders").select("id,restaurant_id,total,payment_status,payment_method,status,bank_checkout_hold,bank_schedule_hold,requested_fulfillment_at,group_order_session_id,payment_receipt_url,payment_receipt_reference")
+  const order = checked(await admin.from("orders").select("id,restaurant_id,order_type,total,payment_status,payment_method,status,bank_checkout_hold,bank_schedule_hold,requested_fulfillment_at,group_order_session_id,payment_receipt_url,payment_receipt_reference")
     .eq("id", orderId).eq("tracking_token", token).maybeSingle());
   if (!order) throw new BanecoError("bank-request-unavailable");
   return order;
@@ -232,7 +232,7 @@ export const bankOrderPaymentService = {
         image: compatible && request.status === "pending" && request.due_date >= boliviaDate() ? request.qr_image : null };
     }
     if (order.payment_status === "paid") return { ...lifecycle, available: false, status: "paid" };
-    const eligible = order.payment_status === "pending" && order.payment_method === "qr" && order.status !== "cancelled" && order.status !== "delivered"
+    const eligible = order.payment_status === "pending" && order.payment_method === "qr" && order.status !== "cancelled" && (order.status !== "delivered" || order.order_type === "table")
       && !order.group_order_session_id && !order.payment_receipt_url && !order.payment_receipt_reference && Number(order.total) >= .01 && Number(order.total) <= 50000;
     if (!eligible) return { ...lifecycle, available: false, status: "unavailable" };
     const [account, child] = await Promise.all([

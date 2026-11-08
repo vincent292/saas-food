@@ -1,3 +1,4 @@
+import { posNotificationSound } from "@/lib/mobile-pos-notification";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database, Json } from "@/types/database.types";
 import type { OrderStatus } from "@/types/order.types";
@@ -27,6 +28,7 @@ type OrderPushRow = {
 };
 
 type RestaurantPosPushRow = {
+  platform?: string | null;
   expo_push_token: string;
   user_id: string | null;
 };
@@ -53,7 +55,7 @@ export async function sendTableServicePush(callId: string) {
     .eq("id", callId).eq("status", "pending").is("notification_claimed_at", null).maybeSingle();
   if (!call || Date.parse(call.created_at) < Date.now() - 15 * 60000) return { ok: true, sent: 0 };
   const [registrations, memberships, table] = await Promise.all([
-    db.from("restaurant_pos_push_tokens").select("expo_push_token,user_id").eq("restaurant_id", call.restaurant_id)
+    db.from("restaurant_pos_push_tokens").select("expo_push_token,user_id,platform").eq("restaurant_id", call.restaurant_id)
       .eq("is_enabled", true).gte("last_seen_at", new Date(Date.now() - 90 * 86400000).toISOString()),
     db.from("restaurant_memberships").select("user_id,role").eq("restaurant_id", call.restaurant_id).eq("is_active", true),
     db.from("tables").select("name").eq("id", call.table_id).eq("restaurant_id", call.restaurant_id).maybeSingle(),
@@ -65,7 +67,9 @@ export async function sendTableServicePush(callId: string) {
       .in("action", ["waiter_shift_opened", "waiter_shift_closed"]).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
     if (!shift.error && shift.data?.action === "waiter_shift_opened") allowed.add(call.assigned_waiter_id);
   }
-  const tokens = [...new Set((registrations.data ?? []).filter(row => row.user_id && allowed.has(row.user_id)).map(row => row.expo_push_token).filter(isExpoPushToken))];
+  const permitted = (registrations.data ?? []).filter(row => row.user_id && allowed.has(row.user_id));
+  const tokenPlatforms = new Map(permitted.map(row => [row.expo_push_token, row.platform]));
+  const tokens = [...new Set(permitted.map(row => row.expo_push_token).filter(isExpoPushToken))];
   if (!tokens.length) return { ok: true, sent: 0 };
   // Atomic claim prevents a repeated customer tap from sending duplicate pushes.
   // Never blindly retry an ambiguous Expo timeout; the inbox remains visible.
@@ -75,7 +79,7 @@ export async function sendTableServicePush(callId: string) {
   const title = `${table.data?.name ?? "Mesa"} solicita atención`;
   const body = "Un cliente está llamando al mesero. Confirma la atención en Mesas.";
   return sendExpoMessages(db, { title, body, eventType: "table_service_call", restaurantId: call.restaurant_id,
-    messages: tokens.map(to => ({ to, title, body, priority: "high", sound: "notificaiones.mp3", channelId: "pos-orders",
+    messages: tokens.map(to => ({ to, title, body, priority: "high", sound: posNotificationSound(tokenPlatforms.get(to)), channelId: "pos-orders",
       data: { type: "table_service_call", restaurantId: call.restaurant_id, tableId: call.table_id, callId: call.id } })) });
 }
 
@@ -227,7 +231,7 @@ export async function sendRestaurantNewOrderPush(orderId: string) {
   if (!order || order.order_type === "pos") return { ok: true, sent: 0 };
   const { data } = await supabase
     .from("restaurant_pos_push_tokens")
-    .select("expo_push_token,user_id")
+    .select("expo_push_token,user_id,platform")
     .eq("restaurant_id", order.restaurant_id)
     .eq("is_enabled", true)
     .gte("last_seen_at", new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString());
@@ -261,6 +265,7 @@ export async function sendRestaurantNewOrderPush(orderId: string) {
         .filter(isExpoPushToken),
     ),
   );
+  const tokenPlatforms = new Map(rows.map(row => [row.expo_push_token, row.platform]));
   const title = `Pedido nuevo ${order.order_number}`;
   const body = `${order.restaurant?.name ?? "Tu negocio"}: hay un pedido nuevo esperando revision.`;
   const result = await sendExpoMessages(supabase, {
@@ -276,7 +281,7 @@ export async function sendRestaurantNewOrderPush(orderId: string) {
         type: "pos_new_order",
       },
       priority: "high",
-      sound: "notificaiones.mp3",
+      sound: posNotificationSound(tokenPlatforms.get(token)),
       title,
       to: token,
     })),

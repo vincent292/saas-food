@@ -1,3 +1,4 @@
+import { tableAccountActors } from "@/lib/services/table-account-actor.service";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
@@ -13,6 +14,8 @@ type OrderRow = {
   id: string;
   restaurant_id: string;
   table_id: string | null;
+  table_visit_id?: string | null;
+  table_account_open?: boolean;
   order_number: string;
   customer_name: string | null;
   customer_phone: string | null;
@@ -242,6 +245,8 @@ function mapOrder(row: OrderRow, items: OrderItem[], deliveryDispatch?: OrderDel
     id: row.id,
     restaurantId: row.restaurant_id,
     tableId: row.table_id ?? undefined,
+    tableVisitId: row.table_visit_id ?? undefined,
+    tableAccountOpen: row.table_account_open,
     orderNumber: row.order_number,
     customerName: row.customer_name ?? "",
     customerPhone: row.customer_phone ?? "",
@@ -490,11 +495,14 @@ export const orderService = {
 
     const totalStartedAt = perfNow();
     const supabase = await createClient();
+    const visitsResult = await supabase.from("table_visits").select("id").eq("restaurant_id", restaurantId).eq("status", "open");
+    if (visitsResult.error) throw visitsResult.error;
+    const visitIds = (visitsResult.data ?? []).map(visit => visit.id);
     const ordersStartedAt = perfNow();
-    const { data: orders, error } = await supabase
+    const { data: recentOrders, error } = await supabase
       .from("orders")
       .select(
-        "id,restaurant_id,table_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,bank_payment_required,bank_auto_accept,bank_group_session_id,group_prepaid_amount,group_cash_due,subtotal,delivery_fee,discount_total,total,notes,created_at,eta_adjustment_minutes,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
+        "id,restaurant_id,table_id,table_visit_id,order_number,customer_name,customer_phone,customer_email,customer_address,delivery_address_detail,delivery_latitude,delivery_longitude,delivery_maps_url,delivery_distance_km,requires_prepayment,requested_fulfillment_at,order_type,order_origin,status,payment_status,payment_method,payment_receipt_url,payment_receipt_uploaded_at,payment_receipt_reference,payment_verified_at,bank_payment_required,bank_auto_accept,bank_group_session_id,group_prepaid_amount,group_cash_due,subtotal,delivery_fee,discount_total,total,notes,created_at,eta_adjustment_minutes,accepted_at,preparing_at,ready_at,delivered_at,cancelled_at,cancellation_reason,printed_at",
       )
       .eq("restaurant_id", restaurantId)
       .eq("bank_checkout_hold", false)
@@ -502,6 +510,20 @@ export const orderService = {
       .or(`created_at.gte.${startOfBusinessDayIso()},accepted_at.gte.${startOfBusinessDayIso()},and(order_type.eq.table,status.in.(pending,accepted,preparing,ready))`)
       .order("created_at", { ascending: false })
       .limit(160);
+    if (error) throw error;
+    const openOrders: OrderRow[] = [];
+    if (visitIds.length) {
+      for (let from = 0; ; from += 500) {
+        const result = await supabase.from("orders").select("*").eq("restaurant_id", restaurantId)
+          .in("table_visit_id", visitIds).eq("bank_checkout_hold", false).eq("bank_schedule_hold", false)
+          .order("created_at").order("id").range(from, from + 499);
+        if (result.error) throw result.error;
+        openOrders.push(...result.data as OrderRow[]);
+        if (result.data.length < 500) break;
+      }
+    }
+    const orders = [...new Map([...(recentOrders ?? []), ...openOrders].map(row => [row.id, row])).values()]
+      .map(row => ({ ...row, table_account_open: Boolean(row.table_visit_id && visitIds.includes(row.table_visit_id)) }));
     perfLog("[orderService.listCashWorkspaceOrders] orders-query", ordersStartedAt, { restaurantId, rows: orders?.length ?? 0, error: Boolean(error) });
 
     if (error || !orders?.length) {
@@ -535,6 +557,7 @@ export const orderService = {
     const linksByOrder = deliveryLinksByOrder((deliveryLinks ?? []) as DeliveryLinkRow[]);
     const multisitePickups = await internalMultisitePickups(supabase, orderIds);
 
+    const actors = await tableAccountActors(createAdminClient() ?? supabase, restaurantId, orders.filter(order => order.order_type === "table"));
     const mappedOrders = orders.map((order) =>
       mapOrder(
         order as OrderRow,
@@ -546,7 +569,7 @@ export const orderService = {
     perfLog("[orderService.listCashWorkspaceOrders] map", mapStartedAt, { restaurantId, rows: mappedOrders.length });
     perfLog("[orderService.listCashWorkspaceOrders] total", totalStartedAt, { restaurantId, rows: mappedOrders.length, items: items?.length ?? 0, deliveryLinks: deliveryLinks?.length ?? 0 });
 
-    return mappedOrders;
+    return mappedOrders.map(order => ({ ...order, takenBy: actors.get(order.id) }));
   },
 
   async listPendingAlerts(restaurantId: string) {

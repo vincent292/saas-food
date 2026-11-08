@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { analyzeMenuImportAction, createCategoryAction, createProductAction, importMenuDraftAction, updateProductAction } from "@/app/admin/actions";
 import { ProductCard } from "@/components/products/ProductCard";
+import { ProductEditorDialog, ProductEditorSection } from "@/components/products/ProductEditorDialog";
 import { ProductStats } from "@/components/products/ProductStats";
 import { CompressedImageInput } from "@/components/settings/CompressedImageInput";
 import { Badge } from "@/components/ui/Badge";
@@ -35,6 +36,7 @@ import type { BusinessType } from "@/types/restaurant.types";
 type ProductStatus = "all" | "active" | "inactive";
 type ViewMode = "grid" | "list";
 type ProductKind = Product["productKind"];
+type ProductPreset = "simple" | "combo" | "promotion" | "lunch";
 type DraftVariant = { name: string; description: string; priceDelta: number; sortOrder: number; isActive: boolean };
 type DraftOption = {
   name: string;
@@ -166,6 +168,7 @@ export function ProductManagementClient({
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [variants, setVariants] = useState<DraftVariant[]>([emptyVariant(0)]);
   const [optionGroups, setOptionGroups] = useState<DraftOptionGroup[]>([]);
+  const [pendingPreset, setPendingPreset] = useState<ProductPreset | null>(null);
   const [productKind, setProductKind] = useState<ProductKind>("standard");
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [productImagePreviewUrl, setProductImagePreviewUrl] = useState("");
@@ -218,6 +221,7 @@ export function ProductManagementClient({
   const canCreateInSelectedCategory = canManageProducts && hasSelectedCategory;
 
   const variantsJson = useMemo(() => JSON.stringify(variants.filter((variant) => variant.name.trim())), [variants]);
+  const draftVariantCount = variants.filter((variant) => variant.name.trim()).length;
   const optionGroupsJson = useMemo(
     () =>
       JSON.stringify(
@@ -524,212 +528,174 @@ export function ProductManagementClient({
       ) : null}
 
       {canManageProducts && productModalOpen ? (
-        <ModalShell eyebrow={editingProduct ? "Editar" : "Crear"} title="Producto" wide onClose={() => closeProductModal()}>
-          <form action={editingProduct ? updateProductAction : createProductAction} className="space-y-5" key={editingProduct?.id ?? "new-product"}>
-            <input name="restaurantId" type="hidden" value={restaurantId} />
-            {editingProduct ? <input name="productId" type="hidden" value={editingProduct.id} /> : null}
-            <input name="variantsJson" type="hidden" value={variantsJson} />
-            <input name="optionGroupsJson" type="hidden" value={optionGroupsJson} />
-            <input name="availableDays" type="hidden" value={selectedDays.join(",")} />
-            <input name="imagePositionX" type="hidden" value={imagePositionX} />
-            <input name="imagePositionY" type="hidden" value={imagePositionY} />
-            <input name="imageZoom" type="hidden" value={imageZoom} />
+        <ProductEditorDialog action={editingProduct ? updateProductAction : createProductAction} editing={Boolean(editingProduct)} onClose={closeProductModal}>
+          <input name="restaurantId" type="hidden" value={restaurantId} />
+          {editingProduct ? <input name="productId" type="hidden" value={editingProduct.id} /> : null}
+          <input name="variantsJson" type="hidden" value={variantsJson} />
+          <input name="optionGroupsJson" type="hidden" value={optionGroupsJson} />
+          <input name="availableDays" type="hidden" value={selectedDays.join(",")} />
+          <input name="imagePositionX" type="hidden" value={imagePositionX} />
+          <input name="imagePositionY" type="hidden" value={imagePositionY} />
+          <input name="imageZoom" type="hidden" value={imageZoom} />
 
-            <div className="grid grid-cols-2 gap-2 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--color-card-muted)] p-3 sm:grid-cols-4">
-              <PresetButton icon={<Sparkles className="h-4 w-4" />} label="Simple" onClick={() => applyPreset("simple")} />
-              <PresetButton icon={<PackageCheck className="h-4 w-4" />} label="Combo" onClick={() => applyPreset("combo")} />
-              <PresetButton icon={<Flame className="h-4 w-4" />} label="Promo" onClick={() => applyPreset("promotion")} />
-              <PresetButton icon={<Utensils className="h-4 w-4" />} label="Almuerzo" onClick={() => applyPreset("lunch")} />
-            </div>
-
-            <div className="grid gap-4 xl:grid-cols-[280px_1fr]">
-              <PreviewBanner className="min-h-56 xl:min-h-full" fit={{ imagePositionX, imagePositionY, imageZoom }} imageUrl={productImagePreviewUrl || editingProduct?.imageUrl} label={editingProduct?.name || "Nuevo producto"} />
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Labeled label="Nombre">
-                  <Input defaultValue={editingProduct?.name} name="name" required />
+          <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <section className="min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+              <h3 className="font-black">Datos del producto</h3>
+              <p className="mt-1 text-xs text-[var(--muted)]">Los campos con * son obligatorios.</p>
+              <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2">
+                <Labeled label="Nombre *">
+                  <Input defaultValue={editingProduct?.name} name="name" placeholder="Ej. Pizza hawaiana" required />
                 </Labeled>
-                <Labeled label="Categoria">
+                <Labeled label="Categoría">
                   <Select defaultValue={editingProduct?.categoryId || (categoryId !== "all" && categoryId !== "none" ? categoryId : "")} name="categoryId">
-                    <option value="">Sin categoria</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.name}
-                      </option>
-                    ))}
+                    <option value="">Sin categoría</option>
+                    {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
                   </Select>
                 </Labeled>
-                <Labeled className="sm:col-span-2" label="Descripcion">
-                  <Textarea defaultValue={editingProduct?.description} name="description" />
-                </Labeled>
-                <Labeled label="Precio base">
-                  <Input defaultValue={editingProduct?.price ?? 0} min={0} name="price" required step="0.01" type="number" />
-                </Labeled>
-                <Labeled label="Tiempo cocina">
-                  <div className="relative">
-                    <Clock3 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--primary)]" />
-                    <Input className="pl-11" defaultValue={editingProduct?.prepMinutes ?? 15} min={1} max={240} name="prepMinutes" required step={1} type="number" />
-                  </div>
-                </Labeled>
-                <Labeled label="Tipo">
-                  <Select name="productKind" onChange={(event) => setProductKind(event.target.value as ProductKind)} value={productKind}>
-                    <option value="standard">Producto normal</option>
-                    <option value="promotion">Promocion</option>
-                    <option value="lunch">Almuerzo mensual</option>
-                  </Select>
-                </Labeled>
-                <Labeled label={productKind === "promotion" ? "Precio anterior" : "Precio referencia"}>
-                  <Input defaultValue={editingProduct?.compareAtPrice ?? ""} min={0} name="compareAtPrice" placeholder="Opcional" step="0.01" type="number" />
-                </Labeled>
-                <Labeled label="Orden">
-                  <Input defaultValue={editingProduct?.sortOrder ?? products.length + 1} min={0} name="sortOrder" type="number" />
-                </Labeled>
-                <div className="sm:col-span-2">
-                  <ProductSchedulePanel
-                    availableFrom={editingProduct?.availableFrom}
-                    availableUntil={editingProduct?.availableUntil}
-                    days={selectedDays}
-                    endTime={editingProduct?.availableEndTime}
-                    kind={productKind}
-                    onClearDays={() => setSelectedDays([])}
-                    onToggleDay={toggleDay}
-                    startTime={editingProduct?.availableStartTime}
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <CompressedImageInput help={businessProductImageHelp(businessType)} label="Imagen" name="imageFile" onPreviewUrlChange={setProductImagePreviewUrl} />
-                  <ProductImageFrameEditor
-                    fit={{ imagePositionX, imagePositionY, imageZoom }}
-                    imageUrl={productImagePreviewUrl || editingProduct?.imageUrl || defaultProductImage}
-                    label={editingProduct?.name || "Producto"}
-                    onChange={(nextFit) => {
-                      setImagePositionX(nextFit.imagePositionX);
-                      setImagePositionY(nextFit.imagePositionY);
-                      setImageZoom(nextFit.imageZoom);
-                    }}
-                  />
-                </div>
-                <label className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
-                  <input defaultChecked={editingProduct?.isAvailable ?? true} name="isAvailable" type="checkbox" />
-                  Activo
-                </label>
-                <label className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
-                  <input defaultChecked={editingProduct?.isFeatured ?? false} name="isFeatured" type="checkbox" />
-                  Destacado
-                </label>
-                <label className="flex items-center gap-2 text-sm font-black text-[var(--text)]">
-                  <input defaultChecked={editingProduct?.trackStock ?? false} name="trackStock" type="checkbox" />
-                  Descontar del inventario al vender
-                </label>
-              </div>
-            </div>
-
-            <div className="border-t border-[var(--border)] pt-5">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="font-black text-[var(--text)]">Variantes</h3>
-                <Button onClick={() => setVariants((current) => [...current, emptyVariant(current.length)])} type="button">
-                  <Plus className="h-4 w-4" />
-                  Agregar variante
-                </Button>
-              </div>
-              <div className="mt-3 space-y-3">
-                {variants.map((variant, index) => (
-                  <div className="rounded-3xl border border-[var(--border)] bg-[var(--primary-light)]/40 p-4" key={index}>
-                    <div className="grid gap-3 lg:grid-cols-[1fr_160px_120px_auto] lg:items-end">
-                      <Labeled label="Nombre">
-                        <Input onChange={(event) => updateVariant(index, { name: event.target.value })} placeholder={variantExample} value={variant.name} />
-                      </Labeled>
-                      <Labeled label="Precio extra">
-                        <Input onChange={(event) => updateVariant(index, { priceDelta: Number(event.target.value) })} step="0.01" type="number" value={variant.priceDelta} />
-                      </Labeled>
-                      <Labeled label="Orden">
-                        <Input onChange={(event) => updateVariant(index, { sortOrder: Number(event.target.value) })} type="number" value={variant.sortOrder} />
-                      </Labeled>
-                      <button className={buttonClasses("danger", "h-11")} onClick={() => setVariants((current) => current.filter((_, itemIndex) => itemIndex !== index))} type="button">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                <div className="grid min-w-0 grid-cols-2 gap-3 sm:col-span-2">
+                  <Labeled label="Precio (Bs) *">
+                    <Input defaultValue={editingProduct?.price ?? 0} inputMode="decimal" min={0} name="price" required step="0.01" type="number" />
+                  </Labeled>
+                  <Labeled label="Cocina (min) *">
+                    <div className="relative min-w-0">
+                      <Clock3 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--primary)]" />
+                      <Input className="min-w-0 pl-9" defaultValue={editingProduct?.prepMinutes ?? 15} inputMode="numeric" max={240} min={1} name="prepMinutes" required step={1} type="number" />
                     </div>
-                    <Textarea className="mt-3" onChange={(event) => updateVariant(index, { description: event.target.value })} placeholder="Descripcion de la variante" value={variant.description} />
+                  </Labeled>
+                </div>
+                <Labeled className="sm:col-span-2" label="Descripción">
+                  <Textarea defaultValue={editingProduct?.description} name="description" placeholder="Ingredientes o detalles que verá el cliente" />
+                </Labeled>
+              </div>
+              <ProductEditorSection className="mt-4 bg-[var(--color-card-muted)]" description="Simple, Combo, Promo o Almuerzo" title="Usar una plantilla">
+                <p className="text-xs leading-relaxed text-[var(--muted)]">Las plantillas preparan el tipo, las variantes y los extras. Después puedes personalizarlos.</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
+                  <PresetButton icon={<Sparkles className="h-4 w-4" />} label="Simple" onClick={() => requestPreset("simple")} />
+                  <PresetButton icon={<PackageCheck className="h-4 w-4" />} label="Combo" onClick={() => requestPreset("combo")} />
+                  <PresetButton icon={<Flame className="h-4 w-4" />} label="Promo" onClick={() => requestPreset("promotion")} />
+                  <PresetButton icon={<Utensils className="h-4 w-4" />} label="Almuerzo" onClick={() => requestPreset("lunch")} />
+                </div>
+                {pendingPreset ? (
+                  <div className="space-y-3 rounded-xl border border-[var(--color-warning-border)] bg-[var(--color-warning-soft)] p-3 text-sm" role="alert">
+                    <p className="font-bold">¿Reemplazar la configuración actual?</p>
+                    <p>Esta plantilla reemplaza las variantes y los extras, y puede cambiar los días disponibles. Los datos principales y la foto se conservan.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={() => { applyPreset(pendingPreset); setPendingPreset(null); }} type="button">Aplicar plantilla</Button>
+                      <Button onClick={() => setPendingPreset(null)} type="button" variant="secondary">Mantener configuración</Button>
+                    </div>
+                  </div>
+                ) : null}
+              </ProductEditorSection>
+            </section>
+
+            <aside className="min-w-0 space-y-3 xl:col-start-2 xl:row-start-1 xl:row-span-4">
+              <div className="hidden xl:block">
+                <PreviewBanner className="aspect-[4/3] min-h-0" fit={{ imagePositionX, imagePositionY, imageZoom }} imageUrl={productImagePreviewUrl || editingProduct?.imageUrl} label={editingProduct?.name || "Nuevo producto"} />
+              </div>
+              <ProductEditorSection description="Foto y encuadre para el menú y el celular" title="Imagen">
+                <CompressedImageInput className="[&>div]:grid-cols-1" help={businessProductImageHelp(businessType)} label="Foto del producto" name="imageFile" onPreviewUrlChange={setProductImagePreviewUrl} previewClassName="hidden" />
+                <ProductImageFrameEditor
+                  fit={{ imagePositionX, imagePositionY, imageZoom }}
+                  imageUrl={productImagePreviewUrl || editingProduct?.imageUrl || defaultProductImage}
+                  label={editingProduct?.name || "Producto"}
+                  onChange={(nextFit) => { setImagePositionX(nextFit.imagePositionX); setImagePositionY(nextFit.imagePositionY); setImageZoom(nextFit.imageZoom); }}
+                />
+              </ProductEditorSection>
+            </aside>
+
+            <ProductEditorSection className="xl:col-start-1" description="Personaliza las fechas, los días y los horarios de venta." open={Boolean(editingProduct?.availableFrom || editingProduct?.availableUntil || editingProduct?.availableStartTime || editingProduct?.availableEndTime || editingProduct?.availableDays?.length) || productKind !== "standard"} title="Disponibilidad">
+              <ProductSchedulePanel
+                availableFrom={editingProduct?.availableFrom}
+                availableUntil={editingProduct?.availableUntil}
+                days={selectedDays}
+                endTime={editingProduct?.availableEndTime}
+                kind={productKind}
+                onClearDays={() => setSelectedDays([])}
+                onToggleDay={toggleDay}
+                startTime={editingProduct?.availableStartTime}
+              />
+            </ProductEditorSection>
+
+            <ProductEditorSection className="xl:col-start-1" description={`${draftVariantCount} ${draftVariantCount === 1 ? "variante" : "variantes"} · ${optionGroups.length} ${optionGroups.length === 1 ? "grupo" : "grupos"} de opciones`} title="Variantes y extras">
+              <section className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="font-black">Variantes</h3>
+                  <Button className="w-full sm:w-auto" onClick={() => setVariants((current) => [...current, emptyVariant(current.length)])} type="button" variant="secondary"><Plus className="h-4 w-4" />Agregar variante</Button>
+                </div>
+                {variants.map((variant, index) => (
+                  <div className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--color-card-muted)] p-3" key={index}>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="min-w-0 break-words text-sm font-bold">Variante {index + 1}</p>
+                      <EditorRemoveButton label={`Eliminar variante ${index + 1}`} onClick={() => setVariants((current) => current.filter((_, itemIndex) => itemIndex !== index))} />
+                    </div>
+                    <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_140px_100px]">
+                      <Labeled label="Nombre"><Input onChange={(event) => updateVariant(index, { name: event.target.value })} placeholder={variantExample} value={variant.name} /></Labeled>
+                      <Labeled label="Precio adicional (Bs)"><Input inputMode="decimal" onChange={(event) => updateVariant(index, { priceDelta: Number(event.target.value) })} step="0.01" type="number" value={variant.priceDelta} /></Labeled>
+                      <Labeled label="Orden"><Input inputMode="numeric" onChange={(event) => updateVariant(index, { sortOrder: Number(event.target.value) })} type="number" value={variant.sortOrder} /></Labeled>
+                    </div>
+                    <Labeled label="Descripción de la variante"><Textarea onChange={(event) => updateVariant(index, { description: event.target.value })} value={variant.description} /></Labeled>
                   </div>
                 ))}
-              </div>
-            </div>
-
-            <div className="border-t border-[var(--border)] pt-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-black text-[var(--text)]">Opciones configurables</h3>
-                  <p className="mt-1 text-sm text-[var(--muted)]">{businessOptionGroupCopy(businessType)}</p>
+              </section>
+              <section className="space-y-3 border-t border-[var(--border)] pt-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0"><h3 className="font-black">Opciones configurables</h3><p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{businessOptionGroupCopy(businessType)}</p></div>
+                  <Button className="w-full sm:w-auto" onClick={() => setOptionGroups((current) => [...current, emptyOptionGroup(current.length)])} type="button" variant="secondary"><Plus className="h-4 w-4" />Agregar grupo</Button>
                 </div>
-                <Button onClick={() => setOptionGroups((current) => [...current, emptyOptionGroup(current.length)])} type="button">
-                  <Plus className="h-4 w-4" />
-                  Agregar grupo
-                </Button>
-              </div>
-              <div className="mt-3 space-y-3">
-                {optionGroups.length ? (
-                  optionGroups.map((group, groupIndex) => (
-                    <div className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-4" key={groupIndex}>
-                      <div className="grid gap-3 lg:grid-cols-[1fr_120px_120px_auto] lg:items-end">
-                        <Labeled label="Grupo">
-                          <Input onChange={(event) => updateOptionGroup(groupIndex, { name: event.target.value })} placeholder="Ej. Salsa" value={group.name} />
-                        </Labeled>
-                        <Labeled label="Min">
-                          <Input min={0} onChange={(event) => updateOptionGroup(groupIndex, { minChoices: Number(event.target.value) })} type="number" value={group.minChoices} />
-                        </Labeled>
-                        <Labeled label="Max">
-                          <Input min={1} onChange={(event) => updateOptionGroup(groupIndex, { maxChoices: Number(event.target.value) })} type="number" value={group.maxChoices} />
-                        </Labeled>
-                        <button className={buttonClasses("danger", "h-11")} onClick={() => setOptionGroups((current) => current.filter((_, itemIndex) => itemIndex !== groupIndex))} type="button">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                      <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
-                        <Input onChange={(event) => updateOptionGroup(groupIndex, { description: event.target.value })} placeholder="Descripcion interna. Ej. El cliente puede elegir hasta 3 salsas." value={group.description} />
-                        <label className="inline-flex min-h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--color-card-muted)] px-4 text-sm font-black text-[var(--text)]">
-                          <input checked={group.isRequired} onChange={(event) => updateOptionGroup(groupIndex, { isRequired: event.target.checked, minChoices: event.target.checked ? Math.max(1, group.minChoices) : group.minChoices })} type="checkbox" />
-                          Obligatorio
-                        </label>
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        {group.options.map((option, optionIndex) => (
-                          <div className="grid gap-2 rounded-[var(--radius-control)] bg-[var(--color-surface)] p-3 xl:grid-cols-[minmax(160px,1fr)_120px_170px_110px_auto]" key={optionIndex}>
-                            <Input onChange={(event) => updateOption(groupIndex, optionIndex, { name: event.target.value })} placeholder="Ej. Aparte / Banada / Papas" value={option.name} />
-                            <Input onChange={(event) => updateOption(groupIndex, optionIndex, { priceDelta: Number(event.target.value) })} step="0.01" type="number" value={option.priceDelta} />
-                            <Select aria-label="Insumo ligado" onChange={(event) => updateOption(groupIndex, optionIndex, { inventoryItemId: event.target.value })} value={option.inventoryItemId}>
-                              <option value="">Sin inventario</option>
-                              {inventoryItems.map((item) => (
-                                <option key={item.id} value={item.id}>
-                                  {item.name}
-                                </option>
-                              ))}
-                            </Select>
-                            <Input aria-label="Cantidad inventario" min={0.001} onChange={(event) => updateOption(groupIndex, optionIndex, { inventoryQuantity: Number(event.target.value) })} step="0.001" type="number" value={option.inventoryQuantity} />
-                            <button className={buttonClasses("ghost")} onClick={() => removeOption(groupIndex, optionIndex)} type="button">
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                      <Button className="mt-3" onClick={() => addOption(groupIndex)} type="button" variant="secondary">
-                        <Plus className="h-4 w-4" />
-                        Agregar opcion
-                      </Button>
+                {optionGroups.length ? optionGroups.map((group, groupIndex) => (
+                  <div className="min-w-0 space-y-3 rounded-2xl border border-[var(--border)] p-3" key={groupIndex}>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="min-w-0 break-words text-sm font-bold">Grupo {groupIndex + 1}</p>
+                      <EditorRemoveButton label={`Eliminar grupo ${groupIndex + 1}`} onClick={() => setOptionGroups((current) => current.filter((_, itemIndex) => itemIndex !== groupIndex))} />
                     </div>
-                  ))
-                ) : (
-                  <p className="rounded-2xl bg-[var(--color-surface)] p-4 text-sm font-semibold text-[var(--muted)]">Sin grupos de opciones.</p>
-                )}
-              </div>
-            </div>
+                    <Labeled label="Nombre del grupo"><Input onChange={(event) => updateOptionGroup(groupIndex, { name: event.target.value })} placeholder="Ej. Salsas" value={group.name} /></Labeled>
+                    <div className="grid min-w-0 grid-cols-2 gap-3">
+                      <Labeled label="Mínimo de elecciones"><Input inputMode="numeric" min={0} onChange={(event) => updateOptionGroup(groupIndex, { minChoices: Number(event.target.value) })} type="number" value={group.minChoices} /></Labeled>
+                      <Labeled label="Máximo de elecciones"><Input inputMode="numeric" min={1} onChange={(event) => updateOptionGroup(groupIndex, { maxChoices: Number(event.target.value) })} type="number" value={group.maxChoices} /></Labeled>
+                    </div>
+                    <Labeled label="Descripción interna"><Input onChange={(event) => updateOptionGroup(groupIndex, { description: event.target.value })} placeholder="Ej. El cliente puede elegir hasta 3 salsas" value={group.description} /></Labeled>
+                    <label className="flex min-h-11 items-center gap-2 text-sm font-bold"><input checked={group.isRequired} onChange={(event) => updateOptionGroup(groupIndex, { isRequired: event.target.checked, minChoices: event.target.checked ? Math.max(1, group.minChoices) : group.minChoices })} type="checkbox" />Elección obligatoria</label>
+                    {group.options.map((option, optionIndex) => (
+                      <div className="min-w-0 space-y-3 rounded-xl bg-[var(--color-card-muted)] p-3" key={optionIndex}>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-bold">Opción {optionIndex + 1}</p>
+                          <EditorRemoveButton label={`Eliminar opción ${optionIndex + 1} del grupo ${groupIndex + 1}`} onClick={() => removeOption(groupIndex, optionIndex)} />
+                        </div>
+                        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                          <Labeled label="Nombre de la opción"><Input onChange={(event) => updateOption(groupIndex, optionIndex, { name: event.target.value })} placeholder="Ej. Papas grandes" value={option.name} /></Labeled>
+                          <Labeled label="Precio adicional (Bs)"><Input inputMode="decimal" onChange={(event) => updateOption(groupIndex, optionIndex, { priceDelta: Number(event.target.value) })} step="0.01" type="number" value={option.priceDelta} /></Labeled>
+                          <Labeled label="Insumo de inventario">
+                            <Select onChange={(event) => updateOption(groupIndex, optionIndex, { inventoryItemId: event.target.value })} value={option.inventoryItemId}>
+                              <option value="">Sin inventario</option>
+                              {inventoryItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                            </Select>
+                          </Labeled>
+                          <Labeled label="Cantidad de inventario"><Input inputMode="decimal" min={0.001} onChange={(event) => updateOption(groupIndex, optionIndex, { inventoryQuantity: Number(event.target.value) })} step="0.001" type="number" value={option.inventoryQuantity} /></Labeled>
+                        </div>
+                      </div>
+                    ))}
+                    <Button className="w-full sm:w-auto" onClick={() => addOption(groupIndex)} type="button" variant="secondary"><Plus className="h-4 w-4" />Agregar opción</Button>
+                  </div>
+                )) : <p className="text-sm text-[var(--muted)]">Sin grupos de opciones. Agrega uno si el cliente puede elegir acompañamientos o extras.</p>}
+              </section>
+            </ProductEditorSection>
 
-            <ModalActions
-              onCancel={() => closeProductModal()}
-              pendingDescription={editingProduct ? "Estamos actualizando el producto y sus opciones." : "Estamos creando el producto dentro de la categoria seleccionada."}
-              pendingLabel={editingProduct ? "Actualizando..." : "Creando..."}
-              pendingTitle={editingProduct ? "Actualizando producto" : "Creando producto"}
-            />
-          </form>
-        </ModalShell>
+            <ProductEditorSection className="xl:col-start-1" description="Tipo, precio de referencia, orden e inventario" open={productKind !== "standard"} title="Más ajustes">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                <Labeled label="Tipo de producto">
+                  <Select name="productKind" onChange={(event) => setProductKind(event.target.value as ProductKind)} value={productKind}><option value="standard">Producto normal</option><option value="promotion">Promoción</option><option value="lunch">Almuerzo mensual</option></Select>
+                </Labeled>
+                <Labeled label={productKind === "promotion" ? "Precio anterior (Bs)" : "Precio de referencia (Bs)"}><Input defaultValue={editingProduct?.compareAtPrice ?? ""} inputMode="decimal" min={0} name="compareAtPrice" placeholder="Opcional" step="0.01" type="number" /></Labeled>
+                <Labeled label="Orden en el menú"><Input defaultValue={editingProduct?.sortOrder ?? products.length + 1} inputMode="numeric" min={0} name="sortOrder" type="number" /></Labeled>
+              </div>
+              <div className="grid gap-2">
+                <label className="flex min-h-11 items-center gap-2 text-sm font-bold"><input defaultChecked={editingProduct?.isAvailable ?? true} name="isAvailable" type="checkbox" />Producto activo</label>
+                <label className="flex min-h-11 items-center gap-2 text-sm font-bold"><input defaultChecked={editingProduct?.isFeatured ?? false} name="isFeatured" type="checkbox" />Destacado</label>
+                <label className="flex min-h-11 items-center gap-2 text-sm font-bold"><input defaultChecked={editingProduct?.trackStock ?? false} name="trackStock" type="checkbox" />Descontar del inventario al vender</label>
+              </div>
+            </ProductEditorSection>
+          </div>
+        </ProductEditorDialog>
       ) : null}
     </div>
   );
@@ -858,7 +824,7 @@ export function ProductManagementClient({
     window.location.href = `/admin/restaurantes/${restaurantId}/productos?updated=1`;
   }
 
-  function openCreateProductModal(preset: "simple" | "combo" | "promotion" | "lunch" = "simple") {
+  function openCreateProductModal(preset: ProductPreset = "simple") {
     if (!canManageProducts || !hasSelectedCategory) {
       return;
     }
@@ -919,6 +885,7 @@ export function ProductManagementClient({
   }
 
   function closeProductModal() {
+    setPendingPreset(null);
     setProductModalOpen(false);
     setEditingProduct(null);
     setSelectedDays([]);
@@ -933,7 +900,18 @@ export function ProductManagementClient({
     setSelectedDays((current) => (current.includes(day) ? current.filter((item) => item !== day) : [...current, day].sort((left, right) => left - right)));
   }
 
-  function applyPreset(preset: "simple" | "combo" | "promotion" | "lunch") {
+  function requestPreset(preset: ProductPreset) {
+    const hasConfiguration = variants.some((variant) => variant.name.trim() || variant.description.trim() || variant.priceDelta !== 0)
+      || optionGroups.length > 0 || selectedDays.length > 0;
+    if (hasConfiguration) {
+      setPendingPreset(preset);
+    } else {
+      applyPreset(preset);
+      setPendingPreset(null);
+    }
+  }
+
+  function applyPreset(preset: ProductPreset) {
     if (preset === "simple") {
       setProductKind("standard");
       setVariants([emptyVariant(0)]);
@@ -1345,8 +1323,8 @@ function ProductImageFrameEditor({
   onChange: (fit: { imagePositionX: number; imagePositionY: number; imageZoom: number }) => void;
 }) {
   return (
-    <div className="mt-3 grid gap-3 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--color-card-muted)] p-3 lg:grid-cols-[minmax(0,1fr)_220px]">
-      <div className="grid gap-3 sm:grid-cols-2">
+    <div className="min-w-0 space-y-4">
+      <div className="grid min-w-0 grid-cols-2 gap-3">
         <FramePreview aspectClassName="aspect-[4/3]" imageUrl={imageUrl} label={label} title="Tarjeta" fit={fit} />
         <FramePreview aspectClassName="aspect-[16/10]" imageUrl={imageUrl} label={label} title="Detalle movil" fit={fit} />
       </div>
@@ -1857,6 +1835,14 @@ function ScheduleTimeSelect({
   );
 }
 
+function EditorRemoveButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button aria-label={label} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-[var(--color-danger-strong)] hover:bg-[var(--color-danger-soft)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]" onClick={onClick} title={label} type="button">
+      <Trash2 className="h-4 w-4" />
+    </button>
+  );
+}
+
 function ModalShell({ title, eyebrow, children, onClose, wide = false }: { title: string; eyebrow: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--color-overlay)] p-0 backdrop-blur-sm sm:p-4">
@@ -1878,7 +1864,7 @@ function ModalShell({ title, eyebrow, children, onClose, wide = false }: { title
 
 function Labeled({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <label className={cn("space-y-2 text-sm font-black text-[var(--text)]", className)}>
+    <label className={cn("grid min-w-0 content-start gap-1.5 text-sm font-bold text-[var(--text)]", className)}>
       {label}
       {children}
     </label>

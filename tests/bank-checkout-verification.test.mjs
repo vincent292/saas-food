@@ -22,12 +22,13 @@ test('late polling cannot erase receipt or submission and a real cancellation re
  const cancelled={...accepted,orderStatus:'cancelled'};
  assert.equal(state.mergeBankPayment(accepted,cancelled),cancelled);
 });
-function fixture(allowed=true){const calls=[],limits=[];
- const service=Object.fromEntries(['get','generate','verify','cancel','abandonCheckout'].map(action=>[action,async(...args)=>{calls.push({action,args});return {...pending,verificationPending:true};}]));
+function fixture(allowed=true,paid=false){const calls=[],limits=[],background=[];
+ const service=Object.fromEntries(['get','generate','verify','cancel','abandonCheckout','activateVerifiedCheckout'].map(action=>[action,async(...args)=>{calls.push({action,args});return {...(paid?received:pending),verificationPending:true};}]));
  const route=load('src/app/api/payments/baneco/order/route.ts',{
+  'next/server': {...require('next/server'),after:task=>background.push(task)},
   '@/lib/services/bank-qr.service':{bankOrderPaymentService:service,safeBankError:()=> 'bank-operation-busy'},
   '@/lib/security/rate-limit':{consumeRateLimit:async input=>{limits.push(input);return {allowed};}},
- });return {route,calls,limits};}
+ });return {route,calls,limits,background};}
 const id='11111111-1111-4111-8111-111111111111',token='test-customer-tracking-token-1234567890';
 const request=(action,method='POST',capability=token)=>new Request('https://yopido.test/api/payments/baneco/order?orderId='+id+(action?'&action='+action:''),{method,headers:{'x-order-tracking-token':capability}});
 test('explicit verify is authenticated by the existing capability and never generates or cancels',async()=>{
@@ -40,4 +41,11 @@ test('explicit verify is authenticated by the existing capability and never gene
 test('invalid access and verification throttling do not reach the bank adapter',async()=>{
  const f=fixture();assert.equal((await f.route.POST(request('verify','POST','short'))).status,404);assert.equal(f.calls.length,0);assert.equal(f.limits.length,0);
  const limited=fixture(false);assert.equal((await limited.route.POST(request('verify'))).status,429);assert.equal(limited.calls.length,0);
+});
+
+test('bank receipt responds before activation and notification work runs in the background',async()=>{
+ const f=fixture(true,true);const response=await f.route.POST(request('verify'));
+ assert.equal(response.status,200);assert.equal((await response.json()).status,'paid');
+ assert.deepEqual(f.calls.map(c=>c.action),['verify']);assert.equal(f.background.length,1);
+ await f.background[0]();assert.deepEqual(f.calls.map(c=>c.action),['verify','activateVerifiedCheckout']);
 });

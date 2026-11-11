@@ -227,12 +227,14 @@ export const bankOrderPaymentService = {
       if (claim) await reconcileClaim(admin, claim, operationToken);
       else verificationPending = true;
     }
+    return { ...await this.get(orderId, token), verificationPending };
+  },
+  async activateVerifiedCheckout(orderId: string, token: string) {
     const payment = await this.get(orderId, token);
-    if (payment.status === "paid" && "applicationState" in payment && payment.applicationState !== "review") {
-      await activatePaidBankOrders(admin);
-      return { ...await this.get(orderId, token), verificationPending };
+    if (payment.status === "paid" && "applicationState" in payment && payment.applicationState === "applied"
+      && !payment.scheduleHeld && (payment.checkoutHeld || payment.orderStatus === "pending")) {
+      await activatePaidBankOrders(adminClient());
     }
-    return { ...payment, verificationPending };
   },
   async availableForRestaurant(restaurantId: string, currency = "BOB") {
     if (currency !== "BOB" || !bankVaultConfigured()) return false;

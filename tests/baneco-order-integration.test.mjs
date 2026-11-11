@@ -427,8 +427,10 @@ test('customer verification queries the bank once, honors its lease, validates a
   answer='wrong';await f.db.query('update bank_qr_test_requests set next_check_at=now() where id=$1',[id]);
   assert.equal((await service.verify(orderId,f.token)).status,'review');assert.equal((await f.db.query('select payment_status from orders where id=$1',[orderId])).rows[0].payment_status,'pending');
   answer='paid';await f.db.query('update bank_qr_test_requests set next_check_at=now() where id=$1',[id]);
-  const paid=await service.verify(orderId,f.token);assert.equal(paid.status,'paid');assert.equal(paid.paymentStatus,'paid');assert.equal(paid.orderStatus,'accepted');
-  await service.verify(orderId,f.token);assert.equal(bankCalls,3);assert.equal(notifications.length,3);
+  const paid=await service.verify(orderId,f.token);assert.equal(paid.status,'paid');assert.equal(paid.paymentStatus,'paid');assert.equal(paid.orderStatus,'pending');
+  await service.activateVerifiedCheckout(orderId,f.token);
+  assert.equal((await service.get(orderId,f.token)).orderStatus,'accepted');
+  await service.verify(orderId,f.token);await service.activateVerifiedCheckout(orderId,f.token);assert.equal(bankCalls,3);assert.equal(notifications.length,3);
   assert.equal((await f.db.query('select count(*)::int n from cash_movements where order_id=$1',[orderId])).rows[0].n,1);
  }finally{await f.db.close();}
 });

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { bankOrderPaymentService, safeBankError } from "@/lib/services/bank-qr.service";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -22,6 +22,9 @@ async function handle(request: Request, generate: boolean, cancel = false) {
     const result = cancel && new URL(request.url).searchParams.get("abandon") === "1" ? await bankOrderPaymentService.abandonCheckout(orderId.data, token)
       : cancel ? await bankOrderPaymentService.cancel(orderId.data, token) : verify ? await bankOrderPaymentService.verify(orderId.data, token)
       : generate ? await bankOrderPaymentService.generate(orderId.data, token) : await bankOrderPaymentService.get(orderId.data, token);
+    if (verify && "status" in result && result.status === "paid") {
+      after(async () => { await bankOrderPaymentService.activateVerifiedCheckout(orderId.data, token); });
+    }
     return NextResponse.json(result, { headers: cors });
   } catch (error) {
     return NextResponse.json({ error: safeBankError(error) }, { status: 409, headers: cors });

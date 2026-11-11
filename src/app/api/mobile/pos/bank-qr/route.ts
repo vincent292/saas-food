@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { bankOrderPaymentService, safeBankError } from "@/lib/services/bank-qr.service";
@@ -40,6 +41,9 @@ async function handle(request: Request, mutate: boolean) {
       : parsed.data.action === "cancel" ? await bankOrderPaymentService.cancel(order.id, order.tracking_token)
       : parsed.data.action === "verify" ? await bankOrderPaymentService.verify(order.id, order.tracking_token)
       : await bankOrderPaymentService.generate(order.id, order.tracking_token);
+    if (mutate && parsed.data.action === "verify" && "status" in result && result.status === "paid") {
+      after(async () => { await bankOrderPaymentService.activateVerifiedCheckout(order.id, order.tracking_token); });
+    }
     const response = json({ ...result, realtimeToken: order.tracking_token, orderNumber: order.order_number, orderType: order.order_type, tableId: order.table_id, createdAt: order.created_at, amount: "amount" in result ? result.amount : Number(order.total) });
     response.headers.set("Cache-Control", "no-store");
     return response;

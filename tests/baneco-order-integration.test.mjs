@@ -395,3 +395,40 @@ test('the backend worker drains a paid activation without a browser, recharging 
     assert.ok((await f.db.query('select completed_at from bank_order_activations where request_id=$1',[id])).rows[0].completed_at);
   }finally{if(previous===undefined)delete process.env.BANK_QR_WORKER_SECRET;else process.env.BANK_QR_WORKER_SECRET=previous;await f.db.close();}
 });
+
+test('customer verification queries the bank once, honors its lease, validates amount and submits only after payment',async()=>{
+ const f=await fixture(true);let answer='pending',bankCalls=0,opened=0;const notifications=[];
+ try{
+  await f.db.exec("alter table orders add column bank_checkout_hold boolean default false,add column bank_schedule_hold boolean default false;alter table bank_qr_test_requests add column collection_route text default 'own';");
+  const {orderId,id}=await f.prepare();await f.db.query('update orders set bank_payment_required=true,bank_auto_accept=true where id=$1',[orderId]);
+  await f.db.query("insert into cash_sessions(id,restaurant_id,status) values($1,$2,'open')",[randomUUID(),merchant]);
+  const admin={from(table){let fields='*',filters=[],values=[],single=false;
+    const q={select(s){fields=s;return q;},eq(k,v){values.push(v);filters.push(`${k}=$${values.length}`);return q;},not(k,_op,v){assert.equal(v,'(failed,cancelled)');filters.push(`${k} not in ('failed','cancelled')`);return q;},order(){return q;},limit(){return q;},maybeSingle(){single=true;return q;},single(){single=true;return q;},async then(resolve){const rows=(await f.db.query(`select ${fields} from ${table} where ${filters.join(' and ')}`,values)).rows;return resolve({data:single?rows[0]??null:rows,error:null});}};return q;},
+    async rpc(name,args){const calls={
+      claim_baneco_reconciliation:['select claim_baneco_reconciliation($1,$2,$3) result',[args.p_token,args.p_id??null,args.p_cancel??false]],
+      finish_baneco_reconciliation:['select finish_baneco_reconciliation($1,$2,$3,$4,$5,$6) result',[args.p_id,args.p_token,args.p_status,args.p_transaction,args.p_error,args.p_details]],
+      claim_baneco_order_activation:['select claim_baneco_order_activation($1) result',[args.p_token]],
+      activate_baneco_paid_order:['select activate_baneco_paid_order($1,$2,$3) result',[args.p_request_id,args.p_token,args.p_uses_kitchen]],
+      finish_baneco_order_activation:['select finish_baneco_order_activation($1,$2,$3) result',[args.p_request_id,args.p_token,args.p_success]],
+    };assert.ok(calls[name],name);if(name==='claim_baneco_reconciliation')assert.notEqual(args.p_cancel,true);
+    return {data:(await f.db.query(...calls[name])).rows[0].result,error:null};}
+  };
+  const service=load('src/lib/services/bank-qr.service.ts',{
+   '@/lib/services/auth.service':{authService:{}},'@/lib/services/support-impersonation.service':{},
+   '@/lib/supabase/admin':{createAdminClient:()=>admin},'@/lib/payments/credential-vault':{openBankCredentials:()=>{opened++;return {userName:'QA',password:'QA',aesKey:'QA',accountCredit:'QA',encryptionMode:'bank_api'};}},
+   '@/lib/payments/baneco':{...bank,createBanecoClient:()=>({status:async()=>{bankCalls++;return answer==='pending'?{responseCode:0,statusQrCode:0}:{responseCode:0,statusQrCode:1,payment:{qrId:'QR-'+id,currency:'BOB',amount:answer==='wrong'?1:12.5,transactionId:'BANK-CUSTOMER',paymentDate:bank.boliviaDate(),paymentTime:'12:00:00'}};},generate:()=>assert.fail('must not generate another QR'),cancel:()=>assert.fail('must not cancel a QR')})},
+   '@/lib/services/mobile-push.service':{sendRestaurantNewOrderPush:async()=>notifications.push('new'),sendOrderStatusPush:async()=>notifications.push('status')},
+   '@/lib/services/order-whatsapp-notification.service':{sendOrderWhatsAppNotification:async()=>notifications.push('whatsapp')},
+   '@/lib/services/rider-dispatch.service':{offerNextRiderForOrder:async()=>({ok:true})},
+  }).bankOrderPaymentService;
+  await assert.rejects(service.verify(orderId,'invalid-tracking-token'),/bank-request-unavailable/);assert.equal(opened,0);assert.equal(bankCalls,0);
+  const first=await service.verify(orderId,f.token);assert.equal(first.status,'pending');assert.equal(bankCalls,1);assert.equal(notifications.length,0);
+  const duplicate=await service.verify(orderId,f.token);assert.equal(duplicate.verificationPending,true);assert.equal(bankCalls,1);
+  answer='wrong';await f.db.query('update bank_qr_test_requests set next_check_at=now() where id=$1',[id]);
+  assert.equal((await service.verify(orderId,f.token)).status,'review');assert.equal((await f.db.query('select payment_status from orders where id=$1',[orderId])).rows[0].payment_status,'pending');
+  answer='paid';await f.db.query('update bank_qr_test_requests set next_check_at=now() where id=$1',[id]);
+  const paid=await service.verify(orderId,f.token);assert.equal(paid.status,'paid');assert.equal(paid.paymentStatus,'paid');assert.equal(paid.orderStatus,'accepted');
+  await service.verify(orderId,f.token);assert.equal(bankCalls,3);assert.equal(notifications.length,3);
+  assert.equal((await f.db.query('select count(*)::int n from cash_movements where order_id=$1',[orderId])).rows[0].n,1);
+ }finally{await f.db.close();}
+});

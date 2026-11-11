@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 export function OPTIONS() { return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Authorization, Content-Type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" } }); }
-const input = z.object({ restaurantId: z.string().uuid(), orderId: z.string().uuid(), action: z.enum(["generate", "cancel", "discard"]).optional() });
+const input = z.object({ restaurantId: z.string().uuid(), orderId: z.string().uuid(), action: z.enum(["generate", "verify", "cancel", "discard"]).optional() });
 async function handle(request: Request, mutate: boolean) {
   try {
     const values = mutate ? await request.json() : Object.fromEntries(new URL(request.url).searchParams);
@@ -32,12 +32,13 @@ async function handle(request: Request, mutate: boolean) {
     if (!limit.allowed) throw new PosError("bank-operation-busy", 429);
     const order = checked(await auth.admin.from("orders").select("id,tracking_token,bank_group_session_id,order_number,order_type,table_id,created_at,total").eq("restaurant_id", parsed.data.restaurantId).eq("id", parsed.data.orderId).maybeSingle());
     if (!order || order.bank_group_session_id) throw new PosError("bank-order-ineligible", 409);
-    if (mutate && !["cancel", "discard"].includes(parsed.data.action ?? "generate")) {
+    if (mutate && !["verify", "cancel", "discard"].includes(parsed.data.action ?? "generate")) {
       checked(await auth.admin.rpc("prepare_baneco_staff_order", { p_restaurant: parsed.data.restaurantId, p_order: order.id, p_actor: auth.profile.id }));
     }
     const result = !mutate ? await bankOrderPaymentService.get(order.id, order.tracking_token)
       : parsed.data.action === "discard" ? await bankOrderPaymentService.abandonCheckout(order.id, order.tracking_token)
       : parsed.data.action === "cancel" ? await bankOrderPaymentService.cancel(order.id, order.tracking_token)
+      : parsed.data.action === "verify" ? await bankOrderPaymentService.verify(order.id, order.tracking_token)
       : await bankOrderPaymentService.generate(order.id, order.tracking_token);
     const response = json({ ...result, realtimeToken: order.tracking_token, orderNumber: order.order_number, orderType: order.order_type, tableId: order.table_id, createdAt: order.created_at, amount: "amount" in result ? result.amount : Number(order.total) });
     response.headers.set("Cache-Control", "no-store");

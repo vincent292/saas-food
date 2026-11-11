@@ -137,6 +137,7 @@ test('the customer queue includes the same added preparation minutes and shifted
   const client = { rpc: async () => ({ data: { restaurant_id: restaurantId, status: 'accepted', estimated_min_minutes: 12, estimated_max_minutes: 18, estimated_ready_at_min: '2026-11-05T12:12:00Z', estimated_ready_at_max: '2026-11-05T12:18:00Z' }, error: null }) };
   const query = { select() { return query; }, eq() { return query; }, maybeSingle: async () => ({ data: { eta_adjustment_minutes: 10 }, error: null }) };
   const { orderService } = load(read('src/lib/services/order.service.ts'), {}, {
+    '@/lib/services/table-account-actor.service': {},
     '@/lib/supabase/server': { createClient: async () => client },
     '@/lib/supabase/admin': { createAdminClient: () => ({ from: () => query }) },
     '@/lib/supabase/env': { hasSupabaseEnv: () => true }, '@/lib/utils/perf': {},

@@ -60,9 +60,12 @@ test('payment has a separate route, tracking redirects before querying the queue
   assert.match(page,/eq\("tracking_token", token\)/);assert.match(page,/Paga para enviar tu pedido/);
   assert.doesNotMatch(page,/VirtualQueue|ClearCartOnMount|RememberOrder/);
   const ui=read('src/components/orders/BankCheckoutPayment.tsx');
-  assert.match(ui,/next.paymentStatus === "paid" && !next.checkoutHeld/);
-  assert.match(ui,/!\["pending", "cancelled"\]\.includes\(next.orderStatus\)/);
-  assert.match(ui,/visibilitychange/);assert.match(ui,/"online"/);
+  assert.match(ui,/bankCheckoutIsSubmitted\(next\)/);
+  assert.doesNotMatch(ui,/key=\{`\$\{payment\?\.status/);
+  assert.doesNotMatch(ui,/setInterval|useRealtimeBroadcast/);
+  const card=read('src/components/orders/BankOrderPaymentCard.tsx');
+  assert.match(card,/"online"/);
+  assert.match(card,/onStateChange/);
   assert.ok(read('src/components/customer/PublicBottomNavigation.tsx').includes('\\/pago(?:\\/|$)'));
   assert.match(read('src/lib/services/mobile-push.service.ts'),/eq\("bank_checkout_hold", false\)/);
 });

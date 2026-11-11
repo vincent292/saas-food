@@ -10,15 +10,18 @@ const idSchema = z.string().uuid();
 const cors = { "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-order-tracking-token", "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS" };
 export function OPTIONS() { return new Response(null, { status: 204, headers: cors }); }
 async function handle(request: Request, generate: boolean, cancel = false) {
-  const orderId = idSchema.safeParse(new URL(request.url).searchParams.get("orderId"));
+  const params = new URL(request.url).searchParams;
+  const verify = generate && !cancel && params.get("action") === "verify";
+  const orderId = idSchema.safeParse(params.get("orderId"));
   const token = request.headers.get("x-order-tracking-token") ?? "";
   if (!orderId.success || token.length < 20 || token.length > 256) return NextResponse.json({ error: "bank-request-unavailable" }, { status: 404, headers: cors });
-  const limit = await consumeRateLimit({ scope: generate ? "baneco-order-generate" : "baneco-order-view", identity: orderId.data,
-    maxAttempts: generate ? 10 : 90, windowSeconds: 60, blockSeconds: 60 });
+  const limit = await consumeRateLimit({ scope: verify ? "baneco-order-verify" : generate ? "baneco-order-generate" : "baneco-order-view", identity: orderId.data,
+    maxAttempts: verify ? 12 : generate ? 10 : 90, windowSeconds: 60, blockSeconds: 60 });
   if (!limit.allowed) return NextResponse.json({ error: "bank-operation-busy" }, { status: 429, headers: cors });
   try {
     const result = cancel && new URL(request.url).searchParams.get("abandon") === "1" ? await bankOrderPaymentService.abandonCheckout(orderId.data, token)
-      : cancel ? await bankOrderPaymentService.cancel(orderId.data, token) : generate ? await bankOrderPaymentService.generate(orderId.data, token) : await bankOrderPaymentService.get(orderId.data, token);
+      : cancel ? await bankOrderPaymentService.cancel(orderId.data, token) : verify ? await bankOrderPaymentService.verify(orderId.data, token)
+      : generate ? await bankOrderPaymentService.generate(orderId.data, token) : await bankOrderPaymentService.get(orderId.data, token);
     return NextResponse.json(result, { headers: cors });
   } catch (error) {
     return NextResponse.json({ error: safeBankError(error) }, { status: 409, headers: cors });

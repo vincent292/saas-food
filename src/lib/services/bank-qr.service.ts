@@ -212,6 +212,28 @@ async function publicOrder(admin: ReturnType<typeof adminClient>, orderId: strin
 }
 
 export const bankOrderPaymentService = {
+  async verify(orderId: string, token: string) {
+    const admin = adminClient();
+    await publicOrder(admin, orderId, token);
+    const request = checked(await admin.from("bank_qr_test_requests").select("id,status").eq("order_id", orderId)
+      .not("status", "in", "(failed,cancelled)").order("created_at", { ascending: false }).limit(1).maybeSingle());
+    if (!request) return this.get(orderId, token);
+    let verificationPending = false;
+    if (request.status !== "paid") {
+      const operationToken = randomUUID();
+      // Share the worker's lease and backoff. Repeated taps cannot flood the bank
+      // or bypass a verification already running; this operation never cancels.
+      const claim = checked(await admin.rpc("claim_baneco_reconciliation", { p_token: operationToken, p_id: request.id })) as TestRequest | null;
+      if (claim) await reconcileClaim(admin, claim, operationToken);
+      else verificationPending = true;
+    }
+    const payment = await this.get(orderId, token);
+    if (payment.status === "paid" && "applicationState" in payment && payment.applicationState !== "review") {
+      await activatePaidBankOrders(admin);
+      return { ...await this.get(orderId, token), verificationPending };
+    }
+    return { ...payment, verificationPending };
+  },
   async availableForRestaurant(restaurantId: string, currency = "BOB") {
     if (currency !== "BOB" || !bankVaultConfigured()) return false;
     try {

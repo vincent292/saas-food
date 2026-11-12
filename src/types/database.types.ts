@@ -634,6 +634,11 @@ export type Database = {
         cancellation_reason: string | null;
         print_requested_at: string | null;
         printed_at: string | null;
+        pos_print_claim_token: string | null;
+        pos_print_device_id: string | null;
+        pos_print_claimed_at: string | null;
+        pos_print_state: "printing" | "printed" | "failed" | "uncertain" | null;
+        pos_print_retry_at: string | null;
         created_at: string;
         updated_at: string;
       }>;
@@ -1602,6 +1607,8 @@ export type Database = {
           table_id: string;
         }[];
       };
+      claim_pos_order_print: { Args: { p_restaurant_id: string; p_order_id: string; p_device_id: string; p_claim_token: string; p_since?: string | null; p_reprint?: boolean }; Returns: Json };
+      finish_pos_order_print: { Args: { p_restaurant_id: string; p_order_id: string; p_device_id: string; p_claim_token: string; p_result: string }; Returns: boolean };
       close_table_account: {
         Args: { p_restaurant_id: string; p_table_id: string; p_visit_id: string; p_payment_method: Database["public"]["Enums"]["payment_method_type"]; p_cash_received?: number | null };
         Returns: { table_id: string; settled_order_count: number; charged_order_count: number }[];

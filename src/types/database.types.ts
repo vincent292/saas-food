@@ -1607,6 +1607,7 @@ export type Database = {
           table_id: string;
         }[];
       };
+      claim_baneco_order_activation_for_request: { Args: { p_request_id: string; p_token: string }; Returns: Json };
       claim_pos_order_print: { Args: { p_restaurant_id: string; p_order_id: string; p_device_id: string; p_claim_token: string; p_since?: string | null; p_reprint?: boolean }; Returns: Json };
       finish_pos_order_print: { Args: { p_restaurant_id: string; p_order_id: string; p_device_id: string; p_claim_token: string; p_result: string }; Returns: boolean };
       close_table_account: {

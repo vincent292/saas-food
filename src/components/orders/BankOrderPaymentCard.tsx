@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Copy, Download, LoaderCircle, RefreshCw, ShieldCheck } from "lucide-react";
 import { useRealtimeBroadcast } from "@/lib/client/use-realtime-broadcast";
-import { bankOrderIsSettled, mergeBankPayment, type BankOrderPaymentState as Payment } from "@/lib/payments/bank-order-state";
+import { bankOrderIsSettled, mergeBankPayment, shouldAutoVerifyBankPayment, type BankOrderPaymentState as Payment } from "@/lib/payments/bank-order-state";
 import { formatMoney } from "@/lib/utils/money";
 import { BankPaymentProgress } from "./BankPaymentProgress";
 
@@ -22,6 +22,8 @@ export function BankOrderPaymentCard({ orderId, token = "", initialPayment, staf
   const acceptPayment = useCallback((next: Payment) => {
     if (mounted.current) setPayment(current => mergeBankPayment(current, next));
   }, []);
+  const paymentRef = useRef(payment), lastAutoCheck = useRef(0);
+  useEffect(() => { paymentRef.current = payment; }, [payment]);
   const settled = bankOrderIsSettled(payment);
   useEffect(() => { if (settled && onSettled && !settledNotified.current) { settledNotified.current = true; onSettled(); } }, [settled, onSettled]);
   useEffect(() => { if (payment?.status === "paid" && onPaymentReceived && !paidNotified.current) { paidNotified.current = true; onPaymentReceived(); } }, [payment?.status, onPaymentReceived]);
@@ -35,7 +37,14 @@ export function BankOrderPaymentCard({ orderId, token = "", initialPayment, staf
     let timedOut = false;
     const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 12000);
     try {
-      const response = await fetch(endpoint, { cache: "no-store", headers: { "x-order-tracking-token": token }, signal: controller.signal });
+      const checkBank = shouldAutoVerifyBankPayment(paymentRef.current, lastAutoCheck.current);
+      if (checkBank) lastAutoCheck.current = Date.now();
+      const response = await fetch(checkBank && !staffRestaurantId ? `${endpoint}&action=verify` : endpoint, {
+        method: checkBank ? "POST" : "GET", cache: "no-store",
+        headers: { "x-order-tracking-token": token, ...(checkBank && staffRestaurantId ? { "Content-Type": "application/json" } : {}) },
+        body: checkBank && staffRestaurantId ? JSON.stringify({ restaurantId: staffRestaurantId, orderId, action: "verify" }) : undefined,
+        signal: controller.signal,
+      });
       if (!response.ok) throw new Error("unavailable");
       const next = await response.json() as Payment;
       if (!controller.signal.aborted && mounted.current) { acceptPayment(next); setSyncError(""); }
@@ -45,14 +54,16 @@ export function BankOrderPaymentCard({ orderId, token = "", initialPayment, staf
       clearTimeout(timeout);
       if (readController.current === controller) readController.current = null;
     }
-  }, [endpoint, token, acceptPayment]);
+  }, [endpoint, token, acceptPayment, staffRestaurantId, orderId]);
   useEffect(() => {
     if (settled || payment?.orderStatus === "cancelled") return;
     const first = setTimeout(() => void refresh(), 0);
-    const timer = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 5000);
+    const timer = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 3000);
     const foreground = () => { if (document.visibilityState === "visible") void refresh(); };
     window.addEventListener("online", foreground);
-    return () => { clearTimeout(first); clearInterval(timer); window.removeEventListener("online", foreground); };
+    window.addEventListener("focus", foreground);
+    document.addEventListener("visibilitychange", foreground);
+    return () => { clearTimeout(first); clearInterval(timer); window.removeEventListener("online", foreground); window.removeEventListener("focus", foreground); document.removeEventListener("visibilitychange", foreground); };
   }, [refresh, settled, payment?.orderStatus]);
   const realtimeToken = payment?.realtimeToken || token;
   useRealtimeBroadcast({ enabled: Boolean(realtimeToken) && !settled, topic: `bank-order-payment:${realtimeToken}`, onChange: refresh, onSync: refresh });

@@ -49,3 +49,13 @@ test('bank receipt responds before activation and notification work runs in the 
  assert.deepEqual(f.calls.map(c=>c.action),['verify']);assert.equal(f.background.length,1);
  await f.background[0]();assert.deepEqual(f.calls.map(c=>c.action),['verify','activateVerifiedCheckout']);
 });
+
+test('automatic bank checks have an eight-second minimum and do not poll cancelled, review, or scheduled payments',()=>{
+ assert.equal(state.shouldAutoVerifyBankPayment(pending,0,10000),true);
+ assert.equal(state.shouldAutoVerifyBankPayment(pending,3000,10000),false);
+ assert.equal(state.shouldAutoVerifyBankPayment(received,0,10000),true);
+ for(const payment of [null,accepted,{...pending,orderStatus:'cancelled'},{...received,applicationState:'review'},{...received,scheduleHeld:true}])assert.equal(Boolean(state.shouldAutoVerifyBankPayment(payment,0,10000)),false);
+});
+test('reading an already-paid held checkout also schedules its activation without a manual button',async()=>{
+ const f=fixture(true,true);const response=await f.route.GET(request('','GET'));assert.equal(response.status,200);assert.equal(f.background.length,1);await f.background[0]();assert.deepEqual(f.calls.map(c=>c.action),['get','activateVerifiedCheckout']);
+});

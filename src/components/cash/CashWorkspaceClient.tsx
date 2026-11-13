@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import QRCode from "qrcode";
-import { closeCashSessionAction, openCashSessionAction, registerCashMovementAction, settleTableAction } from "@/app/admin/actions";
+import { chargeOrderAction, closeCashSessionAction, openCashSessionAction, registerCashMovementAction, settleTableAction } from "@/app/admin/actions";
 import { TableAccountDialog } from "@/components/tables/TableAccountDialog";
 import { belongsToOpenTableAccount, tableOrderSource } from "@/lib/table-account";
 import { TableServiceInbox } from "@/components/tables/TableServiceInbox";
@@ -56,7 +56,7 @@ function statusMessage(status: CashPageStatus, businessType: Restaurant["busines
     return { tone: "success", text: "Caja cerrada correctamente. El reporte quedó guardado." };
   }
   if (status.charged) {
-    return { tone: "success", text: hasKitchenFlow ? "Pedido aprobado, cobrado y enviado a cocina." : "Pedido aprobado, cobrado y marcado listo." };
+    return { tone: "success", text: "Cobro registrado correctamente." };
   }
   if (status.pos) {
     return { tone: "success", text: "Pedido POS registrado. Si elegiste QR, se cobrará y aceptará al confirmar el banco." };
@@ -971,18 +971,31 @@ function DispatchStatusPanel({ label, tone, value }: { label: string; tone: "inf
   );
 }
 
-function PickupOrderCard({ order, businessType, now, isUpdating, onStatusChange }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"]; now: Date; isUpdating: boolean; onStatusChange: OrderStatusChangeHandler }) {
+function PickupOrderCard({ order, restaurantSlug, businessType, now, isUpdating, onStatusChange }: { order: Order; restaurantSlug: string; businessType: Restaurant["businessType"]; now: Date; isUpdating: boolean; onStatusChange: OrderStatusChangeHandler }) {
   const isActive = order.status === "accepted" || order.status === "preparing";
 
   return (
     <Card className="rounded-[1.25rem] p-4">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start">
-        <OrderOperationalSummary businessType={businessType} now={now} order={order} title="Recojo" />
+        <div className="grid gap-3">
+          <OrderOperationalSummary businessType={businessType} now={now} order={order} title="Recojo" />
+          {order.paymentMethod === "cash" && order.paymentStatus === "pending" ? (
+            <form action={chargeOrderAction} onSubmit={(event) => { if (!window.confirm(`¿Recibiste ${formatMoney(order.total)} en efectivo? El cobro se registrará en caja. Después podrás confirmar la entrega.`)) event.preventDefault(); }} className="rounded-2xl bg-[var(--color-warning-soft)] p-3">
+              <input name="restaurantId" type="hidden" value={order.restaurantId} />
+              <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
+              <input name="orderId" type="hidden" value={order.id} />
+              <input name="source" type="hidden" value="caja" />
+              <input name="paymentMethod" type="hidden" value="cash" />
+              <p className="mb-3 text-sm font-bold text-[var(--color-warning-strong)]">Efectivo pendiente: {formatMoney(order.total)}. Registra el cobro cuando recibas el dinero.</p>
+              <PendingSubmitButton disabled={isUpdating} pendingLabel="Registrando cobro...">Confirmar efectivo recibido</PendingSubmitButton>
+            </form>
+          ) : null}
+        </div>
         {isActive ? (
           <OrderReadyActionPanel isUpdating={isUpdating} now={now} onStatusChange={onStatusChange} order={order} />
         ) : order.status === "ready" ? (
           <div className="rounded-2xl border border-[var(--border)] p-3">
-            <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">Confirma cuando el cliente ya retiro el pedido del local.</p>
+            <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">{order.paymentMethod === "cash" && order.paymentStatus === "pending" ? "Pago en efectivo pendiente. Cobra en caja antes de entregar el pedido." : "Confirma cuando el cliente ya retiró el pedido del local."}</p>
             <Button className="w-full" disabled={isUpdating} onClick={() => void onStatusChange(order.id, "delivered")} type="button">
               {isUpdating ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               {isUpdating ? "Guardando..." : "Marcar retirado"}

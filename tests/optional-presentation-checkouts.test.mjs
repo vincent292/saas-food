@@ -1,0 +1,11 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';
+function resolver(file,name){const source=fs.readFileSync(new URL('../'+file,import.meta.url),'utf8'),ast=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true);const fn=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text===name);assert(fn);const body=fn.getText(ast).replace(/^export /,'');const exports={};vm.runInNewContext(ts.transpileModule('export '+body,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,isProductCurrentlyOrderable:p=>p.is_available});return exports[name];}
+const fixtures=[['multisite web','src/app/pedido/multi/actions.ts','resolveCart'],['mobile group','src/app/api/mobile/group-orders/_shared.ts','resolveGroupCartItems']];
+for(const[label,file,name]of fixtures)test(`${label} permits a base-price presentation or optional surcharge without bypassing required extras`,async()=>{
+ const run=resolver(file,name),tables={products:[{id:'product',name:'Prueba',price:.50,is_available:true,prep_minutes:5}],product_variants:[{id:'variant',product_id:'product',name:'Con papas',price_delta:.10,is_active:true}],product_option_groups:[],product_options:[]};
+ const db={from:table=>{const q={select(){return q;},eq(){return q;},in(){return q;},then(resolve,reject){return Promise.resolve({data:tables[table],error:null}).then(resolve,reject);}};return q;}};
+ const cart={productId:'product',quantity:1,optionIds:[]};const base=(await run(db,'restaurant',[cart]))[0],extra=(await run(db,'restaurant',[{...cart,variantId:'variant'}]))[0];
+ assert.equal(base.price??base.unitPrice,.5);assert.equal(extra.price??extra.unitPrice,.6);assert.equal(base.variantId,undefined);
+ tables.product_variants[0].is_active=false;await assert.rejects(run(db,'restaurant',[{...cart,variantId:'variant'}]),/product-configuration/);tables.product_variants[0].is_active=true;
+ tables.product_option_groups.push({id:'required',product_id:'product',is_active:true,is_required:true,min_choices:1,max_choices:1});await assert.rejects(run(db,'restaurant',[cart]),/product-configuration/);
+});

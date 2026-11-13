@@ -356,13 +356,6 @@ export async function resolveGroupCartItems(supabase: SupabaseDatabaseClient, re
 
   const products = new Map((productRows as ProductPriceRow[]).map((product) => [product.id, product]));
   const variants = new Map(((variantRows ?? []) as VariantPriceRow[]).map((variant) => [variant.id, variant]));
-  const activeVariantsByProduct = new Map<string, VariantPriceRow[]>();
-  for (const variant of (variantRows ?? []) as VariantPriceRow[]) {
-    if (!variant.is_active) continue;
-    const current = activeVariantsByProduct.get(variant.product_id) ?? [];
-    current.push(variant);
-    activeVariantsByProduct.set(variant.product_id, current);
-  }
   const options = new Map(((optionRows ?? []) as OptionPriceRow[]).map((option) => [option.id, option]));
   const groupsByProduct = new Map<string, OptionGroupPriceRow[]>();
   for (const group of (groupRows ?? []) as OptionGroupPriceRow[]) {
@@ -374,7 +367,6 @@ export async function resolveGroupCartItems(supabase: SupabaseDatabaseClient, re
   return cart.map<ResolvedCartItem>((item) => {
     const product = products.get(item.productId);
     if (!product || !isProductCurrentlyOrderable(product)) throw new Error("product-not-found");
-    if (!item.variantId && (activeVariantsByProduct.get(item.productId)?.length ?? 0) > 0) throw new Error("product-configuration");
     const variant = item.variantId ? variants.get(item.variantId) : null;
     if (item.variantId && (!variant?.is_active || variant.product_id !== item.productId)) throw new Error("product-configuration");
 

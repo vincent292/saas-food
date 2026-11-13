@@ -42,11 +42,12 @@ async function fixture(latest=false) {
     create function realtime.send(payload jsonb,event text,topic text,private boolean) returns void language sql as $$insert into public.realtime_events values(topic,event,payload,private)$$;
     create type order_status as enum('pending','accepted','preparing','ready','delivered','cancelled');
     create type app_role as enum('superadmin','restaurant_admin','cashier','kitchen','waiter');
-    create table orders(id uuid primary key,restaurant_id uuid,tracking_token text,order_number text,order_type text default 'delivery',
+    create table orders(id uuid primary key,restaurant_id uuid,tracking_token text,order_number text,order_type text default 'delivery',table_id uuid,table_visit_id uuid,
       payment_status text default 'pending',payment_method text default 'qr',status order_status default 'pending',total numeric(12,2),
       group_order_session_id uuid,payment_receipt_url text,payment_receipt_reference text,payment_verified_at timestamptz,accepted_at timestamptz,
       requested_fulfillment_at timestamptz,requires_prepayment boolean default false,cancelled_at timestamptz,cancellation_reason text,
       public_request_id uuid,ready_at timestamptz);
+    create table table_visits(id uuid primary key,restaurant_id uuid,table_id uuid,status text);
     create table restaurant_settings(restaurant_id uuid primary key,currency text default 'BOB',kitchen_enabled boolean default true);
     insert into restaurant_settings(restaurant_id,currency) values('${merchant}','BOB');
     create table multisite_order_children(id uuid primary key,order_id uuid);
@@ -67,7 +68,7 @@ async function fixture(latest=false) {
   for(const name of ['0120_baneco_superadmin_test_panel.sql','0121_baneco_production_pilot.sql','0122_baneco_automatic_reconciliation.sql','0125_baneco_notifications_and_realtime.sql','0126_baneco_order_payments.sql','0127_baneco_public_checkout.sql'])
     await db.exec(read('supabase/migrations/'+name));
   await db.exec(read('supabase/migrations/0052_atomic_order_refunds.sql'));
-  if(latest)await db.exec(read('supabase/migrations/0128_baneco_checkout_recovery_and_acceptance.sql'));
+  if(latest){await db.exec(read('supabase/migrations/0128_baneco_checkout_recovery_and_acceptance.sql'));await db.exec(read('supabase/migrations/0146_fast_payment_and_cash_handoff.sql'));}
   const connection=randomUUID();
   await db.query(`insert into bank_qr_connections(id,restaurant_id,environment,label,credentials_ciphertext,encryption_mode,created_by,check_result,orders_enabled)
     values($1,$2,'production','QA','ciphertext','bank_api',$3,'ok',true)`,[connection,merchant,actor]);
@@ -377,6 +378,7 @@ test('the backend worker drains a paid activation without a browser, recharging 
         const calls={claim_baneco_reconciliation:['select claim_baneco_reconciliation($1,$2,$3) result',[args.p_token,args.p_id??null,args.p_cancel??false]],
           post_waiting_baneco_payments:['select post_waiting_baneco_payments() result',[]],
           claim_baneco_order_activation:['select claim_baneco_order_activation($1) result',[args.p_token]],
+      claim_baneco_order_activation_for_request:['select claim_baneco_order_activation_for_request($1,$2) result',[args.p_request_id,args.p_token]],
           activate_baneco_paid_order:['select activate_baneco_paid_order($1,$2,$3) result',[args.p_request_id,args.p_token,args.p_uses_kitchen]],
           finish_baneco_order_activation:['select finish_baneco_order_activation($1,$2,$3) result',[args.p_request_id,args.p_token,args.p_success]]};
         const [sql,params]=calls[name]??[];assert.ok(sql,'Unexpected RPC '+name);return {data:(await f.db.query(sql,params)).rows[0].result,error:null};
@@ -408,6 +410,7 @@ test('customer verification queries the bank once, honors its lease, validates a
       claim_baneco_reconciliation:['select claim_baneco_reconciliation($1,$2,$3) result',[args.p_token,args.p_id??null,args.p_cancel??false]],
       finish_baneco_reconciliation:['select finish_baneco_reconciliation($1,$2,$3,$4,$5,$6) result',[args.p_id,args.p_token,args.p_status,args.p_transaction,args.p_error,args.p_details]],
       claim_baneco_order_activation:['select claim_baneco_order_activation($1) result',[args.p_token]],
+      claim_baneco_order_activation_for_request:['select claim_baneco_order_activation_for_request($1,$2) result',[args.p_request_id,args.p_token]],
       activate_baneco_paid_order:['select activate_baneco_paid_order($1,$2,$3) result',[args.p_request_id,args.p_token,args.p_uses_kitchen]],
       finish_baneco_order_activation:['select finish_baneco_order_activation($1,$2,$3) result',[args.p_request_id,args.p_token,args.p_success]],
     };assert.ok(calls[name],name);if(name==='claim_baneco_reconciliation')assert.notEqual(args.p_cancel,true);
@@ -432,5 +435,46 @@ test('customer verification queries the bank once, honors its lease, validates a
   assert.equal((await service.get(orderId,f.token)).orderStatus,'accepted');
   await service.verify(orderId,f.token);await service.activateVerifiedCheckout(orderId,f.token);assert.equal(bankCalls,3);assert.equal(notifications.length,3);
   assert.equal((await f.db.query('select count(*)::int n from cash_movements where order_id=$1',[orderId])).rows[0].n,1);
+ }finally{await f.db.close();}
+});
+
+test('active checkout verifies pending QR after eight seconds without bypassing leases or error backoff',async()=>{
+ const f=await fixture(true);try{
+  await f.db.query("insert into cash_sessions(id,restaurant_id,status) values($1,$2,'open')",[randomUUID(),merchant]);const {id:request}=await f.prepare();
+  const first=randomUUID();assert((await f.db.query('select claim_baneco_reconciliation($1,$2,false) result',[first,request])).rows[0].result);
+  await f.db.query("select finish_baneco_reconciliation($1,$2,'pending',null,null,'{}')",[request,first]);
+  assert.equal((await f.db.query('select claim_baneco_reconciliation($1,$2,false) result',[randomUUID(),request])).rows[0].result,null);
+  await f.db.query("update bank_qr_test_requests set last_attempt_at=now()-interval '9 seconds' where id=$1",[request]);
+  const next=randomUUID();assert((await f.db.query('select claim_baneco_reconciliation($1,$2,false) result',[next,request])).rows[0].result);
+  assert.equal((await f.db.query('select claim_baneco_reconciliation($1,$2,false) result',[randomUUID(),request])).rows[0].result,null);
+  await f.db.query("select finish_baneco_reconciliation($1,$2,null,null,'bank-network','{}')",[request,next]);
+  await f.db.query("update bank_qr_test_requests set last_attempt_at=now()-interval '9 seconds' where id=$1",[request]);
+  assert.equal((await f.db.query('select claim_baneco_reconciliation($1,$2,false) result',[randomUUID(),request])).rows[0].result,null);
+ }finally{await f.db.close();}
+});
+test('cash counter handoff requires collection but an open table may be served with its account pending',async()=>{
+ const f=await fixture(true);try{
+  for(const type of ['pos','pickup','table']){
+   const id=randomUUID();await f.db.query("insert into orders(id,restaurant_id,order_type,payment_method,payment_status,status,total) values($1,$2,$3,'cash','pending','ready',10)",[id,merchant,type]);
+   await assert.rejects(f.db.query("update orders set status='delivered' where id=$1",[id]),/cash-payment-required/);
+   await f.db.query("update orders set payment_status='paid' where id=$1",[id]);await f.db.query("update orders set status='delivered' where id=$1",[id]);
+  }
+  const id=randomUUID(),table=randomUUID(),visit=randomUUID();await f.db.query("insert into table_visits values($1,$2,$3,'open')",[visit,merchant,table]);
+  await f.db.query("insert into orders(id,restaurant_id,table_id,table_visit_id,order_type,payment_method,payment_status,status,total) values($1,$2,$3,$4,'table','cash','pending','ready',10)",[id,merchant,table,visit]);
+  await f.db.query("update orders set status='delivered' where id=$1",[id]);assert.equal((await f.db.query('select payment_status from orders where id=$1',[id])).rows[0].payment_status,'pending');
+ }finally{await f.db.close();}
+});
+
+test('a paid checkout claims its own activation ahead of unrelated jobs and denies browser RPC access',async()=>{
+ const f=await fixture(true);try{
+  await f.db.query("insert into cash_sessions(id,restaurant_id,status) values($1,$2,'open')",[randomUUID(),merchant]);
+  const old=await f.prepare(),recent=await f.prepare();
+  await f.db.query('update orders set bank_payment_required=true,bank_auto_accept=true where id=any($1)',[[old.orderId,recent.orderId]]);
+  await f.paid(old.id);await f.paid(recent.id);
+  const token=randomUUID(),claim=(await f.db.query('select claim_baneco_order_activation_for_request($1,$2) result',[recent.id,token])).rows[0].result;
+  assert.equal(claim.requestId,recent.id);assert.equal(claim.orderId,recent.orderId);
+  assert.equal((await f.db.query('select operation_token from bank_order_activations where request_id=$1',[old.id])).rows[0].operation_token,null);
+  assert.equal((await f.db.query('select claim_baneco_order_activation_for_request($1,$2) result',[recent.id,randomUUID()])).rows[0].result,null);
+  for(const role of ['anon','authenticated'])assert.equal((await f.db.query("select has_function_privilege($1,'public.claim_baneco_order_activation_for_request(uuid,uuid)','execute') allowed",[role])).rows[0].allowed,false);
  }finally{await f.db.close();}
 });

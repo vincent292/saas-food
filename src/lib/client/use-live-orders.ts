@@ -59,6 +59,7 @@ function patchOrderFromRealtime(order: Order, record: Record<string, unknown>) {
 }
 
 function statusErrorMessage(error: string) {
+  if (error.includes("cash-payment-required")) return "Este pedido es en efectivo. Registra el cobro antes de entregarlo.";
   if (error === "invalid-order-transition") return "Otro usuario ya cambio este pedido. La pantalla se actualizara con el estado correcto.";
   if (error === "order-not-found") return "No encontramos el pedido. Actualiza la pantalla e intenta nuevamente.";
   if (error === "invalid-order-status") return "Ese cambio de estado no esta permitido.";
@@ -206,6 +207,14 @@ export function useLiveOrders({
       return false;
     }
 
+    if (status === "delivered" && previousOrder.paymentMethod === "cash" && previousOrder.paymentStatus === "pending") {
+      if (previousOrder.orderType === "table" && previousOrder.tableAccountOpen) {
+        if (!window.confirm("Esta mesa tiene efectivo pendiente. ¿Servir y mantener la cuenta abierta para cobrar al cerrarla?")) return false;
+      } else {
+        const message = "Este pedido es en efectivo y todavía no está cobrado. Registra el cobro en caja antes de marcarlo entregado.";
+        setStatusError(message); window.alert(message); return false;
+      }
+    }
     const changedAt = new Date().toISOString();
     pendingChangesRef.current.set(orderId, { changedAt, previousOrder, status });
     setPendingOrderIds(new Set(pendingChangesRef.current.keys()));

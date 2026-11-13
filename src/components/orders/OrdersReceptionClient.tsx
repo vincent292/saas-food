@@ -417,7 +417,7 @@ function ReceptionOrderCard({
   onStatusChange: (orderId: string, status: "preparing" | "ready" | "delivered") => Promise<boolean>;
 }) {
   const minutes = minutesSince(order.createdAt, new Date());
-  const nextKitchenStatus = !hasKitchenFlow && order.status === "accepted" ? "ready" : order.status === "accepted" ? "preparing" : order.status === "preparing" ? "ready" : null;
+  const nextKitchenStatus = !hasKitchenFlow && ["accepted", "preparing"].includes(order.status) ? "ready" : null;
   const nextKitchenLabel = !hasKitchenFlow && order.status === "accepted" ? "Marcar listo" : businessOrderAdvanceLabel(order.status, restaurant.businessType);
   const readyLabel = businessOrderReadyLabel(order.orderType, restaurant.businessType);
 
@@ -472,6 +472,7 @@ function ReceptionOrderCard({
             </button>
           </div>
 
+          {hasKitchenFlow && ["accepted", "preparing"].includes(order.status) ? <p className="rounded-2xl bg-[var(--primary-light)] p-3 text-sm font-bold text-[var(--primary-dark)]">Enviado a cocina. El equipo de cocina marcará el pedido como listo.</p> : null}
           {nextKitchenStatus ? (
             <div className="rounded-2xl border border-[var(--border)] p-3">
               <p className="mb-3 text-xs font-bold leading-5 text-[var(--muted)]">{hasKitchenFlow ? "Avance rapido para locales sin pantalla de cocina separada." : "Avance rapido para alistar y marcar pedidos listos desde recepcion."}</p>

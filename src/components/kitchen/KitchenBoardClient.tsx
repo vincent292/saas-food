@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Clock, History, Maximize2, Minimize2, RefreshCw, Truck, Volume2, VolumeX } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, History, LoaderCircle, Maximize2, Minimize2, RefreshCw, Truck, Volume2, VolumeX } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -54,7 +54,7 @@ export function KitchenBoardClient({
   const [activeView, setActiveView] = useState<KitchenView>("operacion");
   const [now, setNow] = useState(() => new Date());
   const [focusMode, setFocusMode] = useState(false);
-  const { orders: liveOrders, extendPreparationTime, extendingOrderIds, statusError } = useLiveOrders({
+  const { orders: liveOrders, extendPreparationTime, extendingOrderIds, statusError, updateStatus, pendingOrderIds } = useLiveOrders({
     initialOrders: orders,
     restaurantId: restaurant.id,
     restaurantSlug: restaurant.slug,
@@ -160,6 +160,8 @@ export function KitchenBoardClient({
                 orders={groups.cocina}
                 extendingOrderIds={extendingOrderIds}
                 onExtendTime={extendPreparationTime}
+                onMarkReady={(orderId) => updateStatus(orderId, "ready")}
+                updatingOrderIds={pendingOrderIds}
                 tone="info"
                 title="En cocina"
               />
@@ -173,6 +175,8 @@ export function KitchenBoardClient({
                 orders={groups.vencidos}
                 extendingOrderIds={extendingOrderIds}
                 onExtendTime={extendPreparationTime}
+                onMarkReady={(orderId) => updateStatus(orderId, "ready")}
+                updatingOrderIds={pendingOrderIds}
                 tone="danger"
                 title="Tiempo cumplido"
               />
@@ -235,8 +239,12 @@ function KitchenColumn({
   now,
   extendingOrderIds,
   onExtendTime,
+  onMarkReady,
+  updatingOrderIds,
 }: {
   extendingOrderIds?: Set<string>;
+  updatingOrderIds?: Set<string>;
+  onMarkReady?: (orderId: string) => Promise<boolean>;
   onExtendTime?: (orderId: string, minutes: 5 | 10) => Promise<void>;
   title: string;
   description: string;
@@ -281,7 +289,7 @@ function KitchenColumn({
       {orders.length ? (
         <div className="grid gap-3">
           {orders.map((order) => (
-            <KitchenCard key={order.id} now={now} order={order} extending={extendingOrderIds?.has(order.id)} onExtendTime={onExtendTime} />
+            <KitchenCard key={order.id} now={now} order={order} extending={extendingOrderIds?.has(order.id)} onExtendTime={onExtendTime} onMarkReady={onMarkReady} updating={updatingOrderIds?.has(order.id)} />
           ))}
         </div>
       ) : (
@@ -299,8 +307,12 @@ function KitchenCard({
   now,
   extending,
   onExtendTime,
+  onMarkReady,
+  updating,
 }: {
   extending?: boolean;
+  updating?: boolean;
+  onMarkReady?: (orderId: string) => Promise<boolean>;
   onExtendTime?: (orderId: string, minutes: 5 | 10) => Promise<void>;
   order: Order;
   now: Date;
@@ -376,6 +388,12 @@ function KitchenCard({
             <p className="mt-2 text-[11px] font-semibold text-[var(--muted)]">También actualiza el tiempo del cliente.</p>
           </div>
         ) : null}
+
+        {!isReady && !isDelivered && onMarkReady ? <button
+          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-3 text-sm font-black text-[var(--color-on-primary)] disabled:opacity-50"
+          disabled={updating} onClick={() => void onMarkReady(order.id)} type="button"
+          aria-label={`Marcar listo el pedido ${order.orderNumber}`}
+        >{updating ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}{updating ? "Guardando…" : "Marcar listo"}</button> : null}
 
         {order.paymentReceiptUrl || groupReceiptLinksFromNotes(order.notes).length ? (
           <details className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2">

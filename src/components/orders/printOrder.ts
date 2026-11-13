@@ -40,7 +40,7 @@ export function buildOrderTicketHtml({
   printLogo?: boolean;
 }) {
   const isThermal = format !== "large";
-  const paperWidth = format === "thermal_58" ? "58mm" : format === "thermal_80" ? "80mm" : "210mm";
+  const contentWidth = format === "thermal_58" ? "54mm" : format === "thermal_80" ? "76mm" : "210mm";
   const safeRestaurant = escapeHtml(restaurantName);
   const safeLogoUrl = isPrintImage(restaurantLogoUrl) ? escapeHtml(restaurantLogoUrl ?? "") : "";
   const printBackground = defaultRestaurantPalette.surfaceColor;
@@ -75,8 +75,8 @@ export function buildOrderTicketHtml({
         <title>${escapeHtml(order.orderNumber)} - ${formatTitle(format)}</title>
         <style>
           @page {
-            size: ${isThermal ? paperWidth : "A4"};
-            margin: ${isThermal ? "4mm" : "14mm"};
+            size: ${isThermal ? "auto" : "A4"};
+            margin: ${isThermal ? "2mm" : "14mm"};
           }
 
           * {
@@ -92,7 +92,7 @@ export function buildOrderTicketHtml({
           }
 
           .ticket {
-            width: ${paperWidth};
+            width: ${contentWidth};
             max-width: 100%;
             margin: 0 auto;
             padding: ${isThermal ? "0" : "16px"};
@@ -128,7 +128,7 @@ export function buildOrderTicketHtml({
 
           .divider {
             border-top: 1px dashed ${printText};
-            margin: 8px 0;
+            margin: 5px 0;
           }
 
           table {
@@ -181,6 +181,7 @@ export function buildOrderTicketHtml({
       <body>
         <main class="ticket">
           <section class="center">
+            <img alt="yopido.shop" src="https://www.yopido.shop/brand/yopido-logo-monochrome-blue.png" style="display:block;width:32mm;max-width:90%;height:auto;margin:0 auto 5px" />
             ${printLogo && safeLogoUrl ? `<img alt="${safeRestaurant}" class="logo" src="${safeLogoUrl}" />` : ""}
             <h1>${safeRestaurant}</h1>
             <p>${escapeHtml(orderSourceLabel(order))}</p>
@@ -193,7 +194,8 @@ export function buildOrderTicketHtml({
           <p><strong>Hora:</strong> ${escapeHtml(formatShortTime(order.createdAt))}</p>
           <p><strong>Cliente:</strong> ${escapeHtml(order.customerName || "Cliente")}</p>
           ${order.customerPhone ? `<p><strong>WhatsApp:</strong> ${escapeHtml(order.customerPhone)}</p>` : ""}
-          <p><strong>Pago:</strong> ${escapeHtml(paymentMethodLabels[order.paymentMethod])}</p>
+          <p><strong>Pago:</strong> ${escapeHtml(paymentMethodLabels[order.paymentMethod])} · <strong>${order.paymentStatus === "paid" ? "PAGADO" : "PENDIENTE DE COBRO"}</strong></p>
+          ${order.paymentMethod === "cash" && order.paymentStatus === "pending" ? `<p><strong>${order.orderType === "table" ? "COBRAR AL CERRAR LA CUENTA" : "COBRAR ANTES DE ENTREGAR"}</strong></p>` : ""}
 
           <div class="divider"></div>
           <h2>Productos</h2>
@@ -239,7 +241,18 @@ export function printOrderTicket({
     return false;
   }
 
-  printWindow.addEventListener("load", () => printWindow.print(), { once: true });
+  printWindow.addEventListener("load", () => {
+    if (format !== "large") {
+      const ticket = printWindow.document.querySelector(".ticket");
+      if (ticket) {
+        const heightMm = Math.max(25, Math.ceil(ticket.getBoundingClientRect().height * 25.4 / 96 + 4));
+        const style = printWindow.document.createElement("style");
+        style.textContent = `@page { size: ${format === "thermal_58" ? 58 : 80}mm ${heightMm}mm; margin: 2mm; }`;
+        printWindow.document.head.appendChild(style);
+      }
+    }
+    printWindow.print();
+  }, { once: true });
   printWindow.document.open();
   printWindow.document.write(html);
   printWindow.document.close();

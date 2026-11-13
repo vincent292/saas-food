@@ -99,18 +99,13 @@ async function resolveCart(admin: NonNullable<ReturnType<typeof createAdminClien
   const variantById = new Map((variants ?? []).map((row) => [row.id, row as PriceVariant]));
   const optionById = new Map((options ?? []).map((row) => [row.id, row as PriceOption]));
   const groupsByProduct = new Map<string, PriceGroup[]>();
-  const variantsByProduct = new Map<string, PriceVariant[]>();
   for (const row of (groups ?? []) as PriceGroup[]) {
     groupsByProduct.set(row.product_id, [...(groupsByProduct.get(row.product_id) ?? []), row]);
-  }
-  for (const row of (variants ?? []) as PriceVariant[]) {
-    if (row.is_active) variantsByProduct.set(row.product_id, [...(variantsByProduct.get(row.product_id) ?? []), row]);
   }
 
   return cart.map((item) => {
     const product = productById.get(item.productId);
     if (!product?.is_available) throw new Error("product-not-found");
-    if (!item.variantId && (variantsByProduct.get(item.productId)?.length ?? 0) > 0) throw new Error("product-configuration");
 
     const variant = item.variantId ? variantById.get(item.variantId) : undefined;
     if (item.variantId && (!variant?.is_active || variant.product_id !== item.productId)) throw new Error("product-configuration");

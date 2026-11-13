@@ -149,10 +149,10 @@ export async function runBankQrWorker(authentication: WorkerSignature) {
   return { completed, failed, posted };
 }
 
-async function activatePaidBankOrders(admin: ReturnType<typeof adminClient>) {
-  for (let attempt = 0; attempt < 10; attempt++) {
+async function activatePaidBankOrders(admin: ReturnType<typeof adminClient>, requestId?: string) {
+  for (let attempt = 0; attempt < (requestId ? 1 : 10); attempt++) {
     const token = randomUUID();
-    const job = checked(await admin.rpc("claim_baneco_order_activation", { p_token: token })) as { requestId: string; restaurantId: string } | null;
+    const job = checked(requestId ? await admin.rpc("claim_baneco_order_activation_for_request", { p_request_id: requestId, p_token: token }) : await admin.rpc("claim_baneco_order_activation", { p_token: token })) as { requestId: string; restaurantId: string } | null;
     if (!job) return;
     try {
       const [restaurant, settings] = await Promise.all([
@@ -194,7 +194,7 @@ export async function acceptBanecoPaymentNotice(qrId: string) {
       for (let attempt = 0; attempt < 18; attempt++) {
         const operationToken = randomUUID();
         const row = checked(await admin.rpc("claim_baneco_reconciliation", { p_token: operationToken, p_id: id })) as TestRequest | null;
-        if (row) { await reconcileClaim(admin, row, operationToken); await activatePaidBankOrders(admin); return; }
+        if (row) { await reconcileClaim(admin, row, operationToken); await activatePaidBankOrders(admin, id); return; }
         const current = checked(await admin.from("bank_qr_test_requests").select("operation_until,status,last_attempt_at,notification_received_at").eq("id", id).maybeSingle());
         if (!current?.operation_until || ["paid", "cancelled"].includes(current.status) ||
           (current.last_attempt_at && current.notification_received_at && current.last_attempt_at >= current.notification_received_at)) return;
@@ -233,7 +233,7 @@ export const bankOrderPaymentService = {
     const payment = await this.get(orderId, token);
     if (payment.status === "paid" && "applicationState" in payment && payment.applicationState === "applied"
       && !payment.scheduleHeld && (payment.checkoutHeld || payment.orderStatus === "pending")) {
-      await activatePaidBankOrders(adminClient());
+      await activatePaidBankOrders(adminClient(), "requestId" in payment ? payment.requestId : undefined);
     }
   },
   async availableForRestaurant(restaurantId: string, currency = "BOB") {

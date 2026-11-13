@@ -24,3 +24,10 @@ export function mergeBankPayment(current: BankOrderPaymentState | null, next: Ba
   if ((bankOrderIsSettled(current) || bankCheckoutIsSubmitted(current)) && !bankCheckoutIsSubmitted(next) && !bankOrderIsSettled(next)) return current;
   return next;
 }
+
+/** A visible checkout checks the bank itself; the minute worker remains recovery. */
+export function shouldAutoVerifyBankPayment(payment: BankOrderPaymentState | null, lastCheckAt: number, now = Date.now()) {
+  if (!payment?.available || payment.orderStatus === "cancelled" || payment.scheduleHeld || now-lastCheckAt<8000) return false;
+  return ["pending", "unknown"].includes(payment.status)
+    || (payment.status === "paid" && payment.applicationState !== "review" && (payment.checkoutHeld || payment.orderStatus === "pending"));
+}

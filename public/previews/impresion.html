@@ -1,0 +1,323 @@
+<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Vista previa de tickets · Yopido</title><style>*{box-sizing:border-box}body{margin:0;background:#f3f5f8;color:#163758;font:16px system-ui,sans-serif}main{max-width:1050px;margin:0 auto;padding:36px 24px}small{font-weight:800;letter-spacing:.13em}h1{font-size:34px;margin:10px 0}p{color:#637286;line-height:1.55}header{max-width:760px}label{display:flex;align-items:center;gap:12px;font-weight:700;margin:24px 0}select{font:inherit;border:1px solid #d6dfe8;border-radius:10px;padding:10px 18px;background:white;color:#163758}section{display:grid;grid-template-columns:1fr 1fr;gap:24px}section[hidden]{display:none}article{padding:24px;background:white;border:1px solid #dfe5ec;border-radius:20px}h2{margin:0;font-size:21px}article p{font-size:14px;margin:8px 0 18px}.tray{background:#eef1f4;border-radius:12px;padding:24px 8px;min-height:720px;display:flex;align-items:flex-start;justify-content:center;overflow:auto}iframe{display:block;border:0;height:690px;background:white;flex:none}.roll{background:white;min-height:580px;padding:16px 0;box-shadow:0 5px 18px #16375815;flex:none}.thermal{margin:auto;color:#111;font:9.45px/1.65 'Courier New',monospace;white-space:pre;overflow-wrap:normal}footer{font-size:13px;margin-top:20px;color:#637286;line-height:1.6}@media(max-width:700px){section{grid-template-columns:1fr}main{padding:24px 14px}h1{font-size:28px}}</style><main><header><small>YOPIDO · COMPARACIÓN ACTUAL</small><h1>Así se imprime hoy</h1><p>El mismo pedido ficticio, generado con el código actual de la web y de la app. Incluye extras y notas para cocina.</p></header><label>Papel <select aria-label="Tamaño de papel" onchange="document.querySelectorAll('section[data-mm]').forEach(s=>s.hidden=s.dataset.mm!==this.value)"><option value="58">58 mm · KP-1025</option><option value="80">80 mm</option></select></label><section data-mm="58" ><article><h2>Web actual</h2><p>Ticket desde el navegador</p><div class="tray"><iframe title="Ticket web 58 mm" srcdoc="
+    &lt;!doctype html&gt;
+    &lt;html lang=&quot;es&quot;&gt;
+      &lt;head&gt;
+        &lt;meta charset=&quot;utf-8&quot; /&gt;
+        &lt;title&gt;EJEMPLO-001 - Ticket térmico 58 mm&lt;/title&gt;
+        &lt;style&gt;
+          @page {
+            size: 58mm;
+            margin: 4mm;
+          }
+
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            margin: 0;
+            background: #FFFFFF;
+            color: #1C1C1C;
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+          }
+
+          .ticket {
+            width: 58mm;
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 0;
+          }
+
+          .center {
+            text-align: center;
+          }
+
+          h1 {
+            margin: 0 0 4px;
+            font-size: 18px;
+            line-height: 1;
+            text-transform: uppercase;
+          }
+
+          .logo {
+            display: block;
+            width: 34px;
+            height: 34px;
+            object-fit: contain;
+            margin: 0 auto 6px;
+          }
+
+          h2 {
+            margin: 8px 0 4px;
+            font-size: 14px;
+          }
+
+          p {
+            margin: 2px 0;
+          }
+
+          .divider {
+            border-top: 1px dashed #1C1C1C;
+            margin: 8px 0;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+
+          td {
+            padding: 4px 0;
+            vertical-align: top;
+          }
+
+          td:first-child {
+            width: 28px;
+          }
+
+          .right {
+            text-align: right;
+            white-space: nowrap;
+          }
+
+          small {
+            display: block;
+            margin-top: 2px;
+            color: #6B7280;
+            font-size: 10px;
+          }
+
+          .total {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 15px;
+            font-weight: 800;
+          }
+
+          .notes {
+            border: 1px solid #1C1C1C;
+            padding: 6px;
+            margin-top: 8px;
+          }
+
+          @media print {
+            button {
+              display: none;
+            }
+          }
+        &lt;/style&gt;
+      &lt;/head&gt;
+      &lt;body&gt;
+        &lt;main class=&quot;ticket&quot;&gt;
+          &lt;section class=&quot;center&quot;&gt;
+
+            &lt;h1&gt;Restaurante de ejemplo&lt;/h1&gt;
+            &lt;p&gt;Pedido de mesa&lt;/p&gt;
+            &lt;p&gt;&lt;strong&gt;Pedido EJEMPLO-001&lt;/strong&gt;&lt;/p&gt;
+          &lt;/section&gt;
+
+          &lt;div class=&quot;divider&quot;&gt;&lt;/div&gt;
+
+          &lt;p&gt;&lt;strong&gt;Estado:&lt;/strong&gt; Aprobado&lt;/p&gt;
+          &lt;p&gt;&lt;strong&gt;Hora:&lt;/strong&gt; 12:30 p. m.&lt;/p&gt;
+          &lt;p&gt;&lt;strong&gt;Cliente:&lt;/strong&gt; Cliente de ejemplo&lt;/p&gt;
+
+          &lt;p&gt;&lt;strong&gt;Pago:&lt;/strong&gt; QR&lt;/p&gt;
+
+          &lt;div class=&quot;divider&quot;&gt;&lt;/div&gt;
+          &lt;h2&gt;Productos&lt;/h2&gt;
+          &lt;table&gt;
+            &lt;tbody&gt;
+        &lt;tr&gt;
+          &lt;td&gt;1x&lt;/td&gt;
+          &lt;td&gt;
+            &lt;strong&gt;Pizza familiar&lt;/strong&gt;
+            &lt;small&gt;1x Extra queso | Sin cebolla&lt;/small&gt;
+          &lt;/td&gt;
+          &lt;td class=&quot;right&quot;&gt;Bs 65,00&lt;/td&gt;
+        &lt;/tr&gt;
+
+        &lt;tr&gt;
+          &lt;td&gt;1x&lt;/td&gt;
+          &lt;td&gt;
+            &lt;strong&gt;Refresco&lt;/strong&gt;
+
+          &lt;/td&gt;
+          &lt;td class=&quot;right&quot;&gt;Bs 5,00&lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/tbody&gt;
+          &lt;/table&gt;
+          &lt;div class=&quot;divider&quot;&gt;&lt;/div&gt;
+          &lt;div class=&quot;total&quot;&gt;
+            &lt;span&gt;Total&lt;/span&gt;
+            &lt;span&gt;Bs 70,00&lt;/span&gt;
+          &lt;/div&gt;
+
+          &lt;div class=&quot;notes&quot;&gt;&lt;strong&gt;Notas:&lt;/strong&gt;&lt;br /&gt;Sin ají. Es un pedido de ejemplo.&lt;/div&gt;
+        &lt;/main&gt;
+      &lt;/body&gt;
+    &lt;/html&gt;
+  " style="width:58mm"></iframe></div></article><article><h2>App actual</h2><p>Ticket de la estación Android / iOS</p><div class="tray"><div class="roll" style="width:58mm"><div class="thermal" style="width:48mm"><div style="text-align:center;font-weight:700">RESTAURANTE DE EJEMPLO</div><div style="text-align:center;font-weight:400">EJEMPLO-001</div><div style="text-align:left;font-weight:400">--------------------------------</div><div style="text-align:left;font-weight:400">Mesa 1 | 13/11/2026, 12:30:00</div><div style="text-align:left;font-weight:400">Cliente: Cliente de ejemplo</div><div style="text-align:left;font-weight:400">Nota: Sin aji. Es un pedido de<br>ejemplo.</div><div style="text-align:left;font-weight:400">--------------------------------</div><div style="text-align:left;font-weight:700">1 x Pizza familiar</div><div style="text-align:left;font-weight:400">Extra queso | Sin cebolla</div><div style="text-align:left;font-weight:400">Bs 65.00</div><div style="text-align:left;font-weight:700">1 x Refresco</div><div style="text-align:left;font-weight:400">Bs 5.00</div><div style="text-align:left;font-weight:400">--------------------------------</div><div style="text-align:right;font-weight:700">TOTAL Bs 70.00</div><div style="text-align:left;font-weight:400">Pago: PAGADO</div><div style="text-align:center;font-weight:400">Yopido POS</div></div></div></div></article></section><section data-mm="80" hidden><article><h2>Web actual</h2><p>Ticket desde el navegador</p><div class="tray"><iframe title="Ticket web 80 mm" srcdoc="
+    &lt;!doctype html&gt;
+    &lt;html lang=&quot;es&quot;&gt;
+      &lt;head&gt;
+        &lt;meta charset=&quot;utf-8&quot; /&gt;
+        &lt;title&gt;EJEMPLO-001 - Ticket térmico 80 mm&lt;/title&gt;
+        &lt;style&gt;
+          @page {
+            size: 80mm;
+            margin: 4mm;
+          }
+
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            margin: 0;
+            background: #FFFFFF;
+            color: #1C1C1C;
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+          }
+
+          .ticket {
+            width: 80mm;
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 0;
+          }
+
+          .center {
+            text-align: center;
+          }
+
+          h1 {
+            margin: 0 0 4px;
+            font-size: 18px;
+            line-height: 1;
+            text-transform: uppercase;
+          }
+
+          .logo {
+            display: block;
+            width: 34px;
+            height: 34px;
+            object-fit: contain;
+            margin: 0 auto 6px;
+          }
+
+          h2 {
+            margin: 8px 0 4px;
+            font-size: 14px;
+          }
+
+          p {
+            margin: 2px 0;
+          }
+
+          .divider {
+            border-top: 1px dashed #1C1C1C;
+            margin: 8px 0;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+
+          td {
+            padding: 4px 0;
+            vertical-align: top;
+          }
+
+          td:first-child {
+            width: 28px;
+          }
+
+          .right {
+            text-align: right;
+            white-space: nowrap;
+          }
+
+          small {
+            display: block;
+            margin-top: 2px;
+            color: #6B7280;
+            font-size: 10px;
+          }
+
+          .total {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 15px;
+            font-weight: 800;
+          }
+
+          .notes {
+            border: 1px solid #1C1C1C;
+            padding: 6px;
+            margin-top: 8px;
+          }
+
+          @media print {
+            button {
+              display: none;
+            }
+          }
+        &lt;/style&gt;
+      &lt;/head&gt;
+      &lt;body&gt;
+        &lt;main class=&quot;ticket&quot;&gt;
+          &lt;section class=&quot;center&quot;&gt;
+
+            &lt;h1&gt;Restaurante de ejemplo&lt;/h1&gt;
+            &lt;p&gt;Pedido de mesa&lt;/p&gt;
+            &lt;p&gt;&lt;strong&gt;Pedido EJEMPLO-001&lt;/strong&gt;&lt;/p&gt;
+          &lt;/section&gt;
+
+          &lt;div class=&quot;divider&quot;&gt;&lt;/div&gt;
+
+          &lt;p&gt;&lt;strong&gt;Estado:&lt;/strong&gt; Aprobado&lt;/p&gt;
+          &lt;p&gt;&lt;strong&gt;Hora:&lt;/strong&gt; 12:30 p. m.&lt;/p&gt;
+          &lt;p&gt;&lt;strong&gt;Cliente:&lt;/strong&gt; Cliente de ejemplo&lt;/p&gt;
+
+          &lt;p&gt;&lt;strong&gt;Pago:&lt;/strong&gt; QR&lt;/p&gt;
+
+          &lt;div class=&quot;divider&quot;&gt;&lt;/div&gt;
+          &lt;h2&gt;Productos&lt;/h2&gt;
+          &lt;table&gt;
+            &lt;tbody&gt;
+        &lt;tr&gt;
+          &lt;td&gt;1x&lt;/td&gt;
+          &lt;td&gt;
+            &lt;strong&gt;Pizza familiar&lt;/strong&gt;
+            &lt;small&gt;1x Extra queso | Sin cebolla&lt;/small&gt;
+          &lt;/td&gt;
+          &lt;td class=&quot;right&quot;&gt;Bs 65,00&lt;/td&gt;
+        &lt;/tr&gt;
+
+        &lt;tr&gt;
+          &lt;td&gt;1x&lt;/td&gt;
+          &lt;td&gt;
+            &lt;strong&gt;Refresco&lt;/strong&gt;
+
+          &lt;/td&gt;
+          &lt;td class=&quot;right&quot;&gt;Bs 5,00&lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/tbody&gt;
+          &lt;/table&gt;
+          &lt;div class=&quot;divider&quot;&gt;&lt;/div&gt;
+          &lt;div class=&quot;total&quot;&gt;
+            &lt;span&gt;Total&lt;/span&gt;
+            &lt;span&gt;Bs 70,00&lt;/span&gt;
+          &lt;/div&gt;
+
+          &lt;div class=&quot;notes&quot;&gt;&lt;strong&gt;Notas:&lt;/strong&gt;&lt;br /&gt;Sin ají. Es un pedido de ejemplo.&lt;/div&gt;
+        &lt;/main&gt;
+      &lt;/body&gt;
+    &lt;/html&gt;
+  " style="width:80mm"></iframe></div></article><article><h2>App actual</h2><p>Ticket de la estación Android / iOS</p><div class="tray"><div class="roll" style="width:80mm"><div class="thermal" style="width:72mm"><div style="text-align:center;font-weight:700">RESTAURANTE DE EJEMPLO</div><div style="text-align:center;font-weight:400">EJEMPLO-001</div><div style="text-align:left;font-weight:400">------------------------------------------------</div><div style="text-align:left;font-weight:400">Mesa 1 | 13/11/2026, 12:30:00</div><div style="text-align:left;font-weight:400">Cliente: Cliente de ejemplo</div><div style="text-align:left;font-weight:400">Nota: Sin aji. Es un pedido de ejemplo.</div><div style="text-align:left;font-weight:400">------------------------------------------------</div><div style="text-align:left;font-weight:700">1 x Pizza familiar</div><div style="text-align:left;font-weight:400">Extra queso | Sin cebolla</div><div style="text-align:left;font-weight:400">Bs 65.00</div><div style="text-align:left;font-weight:700">1 x Refresco</div><div style="text-align:left;font-weight:400">Bs 5.00</div><div style="text-align:left;font-weight:400">------------------------------------------------</div><div style="text-align:right;font-weight:700">TOTAL Bs 70.00</div><div style="text-align:left;font-weight:400">Pago: PAGADO</div><div style="text-align:center;font-weight:400">Yopido POS</div></div></div></div></article></section><footer>Vista de demostración: esta página no cambia la configuración del restaurante ni envía impresiones. El tamaño de letra de la app es una aproximación visual a la impresora térmica. Hoy los dos diseños todavía se generan por separado.</footer></main></html>

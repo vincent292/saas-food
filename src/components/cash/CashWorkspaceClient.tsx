@@ -217,7 +217,7 @@ export function CashWorkspaceClient({
     [todaysOrders],
   );
   const pickupOrders = useMemo(
-    () => todaysOrders.filter((order) => order.orderType === "pickup" && ["pending", "accepted", "preparing", "ready", "delivered"].includes(order.status)),
+    () => todaysOrders.filter((order) => ["pickup", "pos"].includes(order.orderType) && ["pending", "accepted", "preparing", "ready", "delivered"].includes(order.status)),
     [todaysOrders],
   );
   const normalizedOrderSearch = orderSearch.trim().toLowerCase();
@@ -720,7 +720,7 @@ export function CashWorkspaceClient({
 
       {activeTab === "recojo" ? (
         <section className="space-y-4">
-          <SectionTitle title="Recojo del dia" description="Pedidos para recoger en tienda, separados del delivery para que caja los ubique rapido." />
+          <SectionTitle title="Recojo y mostrador" description="Pedidos para recoger y ventas POS. Revisa el efectivo pendiente antes de confirmar la entrega." />
           {!activeTabIsLoaded ? (
             <TabLoadingState />
           ) : visiblePickupOrders.length ? (
@@ -734,7 +734,7 @@ export function CashWorkspaceClient({
               )}
             </div>
           ) : (
-            <EmptyState title="Sin recojos hoy" description="Cuando el cliente elija recojo, el pedido aparecera aqui." />
+            <EmptyState title="Sin pedidos de recojo o mostrador" description="Aquí aparecen los pedidos para retirar y las ventas POS." />
           )}
         </section>
       ) : null}

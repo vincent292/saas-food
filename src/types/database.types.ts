@@ -1565,6 +1565,18 @@ export type Database = {
         };
         Returns: undefined;
       };
+      approve_cash_order_for_preparation: {
+        Args: {
+          p_order_id: string;
+          p_restaurant_id: string;
+        };
+        Returns: {
+          changed_at: string;
+          order_id: string;
+          resulting_status: Database["public"]["Enums"]["order_status"];
+          status_changed: boolean;
+        }[];
+      };
       approve_table_order_for_preparation: {
         Args: {
           p_order_id: string;

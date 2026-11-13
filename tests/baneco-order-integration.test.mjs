@@ -68,7 +68,7 @@ async function fixture(latest=false) {
   for(const name of ['0120_baneco_superadmin_test_panel.sql','0121_baneco_production_pilot.sql','0122_baneco_automatic_reconciliation.sql','0125_baneco_notifications_and_realtime.sql','0126_baneco_order_payments.sql','0127_baneco_public_checkout.sql'])
     await db.exec(read('supabase/migrations/'+name));
   await db.exec(read('supabase/migrations/0052_atomic_order_refunds.sql'));
-  if(latest){await db.exec(read('supabase/migrations/0128_baneco_checkout_recovery_and_acceptance.sql'));await db.exec(read('supabase/migrations/0146_fast_payment_and_cash_handoff.sql'));}
+  if(latest){await db.exec(read('supabase/migrations/0128_baneco_checkout_recovery_and_acceptance.sql'));await db.exec(read('supabase/migrations/0146_fast_payment_and_cash_handoff.sql'));await db.exec(read('supabase/migrations/0147_cash_preparation_without_collection.sql'));}
   const connection=randomUUID();
   await db.query(`insert into bank_qr_connections(id,restaurant_id,environment,label,credentials_ciphertext,encryption_mode,created_by,check_result,orders_enabled)
     values($1,$2,'production','QA','ciphertext','bank_api',$3,'ok',true)`,[connection,merchant,actor]);
@@ -476,5 +476,29 @@ test('a paid checkout claims its own activation ahead of unrelated jobs and deni
   assert.equal((await f.db.query('select operation_token from bank_order_activations where request_id=$1',[old.id])).rows[0].operation_token,null);
   assert.equal((await f.db.query('select claim_baneco_order_activation_for_request($1,$2) result',[recent.id,randomUUID()])).rows[0].result,null);
   for(const role of ['anon','authenticated'])assert.equal((await f.db.query("select has_function_privilege($1,'public.claim_baneco_order_activation_for_request(uuid,uuid)','execute') allowed",[role])).rows[0].allowed,false);
+ }finally{await f.db.close();}
+});
+
+
+test('cash preparation approval reserves inventory once without collecting money and rejects protected orders',async()=>{
+ const f=await fixture(true);try{
+  await f.db.exec('alter table orders add column bank_checkout_hold boolean default false,add column bank_schedule_hold boolean default false');
+  await assert.rejects(f.db.query('select * from approve_cash_order_for_preparation($1,$2)',[merchant,randomUUID()]),/cash access denied/);
+  await f.db.query("select set_config('test.uid',$1,false)",[actor]);
+  const id=await f.create({type:'pos'});await f.db.query("update orders set payment_method='cash' where id=$1",[id]);
+  await assert.rejects(f.db.query('select * from approve_cash_order_for_preparation($1,$2)',[merchant,id]),/no-open-session/);
+  await f.db.query("insert into cash_sessions(id,restaurant_id,status) values($1,$2,'open')",[randomUUID(),merchant]);
+  for(const changed of [true,false]){const row=(await f.db.query('select * from approve_cash_order_for_preparation($1,$2)',[merchant,id])).rows[0];assert.equal(row.status_changed,changed);assert.equal(row.resulting_status,'accepted');}
+  const order=(await f.db.query('select status,payment_status,payment_method from orders where id=$1',[id])).rows[0];
+  assert.deepEqual(order,{status:'accepted',payment_status:'pending',payment_method:'cash'});
+  assert.equal((await f.db.query('select count(*)::int n from inventory_applied where order_id=$1',[id])).rows[0].n,1);
+  assert.equal((await f.db.query('select count(*)::int n from cash_movements where order_id=$1',[id])).rows[0].n,0);
+  for(const patch of ["payment_method='qr'","bank_payment_required=true","bank_checkout_hold=true","bank_schedule_hold=true","order_type='table'","payment_status='paid'"]){
+   const bad=await f.create({type:'pos'});await f.db.query("update orders set payment_method='cash' where id=$1",[bad]);await f.db.query("update orders set "+patch+" where id=$1",[bad]);
+   await assert.rejects(f.db.query('select * from approve_cash_order_for_preparation($1,$2)',[merchant,bad]),/invalid-cash-approval/);
+  }
+  const failed=await f.create({type:'pos'});await f.db.query("update orders set payment_method='cash' where id=$1",[failed]);await f.db.query("select set_config('test.inventory_fail','yes',false)");
+  await assert.rejects(f.db.query('select * from approve_cash_order_for_preparation($1,$2)',[merchant,failed]),/Inventory test failure/);
+  assert.equal((await f.db.query('select status from orders where id=$1',[failed])).rows[0].status,'pending');
  }finally{await f.db.close();}
 });

@@ -7602,6 +7602,13 @@ export async function approvePendingOrderAction(formData: FormData) {
     });
     if (error) return { error: cashErrorKey(error, "order-status-update"), ok: false as const };
     if (previousOrder.status === "pending") resultingStatus = "accepted";
+  } else if (formData.get("approvalMode") === "prepare") {
+    const { data: acceptedOrders, error } = await supabase.rpc("approve_cash_order_for_preparation", {
+      p_restaurant_id: parsed.data.restaurantId, p_order_id: parsed.data.orderId,
+    });
+    if (error) return { error: cashErrorKey(error, "order-status-update"), ok: false as const };
+    if (!acceptedOrders?.[0]) return { error: "invalid-order-transition", ok: false as const };
+    resultingStatus = acceptedOrders[0].resulting_status as OrderStatus;
   } else {
     try {
       const receiptFile = formData.get("paymentReceiptFile") as File | null;

@@ -51,6 +51,7 @@ export function PendingOrderReviewCard({
   const [paymentMethod, setPaymentMethod] = useState<Order["paymentMethod"]>(order.paymentMethod);
   const [showReject, setShowReject] = useState(false);
   const isTableOrder = order.orderType === "table";
+  const canPrepareCash = !isTableOrder && paymentMethod === "cash" && order.paymentMethod === "cash" && order.paymentStatus === "pending" && !order.bankPaymentRequired;
   const whatsappUrl = whatsappHref(order);
   const pendingLabel = isTableOrder ? "Pedido de mesa por aprobar" : context === "pedidos" ? "Pendiente por aprobar" : "Pendiente de caja";
   const hasReceiptEvidence = Boolean(order.paymentReceiptUrl || order.paymentReceiptReference);
@@ -165,7 +166,10 @@ export function PendingOrderReviewCard({
           {!disabled ? null : <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para aprobar y sumar este pedido al turno actual.</div>}
 
           {!order.bankGroupSessionId && (paymentMethod === "qr" || order.bankPaymentRequired) ? <BankOrderPaymentCard orderId={order.id} staffRestaurantId={order.restaurantId} initialPayment={null} /> : null}
-          <form action={async (formData) => { await onApprove(order.id, formData); }} className="grid gap-3 rounded-2xl border border-[var(--border)] p-3">
+          <form action={async (formData) => {
+            if (!isTableOrder && paymentMethod === "cash" && formData.get("approvalMode") !== "prepare" && !window.confirm(`¿Recibiste ${formatMoney(order.total)} en efectivo? Esta acción registra el cobro en caja.`)) return;
+            await onApprove(order.id, formData);
+          }} className="grid gap-3 rounded-2xl border border-[var(--border)] p-3">
             <input name="restaurantId" type="hidden" value={order.restaurantId} />
             <input name="restaurantSlug" type="hidden" value={restaurantSlug} />
             <input name="orderId" type="hidden" value={order.id} />
@@ -195,7 +199,11 @@ export function PendingOrderReviewCard({
                 ) : null}
               </>
             )}
-            <PendingSubmitButton disabled={disabled || isApproving || Boolean(order.bankPaymentRequired && order.paymentStatus !== "paid") || (!isTableOrder && paymentMethod === "qr")} pendingLabel={isTableOrder ? "Aprobando pedido..." : "Aprobando y cobrando..."}>
+            {canPrepareCash ? <>
+              <p className="rounded-xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Puedes aprobar la preparación y el ticket sin cobrar todavía. El efectivo seguirá pendiente hasta registrar su cobro.</p>
+              <PendingSubmitButton disabled={disabled || isApproving} name="approvalMode" value="prepare" pendingLabel="Aprobando pedido...">Aprobar sin cobrar</PendingSubmitButton>
+            </> : null}
+            <PendingSubmitButton variant={canPrepareCash ? "secondary" : "primary"} disabled={disabled || isApproving || Boolean(order.bankPaymentRequired && order.paymentStatus !== "paid") || (!isTableOrder && paymentMethod === "qr")} pendingLabel={isTableOrder ? "Aprobando pedido..." : "Aprobando y cobrando..."}>
               {isTableOrder ? "Aprobar pedido" : "Aprobar y cobrar"}
             </PendingSubmitButton>
           </form>

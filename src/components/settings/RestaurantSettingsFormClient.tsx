@@ -714,6 +714,27 @@ export function RestaurantSettingsFormClient({
             </div>
           </Card>
 
+          <Card className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <SectionTitle
+                title={`Vista previa · ${restaurant.name}`}
+                description="Compara los tickets actuales de la web y la app en papel de 58 y 80 mm. Los ejemplos no cambian los ajustes guardados de este local."
+              />
+              <a className={buttonClasses("secondary", "shrink-0")} href="/previews/impresion.html" rel="noopener noreferrer" target="_blank">
+                <ExternalLink className="h-4 w-4" />
+                Ver en pantalla completa
+              </a>
+            </div>
+            {activeTab === "impresion" ? (
+              <iframe
+                className="h-[1050px] w-full rounded-2xl border border-[var(--border)] bg-white lg:h-[1250px]"
+                loading="lazy"
+                src="/previews/impresion.html"
+                title={`Comparación de tickets de web y app para ${restaurant.name}`}
+              />
+            ) : null}
+          </Card>
+
           <PrintConnectorSettingsCard connector={printConnectorLink} restaurant={restaurant} />
         </div>
       </div>

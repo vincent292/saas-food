@@ -852,3 +852,39 @@ body.public-restaurant-order-page .public-bottom-navigation-spacer {
 @media (max-width:1023px) {
  .pos-cart { height:min(700px,calc(100dvh - 32px)); }
 }
+
+/* Public checkout: a bounded sheet with a persistent action area. */
+[data-order-sheet] { display:flex; flex-direction:column; height:min(820px,calc(100dvh - 32px)); max-height:calc(100dvh - 32px); border-radius:20px; }
+[data-order-sheet] > div:first-child { flex-shrink:0; padding:16px 20px; }
+.public-order-sheet-body { display:flex; flex-direction:column; min-height:0; max-height:none; overflow:hidden; padding:0; }
+.public-order-sheet-body [data-public-checkout] { display:flex; flex-direction:column; min-height:0; overflow:hidden; box-shadow:none; }
+.public-checkout-scroll { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:16px 20px; }
+.public-checkout-progress { background:var(--color-surface); border:1px solid var(--border); border-radius:12px; }
+.public-checkout-progress > div:first-child { padding:4px 8px 8px; }
+.public-checkout-progress > div:first-child p { font-weight:500; text-transform:none; font-size:12px; }
+.public-checkout-progress h3 { font-size:18px; }
+.public-checkout-progress button { font-weight:600; min-height:44px; }
+.public-checkout-actions { flex-shrink:0; margin:0; border-top:1px solid var(--border); padding:12px 20px max(12px,env(safe-area-inset-bottom)); background:var(--surface); }
+.public-checkout-actions button { box-shadow:none; border-radius:10px; }
+.public-checkout-totals { border-radius:12px; font-size:14px; box-shadow:none; }
+.public-checkout-ticket { position:relative; padding:20px; border:1px solid var(--border); border-top:3px solid var(--primary); background:var(--surface); }
+.public-ticket-heading { display:grid; justify-items:center; gap:6px; padding-bottom:20px; text-align:center; border-bottom:1px dashed var(--border); }
+.public-ticket-heading p { font-size:14px; font-weight:600; color:var(--primary); }
+.public-ticket-heading h3 { font-size:20px; font-weight:650; }
+.public-ticket-heading span { max-width:40ch; font-size:12px; color:var(--muted); line-height:1.6; }
+.public-checkout-ticket > div:nth-child(2) > div { border-radius:0; background:transparent; box-shadow:none; --tw-ring-shadow:0 0 #0000; padding:12px 0; border-bottom:1px dashed var(--border); }
+.public-checkout-ticket p.truncate { white-space:normal; }
+.public-checkout-ticket button { min-height:44px; min-width:44px; }
+[data-public-checkout][data-step="review"] .public-checkout-totals { border-radius:0; border:1px solid var(--border); border-top:0; margin-top:0; background:var(--surface); }
+@media (max-width:599px) {
+ [data-order-sheet] { height:calc(100dvh - 24px); max-height:calc(100dvh - 24px); border-radius:16px; }
+ .public-checkout-scroll { padding:12px; }
+ .public-checkout-actions { padding-inline:12px; }
+ .public-checkout-ticket { padding:16px; }
+}
+.public-checkout-progress > div:last-child { display:flex; gap:6px; overflow-x:auto; }
+.public-checkout-progress > div:last-child button { flex:1; min-width:76px; }
+@media (max-width:599px) {
+ .public-checkout-progress > div:last-child button { font-size:12px; padding-inline:8px; }
+ .public-checkout-progress > div:last-child button svg { display:none; }
+}

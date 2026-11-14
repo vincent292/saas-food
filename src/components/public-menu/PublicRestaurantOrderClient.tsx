@@ -558,17 +558,17 @@ export function PublicRestaurantOrderClient({
 
       {drawerOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden bg-[var(--color-overlay)] px-2 pb-2 pt-16 backdrop-blur-sm sm:items-center sm:p-4" onClick={requestCloseDrawer}>
-          <div className={cn("max-h-[min(92dvh,820px)] w-full max-w-[min(100%,620px)] overflow-hidden rounded-t-[2rem] bg-[var(--surface)] text-[var(--text)] shadow-2xl sm:rounded-[2rem]", drawerClosing ? "public-sheet-exit" : "public-sheet-enter")} data-order-sheet onClick={(event) => event.stopPropagation()}>
+          <div className={cn("max-h-[min(92dvh,820px)] w-full max-w-[min(100%,620px)] overflow-hidden rounded-t-[2rem] bg-[var(--surface)] text-[var(--text)] shadow-2xl sm:rounded-[2rem]", drawerClosing ? "public-sheet-exit" : "public-sheet-enter")} data-order-sheet role="dialog" aria-modal="true" aria-label="Tu pedido" onClick={(event) => event.stopPropagation()}>
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--color-card-elevated)] px-4 py-4 backdrop-blur">
               <div>
                 <h2 className="min-w-0 truncate text-xl font-semibold sm:text-2xl">Tu pedido</h2>
                 <p className="text-sm font-semibold text-[var(--muted)]">{cartQuantity} item{cartQuantity === 1 ? "" : "s"}</p>
               </div>
-              <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={requestCloseDrawer} type="button">
+              <button aria-label="Cerrar pedido" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={requestCloseDrawer} type="button">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="max-h-[calc(min(92dvh,760px)-68px)] overflow-x-hidden overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3">
+            <div className="public-order-sheet-body max-h-[calc(min(92dvh,760px)-68px)] overflow-x-hidden overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3">
               <PublicOrderPanel
                 dynamicQrAvailable={dynamicQrAvailable}
                 cart={cart}
@@ -1204,9 +1204,13 @@ function PublicOrderPanel({
   const qrAvailable = useDynamicQr;
   const effectivePaymentMethod = orderType === "delivery" && deliveryPolicy.requiresQrPrepayment ? "qr" : paymentMethod;
   const recoveryRef = useRef<HTMLInputElement>(null);
+  const checkoutScrollRef = useRef<HTMLDivElement>(null);
   const [activeStep, setActiveStep] = useState<OrderStepKey>("fulfillment");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  useEffect(() => {
+    checkoutScrollRef.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, [activeStep, formError]);
   const customerAccount = usePublicCustomerStore((state) => state.account);
   const customerAccountLoaded = usePublicCustomerStore((state) => state.loaded);
   const customerSessionEmail = usePublicCustomerStore((state) => state.sessionEmail);
@@ -1490,7 +1494,7 @@ function PublicOrderPanel({
   }
 
   return (
-    <form action={createPublicOrderAction} className={cn("w-full min-w-0 rounded-[1.5rem] bg-[var(--surface)] text-[var(--text)] shadow-sm", compact ? "rounded-none p-0 shadow-none" : "p-4")} onSubmit={handleSubmit}>
+    <form action={createPublicOrderAction} data-public-checkout data-step={activeStep} className={cn("w-full min-w-0 rounded-[1.5rem] bg-[var(--surface)] text-[var(--text)] shadow-sm", compact ? "rounded-none p-0 shadow-none" : "p-4")} onSubmit={handleSubmit}>
       <input defaultValue="" name="requestId" type="hidden" />
       <input defaultValue="" name="recoveryKey" ref={recoveryRef} type="hidden" />
       <input name="restaurantId" type="hidden" value={restaurant.id} />
@@ -1502,10 +1506,11 @@ function PublicOrderPanel({
       <input name="invoiceRequired" type="hidden" value={invoiceEnabled && requiresInvoice ? "on" : ""} />
       <input name="cartJson" type="hidden" value={cartJson} />
 
+      <div className="public-checkout-scroll" ref={checkoutScrollRef}>
       {!compact ? <h2 className="text-2xl font-semibold">Tu pedido</h2> : null}
       {orderError ? <div className="mb-3"><OrderErrorMessage error={orderError} /></div> : null}
 
-      <div className="rounded-[1.35rem] bg-[var(--primary-light)] p-2">
+      <div className="public-checkout-progress rounded-[1.35rem] bg-[var(--primary-light)] p-2">
         <div className="flex items-center justify-between gap-3 px-2 py-2">
           <div>
             <p className="text-xs font-black uppercase text-[var(--primary)]">Paso {activeStepNumber} de {steps.length}</p>
@@ -1829,8 +1834,8 @@ function PublicOrderPanel({
         </p>
       </section>
 
-      <section className={cn("mt-4 space-y-3", activeStep === "review" ? "block" : "hidden")}>
-        <StepIntro icon={<ShoppingCart className="h-5 w-5" />} title="Revision final" description="Confirma productos, entrega, pago y total antes de enviar." />
+      <section className={cn("public-checkout-ticket mt-4 space-y-3", activeStep === "review" ? "block" : "hidden")}>
+        <div className="public-ticket-heading"><ReceiptText aria-hidden="true" className="h-6 w-6" /><p>{restaurant.name}</p><h3>Resumen de tu pedido</h3><span>Revisa los datos antes de continuar. Aún no es un comprobante de pago.</span></div>
         <div className="space-y-2">
           {cart.length ? (
             cart.map((item) => (
@@ -1847,11 +1852,11 @@ function PublicOrderPanel({
                     <strong className="shrink-0 text-sm">{formatMoney(item.price * item.quantity, settings?.currency)}</strong>
                   </div>
                   <div className="mt-3 inline-flex overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)]">
-                    <button className="grid h-9 w-10 place-items-center" onClick={() => changeQuantity(item.cartId, -1)} type="button">
+                    <button aria-label={`Quitar una unidad de ${item.name}`} className="grid h-9 w-10 place-items-center" onClick={() => changeQuantity(item.cartId, -1)} type="button">
                       <Minus className="h-4 w-4" />
                     </button>
                     <span className="grid h-9 w-10 place-items-center border-x border-[var(--border)] text-sm font-black">{item.quantity}</span>
-                    <button className="grid h-9 w-10 place-items-center" onClick={() => changeQuantity(item.cartId, 1)} type="button">
+                    <button aria-label={`Agregar una unidad de ${item.name}`} className="grid h-9 w-10 place-items-center" onClick={() => changeQuantity(item.cartId, 1)} type="button">
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>
@@ -1877,7 +1882,7 @@ function PublicOrderPanel({
         </div>
       </section>
 
-      <div className="mt-4 rounded-[1.25rem] bg-[var(--color-surface)] p-4 text-base ring-1 ring-[var(--border)]">
+      <div className="public-checkout-totals mt-4 rounded-[1.25rem] bg-[var(--color-surface)] p-4 text-base ring-1 ring-[var(--border)]">
         <div className="flex items-center justify-between">
           <span className="font-semibold text-[var(--muted)]">Subtotal</span>
           <strong>{formatMoney(total, settings?.currency)}</strong>
@@ -1892,12 +1897,13 @@ function PublicOrderPanel({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-[auto_1fr]">
+      </div>
+      <div className="public-checkout-actions mt-4 grid gap-2 sm:grid-cols-[auto_1fr]">
         <Button className={cn("min-h-12 rounded-[1.1rem]", activeStepIndex === 0 && "hidden")} onClick={goBack} type="button" variant="secondary">
           Volver
         </Button>
         {activeStep === "review" ? (
-          <Button className={cn("min-h-14 w-full overflow-hidden rounded-[1.25rem] bg-[var(--accent)] text-base text-[var(--primary)] shadow-[var(--shadow-glow)] transition-all hover:bg-[#d9ff22]", isSubmitting && "justify-center bg-[var(--color-success)] text-white")} disabled={!cart.length || isSubmitting} type="submit">
+          <Button key="submit-order" className={cn("min-h-14 w-full overflow-hidden rounded-[1.25rem] bg-[var(--accent)] text-base text-[var(--primary)] shadow-[var(--shadow-glow)] transition-all hover:bg-[#d9ff22]", isSubmitting && "justify-center bg-[var(--color-success)] text-white")} disabled={!cart.length || isSubmitting} type="submit">
             {isSubmitting ? (
               <span className="inline-flex items-center gap-3">
                 <span className="relative grid h-8 w-8 place-items-center rounded-full border-2 border-[var(--surface)]/40">
@@ -1917,8 +1923,8 @@ function PublicOrderPanel({
             )}
           </Button>
         ) : (
-          <Button className="min-h-14 w-full rounded-[1.25rem] bg-[var(--accent)] text-base text-[var(--primary)] shadow-[var(--shadow-glow)] hover:bg-[#d9ff22]" disabled={!cart.length} onClick={goNext} type="button">
-            Guardar y continuar
+          <Button key={`continue-${activeStep}`} className="min-h-14 w-full rounded-[1.25rem] bg-[var(--accent)] text-base text-[var(--primary)] shadow-[var(--shadow-glow)] hover:bg-[#d9ff22]" disabled={!cart.length} onClick={goNext} type="button">
+            Continuar
             <ArrowRight className="h-5 w-5" />
           </Button>
         )}

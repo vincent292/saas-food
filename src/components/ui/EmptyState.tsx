@@ -12,15 +12,15 @@ export function EmptyState({
   illustration?: IllustrationName;
 }) {
   return (
-    <Card className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+    <Card className="ui-empty-state flex flex-col items-center justify-center gap-3 py-10 text-center">
       {illustration ? (
         <IllustrationAsset className="max-w-[220px]" name={illustration} />
       ) : (
-        <SearchX className="h-10 w-10 text-[var(--muted)]" />
+        <SearchX aria-hidden="true" className="h-8 w-8 text-[var(--muted)]" />
       )}
       <div>
-        <h3 className="text-lg font-semibold text-[var(--text)]">{title}</h3>
-        <p className="mt-1 text-sm text-[var(--muted)]">{description}</p>
+        <h3 className="text-lg font-semibold tracking-tight text-[var(--text)]">{title}</h3>
+        <p className="mt-2 max-w-[55ch] text-sm leading-relaxed text-[var(--muted)]">{description}</p>
       </div>
     </Card>
   );

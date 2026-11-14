@@ -42,7 +42,7 @@ export default async function CategoriesPage({
         title="Categorias"
         description={canManageCatalog ? "Crea categorias reales para ordenar el menu publico." : "Categorias en modo consulta. Los cambios del catalogo los realiza el dueno de la cuenta."}
       />
-      {status.created ? <div className="mt-4 rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Categoria creada.</div> : null}
+      {status.created ? <div role="status" className="workspace-inline-feedback mt-4 rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Categoria creada.</div> : null}
       {status.error ? (
         <div className="mt-4 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">
           No se pudo guardar la categoria. {categoryErrorMessages[status.error] ?? `Detalle: ${status.error}.`}

@@ -46,9 +46,10 @@ export function SearchableSelect({
     <div className="relative">
       <input name={name} required={required} type="hidden" value={selected?.value ?? ""} />
       <div className="relative">
-        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
+        <Search aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
         <input
-          className="min-h-11 w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-11 text-sm outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-4 focus:ring-[var(--primary-light)]"
+          aria-label={placeholder}
+          className="ui-input min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-11 text-sm outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-4 focus:ring-[var(--primary-light)]"
           onBlur={() => window.setTimeout(() => setOpen(false), 150)}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -61,7 +62,8 @@ export function SearchableSelect({
         />
         {query ? (
           <button
-            className="absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]"
+            aria-label="Limpiar selección"
+            className="absolute right-1 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]"
             onClick={() => {
               setQuery("");
               setSelected(null);
@@ -69,7 +71,7 @@ export function SearchableSelect({
             }}
             type="button"
           >
-            <X className="h-3.5 w-3.5" />
+            <X aria-hidden="true" className="h-3.5 w-3.5" />
           </button>
         ) : null}
       </div>

@@ -265,7 +265,7 @@ export function DeliveryDispatchPanel({
         </div>
       ) : null}
 
-      {result && !result.ok ? <div className="mt-3 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">{result.error}</div> : null}
+      {result && !result.ok ? <div role="alert" className="workspace-inline-feedback mt-3 rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">{result.error}</div> : null}
     </div>
   );
 }

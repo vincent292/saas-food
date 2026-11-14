@@ -35,7 +35,7 @@ export default async function OwnerSupportPage({ searchParams }: { searchParams:
             <LifeBuoy className="h-5 w-5" />
           </span>
           <div>
-            <h2 className="text-2xl font-black">Soporte del negocio</h2>
+            <h2 className="text-2xl font-semibold">Soporte del negocio</h2>
             <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">
               Para incidencias operativas se abre ticket desde una sucursal. Para nuevas sucursales puedes iniciar la solicitud desde aqui.
             </p>
@@ -50,8 +50,8 @@ export default async function OwnerSupportPage({ searchParams }: { searchParams:
 
         <SectionTitle description="Acciones frecuentes para duenos." title="Solicitudes" />
 
-        {requested ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-4 text-sm font-bold text-[var(--color-success-strong)]">Solicitud enviada. Te mostraremos aqui cuando sea aprobada o rechazada.</div> : null}
-        {error ? <div className="rounded-2xl bg-[var(--color-danger-soft)] p-4 text-sm font-bold text-[var(--color-danger-strong)]">{requestErrors[error] ?? "No se pudo enviar la solicitud."}</div> : null}
+        {requested ? <div role="status" className="workspace-inline-feedback rounded-2xl bg-[var(--color-success-soft)] p-4 text-sm font-bold text-[var(--color-success-strong)]">Solicitud enviada. Te mostraremos aqui cuando sea aprobada o rechazada.</div> : null}
+        {error ? <div role="alert" className="workspace-inline-feedback rounded-2xl bg-[var(--color-danger-soft)] p-4 text-sm font-bold text-[var(--color-danger-strong)]">{requestErrors[error] ?? "No se pudo enviar la solicitud."}</div> : null}
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px]">
           <Card className="space-y-4">

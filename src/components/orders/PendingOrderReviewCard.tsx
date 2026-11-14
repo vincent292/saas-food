@@ -163,7 +163,7 @@ export function PendingOrderReviewCard({
             ) : null}
           </div>
 
-          {!disabled ? null : <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para aprobar y sumar este pedido al turno actual.</div>}
+          {!disabled ? null : <div role="status" className="workspace-inline-feedback rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para aprobar y sumar este pedido al turno actual.</div>}
 
           {!order.bankGroupSessionId && (paymentMethod === "qr" || order.bankPaymentRequired) ? <BankOrderPaymentCard orderId={order.id} staffRestaurantId={order.restaurantId} initialPayment={null} /> : null}
           <form action={async (formData) => {

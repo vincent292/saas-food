@@ -54,7 +54,7 @@ export default async function DeliveryOrderPage({
   const waUrl = whatsappHref(order.customerPhone, order.orderNumber);
 
   return (
-    <main className="public-brand-theme min-h-screen bg-[var(--background)] px-4 py-5 text-[var(--text)] sm:px-6">
+    <main className="public-brand-theme ui-public-workspace min-h-screen bg-[var(--background)] px-4 py-5 text-[var(--text)] sm:px-6">
       <RealtimeBroadcastRefresh enabled={order.orderStatus !== "delivered"} topic={`delivery:${token}`} />
       <div className="mx-auto max-w-3xl space-y-4">
         <div className="flex justify-end">
@@ -67,7 +67,7 @@ export default async function DeliveryOrderPage({
                 <Bike className="mr-1.5 h-3.5 w-3.5" />
                 Repartidor
               </Badge>
-              <h1 className="mt-4 text-3xl font-black leading-tight">Pedido {order.orderNumber}</h1>
+              <h1 className="mt-4 text-3xl font-bold leading-tight">Pedido {order.orderNumber}</h1>
               <p className="mt-2 text-sm font-semibold text-[var(--color-on-primary-muted)]">{order.restaurantName}</p>
             </div>
             <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--accent)] text-[var(--primary)] shadow-[var(--shadow-glow)]">
@@ -94,12 +94,12 @@ export default async function DeliveryOrderPage({
           </div>
         ) : null}
 
-        {status.error ? <div className="rounded-2xl bg-[var(--color-danger-soft)] p-4 text-sm font-black text-[var(--color-danger-strong)]">No se pudo actualizar el pedido: {status.error}</div> : null}
+        {status.error ? <div role="alert" className="workspace-inline-feedback rounded-2xl bg-[var(--color-danger-soft)] p-4 text-sm font-black text-[var(--color-danger-strong)]">No se pudo actualizar el pedido: {status.error}</div> : null}
 
         <Card className="space-y-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">Cliente</p>
-            <h2 className="mt-1 text-2xl font-black">{order.customerName}</h2>
+            <h2 className="mt-1 text-2xl font-semibold">{order.customerName}</h2>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">{order.customerPhone || "Sin telefono registrado"}</p>
           </div>
 
@@ -134,7 +134,7 @@ export default async function DeliveryOrderPage({
             </span>
             <div>
               <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">Direccion</p>
-              <h2 className="mt-1 text-xl font-black">{order.customerAddress || "Sin direccion registrada"}</h2>
+              <h2 className="mt-1 text-xl font-semibold">{order.customerAddress || "Sin direccion registrada"}</h2>
               {order.deliveryAddressDetail ? <p className="mt-2 text-sm font-semibold text-[var(--muted)]">{order.deliveryAddressDetail}</p> : null}
               {order.requestedFulfillmentAt ? (
                 <p className="mt-2 text-sm font-bold text-[var(--primary)]">Hora solicitada: {formatShortTime(order.requestedFulfillmentAt)}</p>
@@ -144,7 +144,7 @@ export default async function DeliveryOrderPage({
         </Card>
 
         <Card>
-          <h2 className="text-xl font-black">Contenido del pedido</h2>
+          <h2 className="text-xl font-semibold">Contenido del pedido</h2>
           <div className="mt-4 grid gap-2">
             {order.items.map((item) => (
               <div className="flex justify-between gap-3 rounded-2xl bg-[var(--color-surface)] p-3" key={item.id}>

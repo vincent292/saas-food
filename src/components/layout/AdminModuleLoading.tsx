@@ -2,7 +2,7 @@ import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/utils/cn";
 
 function Pulse({ className }: { className: string }) {
-  return <div className={cn("animate-pulse rounded-full bg-[var(--color-neutral-100)]", className)} />;
+  return <div aria-hidden="true" className={cn("animate-pulse rounded-full bg-[var(--color-neutral-100)]", className)} />;
 }
 
 export function AdminModuleLoading({
@@ -17,7 +17,8 @@ export function AdminModuleLoading({
   actions?: number;
 }) {
   return (
-    <div aria-busy="true" aria-live="polite" className="space-y-5" role="status">
+    <div aria-busy="true" aria-live="polite" className="ui-module-loading space-y-5" role="status">
+      <span className="sr-only">Cargando contenido…</span>
       <Card className="space-y-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0 flex-1 space-y-3">

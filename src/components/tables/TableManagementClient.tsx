@@ -1,12 +1,12 @@
 "use client";
 
+import { WorkspaceDialog } from "@/components/ui/WorkspaceDialog";
 import { Download, Edit3, Plus, Save, Trash2, X } from "lucide-react";
 import QRCode from "qrcode";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createTableAction, deleteTableAction, updateTableAction } from "@/app/admin/actions";
 import { Button, buttonClasses } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
@@ -58,7 +58,7 @@ export function TableManagementClient({
       <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Mesas</p>
-          <h1 className="text-3xl font-black text-[var(--text)]">QR por mesa</h1>
+          <h1 className="text-3xl font-bold text-[var(--text)]">QR por mesa</h1>
           <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">Cada mesa tiene una URL pública única para que los clientes hagan pedidos desde su celular.</p>
         </div>
         <Button className="w-full sm:w-auto" onClick={() => setCreateOpen(true)} type="button">
@@ -81,7 +81,7 @@ export function TableManagementClient({
                   </div>
                   <div className="min-w-0">
                     <div className="rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-black text-[var(--primary-dark)]">Activa</div>
-                    <h2 className="mt-2 truncate text-xl font-black text-[var(--text)]">{table.name}</h2>
+                    <h2 className="mt-2 truncate text-xl font-semibold text-[var(--text)]">{table.name}</h2>
                     <p className="text-sm font-semibold text-[var(--muted)]">{table.code}</p>
                     <a className="mt-2 line-clamp-3 block break-all text-sm font-semibold text-[var(--primary-dark)] underline" href={url} rel="noreferrer" target="_blank">
                       {url || publicRestaurantPath(restaurant.slug, `mesa/${table.code}`)}
@@ -134,41 +134,16 @@ export function TableManagementClient({
 function StatusBanners({ status }: { status: TableStatusMessage }) {
   return (
     <div className="space-y-2">
-      {status.created ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Mesa creada.</div> : null}
-      {status.updated ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Mesa actualizada.</div> : null}
-      {status.deleted ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Mesa eliminada del listado activo.</div> : null}
-      {status.error ? <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">No se pudo guardar la mesa.</div> : null}
+      {status.created ? <div role="status" className="workspace-inline-feedback rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Mesa creada.</div> : null}
+      {status.updated ? <div role="status" className="workspace-inline-feedback rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Mesa actualizada.</div> : null}
+      {status.deleted ? <div role="status" className="workspace-inline-feedback rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-semibold text-[var(--color-success-strong)]">Mesa eliminada del listado activo.</div> : null}
+      {status.error ? <div role="alert" className="workspace-inline-feedback rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-semibold text-[var(--color-danger-strong)]">No se pudo guardar la mesa.</div> : null}
     </div>
   );
 }
 
-function TableModal({
-  eyebrow,
-  title,
-  children,
-  onClose,
-}: {
-  eyebrow: string;
-  title: string;
-  children: ReactNode;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--color-overlay)] p-4 backdrop-blur-sm">
-      <Card className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-[1.5rem] p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">{eyebrow}</p>
-            <h2 className="text-2xl font-black text-[var(--text)]">{title}</h2>
-          </div>
-          <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--text)] hover:bg-[var(--color-neutral-200)]" onClick={onClose} type="button">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="mt-5">{children}</div>
-      </Card>
-    </div>
-  );
+function TableModal({ eyebrow, title, children, onClose }: { eyebrow: string; title: string; children: ReactNode; onClose: () => void }) {
+  return <WorkspaceDialog title={title} description={eyebrow} onClose={onClose}>{children}</WorkspaceDialog>;
 }
 
 function TableForm({

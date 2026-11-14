@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkspaceDialog } from "@/components/ui/WorkspaceDialog";
 import { Boxes, ClipboardCheck, FileText, Scale, Truck, Utensils, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -126,7 +127,7 @@ export function InventoryWorkspaceClient({
     <div className="space-y-6">
       <InventoryQuickAddOrb branches={[{ restaurantId, restaurantName }]} currentRestaurantId={restaurantId} />
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <MetricCard label="Valor inventario" value={formatMoney(inventoryValue)} />
         <MetricCard label="Items activos" value={String(items.length)} />
         <MetricCard label="Terminados" value={String(finishedItems.length)} />
@@ -339,7 +340,7 @@ export function InventoryWorkspaceClient({
             {openCount?.lines.length ? <CountLines lines={openCount.lines} /> : <EmptyState title="Sin líneas contadas" description="Agrega cada insumo contado para ver diferencias." />}
             {countReports.length ? (
               <div className="mt-6 space-y-3">
-                <h3 className="text-sm font-black uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Últimos conteos</h3>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--color-secondary-text)]">Últimos conteos</h3>
                 {countReports.map((count) => (
                   <div className="rounded-2xl bg-[var(--color-surface)] p-3" key={count.id}>
                     <p className="font-black text-[var(--color-heading)]">
@@ -513,23 +514,8 @@ function toItemOptions(items: InventoryItem[]): SearchOption[] {
 }
 
 function ActionModal({ open, title, children, onClose }: { open: boolean; title: string; children: ReactNode; onClose: () => void }) {
-  if (!open) {
-    return null;
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-end bg-[var(--color-overlay)] p-0 backdrop-blur-sm sm:place-items-center sm:p-4">
-      <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] p-4 shadow-2xl sm:max-w-lg sm:rounded-[1.5rem]">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-xl font-black text-[var(--color-heading)]">{title}</h2>
-          <button className="rounded-full bg-[var(--color-neutral-100)] px-3 py-2 text-sm font-black text-[var(--color-secondary-text)]" onClick={onClose} type="button">
-            Cerrar
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
+  if (!open) return null;
+  return <WorkspaceDialog title={title} onClose={onClose}>{children}</WorkspaceDialog>;
 }
 
 function InventoryItemForm({ restaurantId, suppliers, categories }: { restaurantId: string; suppliers: SearchOption[]; categories: SearchOption[] }) {

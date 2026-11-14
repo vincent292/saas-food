@@ -28,7 +28,7 @@ export function FormSubmitButton({
 
   return (
     <>
-      <Button aria-describedby={describedBy} className={className} disabled={disabled || pending} type="submit" variant={variant}>
+      <Button aria-busy={pending} aria-describedby={describedBy} className={className} disabled={disabled || pending} type="submit" variant={variant}>
         {pending ? pendingLabel : label}
       </Button>
 

@@ -75,3 +75,11 @@ El navegador usa datos ficticios y no ejecuta cobros ni guarda registros reales.
 3. Verificar una ruta existente y sus estados con fixtures externos o pruebas de regresión, nunca con una nueva ruta pública de demostración.
 4. Revisar el diff: componentes nuevos deben tener consumidores reales, sin dependencias ni archivos generados innecesarios.
 5. Abrir PR hacia `main` con alcance y evidencia; integrar después de la revisión visual. El preview, si está configurado en el repositorio, debe usar las rutas reales de esa rama.
+
+## POS operativo
+
+El catálogo y el pedido se muestran en paralelo desde 1024 px. La altura se ajusta al espacio visible con `ResizeObserver`; solo las listas de productos y líneas del carrito desplazan su contenido. Total, origen, servicio y cobro permanecen fuera de esas listas. En pantallas estrechas, el acceso fijo «Ver pedido» abre el carrito; no simula un cobro.
+
+Las fichas usan miniaturas de 72 px y nombres de hasta dos líneas. Búsqueda y categorías ocupan filas distintas para conservar el ancho de escritura. La cabecera de turno se mantiene compacta y se evita repetir el título de Venta POS. Se conserva el checkout existente con sus métodos y validaciones.
+
+La validación visual utiliza seis productos en 1440×900, 1366×768, 1024×768, 390×844 y 320×568; comprueba que el botón de cobrar permanece visible y que se puede abrir y cerrar el checkout sin ejecutar pagos. Las pestañas anticipan su carga al recibir foco o intención del puntero; la prueba de navegación verifica que el indicador desaparece al llegar los datos.

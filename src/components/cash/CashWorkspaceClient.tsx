@@ -331,6 +331,13 @@ export function CashWorkspaceClient({
     { key: "reportes", label: "Reportes", icon: FileText, count: loadedTab === "reportes" ? reports.length : undefined },
   ];
 
+  function prefetchTab(nextTab: CashTab) {
+    if (nextTab === loadedTab) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", nextTab);
+    router.prefetch(`${url.pathname}?${url.searchParams.toString()}`);
+  }
+
   function switchTab(nextTab: CashTab) {
     if (nextTab === activeTab && nextTab === loadedTab) return;
     setActiveTab(nextTab);
@@ -346,8 +353,8 @@ export function CashWorkspaceClient({
       : "Abre caja en Cierre";
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-[1.15rem] border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-sm sm:rounded-[1.25rem] sm:p-3">
+    <div className="cash-workspace space-y-4">
+      <section className="cash-shift-summary rounded-[1.15rem] border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-sm sm:rounded-[1.25rem] sm:p-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-full sm:h-11 sm:w-11", summary.session ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]")}>
@@ -603,6 +610,8 @@ export function CashWorkspaceClient({
             aria-current={activeTab === tab.key ? "page" : undefined}
             key={tab.key}
             onClick={() => switchTab(tab.key)}
+            onMouseEnter={() => prefetchTab(tab.key)}
+            onFocus={() => prefetchTab(tab.key)}
             type="button"
           >
             <tab.icon className="h-4 w-4" />
@@ -623,7 +632,7 @@ export function CashWorkspaceClient({
 
       {activeTab === "venta" ? (
         <section className="space-y-3 sm:space-y-4">
-          <div className="min-w-0">
+          <div className="pos-section-heading min-w-0">
             <h2 className="text-xl font-bold text-[var(--text)] sm:text-2xl">Venta POS</h2>
             <p className="mt-1 hidden text-sm text-[var(--muted)] sm:block">{catalogLabelTitle} real del negocio, con imagenes, variantes y opciones.</p>
           </div>

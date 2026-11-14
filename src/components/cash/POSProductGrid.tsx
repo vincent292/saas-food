@@ -2,7 +2,7 @@
 
 import { Check, Maximize2, Minimize2, Minus, Plus, Search, ShoppingCart, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { PosCheckoutModal, type PosCheckoutSession } from "@/components/cash/PosCheckoutModal";
 import { orderOriginLabels } from "@/components/orders/orderPresentation";
 import { useBankQrAvailability } from "@/lib/client/use-bank-qr-availability";
@@ -61,12 +61,28 @@ export function POSProductGrid({
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<PosCartItem[]>([]);
   const [orderOrigin, setOrderOrigin] = useState<OrderOrigin>("pos_counter");
+  const layoutRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [orderType, setOrderType] = useState<"pos" | "pickup">("pos");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutLocked, setCheckoutLocked] = useState(false);
   const [checkoutSession, setCheckoutSession] = useState<PosCheckoutSession | null>(null);
+  useEffect(() => {
+    const layout = layoutRef.current;
+    if (!layout) return;
+    const resize = () => {
+      const available = Math.max(340, window.innerHeight - layout.getBoundingClientRect().top - 16);
+      const height = `${available}px`;
+      if (layout.style.getPropertyValue("--pos-height") !== height) layout.style.setProperty("--pos-height", height);
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(layout.parentElement ?? layout);
+    window.addEventListener("resize", resize);
+    return () => { observer.disconnect(); window.removeEventListener("resize", resize); };
+  }, [expanded]);
+
   const deferredQuery = useDeferredValue(query);
 
   const configByProduct = useMemo<ProductConfigMap>(() => {
@@ -167,14 +183,14 @@ export function POSProductGrid({
 
   return (
     <>
-      <div className={cn(expanded && "fixed inset-0 z-[65] overflow-y-auto xl:overflow-hidden bg-[var(--background)] p-3 sm:p-5 xl:p-6")}>
-        <div className={cn("grid gap-3 sm:gap-4", expanded ? "xl:grid-cols-[minmax(0,1fr)_420px]" : "xl:grid-cols-[1fr_360px]", cart.length ? "pb-28 xl:pb-0" : "")}>
-          <section className={cn("min-w-0 space-y-3 sm:space-y-4", expanded && "xl:h-[calc(100dvh-3rem)] xl:overflow-y-auto xl:pr-1")}>
-            <Card className="sticky top-0 z-10 rounded-[1.1rem] p-2.5 sm:rounded-[1.25rem] sm:p-3">
-              <div className="grid gap-2 sm:gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
+      <div data-expanded={expanded} className={cn("pos-workspace", expanded && "fixed inset-0 z-[65] overflow-y-auto lg:overflow-hidden bg-[var(--background)] p-3 sm:p-5 lg:p-6")}>
+        <div ref={layoutRef} className={cn("pos-layout grid gap-3 sm:gap-4", expanded ? "lg:grid-cols-[minmax(0,1fr)_420px]" : "lg:grid-cols-[1fr_360px]", cart.length ? "pb-28 lg:pb-0" : "")}>
+          <section className={cn("pos-catalog min-w-0 space-y-3 sm:space-y-4", expanded && "lg:h-[calc(100dvh-3rem)] lg:overflow-y-auto lg:pr-1")}>
+            <Card className="pos-toolbar sticky top-0 z-10 rounded-[1.1rem] p-2.5 sm:rounded-[1.25rem] sm:p-3">
+              <div className="grid gap-2 sm:gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
                 <label className="relative block">
                   <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
-                  <Input className="min-h-10 pl-11 sm:min-h-11" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto" value={query} />
+                  <Input aria-label="Buscar productos para la venta" className="min-h-10 pl-11 sm:min-h-11" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto" value={query} />
                 </label>
                 <div className="flex min-w-0 items-center gap-2">
                   <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
@@ -199,7 +215,7 @@ export function POSProductGrid({
 
             {disabled ? <div role="status" className="workspace-inline-feedback rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para habilitar la venta rapida.</div> : null}
 
-            <div className={cn("grid gap-2.5 sm:gap-3 sm:grid-cols-2", expanded ? "lg:grid-cols-3 2xl:grid-cols-4" : "2xl:grid-cols-3")}>
+            <div className={cn("pos-product-grid grid gap-2.5 sm:gap-3 sm:grid-cols-2", expanded ? "lg:grid-cols-3 2xl:grid-cols-4" : "2xl:grid-cols-3")}>
               {filteredProducts.map((product) => {
                 const productConfig = configByProduct[product.id];
                 const hasConfiguration = Boolean(productConfig?.variants.length || productConfig?.optionGroups.length);
@@ -226,11 +242,11 @@ export function POSProductGrid({
             {!filteredProducts.length ? <div className="rounded-[1.25rem] bg-[var(--surface)] p-6 text-center text-sm font-semibold text-[var(--muted)]">No hay productos para este filtro.</div> : null}
           </section>
 
-          <aside className="hidden xl:block">
+          <aside aria-label="Pedido actual" className="pos-cart-desktop hidden lg:block">
             <PosCartPanel
               cart={cart}
               changeQuantity={changeQuantity}
-              className={cn("xl:sticky", expanded ? "xl:top-6" : "xl:top-4")}
+              className={cn("lg:sticky", expanded ? "lg:top-6" : "lg:top-4")}
               disabled={disabled}
               onClear={() => { if (!cartDisabled) setCart([]); }}
               onOrderOriginChange={setOrderOrigin}
@@ -249,7 +265,7 @@ export function POSProductGrid({
         {cart.length ? (
           <button
             className={cn(
-              "fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] flex min-h-16 items-center justify-between gap-3 rounded-[1.15rem] bg-[var(--primary)] px-4 py-3 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl xl:hidden",
+              "fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] flex min-h-16 items-center justify-between gap-3 rounded-[1.15rem] bg-[var(--primary)] px-4 py-3 text-left text-sm font-black text-[var(--color-on-primary)] shadow-2xl lg:hidden",
               expanded ? "z-[80]" : "z-40",
             )}
             onClick={() => setMobileCartOpen(true)}
@@ -262,13 +278,13 @@ export function POSProductGrid({
               </span>
               <span className="mt-1 block truncate text-lg font-black">{formatMoney(total)}</span>
             </span>
-            <span className="shrink-0 rounded-full bg-[var(--color-on-primary-soft)] px-4 py-2 text-xs font-black">Cobrar</span>
+            <span className="shrink-0 rounded-full bg-[var(--color-on-primary-soft)] px-4 py-2 text-xs font-black">Ver pedido</span>
           </button>
         ) : null}
       </div>
 
       {mobileCartOpen ? (
-        <div className={cn("fixed inset-0 bg-[var(--color-overlay)] xl:hidden", expanded ? "z-[85]" : "z-50")}>
+        <div className={cn("fixed inset-0 bg-[var(--color-overlay)] lg:hidden", expanded ? "z-[85]" : "z-50")}>
           <div className="absolute inset-x-0 bottom-0 max-h-[92vh] overflow-y-auto rounded-t-[1.5rem] bg-[var(--surface)] p-3 text-[var(--text)] shadow-2xl sm:p-4">
             <PosCartPanel
               cart={cart}
@@ -343,12 +359,12 @@ function PosCartPanel({
   const headerAction: ReactNode = onClose ? (
     <button aria-label="Cerrar carrito" className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={onClose} type="button"><X className="h-5 w-5" /></button>
   ) : <ShoppingCart className="h-6 w-6 text-[var(--primary)]" />;
-  return <Card className={cn("flex h-[min(780px,calc(100dvh-7rem))] flex-col overflow-hidden rounded-[1.25rem] p-0", className)}>
+  return <Card className={cn("pos-cart flex h-[min(780px,calc(100dvh-7rem))] flex-col overflow-hidden rounded-[1.25rem] p-0", className)}>
     <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] p-4">
       <div><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta rápida</p><h2 className="text-xl font-semibold">Pedido POS <span className="text-sm text-[var(--muted)]">({totalItems})</span></h2></div>
       {headerAction}
     </div>
-    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+    <div className="pos-cart-items min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
       {checkoutLocked ? <p className="rounded-xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Cobro en curso. Reabre la modal para revisar el mismo QR.</p> : null}
       {cart.length ? cart.map((item) => <div className="rounded-xl border border-[var(--border)] p-3" key={item.cartId}>
         <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-black">{item.name}</p>{item.notes ? <p className="mt-1 text-xs text-[var(--muted)]">{item.notes}</p> : null}<p className="mt-1 text-xs text-[var(--muted)]">{formatMoney(item.price)} c/u</p></div><strong className="shrink-0 text-sm">{formatMoney(item.price * item.quantity)}</strong></div>
@@ -362,7 +378,7 @@ function PosCartPanel({
         </div>
       </div>) : <div className="grid min-h-40 place-items-center rounded-2xl bg-[var(--color-surface)] p-5 text-center text-sm font-semibold text-[var(--muted)]">Agrega productos para iniciar la venta.</div>}
     </div>
-    <div className="shrink-0 space-y-3 border-t border-[var(--border)] bg-[var(--surface)] p-4">
+    <div className="pos-cart-footer shrink-0 space-y-3 border-t border-[var(--border)] bg-[var(--surface)] p-4">
       <Select aria-label="Origen del pedido" disabled={checkoutLocked} onChange={(event) => onOrderOriginChange(event.target.value as OrderOrigin)} value={orderOrigin}>
         <option value="pos_counter">{orderOriginLabels.pos_counter}</option><option value="phone_whatsapp">{orderOriginLabels.phone_whatsapp}</option><option value="external_platform">{orderOriginLabels.external_platform}</option>
       </Select>
@@ -393,18 +409,19 @@ function ProductCard({
   disabled?: boolean;
   onSelect: () => void;
 }) {
+  const [failedImage, setFailedImage] = useState<string | null>(null);
   const hasConfiguration = Boolean(config?.variants.length || config?.optionGroups.length);
 
   return (
     <button
-      className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-[1.1rem] border border-[var(--border)] bg-[var(--surface)] p-2.5 text-left shadow-sm transition hover:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50 sm:block sm:rounded-[1.25rem] sm:p-3"
+      className="pos-product-card grid grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-[1.1rem] border border-[var(--border)] bg-[var(--surface)] p-2.5 text-left shadow-sm transition hover:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50 sm:block sm:rounded-[1.25rem] sm:p-3"
       disabled={disabled}
       onClick={onSelect}
       type="button"
     >
       <div className="aspect-square overflow-hidden rounded-[0.9rem] bg-[var(--primary-light)] sm:aspect-[16/9] sm:rounded-2xl">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img alt={product.name} className="h-full w-full object-cover" src={product.imageUrl || defaultImage} style={productImageFitStyle(product)} />
+        <img alt={product.name} className="h-full w-full object-cover" src={failedImage === product.imageUrl ? defaultImage : product.imageUrl || defaultImage} onError={() => setFailedImage(product.imageUrl)} style={productImageFitStyle(product)} />
       </div>
       <div className="min-w-0 self-center sm:mt-3">
         <div className="flex items-start justify-between gap-2">
@@ -432,6 +449,7 @@ function ProductOptionModal({
   onClose: () => void;
   onAdd: (product: Product, variant: ProductVariant | null, selectedOptions: ProductOption[]) => void;
 }) {
+  const [failedImage, setFailedImage] = useState<string | null>(null);
   const variants = config?.variants ?? [];
   const optionGroups = config?.optionGroups ?? [];
   const [variantId, setVariantId] = useState("");
@@ -491,7 +509,7 @@ function ProductOptionModal({
           <div className="grid grid-cols-[84px_minmax(0,1fr)] gap-3 sm:grid-cols-[180px_1fr] sm:gap-4">
             <div className="overflow-hidden rounded-[0.9rem] bg-[var(--primary-light)] sm:rounded-2xl">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt={product.name} className="aspect-square h-full w-full object-cover" src={product.imageUrl || defaultImage} style={productImageFitStyle(product)} />
+              <img alt={product.name} className="aspect-square h-full w-full object-cover" src={failedImage === product.imageUrl ? defaultImage : product.imageUrl || defaultImage} onError={() => setFailedImage(product.imageUrl)} style={productImageFitStyle(product)} />
             </div>
             <p className="self-center text-sm font-semibold leading-5 text-[var(--muted)] sm:font-normal sm:leading-6">{product.description || "Configura el producto antes de cobrarlo."}</p>
           </div>

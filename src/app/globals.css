@@ -787,3 +787,11 @@ body.public-restaurant-order-page .public-bottom-navigation-spacer {
  .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar nav { padding-right:0; }
  .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar svg { flex-shrink:0; }
 }
+
+@media (min-width:1024px) {
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar .sidebar-brand .sidebar-monogram img { display:block; }
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar .sidebar-brand { padding:0; background:transparent; }
+}
+.cash-section-nav { scrollbar-width:thin; scroll-padding-inline:12px; }
+.cash-section-nav button { min-height:44px; font-weight:600; }
+.cash-section-nav button[aria-current="page"] { box-shadow:inset 0 -2px 0 var(--accent); }

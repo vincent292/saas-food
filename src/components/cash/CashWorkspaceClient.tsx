@@ -332,18 +332,8 @@ export function CashWorkspaceClient({
   ];
 
   function switchTab(nextTab: CashTab) {
-    if (nextTab === activeTab) {
-      return;
-    }
-
-    if (instantOperationalTabs.has(nextTab) && instantOperationalTabs.has(loadedTab)) {
-      setActiveTab(nextTab);
-      const url = new URL(window.location.href);
-      url.searchParams.set("tab", nextTab);
-      window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}`);
-      return;
-    }
-
+    if (nextTab === activeTab && nextTab === loadedTab) return;
+    setActiveTab(nextTab);
     const url = new URL(window.location.href);
     url.searchParams.set("tab", nextTab);
     router.replace(`${url.pathname}?${url.searchParams.toString()}`, { scroll: false });
@@ -603,13 +593,14 @@ export function CashWorkspaceClient({
         </div>
       ) : null}
 
-      <div className="sticky top-[68px] z-20 -mx-3 flex gap-2 overflow-x-auto border-y border-[var(--border)] bg-[var(--color-card-elevated)] px-3 py-2 shadow-sm backdrop-blur sm:top-[73px] sm:mx-0 sm:rounded-[1.25rem] sm:border lg:static lg:bg-[var(--surface)]">
+      <nav aria-label="Secciones de caja" className="cash-section-nav sticky top-[68px] z-20 -mx-3 flex gap-2 overflow-x-auto border-y border-[var(--border)] bg-[var(--color-card-elevated)] px-3 py-2 shadow-sm backdrop-blur sm:top-[73px] sm:mx-0 sm:rounded-[1.25rem] sm:border lg:static lg:bg-[var(--surface)]">
         {tabs.map((tab) => (
           <button
             className={cn(
               "inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-black transition sm:min-h-11 sm:px-4",
               activeTab === tab.key ? "bg-[var(--primary)] text-[var(--color-on-primary)]" : "text-[var(--muted)] hover:bg-[var(--primary-light)]",
             )}
+            aria-current={activeTab === tab.key ? "page" : undefined}
             key={tab.key}
             onClick={() => switchTab(tab.key)}
             type="button"
@@ -619,13 +610,13 @@ export function CashWorkspaceClient({
             {tab.count !== undefined ? <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-black", activeTab === tab.key ? "bg-[var(--color-on-primary-soft)] text-[var(--color-on-primary)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]")}>{tab.count}</span> : null}
           </button>
         ))}
-      </div>
+      </nav>
 
       {activeTab === "pedidos" || activeTab === "mesas" || activeTab === "delivery" || activeTab === "recojo" ? (
         <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-sm">
           <label className="relative block">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
-            <Input className="pl-11" onChange={(event) => setOrderSearch(event.target.value)} placeholder={activeTab === "mesas" ? "Buscar mesa, código, pedido o cliente" : "Buscar por número de pedido, nombre o WhatsApp"} value={orderSearch} />
+            <Input aria-label={activeTab === "mesas" ? "Buscar mesas y cuentas" : "Buscar pedidos"} className="pl-11" onChange={(event) => setOrderSearch(event.target.value)} placeholder={activeTab === "mesas" ? "Buscar mesa, código, pedido o cliente" : "Buscar por número de pedido, nombre o WhatsApp"} value={orderSearch} />
           </label>
         </div>
       ) : null}
@@ -821,7 +812,7 @@ export function CashWorkspaceClient({
 }
 
 function TabLoadingState() {
-  return <div className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-6 text-sm font-bold text-[var(--muted)]">Cargando datos...</div>;
+  return <div aria-busy="true" role="status" className="flex min-h-40 items-center justify-center gap-3 rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] p-6 text-sm text-[var(--muted)]"><LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />Cargando sección…</div>;
 }
 
 function CompactCashMetric({ label, amount, tone = "neutral" }: { label: string; amount: number; tone?: "neutral" | "success" }) {

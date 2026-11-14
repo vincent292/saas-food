@@ -188,7 +188,7 @@ export function AdminShellClient({
       >
         <div className="flex items-center justify-between gap-3">
           <Link aria-label="Inicio del restaurante" title="Inicio del restaurante" className="sidebar-brand flex min-w-0 flex-1 flex-col items-start gap-2 rounded-[var(--radius-card)] bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href={restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"} prefetch={false}>
-            <span aria-hidden="true" className="sidebar-monogram">y</span><BrandLogo className="h-6 w-auto max-w-[160px]" variant="dark" />
+            <span aria-hidden="true" className="sidebar-monogram"><BrandLogo compact variant="dark" className="h-12 w-12 rounded-xl" /></span><BrandLogo className="h-6 w-auto max-w-[160px]" variant="dark" />
             <span className="max-w-full truncate text-xs font-black text-white/82">{restaurantName || "Panel administrativo"}</span>
           </Link>
           <button aria-label="Cerrar navegación" className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-body)] lg:hidden" onClick={() => setSidebarOpen(false)} type="button">

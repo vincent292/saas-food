@@ -770,3 +770,20 @@ body.public-restaurant-order-page .public-bottom-navigation-spacer {
 /* Heading hierarchy is shared once at the application boundary. */
 .ui-app :where(h1) { font-weight:700; }
 .ui-app :where(h2,h3,h4,h5,h6) { font-weight:650; }
+
+/* Desktop navigation rail preserves the mobile drawer. */
+.sidebar-monogram { display:none; }
+@media (min-width:1024px) {
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar { width:72px; padding:12px 8px; }
+ .admin-panel[data-sidebar-collapsed="true"] .sidebar-main { padding-left:72px; }
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar a,
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar button { justify-content:center; gap:0; font-size:0; padding-inline:8px; }
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar a > span,
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar .sidebar-brand img,
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar .sidebar-brand svg,
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar > div:nth-child(2) { display:none; }
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar .sidebar-brand { align-items:center; }
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar .sidebar-monogram { display:block; font-size:26px; font-weight:700; line-height:32px; color:var(--accent); }
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar nav { padding-right:0; }
+ .admin-panel[data-sidebar-collapsed="true"] #admin-sidebar svg { flex-shrink:0; }
+}

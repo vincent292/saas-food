@@ -1,3 +1,5 @@
+import type { WhatsAppConnectionStatus } from "./whatsapp-connection.types";
+
 export type WhatsAppCrmMessageDirection = "inbound" | "outbound";
 
 export type WhatsAppCrmMessage = {
@@ -9,6 +11,7 @@ export type WhatsAppCrmMessage = {
   type: string;
   text: string;
   timestamp: string;
+  source?: string;
 };
 
 export type WhatsAppCrmDraftSummary = {
@@ -39,6 +42,8 @@ export type WhatsAppCrmConversation = {
   phone: string;
   displayName: string;
   state: string;
+  channel: "branch" | "platform";
+  canReply: boolean;
   lastIntent: string;
   lastMessageAt: string;
   updatedAt: string;
@@ -58,12 +63,22 @@ export type WhatsAppCrmConversation = {
 
 export type WhatsAppCrmUsage = {
   apiMessagesThisMonth: number;
-  adProtectedMessages: number;
-  organicServiceMessages: number;
-  freeServiceMessagesRemaining: number;
-  estimatedBillableMessages: number;
-  estimatedCostUsd: number;
-  estimatedCostBob: number;
+  receivedMessagesThisMonth: number;
+  metaSentMessages: number | null;
+  metaDeliveredMessages: number | null;
+  adProtectedMessages: number | null;
+  freeServiceMessagesLimit: number;
+  freeServiceMessagesUsed: number | null;
+  freeServiceMessagesRemaining: number | null;
+  billableServiceMessages: number | null;
+  billableMessages: number | null;
+  estimatedServiceCostUsd: number | null;
+  metaCost: number | null;
+  metaCurrency: string | null;
+  pricingStatus: "synced" | "unavailable";
+  costStatus: "available" | "partner_billing" | "unavailable";
+  lastSyncedAt: string | null;
+  periodStart: string;
   conversationsFromMetaEntry: number;
   conversationsDirect: number;
 };
@@ -108,4 +123,5 @@ export type WhatsAppCrmWorkspace = {
   stats: WhatsAppCrmStats;
   usage: WhatsAppCrmUsage;
   whatsappConfigured: boolean;
+  branchConnectionStatus: NonNullable<WhatsAppConnectionStatus["connection"]>["status"] | null;
 };

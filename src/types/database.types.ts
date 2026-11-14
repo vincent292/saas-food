@@ -1312,6 +1312,14 @@ export type Database = {
         ticket_id: string | null;
         created_at: string;
       }>;
+      whatsapp_free_entry_windows: Row<{
+        phone_number_id: string;
+        customer_phone: string;
+        restaurant_id: string | null;
+        expires_at: string;
+        message_id: string;
+        updated_at: string;
+      }>;
       whatsapp_messages: Row<{
         conversation_id: string | null;
         id: string;

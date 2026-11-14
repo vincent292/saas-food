@@ -1,6 +1,7 @@
 "use client";
 
 import { WorkspaceDialog } from "@/components/ui/WorkspaceDialog";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { CalendarClock, ChevronLeft, ChevronRight, Clock3, FileUp, Flame, Grid2X2, LayoutList, LockKeyhole, PackageCheck, Plus, Search, Sparkles, Trash2, Utensils, WandSparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -147,6 +148,7 @@ export function ProductManagementClient({
   error,
   businessType,
   canManageProducts,
+  canUseInventory = false,
 }: {
   restaurantId: string;
   products: Product[];
@@ -155,6 +157,7 @@ export function ProductManagementClient({
   inventoryItems: InventoryItem[];
   businessType: BusinessType;
   canManageProducts: boolean;
+  canUseInventory?: boolean;
   created?: string;
   categoryCreated?: string;
   updated?: string;
@@ -250,6 +253,7 @@ export function ProductManagementClient({
             <p className="catalog-description">Organiza tus {itemsLabel} y prepara tu {catalogTitle.toLowerCase()} para vender.</p>
           </div>
           <div className="grid gap-2 sm:flex sm:flex-wrap">
+            {canUseInventory ? <Link className={buttonClasses("secondary", "w-full sm:w-auto")} href={`/admin/restaurantes/${restaurantId}/inventario?asistente=1`}><Sparkles aria-hidden="true" className="h-4 w-4" />Inventario IA</Link> : null}
             <button
               className={buttonClasses("secondary", "w-full sm:w-auto")}
               disabled={!canManageProducts}

@@ -27,8 +27,10 @@ export function WhatsAppConnectionPanel({ restaurantId, restaurantName, initialS
   const pending = useRef<{ session: Prepared; code?: string; phoneNumberId?: string; wabaId?: string; saving?: boolean } | null>(null);
 
   useEffect(() => {
+    let completionTimer: ReturnType<typeof setTimeout> | undefined;
+    let authorizationTimer: ReturnType<typeof setTimeout> | undefined;
     function receive(event: MessageEvent) {
-      if (!['https://www.facebook.com', 'https://web.facebook.com'].includes(event.origin) || !pending.current) return;
+      if (!['https://www.facebook.com', 'https://web.facebook.com', 'https://business.facebook.com'].includes(event.origin) || !pending.current || pending.current.saving) return;
       let payload: { type?: string; event?: string; data?: { phone_number_id?: string; waba_id?: string } };
       try { payload = typeof event.data === 'string' ? JSON.parse(event.data) : event.data; } catch { return; }
       if (!payload || payload.type !== 'WA_EMBEDDED_SIGNUP') return;
@@ -36,16 +38,27 @@ export function WhatsAppConnectionPanel({ restaurantId, restaurantName, initialS
         pending.current = null; setBusy(false); setPrepared(null);
         setMessage('El enlace no se completó. Puedes volver a intentarlo.'); return;
       }
-      if (payload.event !== 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING' && payload.event !== 'FINISH') return;
+      if (!['FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING', 'FINISH', 'FINISH_ONLY_WABA'].includes(payload.event ?? '')) return;
       const phoneNumberId = payload.data?.phone_number_id;
       const wabaId = payload.data?.waba_id;
-      if (!phoneNumberId || !wabaId || !/^\d+$/.test(phoneNumberId) || !/^\d+$/.test(wabaId)) return;
-      Object.assign(pending.current, { phoneNumberId, wabaId });
+      if (phoneNumberId && /^\d+$/.test(phoneNumberId)) pending.current.phoneNumberId = phoneNumberId;
+      if (wabaId && /^\d+$/.test(wabaId)) pending.current.wabaId = wabaId;
+      clearTimeout(completionTimer);
+      setMessage('Meta finalizó el enlace. Estamos comprobando y guardando tu número; mantén esta página abierta.');
+      const value = pending.current;
+      if (!value.code) {
+        clearTimeout(authorizationTimer);
+        authorizationTimer = setTimeout(() => {
+          if (pending.current !== value || value.saving || value.code) return;
+          pending.current = null; setPrepared(null); setBusy(false);
+          setMessage('Meta finalizó, pero no devolvió la autorización a Yopido. Vuelve a conectar y mantén esta página abierta hasta ver tu número conectado.');
+        }, 20000);
+      }
       void complete();
     }
     async function complete() {
       const value = pending.current;
-      if (!value || value.saving || !value.code || !value.phoneNumberId || !value.wabaId) return;
+      if (!value || value.saving || !value.code) return;
       value.saving = true;
       try {
         const result = await finishWhatsAppConnectionAction({ restaurantId, sessionId: value.session.sessionId, code: value.code, phoneNumberId: value.phoneNumberId, wabaId: value.wabaId });
@@ -55,10 +68,17 @@ export function WhatsAppConnectionPanel({ restaurantId, restaurantName, initialS
       finally { pending.current = null; setPrepared(null); setBusy(false); }
     }
     // The SDK callback and postMessage may arrive in either order.
-    function onCode() { void complete(); }
+    function onCode() {
+      clearTimeout(authorizationTimer);
+      setMessage('Autorización recibida. Estamos comprobando y guardando la conexión con Meta.');
+      // Prefer the exact popup selection, but do not wait indefinitely if its
+      // completion event is lost. The server can inspect the granted accounts.
+      if (pending.current?.phoneNumberId && pending.current.wabaId) void complete();
+      else completionTimer = setTimeout(() => void complete(), 1000);
+    }
     window.addEventListener('message', receive);
     window.addEventListener('yopido-whatsapp-code', onCode);
-    return () => { window.removeEventListener('message', receive); window.removeEventListener('yopido-whatsapp-code', onCode); pending.current = null; };
+    return () => { clearTimeout(completionTimer); clearTimeout(authorizationTimer); window.removeEventListener('message', receive); window.removeEventListener('yopido-whatsapp-code', onCode); pending.current = null; };
   }, [restaurantId]);
 
   useEffect(() => {
@@ -88,7 +108,7 @@ export function WhatsAppConnectionPanel({ restaurantId, restaurantName, initialS
     try {
     sdk.init({ appId: prepared.appId, version: prepared.version, xfbml: false, cookie: false });
     sdk.login((response) => {
-      if (!pending.current) return;
+      if (!pending.current || pending.current.session.sessionId !== prepared.sessionId || pending.current.saving) return;
       if (!response.authResponse?.code) {
         pending.current = null; setBusy(false); setPrepared(null); setMessage('Meta no autorizó la conexión. Puedes intentarlo nuevamente.'); return;
       }

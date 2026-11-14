@@ -84,6 +84,19 @@ export async function sendWhatsAppCrmMessageAction(formData: FormData) {
   redirect(crmPath(parsed.data.restaurantId, parsed.data.conversationId, result.ok ? "&sent=1" : `&error=${result.error}`));
 }
 
+export async function sendWhatsAppCrmMessageInlineAction(formData: FormData) {
+  const parsed = sendMessageSchema.safeParse({
+    restaurantId: formData.get("restaurantId"),
+    conversationId: formData.get("conversationId"),
+    body: formData.get("body"),
+  });
+  if (!parsed.success) return { ok: false, error: "invalid-whatsapp-message" };
+  await requireRestaurantCrmAccess(parsed.data.restaurantId, parsed.data.conversationId);
+  const result = await whatsappCrmService.sendTextMessage({ ...parsed.data, source: "crm_manual" });
+  if (result.ok) revalidatePath(`/admin/restaurantes/${parsed.data.restaurantId}/whatsapp`);
+  return { ok: result.ok, error: result.error };
+}
+
 export async function sendWhatsAppCrmMenuAction(formData: FormData) {
   const parsed = conversationActionSchema.safeParse({
     restaurantId: formData.get("restaurantId"),

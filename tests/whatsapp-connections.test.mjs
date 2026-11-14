@@ -33,11 +33,13 @@ function memoryClient(rows, user = { id: userId }) {
   return {
     queries, auth: { getUser: async () => ({ data: { user } }) },
     from(table) {
-      let filters = [], operation = 'read', values, options, single = false, max = Infinity, sort;
+      let filters = [], operation = 'read', values, options, single = false, max = Infinity, sort, countRequested = false, head = false;
+      const field = (row, key) => key.includes('->>') ? row[key.split('->>')[0]]?.[key.split('->>')[1]] : row[key];
       const record = { table, filters }; queries.push(record);
       const query = {
-        select() { return query; },
-        eq(key, value) { filters.push((row) => row[key] === value); return query; },
+        select(_columns, opts) { if (opts?.count === 'exact') { countRequested = true; head = opts.head === true; } return query; },
+        eq(key, value) { filters.push((row) => field(row, key) === value); return query; },
+        neq(key, value) { filters.push((row) => field(row, key) !== value); return query; },
         is(key, value) { return query.eq(key, value); },
         in(key, items) { filters.push((row) => items.includes(row[key])); return query; },
         or(expression) { const conditions = expression.split(',').map((part) => part.split('.eq.')); filters.push((row) => conditions.some(([key, value]) => row[key] === value)); return query; },
@@ -69,8 +71,9 @@ function memoryClient(rows, user = { id: userId }) {
             }
           }
           if (sort) result.sort((a, b) => String(a[sort.key]).localeCompare(String(b[sort.key])) * (sort.descending ? -1 : 1));
+          const count = countRequested ? result.length : null;
           result = result.slice(0, max).map((row) => ({ ...row }));
-          return Promise.resolve({ data: single ? result[0] ?? null : result, error: null }).then(resolve);
+          return Promise.resolve({ data: head ? null : single ? result[0] ?? null : result, count, error: null }).then(resolve);
         },
       };
       return query;
@@ -265,27 +268,224 @@ test('CRM history is scoped to conversation, even for the same customer in two b
   assert.ok(!JSON.stringify(workspace).includes('PRIVATE B'));
 });
 
+test('a connected branch opens its own inbox while preserving an explicitly selected older central chat', async () => {
+  const rows = {
+    restaurant_whatsapp_connections: [{ restaurant_id: restaurantA, status: 'connected' }],
+    whatsapp_conversations: [
+      { id: 'old-central', restaurant_id: restaurantA, customer_id: 'customer', from_phone: customerPhone, channel_key: 'platform', updated_at: '2026-11-03', last_customer_message_at: '2020-01-01' },
+      { id: 'own-number', restaurant_id: restaurantA, customer_id: 'customer', from_phone: customerPhone, channel_key: '101', updated_at: '2026-11-02', last_customer_message_at: new Date().toISOString() },
+    ],
+  };
+  const { client, service } = serviceFixture(rows);
+  const { whatsappCrmService } = load('src/lib/services/whatsapp-crm.service.ts', {
+    '@/lib/supabase/admin': { createAdminClient: () => client }, '@/lib/supabase/env': { hasSupabaseEnv: () => true },
+    '@/lib/services/whatsapp-connection.service': service,
+  });
+  const inbox = await whatsappCrmService.getWorkspace(restaurantA);
+  assert.equal(inbox.selectedConversation.id, 'own-number');
+  assert.equal(inbox.selectedConversation.channel, 'branch');
+  assert.equal(inbox.selectedConversation.canReply, true);
+  const previous = await whatsappCrmService.getWorkspace(restaurantA, 'old-central');
+  assert.equal(previous.selectedConversation.channel, 'platform');
+  assert.equal(previous.selectedConversation.canReply, false);
+  assert.equal(previous.conversations.length, 2, 'older history remains available');
+});
+
+test('manual app replies use the selected branch token, preserve history and pause the bot', async () => {
+  const rows = { whatsapp_conversations: [
+    { id: 'chat-a', restaurant_id: restaurantA, channel_key: '101', from_phone: customerPhone, last_customer_message_at: new Date().toISOString() },
+    { id: 'chat-b', restaurant_id: restaurantB, channel_key: '202', from_phone: customerPhone, last_customer_message_at: new Date().toISOString() },
+  ] };
+  const { client, service } = serviceFixture(rows);
+  const sends = [];
+  const { whatsappCrmService } = load('src/lib/services/whatsapp-crm.service.ts', {
+    '@/lib/supabase/admin': { createAdminClient: () => client }, '@/lib/supabase/env': { hasSupabaseEnv: () => true },
+    '@/lib/services/whatsapp-connection.service': { ...service, resolveWhatsAppSender: async (id, key) => id === restaurantA && key === '101' ? { token: 'branch-secret', phoneNumberId: '101' } : null },
+  }, { fetch: async (url, options) => { sends.push({ url, options }); return Response.json({ messages: [{ id: 'manual-a' }] }); } });
+  const crossBranch = await whatsappCrmService.sendTextMessage({ restaurantId: restaurantA, conversationId: 'chat-b', body: 'hello' });
+  assert.equal(crossBranch.error, 'conversation-not-found');
+  assert.equal(sends.length, 0);
+  const result = await whatsappCrmService.sendTextMessage({ restaurantId: restaurantA, conversationId: 'chat-a', body: 'Te atiendo desde la app', source: 'pos_cashier' });
+  assert.equal(result.ok, true);
+  assert.equal(sends.length, 1);
+  assert.ok(sends[0].url.includes('/101/messages'));
+  assert.equal(sends[0].options.headers.Authorization, 'Bearer branch-secret');
+  assert.equal(rows.whatsapp_messages[0].conversation_id, 'chat-a');
+  assert.equal(rows.whatsapp_messages[0].payload.source, 'pos_cashier');
+  assert.equal(rows.whatsapp_conversations[0].state, 'handoff');
+  assert.notEqual(rows.whatsapp_conversations[1].state, 'handoff');
+  await whatsappCrmService.setHandoffState({ restaurantId: restaurantA, conversationId: 'chat-a', handoff: false });
+  assert.equal(rows.whatsapp_conversations[0].state, 'idle');
+  rows.whatsapp_conversations[0].last_customer_message_at = '2020-01-01';
+  const expired = await whatsappCrmService.sendTextMessage({ restaurantId: restaurantA, conversationId: 'chat-a', body: 'hello', source: 'pos_cashier' });
+  assert.equal(expired.error, 'whatsapp-window-closed');
+  assert.equal(sends.length, 1);
+});
+
+function usageFixture(rows = {}, globals = {}) {
+  const { client, service } = serviceFixture(rows);
+  return load('src/lib/services/whatsapp-crm.service.ts', {
+    '@/lib/supabase/admin': { createAdminClient: () => client }, '@/lib/supabase/env': { hasSupabaseEnv: () => true },
+    '@/lib/services/whatsapp-connection.service': { ...service, resolveWhatsAppSender: async () => ({ token: 'branch-private-token', phoneNumberId: '101' }) },
+  }, globals);
+}
+const usagePoint = (volume, pricing_type = 'FREE_CUSTOMER_SERVICE', pricing_category = 'SERVICE', extra = {}) => ({ phone_number: '59170000001', volume, pricing_type, pricing_category, ...extra });
+const pricingPayload = (points, extra = {}) => ({ pricing_analytics: { data: [{ data_points: points }] }, ...extra });
+
+test('CRM reports a guided window only from Meta confirmation for this branch and receiving number', async () => {
+  const now = new Date().toISOString();
+  const expires = new Date(Date.now() + 3600000).toISOString();
+  const rows = {
+    restaurant_whatsapp_connections: [{ restaurant_id: restaurantA, phone_number_id: '101', status: 'connected' }],
+    whatsapp_conversations: [{ id: 'chat-a', customer_id: 'customer-a', restaurant_id: restaurantA, from_phone: customerPhone,
+      channel_key: '101', state: 'idle', last_customer_message_at: now, updated_at: now }],
+    whatsapp_messages: [{ id: 'm1', conversation_id: 'chat-a', from_phone: customerPhone, to_phone_number_id: '101',
+      received_at: now, payload: { direction: 'inbound', referral: { source_id: 'ad-one', source_type: 'ad' } } }],
+    whatsapp_free_entry_windows: [
+      { restaurant_id: restaurantB, phone_number_id: '101', customer_phone: customerPhone, expires_at: expires },
+      { restaurant_id: restaurantA, phone_number_id: '202', customer_phone: customerPhone, expires_at: expires },
+      { restaurant_id: restaurantA, phone_number_id: '101', customer_phone: customerPhone, expires_at: '2020-01-01' },
+    ],
+  };
+  const { whatsappCrmService } = usageFixture(rows);
+  let workspace = await whatsappCrmService.getWorkspace(restaurantA);
+  assert.equal(workspace.conversations[0].acquisitionSource, 'meta_entry');
+  assert.equal(workspace.conversations[0].freeWindowExpiresAt, undefined, 'referral metadata must not invent a 72-hour entitlement');
+  rows.whatsapp_free_entry_windows.push({ restaurant_id: restaurantA, phone_number_id: '101', customer_phone: customerPhone, expires_at: expires });
+  workspace = await whatsappCrmService.getWorkspace(restaurantA);
+  assert.equal(workspace.conversations[0].freeWindowExpiresAt, expires);
+});
+
+test('Meta usage separates service allowance, free ad entry points, paid templates and other numbers', () => {
+  const { summarizeMetaWhatsAppUsage } = usageFixture();
+  const usage = summarizeMetaWhatsAppUsage(pricingPayload([
+    usagePoint(900), usagePoint(30, 'FREE_ENTRY_POINT'), usagePoint(5, 'REGULAR', 'MARKETING'),
+    usagePoint(1000, 'FREE_CUSTOMER_SERVICE', 'SERVICE', { phone_number: '59170000002' }),
+  ], { analytics: { data_points: [{ sent: 940, delivered: 935 }] } }), '59170000001');
+  assert.equal(usage.freeServiceMessagesUsed, 900);
+  assert.equal(usage.freeServiceMessagesRemaining, 100);
+  assert.equal(usage.billableServiceMessages, 0);
+  assert.equal(usage.billableMessages, 5);
+  assert.equal(usage.adProtectedMessages, 30);
+  assert.equal(usage.metaDeliveredMessages, 935);
+  assert.equal(usage.metaCost, null, 'missing price is not zero');
+});
+
+test('quota alerts start at 100 remaining and distinguish the 1000th free message from the 1001st charged one', () => {
+  const { summarizeMetaWhatsAppUsage } = usageFixture();
+  const { whatsappUsageNotice } = load('src/lib/whatsapp-usage-alert.ts');
+  for (const [used, paid, level] of [[0, 0, null], [899, 0, null], [900, 0, 'warning'], [999, 0, 'warning'], [1000, 0, 'exhausted'], [1000, 1, 'charged']]) {
+    const usage = summarizeMetaWhatsAppUsage(pricingPayload([usagePoint(used), ...(paid ? [usagePoint(paid, 'REGULAR')] : [])]), '59170000001');
+    assert.equal(whatsappUsageNotice(usage)?.level ?? null, level, `${used} free and ${paid} paid`);
+    assert.equal(usage.freeServiceMessagesRemaining, Math.max(0, 1000 - used));
+    assert.equal(usage.billableServiceMessages, paid);
+  }
+  assert.equal(whatsappUsageNotice(summarizeMetaWhatsAppUsage({}, '59170000001')), null);
+});
+
+test('unknown pricing is not converted into a free allowance or a zero invoice', () => {
+  const { summarizeMetaWhatsAppUsage } = usageFixture();
+  for (const payload of [{}, pricingPayload([usagePoint(-1)]), pricingPayload([usagePoint(1, 'UNKNOWN')]), pricingPayload([usagePoint(1.5)])]) {
+    const usage = summarizeMetaWhatsAppUsage(payload, '59170000001');
+    assert.equal(usage.pricingStatus, 'unavailable');
+    assert.equal(usage.freeServiceMessagesRemaining, null);
+    assert.equal(usage.metaCost, null);
+    assert.equal(usage.estimatedServiceCostUsd, null);
+  }
+  const withoutCurrency = summarizeMetaWhatsAppUsage(pricingPayload([usagePoint(1, 'REGULAR', 'SERVICE', { cost: 0.01 })]), '59170000001');
+  assert.equal(withoutCurrency.metaCost, null);
+  const withCurrency = summarizeMetaWhatsAppUsage(pricingPayload([usagePoint(1, 'REGULAR', 'SERVICE', { cost: 0.01 })], { currency: 'USD' }), '59170000001');
+  assert.equal(withCurrency.metaCost, 0.01);
+  assert.equal(withCurrency.costStatus, 'available');
+  const partialCost = summarizeMetaWhatsAppUsage(pricingPayload([
+    usagePoint(1, 'REGULAR', 'SERVICE', { cost: 0.01 }), usagePoint(2, 'REGULAR', 'MARKETING'),
+  ], { currency: 'USD' }), '59170000001');
+  assert.equal(partialCost.metaCost, null, 'partial pricing cannot be presented as the total charge');
+});
+
+test('service cost estimate uses the official Bolivia rate only for supported delivery markets and dates', () => {
+  const { summarizeMetaWhatsAppUsage } = usageFixture();
+  const point = { country: 'BO', start: Date.parse('2026-11-02T04:00:00Z') / 1000 };
+  const summarize = (points) => summarizeMetaWhatsAppUsage(pricingPayload(points), '59170000001', true);
+  const usage = summarize([
+    usagePoint(1000), usagePoint(50, 'REGULAR', 'SERVICE', point),
+    usagePoint(20, 'REGULAR', 'MARKETING', point),
+    usagePoint(9, 'REGULAR', 'SERVICE', { ...point, phone_number: '59170000002' }),
+  ]);
+  assert.equal(usage.estimatedServiceCostUsd, 0.565);
+  assert.equal(usage.billableServiceMessages, 50);
+  assert.equal(usage.metaCost, null, 'a service estimate does not replace the actual invoice');
+  assert.equal(summarize([usagePoint(4)]).estimatedServiceCostUsd, 0);
+  for (const unknown of [{ country: 'US' }, { country: undefined }, { start: 0 }, { start: undefined }]) {
+    assert.equal(summarize([
+      usagePoint(1, 'REGULAR', 'SERVICE', point),
+      usagePoint(1, 'REGULAR', 'SERVICE', { ...point, ...unknown }),
+    ]).estimatedServiceCostUsd, null, 'unknown deliveries cannot produce a partial estimate');
+  }
+});
+
+test('partner-billed Meta accounts retry with volume only and cache the private result without exposing a token', async () => {
+  const requests = [];
+  const { fetchMetaWhatsAppUsage } = usageFixture({}, { fetch: async (url, options) => {
+    requests.push({ url: String(url), options });
+    return requests.length === 1
+      ? Response.json({ error: { code: 10, error_subcode: 2388184 } }, { status: 400 })
+      : Response.json(pricingPayload([usagePoint(4)], { analytics: { data_points: [{ sent: 4, delivered: 4 }] } }));
+  } });
+  const connection = { phone_number_id: '101', waba_id: '1000', display_phone_number: '+591 70000001' };
+  const usage = await fetchMetaWhatsAppUsage(restaurantA, connection);
+  assert.equal(usage.costStatus, 'partner_billing');
+  assert.equal(usage.metaCost, null);
+  assert.equal(usage.freeServiceMessagesRemaining, 996);
+  assert.equal(requests.length, 2);
+  assert.equal(new URL(requests[1].url).searchParams.get('fields').includes('metric_types(["VOLUME"])'), true);
+  assert.ok(requests.every((request) => !request.url.includes('branch-private-token')));
+  assert.ok(!JSON.stringify(usage).includes('branch-private-token'));
+  await fetchMetaWhatsAppUsage(restaurantA, connection);
+  assert.equal(requests.length, 2);
+});
+
+test('monthly local counts include conversations outside the visible inbox and exclude other channels and Business App echoes', async () => {
+  const created = new Date().toISOString();
+  const rows = {
+    restaurant_whatsapp_connections: [{ restaurant_id: restaurantA, phone_number_id: '101', status: 'connected' }],
+    whatsapp_conversations: Array.from({ length: 90 }, (_, i) => ({ id: `chat-${i}`, restaurant_id: restaurantA, channel_key: '101', customer_id: 'customer', from_phone: customerPhone, updated_at: created })),
+    whatsapp_messages: [
+      ...Array.from({ length: 1100 }, (_, i) => ({ id: `in-${i}`, conversation_id: `chat-${i % 90}`, to_phone_number_id: '101', payload: { direction: 'inbound', source: 'customer' }, received_at: created })),
+      ...Array.from({ length: 4 }, (_, i) => ({ id: `out-${i}`, conversation_id: 'chat-0', to_phone_number_id: '101', payload: { direction: 'outbound', source: 'bot' }, received_at: created })),
+      { id: 'echo', to_phone_number_id: '101', payload: { direction: 'outbound', source: 'business_app' }, received_at: created },
+      { id: 'other', to_phone_number_id: '202', payload: { direction: 'outbound', source: 'bot' }, received_at: created },
+    ],
+  };
+  const { whatsappCrmService } = usageFixture(rows);
+  const workspace = await whatsappCrmService.getWorkspace(restaurantA);
+  assert.equal(workspace.conversations.length, 80);
+  assert.equal(workspace.usage.receivedMessagesThisMonth, 1100);
+  assert.equal(workspace.usage.apiMessagesThisMonth, 4);
+  assert.equal(workspace.usage.freeServiceMessagesRemaining, null, 'without Meta analytics, local sends cannot prove allowance use');
+});
+
 function onboardingFixture() {
   const rows = { restaurants: [{ id: restaurantA, owner_user_id: userId, status: 'active', deleted_at: null }] };
   const { client, service } = serviceFixture(rows);
   const calls = [];
-  const meta = { valid: true, phone: '101', coexistence: true, subscribe: true };
+  const meta = { valid: true, phone: '101', coexistence: true, subscribe: true, targets: ['1000'], phones: null, paging: undefined };
   const actions = load('src/app/admin/restaurantes/[restaurantId]/whatsapp/connection-actions.ts', {
     'next/cache': { revalidatePath() {} },
     '../../../../../../supabase/functions/_shared/whatsapp-credentials': credentials,
     '@/lib/services/whatsapp-connection.service': { ...service, metaRequest: async (path, token, options) => {
       calls.push({ path, token, options });
       if (path === 'oauth/access_token') return { access_token: 'customer-secret-token' };
-      if (path.startsWith('debug_token?')) return { data: { is_valid: meta.valid, app_id: 'meta-app', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging'] } };
-      if (path.includes('/phone_numbers?')) return { data: [{ id: meta.phone, display_phone_number: '+59170000001', is_on_biz_app: meta.coexistence }] };
+      if (path.startsWith('debug_token?')) return { data: { is_valid: meta.valid, app_id: 'meta-app', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging'], granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: meta.targets }] } };
+      if (path.includes('/phone_numbers?')) return { data: meta.phones ?? [{ id: meta.phone, display_phone_number: '+59170000001', is_on_biz_app: meta.coexistence }], paging: meta.paging };
       if (path.endsWith('/subscribed_apps')) return { success: meta.subscribe };
       throw new Error('Unexpected Meta endpoint');
     } },
   }, { process: { env: { META_APP_ID: 'meta-app', META_APP_SECRET: 'app-secret', META_WHATSAPP_CONFIG_ID: 'config', WHATSAPP_CREDENTIALS_KEY: secret } } });
-  const finish = async () => {
+  const finish = async (overrides = {}) => {
     const prepared = await actions.prepareWhatsAppConnectionAction(restaurantA);
     assert.equal(prepared.ok, true);
-    const input = { restaurantId: restaurantA, sessionId: prepared.sessionId, code: 'one-time-code', phoneNumberId: '101', wabaId: '1000' };
+    const input = { restaurantId: restaurantA, sessionId: prepared.sessionId, code: 'one-time-code', phoneNumberId: '101', wabaId: '1000', ...overrides };
     return { result: await actions.finishWhatsAppConnectionAction(input), input };
   };
   return { rows, client, actions, calls, meta, finish };
@@ -323,6 +523,55 @@ test('onboarding rejects forged WABA/phone completion, missing coexistence and i
   const f = onboardingFixture(); f.meta.subscribe = false;
   assert.equal((await f.finish()).result.ok, false);
   assert.equal(f.rows.restaurant_whatsapp_connections[0].status, 'needs_reconnect');
+});
+
+test('onboarding recovers a lost popup completion from the code and a single Meta-granted number', async () => {
+  for (const overrides of [{ phoneNumberId: undefined, wabaId: undefined }, { phoneNumberId: undefined }]) {
+    const f = onboardingFixture();
+    const { result } = await f.finish(overrides);
+    assert.equal(result.ok, true, result.error);
+    assert.equal(f.rows.restaurant_whatsapp_connections[0].phone_number_id, '101');
+    assert.equal(f.rows.restaurant_whatsapp_connections[0].waba_id, '1000');
+    assert.equal(f.calls.at(-1).path, '1000/subscribed_apps');
+  }
+});
+
+test('lost popup recovery refuses missing grants, ambiguous numbers, invalid grants and incomplete pagination', async () => {
+  const cases = [
+    { targets: [] },
+    { valid: false },
+    { coexistence: false },
+    { phones: [{ id: '101', is_on_biz_app: true }, { id: '202', is_on_biz_app: true }] },
+    { targets: ['1000', '2000'] },
+    { paging: { next: 'https://untrusted.example/next' } },
+  ];
+  for (const options of cases) {
+    const f = onboardingFixture();
+    Object.assign(f.meta, options);
+    const { result } = await f.finish({ phoneNumberId: undefined, wabaId: undefined });
+    assert.equal(result.ok, false, JSON.stringify(options));
+    assert.equal(f.rows.restaurant_whatsapp_connections?.length ?? 0, 0);
+    assert.ok(!f.calls.some((call) => call.path.endsWith('/subscribed_apps')));
+  }
+});
+
+test('CRM distinguishes central configuration from an actual branch connection and expired grants', async () => {
+  for (const [connection, expected] of [
+    [null, null],
+    [{ status: 'connected' }, 'connected'],
+    [{ status: 'needs_reconnect' }, 'needs_reconnect'],
+    [{ status: 'connected', token_expires_at: '2020-01-01' }, 'needs_reconnect'],
+  ]) {
+    const rows = { restaurant_whatsapp_connections: connection ? [{ restaurant_id: restaurantA, ...connection }] : [] };
+    const { client, service } = serviceFixture(rows);
+    const { whatsappCrmService } = load('src/lib/services/whatsapp-crm.service.ts', {
+      '@/lib/supabase/admin': { createAdminClient: () => client }, '@/lib/supabase/env': { hasSupabaseEnv: () => true },
+      '@/lib/services/whatsapp-connection.service': service,
+    }, { process: { env: { WHATSAPP_TOKEN: 'old-token', WHATSAPP_PHONE_NUMBER_ID: '999' } } });
+    const workspace = await whatsappCrmService.getWorkspace(restaurantA);
+    assert.equal(workspace.whatsappConfigured, true);
+    assert.equal(workspace.branchConnectionStatus, expected);
+  }
 });
 
 test('onboarding sessions cannot be completed by a different owner or branch', async () => {

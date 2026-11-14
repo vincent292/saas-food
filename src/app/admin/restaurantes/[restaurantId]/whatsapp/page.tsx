@@ -10,7 +10,7 @@ export default async function WhatsAppCrmPage({
   searchParams,
 }: {
   params: Promise<{ restaurantId: string }>;
-  searchParams: Promise<{ conversation?: string; sent?: string; handoff?: string; released?: string; replySaved?: string; replyDeleted?: string; error?: string }>;
+  searchParams: Promise<{ conversation?: string; sent?: string; handoff?: string; released?: string; replySaved?: string; replyDeleted?: string; botSaved?: string; error?: string }>;
 }) {
   const [{ restaurantId }, query] = await Promise.all([params, searchParams]);
   const restaurantPromise = restaurantService.getWorkspaceById(restaurantId);
@@ -28,7 +28,7 @@ export default async function WhatsAppCrmPage({
     ? (await membershipService.listActiveRestaurantsForUser(profile.id)).find((item) => item.restaurantId === restaurant.id)
     : undefined;
   const canViewUsage = profile?.globalRole === "superadmin" || restaurant.ownerUserId === profile?.id || membership?.role === "restaurant_admin";
-  const feedback = query.error ?? (query.sent ? "sent" : query.handoff ? "handoff" : query.released ? "released" : query.replySaved ? "replySaved" : query.replyDeleted ? "replyDeleted" : "");
+  const feedback = query.error ?? (query.sent ? "sent" : query.handoff ? "handoff" : query.released ? "released" : query.replySaved ? "replySaved" : query.replyDeleted ? "replyDeleted" : query.botSaved ? "botSaved" : "");
 
   return <WhatsAppCrmClient canViewUsage={canViewUsage} feedback={feedback} restaurant={restaurant} workspace={workspace} />;
 }

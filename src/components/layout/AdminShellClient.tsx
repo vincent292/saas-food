@@ -14,6 +14,8 @@ import {
   LifeBuoy,
   LogOut,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   MessageSquareText,
   RotateCcw,
   Route,
@@ -29,7 +31,7 @@ import {
   X,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { endReadOnlySupportSessionAction, signOutAction } from "@/app/admin/actions";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { PanelNotificationBell } from "@/components/notifications/PanelNotificationBell";
@@ -40,6 +42,16 @@ import type { Order } from "@/types/order.types";
 import type { PanelNotification } from "@/types/notification.types";
 import type { ModuleKey, RestaurantStatus } from "@/types/restaurant.types";
 import type { ActiveSupportSession } from "@/lib/services/support-impersonation.service";
+
+const sidebarPreferenceEvent = "yopido:sidebar-preference";
+function subscribeSidebarPreference(listener: () => void) {
+  window.addEventListener("storage", listener);
+  window.addEventListener(sidebarPreferenceEvent, listener);
+  return () => { window.removeEventListener("storage", listener); window.removeEventListener(sidebarPreferenceEvent, listener); };
+}
+function readSidebarPreference() {
+  try { return localStorage.getItem("yopido:sidebar-collapsed") === "true"; } catch { return false; }
+}
 
 type NavItem = {
   label: string;
@@ -149,8 +161,13 @@ export function AdminShellClient({
     return 0;
   };
 
+  const collapsed = useSyncExternalStore(subscribeSidebarPreference, readSidebarPreference, () => false);
+  function toggleSidebar() {
+    try { localStorage.setItem("yopido:sidebar-collapsed", String(!collapsed)); } catch { return; }
+    window.dispatchEvent(new Event(sidebarPreferenceEvent));
+  }
   return (
-    <div className="admin-panel workspace-shell min-h-dvh bg-[var(--color-surface)] text-[var(--color-heading)]">
+    <div data-sidebar-collapsed={collapsed} className="admin-panel workspace-shell min-h-dvh bg-[var(--color-surface)] text-[var(--color-heading)]">
       {supportSession ? (
         <div className="fixed inset-x-0 top-0 z-[200] flex flex-wrap items-center justify-center gap-3 border-b border-[var(--color-warning-strong)] bg-[var(--color-warning-soft)] px-4 py-2 text-center text-xs font-black text-[var(--color-warning-strong)] shadow-sm">
           <span>Soporte: viendo como {supportSession.targetName} ({supportSession.targetRole}) · solo lectura hasta {new Intl.DateTimeFormat("es-BO", { timeStyle: "short" }).format(new Date(supportSession.expiresAt))}</span>
@@ -170,8 +187,8 @@ export function AdminShellClient({
         )}
       >
         <div className="flex items-center justify-between gap-3">
-          <Link className="flex min-w-0 flex-1 flex-col items-start gap-2 rounded-[var(--radius-card)] bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href={restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"} prefetch={false}>
-            <BrandLogo className="h-6 w-auto max-w-[160px]" variant="dark" />
+          <Link aria-label="Inicio del restaurante" title="Inicio del restaurante" className="sidebar-brand flex min-w-0 flex-1 flex-col items-start gap-2 rounded-[var(--radius-card)] bg-[var(--primary)] p-3 text-[var(--color-on-primary)]" href={restaurantId ? `/admin/restaurantes/${restaurantId}/dashboard` : "/admin"} prefetch={false}>
+            <span aria-hidden="true" className="sidebar-monogram">y</span><BrandLogo className="h-6 w-auto max-w-[160px]" variant="dark" />
             <span className="max-w-full truncate text-xs font-black text-white/82">{restaurantName || "Panel administrativo"}</span>
           </Link>
           <button aria-label="Cerrar navegación" className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-body)] lg:hidden" onClick={() => setSidebarOpen(false)} type="button">
@@ -194,6 +211,8 @@ export function AdminShellClient({
 
             return (
               <Link
+                aria-label={item.label}
+                title={item.label}
                 aria-current={active === item.href ? "page" : undefined}
                 className={cn(
                   "flex min-h-11 items-center gap-3 rounded-[var(--radius-control)] px-3 text-sm font-bold text-[var(--color-secondary-text)] transition hover:bg-[var(--primary-light)] hover:text-[var(--primary-dark)]",
@@ -237,12 +256,12 @@ export function AdminShellClient({
               Sucursales
             </Link>
           ) : null}
-          <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/" prefetch={false}>
+          <Link className="flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-bold text-[var(--color-secondary-text)] hover:bg-[var(--color-neutral-100)]" href="/" aria-label="Inicio" title="Inicio" prefetch={false}>
             <Home className="h-4 w-4" />
             Inicio
           </Link>
           <form action={signOutAction}>
-            <button className="flex min-h-11 w-full items-center gap-3 rounded-2xl bg-[var(--color-danger-soft)] px-3 text-sm font-bold text-[var(--color-danger-strong)] hover:bg-[var(--color-danger-soft)]" type="submit">
+            <button aria-label="Salir" title="Salir" className="flex min-h-11 w-full items-center gap-3 rounded-2xl bg-[var(--color-danger-soft)] px-3 text-sm font-bold text-[var(--color-danger-strong)] hover:bg-[var(--color-danger-soft)]" type="submit">
               <LogOut className="h-4 w-4" />
               Salir
             </button>
@@ -250,12 +269,13 @@ export function AdminShellClient({
         </div>
       </aside>
 
-      <div className="lg:pl-72">
+      <div className="sidebar-main lg:pl-72">
         <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--color-card-elevated)] px-4 py-3 shadow-sm backdrop-blur sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-3">
             <button aria-label="Abrir navegación" aria-controls="admin-sidebar" aria-expanded={sidebarOpen} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--color-body)] shadow-sm lg:hidden" onClick={() => setSidebarOpen(true)} type="button">
               <Menu className="h-5 w-5" />
             </button>
+            <button aria-label={collapsed ? "Expandir navegación" : "Plegar navegación"} aria-controls="admin-sidebar" aria-expanded={!collapsed} className="hidden h-11 w-11 shrink-0 place-items-center rounded-xl border border-[var(--border)] lg:grid" onClick={toggleSidebar} type="button">{collapsed ? <PanelLeftOpen aria-hidden="true" className="h-5 w-5" /> : <PanelLeftClose aria-hidden="true" className="h-5 w-5" />}</button>
             <div className="workspace-page-heading min-w-0 flex-1">
               <p className="text-xs font-black uppercase text-[var(--primary)]">Panel administrativo</p>
               <h1 className="truncate text-xl font-bold text-[var(--color-heading)] sm:text-2xl">{title}</h1>

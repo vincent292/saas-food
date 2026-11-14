@@ -11,7 +11,7 @@ import {
 const branchId = z.string().uuid();
 const finishSchema = z.object({
   restaurantId: branchId, sessionId: z.string().uuid(), code: z.string().min(1).max(4096),
-  phoneNumberId: z.string().max(32).regex(/^\d+$/), wabaId: z.string().max(32).regex(/^\d+$/),
+  phoneNumberId: z.string().max(32).regex(/^\d+$/).optional(), wabaId: z.string().max(32).regex(/^\d+$/).optional(),
 });
 const safeError = (error: unknown) => error instanceof Error && !('code' in error)
   ? error.message : 'No se pudo guardar la conexión. Intenta nuevamente.';
@@ -49,29 +49,44 @@ export async function finishWhatsAppConnectionAction(input: z.infer<typeof finis
     );
     if (!exchange.access_token) throw new Error('Meta no devolvió una autorización válida.');
     const token = exchange.access_token;
-    const debug = await metaRequest<{ data: { app_id: string; is_valid: boolean; scopes?: string[]; expires_at?: number } }>(
+    const debug = await metaRequest<{ data: { app_id: string; is_valid: boolean; scopes?: string[]; expires_at?: number; granular_scopes?: Array<{ scope: string; target_ids?: string[] }> } }>(
       `debug_token?input_token=${encodeURIComponent(token)}`, `${appId}|${appSecret}`,
     );
     if (!debug.data.is_valid || debug.data.app_id !== appId ||
       !['whatsapp_business_management', 'whatsapp_business_messaging'].every((scope) => debug.data.scopes?.includes(scope))) {
       throw new Error('Autoriza la administración de WhatsApp y el envío de mensajes en la ventana de Meta.');
     }
-    // Verify the claimed number belongs to the WABA using the exchanged token,
-    // not the browser's completion event. Fetch all pages without following an arbitrary URL.
+    // The SDK code can arrive without the popup's postMessage. Recover only an
+    // unambiguous number from accounts granted by Meta, never from browser claims.
     type Phone = { id: string; display_phone_number: string; verified_name?: string; is_on_biz_app?: boolean };
+    const authorizedWabas = [...new Set((debug.data.granular_scopes ?? [])
+      .filter((grant) => grant.scope === 'whatsapp_business_management' || grant.scope === 'whatsapp_business_messaging')
+      .flatMap((grant) => grant.target_ids ?? []).filter((id) => /^\d+$/.test(id)))];
+    const wabas = values.wabaId ? [values.wabaId] : authorizedWabas;
+    if (!wabas.length || wabas.length > 5) throw new Error('Meta no devolvió la cuenta seleccionada. Vuelve a conectar y mantén abierta esta página hasta ver el número conectado.');
     let phone: Phone | undefined;
-    let after: string | undefined;
-    for (let page = 0; page < 20; page++) {
-      const phones = await metaRequest<{ data: Phone[]; paging?: { next?: string; cursors?: { after?: string } } }>(
-        `${values.wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,is_on_biz_app&limit=100${after ? `&after=${encodeURIComponent(after)}` : ''}`, token,
-      );
-      phone = phones.data.find((item) => item.id === values.phoneNumberId);
-      if (phone || !phones.paging?.next || !phones.paging.cursors?.after) break;
-      after = phones.paging.cursors.after;
+    let wabaId: string | undefined;
+    for (const accountId of wabas) {
+      let after: string | undefined;
+      for (let page = 0; page < 20; page++) {
+        const phones = await metaRequest<{ data: Phone[]; paging?: { next?: string; cursors?: { after?: string } } }>(
+          `${accountId}/phone_numbers?fields=id,display_phone_number,verified_name,is_on_biz_app&limit=100${after ? `&after=${encodeURIComponent(after)}` : ''}`, token,
+        );
+        const candidates = phones.data.filter((item) => values.phoneNumberId ? item.id === values.phoneNumberId : item.is_on_biz_app === true);
+        for (const candidate of candidates) {
+          if (phone && (phone.id !== candidate.id || wabaId !== accountId)) throw new Error('Meta autorizó varios números. Vuelve a conectar seleccionando únicamente el número de esta sucursal.');
+          phone = candidate;
+          wabaId = accountId;
+        }
+        if (values.phoneNumberId && phone) break;
+        if (!phones.paging?.next) break;
+        if (!phones.paging.cursors?.after || page === 19) throw new Error('No se pudo comprobar todos los números autorizados. Vuelve a conectar seleccionando el número de esta sucursal.');
+        after = phones.paging.cursors.after;
+      }
     }
-    if (!phone) throw new Error('El número seleccionado no pertenece a la cuenta de WhatsApp autorizada.');
+    if (!phone || !wabaId) throw new Error('El número seleccionado no pertenece a la cuenta de WhatsApp autorizada.');
     if (phone.is_on_biz_app !== true) throw new Error('Este enlace requiere WhatsApp Business con coexistencia. Elige conectar tu aplicación WhatsApp Business en Meta.');
-    if (values.phoneNumberId === process.env.WHATSAPP_PHONE_NUMBER_ID) throw new Error('El número global de Yopido no puede asignarse a una sucursal.');
+    if (phone.id === process.env.WHATSAPP_PHONE_NUMBER_ID) throw new Error('El número global de Yopido no puede asignarse a una sucursal.');
 
     const { data: previous, error: previousError } = await admin.from('restaurant_whatsapp_connections')
       .select('phone_number_id,status').eq('restaurant_id', values.restaurantId).maybeSingle();
@@ -83,7 +98,7 @@ export async function finishWhatsAppConnectionAction(input: z.infer<typeof finis
     const now = new Date().toISOString();
     const ciphertext = await encryptWhatsAppToken(token, process.env.WHATSAPP_CREDENTIALS_KEY!, values.restaurantId);
     const { error: saveError } = await admin.from('restaurant_whatsapp_connections').upsert({
-      restaurant_id: values.restaurantId, phone_number_id: phone.id, waba_id: values.wabaId,
+      restaurant_id: values.restaurantId, phone_number_id: phone.id, waba_id: wabaId,
       display_phone_number: phone.display_phone_number, verified_name: phone.verified_name ?? null,
       token_ciphertext: ciphertext,
       token_expires_at: expiresAt, coexistence: true, status: 'pending',
@@ -94,7 +109,7 @@ export async function finishWhatsAppConnectionAction(input: z.infer<typeof finis
     try {
       // Coexistence numbers are already registered. Do not call /register or
       // /deregister: the phone must remain usable in the Business App.
-      const subscribed = await metaRequest<{ success: boolean }>(`${values.wabaId}/subscribed_apps`, token, { method: 'POST' });
+      const subscribed = await metaRequest<{ success: boolean }>(`${wabaId}/subscribed_apps`, token, { method: 'POST' });
       if (!subscribed.success) throw new Error('No se pudo activar la recepción de mensajes.');
     } catch {
       await admin.from('restaurant_whatsapp_connections').update({ status: 'needs_reconnect', last_error: 'Vuelve a conectar para activar la recepción de mensajes.' }).eq('restaurant_id', values.restaurantId).eq('phone_number_id', phone.id).eq('token_ciphertext', ciphertext).eq('status', 'pending');

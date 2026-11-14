@@ -39,6 +39,7 @@ export default async function ProductsPage({
         categories={categories}
         businessType={restaurant.businessType}
         canManageProducts={canManageProducts}
+        canUseInventory={hasRestaurantModule(restaurant, "inventory")}
         categoryCreated={status.categoryCreated}
         configuration={configuration}
         created={status.created}

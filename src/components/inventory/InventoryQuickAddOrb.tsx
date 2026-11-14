@@ -1,7 +1,7 @@
 "use client";
 
 import { Bot, Check, LoaderCircle, Send, Sparkles, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Select, Textarea } from "@/components/ui/Input";
@@ -165,7 +165,8 @@ export function InventoryQuickAddOrb({
 }) {
   const router = useRouter();
   const firstRestaurantId = currentRestaurantId ?? branches[0]?.restaurantId ?? "";
-  const [open, setOpen] = useState(false);
+  const searchParams = useSearchParams();
+  const [open, setOpen] = useState(searchParams.get("asistente") === "1");
   const [text, setText] = useState("");
   const [selectedRestaurantId, setSelectedRestaurantId] = useState(firstRestaurantId);
   const [preview, setPreview] = useState<QuickAddPreview | null>(null);

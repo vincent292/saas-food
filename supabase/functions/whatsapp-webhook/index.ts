@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 // @ts-expect-error -- Deno requires the .ts extension for local Edge Function imports.
 import { decryptWhatsAppToken } from '../_shared/whatsapp-credentials.ts';
 
-type WhatsAppChannel = { key: string; restaurantId: string | null; phoneNumberId: string; token: string };
+type WhatsAppChannel = { key: string; restaurantId: string | null; phoneNumberId: string; token: string; freeEntryExpiresAt?: string };
 // Scoped to each asynchronous message, never mutable shared credentials.
 const channelContext = new AsyncLocalStorage<WhatsAppChannel>();
 function branchRestaurantId() { return channelContext.getStore()?.restaurantId ?? null; }
@@ -521,6 +521,7 @@ async function receiveWhatsAppWebhook(request: Request) {
     return jsonResponse({ error: "invalid_json" }, 400);
   }
   const rows = [...new Map(extractIncomingMessageRows(payload).map((row) => [row.message_id, row])).values()];
+  const freeEntries = extractMetaFreeEntryWindows(payload);
 
   console.log(
     "WhatsApp webhook:",
@@ -532,7 +533,7 @@ async function receiveWhatsAppWebhook(request: Request) {
     }),
   );
 
-  if (rows.length === 0) {
+  if (rows.length === 0 && freeEntries.length === 0) {
     return jsonResponse({ ok: true, saved: 0 });
   }
 
@@ -540,9 +541,17 @@ async function receiveWhatsAppWebhook(request: Request) {
   // Resolve before deduplication: transient connection/secret errors must be
   // retried by Meta, not acknowledged as already processed messages.
   const channels = new Map<string, WhatsAppChannel>();
-  for (const destination of new Set(rows.map((row) => row.to_phone_number_id))) {
+  for (const destination of new Set([...rows.map((row) => row.to_phone_number_id), ...freeEntries.map((entry) => entry.phone_number_id)])) {
     const channel = await resolveInboundChannel(supabase, destination);
     if (channel && destination) channels.set(destination, channel);
+  }
+  for (const entry of freeEntries) {
+    const channel = channels.get(entry.phone_number_id);
+    if (!channel) continue;
+    const { error: windowError } = await supabase.from("whatsapp_free_entry_windows").upsert({
+      ...entry, restaurant_id: channel.restaurantId, updated_at: new Date().toISOString(),
+    }, { onConflict: "phone_number_id,customer_phone" });
+    if (windowError) return jsonResponse({ error: "campaign_window_save_failed" }, 500);
   }
   const authorizedRows = rows.filter((row) => row.to_phone_number_id && channels.has(row.to_phone_number_id));
   if (!authorizedRows.length) return jsonResponse({ ok: true, saved: 0 });
@@ -562,7 +571,11 @@ async function receiveWhatsAppWebhook(request: Request) {
   for (const row of newRows) {
     try {
       const channel = channels.get(row.to_phone_number_id!);
-      if (channel) await channelContext.run(channel, () => handleIncomingWhatsAppMessage(supabase, row));
+      if (channel) {
+        const freeEntryExpiresAt = row.payload.direction === "inbound"
+          ? await findMetaFreeEntryWindow(supabase, channel, row.from_phone) : undefined;
+        await channelContext.run({ ...channel, freeEntryExpiresAt }, () => handleIncomingWhatsAppMessage(supabase, row));
+      }
     } catch (error) {
       console.error(
         "Could not process WhatsApp reply",
@@ -576,6 +589,41 @@ async function receiveWhatsAppWebhook(request: Request) {
   }
 
   return jsonResponse({ ok: true, saved: newRows.length });
+}
+
+function extractMetaFreeEntryWindows(payload: JsonObject) {
+  const windows: Array<{ phone_number_id: string; customer_phone: string; expires_at: string; message_id: string }> = [];
+  for (const entry of recordArray(payload.entry)) for (const change of recordArray(entry.changes)) {
+    if (change.field !== "messages") continue;
+    const value = objectValue(change.value);
+    const phone = stringValue(objectValue(value.metadata).phone_number_id);
+    if (!phone || !/^\d+$/.test(phone)) continue;
+    for (const status of recordArray(value.statuses)) {
+      const pricing = objectValue(status.pricing);
+      const conversation = objectValue(status.conversation);
+      const expires = Number(conversation.expiration_timestamp);
+      const recipient = stringValue(status.recipient_id);
+      const messageId = stringValue(status.id);
+      if (!["sent", "delivered", "read"].includes(String(status.status)) || pricing.type !== "free_entry_point" || pricing.billable !== false ||
+        !recipient || !/^\d{6,20}$/.test(recipient) || !messageId || !Number.isSafeInteger(expires) || expires * 1000 <= Date.now() ||
+        expires * 1000 > 8640000000000000) continue;
+      windows.push({ phone_number_id: phone, customer_phone: recipient, expires_at: new Date(expires * 1000).toISOString(), message_id: messageId });
+    }
+  }
+  return windows;
+}
+
+async function findMetaFreeEntryWindow(supabase: ReturnType<typeof createSupabaseAdminClient>, channel: WhatsAppChannel, customer: string) {
+  try {
+    const { data, error } = await supabase.from("whatsapp_free_entry_windows").select("expires_at,restaurant_id")
+      .eq("phone_number_id", channel.phoneNumberId).eq("customer_phone", customer).gt("expires_at", new Date().toISOString()).maybeSingle();
+    return !error && data && data.restaurant_id === channel.restaurantId ? String(data.expires_at) : undefined;
+  } catch { return undefined; }
+}
+
+function hasConfirmedFreeEntryWindow() {
+  const expires = channelContext.getStore()?.freeEntryExpiresAt;
+  return Boolean(expires && Date.parse(expires) > Date.now());
 }
 
 async function hasValidMetaSignature(request: Request, rawBody: string) {
@@ -1786,12 +1834,15 @@ async function sendRestaurantMenuIntro(
     ? visibleProducts.map((product) => `${product.product_kind === "promotion" ? "Promo: " : ""}${product.name}: Bs ${formatMoney(product.price)}`).join("\n")
     : "El menu completo esta disponible en el enlace.";
   const heading = promoProducts.length ? "Promos y favoritos" : "Algunos favoritos";
+  const guided = hasConfirmedFreeEntryWindow();
   const greeting = botSettings.greetingMessage ? `${greetingCopy(botSettings, restaurant.name)}\n\n` : "";
   const intro = menuIntroCopy(botSettings, restaurant.name, menuUrl);
+  const compactIntro = truncate(intro, 450);
 
   await sendWhatsAppInteractiveButtons({
     to,
-    body: `${greeting}${intro}\n\n${heading}:\n${productLines}\n\nPuedes escribir directo: 2 hamburguesas.`,
+    body: guided ? `${greeting}${intro}\n\n${heading}:\n${productLines}\n\nPuedes escribir directo: 2 hamburguesas.`
+      : `${truncate(greeting, 160)}${compactIntro}${compactIntro.includes(menuUrl) ? "" : `\n${menuUrl}`}\n\nPedido y pago QR en el menú. También puedes pedir por aquí: 2 hamburguesas.`,
     buttons: [
       { id: "ACTION_ORDER", title: "Hacer pedido" },
       { id: "ACTION_ORDERS", title: "Mis pedidos" },
@@ -2468,7 +2519,7 @@ async function beginProductConfiguration(
     pending_item: pendingItem,
   });
   await updateConversationState(supabase, conversation.id, "drafting_order", "configuring_product", row.message_id);
-  await sendProductImagePreview(row.from_phone, configuration.product);
+  if (hasConfirmedFreeEntryWindow()) await sendProductImagePreview(row.from_phone, configuration.product);
   await continuePendingItemConfiguration(supabase, row.from_phone, conversation, draft, row);
 }
 
@@ -3974,18 +4025,71 @@ async function confirmDraftOrder(
     await resetConversationForRestaurantSelection(supabase, conversation.id, "order_created", row.message_id);
 
     const trackingUrl = `${getSiteUrl()}/r/${quote.restaurant.slug}/pedido/${createdOrder.id}?token=${createdOrder.tracking_token}`;
+    if (draft.payment_method === "qr") {
+      const paymentUrl = `${getSiteUrl()}/r/${quote.restaurant.slug}/pago/${createdOrder.id}?token=${createdOrder.tracking_token}`;
+      await sendOrderBankQr({ to: row.from_phone, orderId: createdOrder.id, token: createdOrder.tracking_token,
+        orderNumber, restaurantName: quote.restaurant.name, total: quote.total, paymentUrl });
+      return;
+    }
     await sendWhatsAppTextMessage({
       to: row.from_phone,
       body:
         `Pedido ${orderNumber} enviado a ${quote.restaurant.name}.\n` +
         `Total: Bs ${formatMoney(quote.total)}.\n\n` +
-        (draft.payment_method === "qr" ? `Paga con el QR de este enlace. El banco confirma automáticamente; no envíes comprobantes:\n${trackingUrl}` : `Puedes seguir su estado aqui:\n${trackingUrl}`),
+        `Puedes seguir su estado aqui:\n${trackingUrl}`,
       previewUrl: true,
     });
   } catch (error) {
     console.error("Could not create WhatsApp order", error);
     await sendDraftValidationError(supabase, row, conversation, error);
   }
+}
+
+async function sendOrderBankQr({ to, orderId, token, orderNumber, restaurantName, total, paymentUrl }: {
+  to: string; orderId: string; token: string; orderNumber: string; restaurantName: string; total: number; paymentUrl: string;
+}) {
+  const caption = `Pedido ${orderNumber} · ${truncate(restaurantName, 80)}\nTotal: Bs ${formatMoney(total)}\n\n` +
+    `Paga este QR de uso único. Tu pedido se enviará al restaurante cuando el banco confirme el pago; no envíes comprobantes.\n\n` +
+    `Abrir pago o consultar su estado:\n${paymentUrl}`;
+  try {
+    // Reuse the same capability and bank reservation as web checkout. The bank
+    // credentials and amount never come from a WhatsApp message or its image.
+    const apiOrigin = getSiteUrl().replace(/^https:\/\/yopido\.shop$/, "https://www.yopido.shop");
+    const response = await fetch(`${apiOrigin}/api/payments/baneco/order?orderId=${encodeURIComponent(orderId)}`, {
+      method: "POST", headers: { "x-order-tracking-token": token }, signal: AbortSignal.timeout(20000), redirect: "error",
+    });
+    const result = objectValue(await response.json());
+    if (!response.ok || result.status !== "pending" || result.amount !== total || typeof result.image !== "string") throw new Error("bank-qr-not-ready");
+    const mediaId = await uploadBankQrToWhatsApp(result.image);
+    await sendMetaWhatsAppMessage({ messaging_product: "whatsapp", to, type: "image", image: { id: mediaId, caption } });
+    return;
+  } catch {
+    // A timeout or an existing reservation must never trigger another bank QR.
+    // The existing payment page recovers pending/unknown operations safely.
+    await sendWhatsAppTextMessage({ to, body: `Pedido ${orderNumber} · ${truncate(restaurantName, 80)}\nTotal: Bs ${formatMoney(total)}\n\n` +
+      `Abre este enlace para pagar con QR o retomar tu pago. El pedido se enviará al restaurante cuando el banco confirme el pago; no envíes comprobantes:\n${paymentUrl}`,
+      previewUrl: true });
+  }
+}
+
+async function uploadBankQrToWhatsApp(image: string) {
+  const match = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(image);
+  if (!match || match[2].length > 7 * 1024 * 1024) throw new Error("bank-qr-invalid-image");
+  const bytes = Uint8Array.from(atob(match[2]), (character) => character.charCodeAt(0));
+  const png = [137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => bytes[index] === byte);
+  const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+  if (bytes.length > 5 * 1024 * 1024 || (match[1] === "png" ? !png : !jpeg)) throw new Error("bank-qr-invalid-image");
+  const form = new FormData();
+  form.set("messaging_product", "whatsapp");
+  form.set("file", new Blob([bytes], { type: `image/${match[1]}` }), `pago-qr.${match[1] === "png" ? "png" : "jpg"}`);
+  const { token, phoneNumberId } = currentSender();
+  const response = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form, signal: AbortSignal.timeout(10000),
+  });
+  const result = objectValue(await response.json());
+  const mediaId = stringValue(result.id);
+  if (!response.ok || !mediaId) throw new Error("whatsapp-qr-upload-failed");
+  return mediaId;
 }
 
 async function validateDraftOrder(

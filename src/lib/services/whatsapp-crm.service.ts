@@ -149,6 +149,7 @@ function mapMessage(row: MessageRow): WhatsAppCrmMessage {
     type: row.message_type,
     text: fallbackMessageText(row),
     timestamp: row.whatsapp_timestamp ?? row.received_at,
+    source: typeof payload.source === "string" ? payload.source : undefined,
   };
 }
 
@@ -243,15 +244,129 @@ function startOfBoliviaMonthIso(date = new Date()) {
 
 const emptyUsage: WhatsAppCrmUsage = {
   apiMessagesThisMonth: 0,
-  adProtectedMessages: 0,
-  organicServiceMessages: 0,
-  freeServiceMessagesRemaining: 1000,
-  estimatedBillableMessages: 0,
-  estimatedCostUsd: 0,
-  estimatedCostBob: 0,
+  receivedMessagesThisMonth: 0,
+  metaSentMessages: null,
+  metaDeliveredMessages: null,
+  adProtectedMessages: null,
+  freeServiceMessagesLimit: 1000,
+  freeServiceMessagesUsed: null,
+  freeServiceMessagesRemaining: null,
+  billableServiceMessages: null,
+  billableMessages: null,
+  estimatedServiceCostUsd: null,
+  metaCost: null,
+  metaCurrency: null,
+  pricingStatus: "unavailable",
+  costStatus: "unavailable",
+  lastSyncedAt: null,
+  periodStart: startOfBoliviaMonthIso(),
   conversationsFromMetaEntry: 0,
   conversationsDirect: 0,
 };
+
+type MetaUsage = Pick<WhatsAppCrmUsage, "metaSentMessages" | "metaDeliveredMessages" | "adProtectedMessages" |
+  "freeServiceMessagesUsed" | "freeServiceMessagesRemaining" | "billableServiceMessages" | "billableMessages" |
+  "estimatedServiceCostUsd" | "metaCost" | "metaCurrency" | "pricingStatus" | "costStatus" | "lastSyncedAt">;
+type UsageConnection = { phone_number_id: string; waba_id: string; display_phone_number: string };
+const usageCache = new Map<string, { expires: number; value: MetaUsage }>();
+
+// Only Meta's pricing classification consumes the service allowance. An API
+// send, a customer message, or a Business App echo is not a delivered charge.
+export function summarizeMetaWhatsAppUsage(payload: unknown, phone: string, partnerBilling = false): MetaUsage {
+  const result: MetaUsage = {
+    metaSentMessages: null, metaDeliveredMessages: null, adProtectedMessages: null,
+    freeServiceMessagesUsed: null, freeServiceMessagesRemaining: null, billableServiceMessages: null,
+    billableMessages: null, estimatedServiceCostUsd: null, metaCost: null, metaCurrency: null, pricingStatus: "unavailable",
+    costStatus: "unavailable", lastSyncedAt: null,
+  };
+  if (!isRecord(payload)) return result;
+  const pricing = payload.pricing_analytics;
+  if (!isRecord(pricing) || !Array.isArray(pricing.data)) return result;
+  let free = 0, paidService = 0, paid = 0, adFree = 0, cost = 0, hasCost = false, completeCost = true;
+  let estimatedServiceCostUsd = 0, serviceEstimateComplete = true;
+  // Official USD rate card, effective 2026-10-01: Bolivia belongs to Rest of
+  // Latin America, SERVICE = USD 0.0113. This is not a provider invoice.
+  // https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing
+  const boliviaServiceRateUsd = 0.0113;
+  const serviceRateEffectiveFrom = Date.parse("2026-10-01T00:00:00Z") / 1000;
+  const allowedTypes = new Set(["REGULAR", "FREE_CUSTOMER_SERVICE", "FREE_ENTRY_POINT"]);
+  for (const group of pricing.data) {
+    if (!isRecord(group) || !Array.isArray(group.data_points)) return result;
+    for (const point of group.data_points) {
+      if (!isRecord(point) || String(point.phone_number ?? "").replace(/\D/g, "") !== phone) continue;
+      if (typeof point.volume !== "number" || !Number.isSafeInteger(point.volume) || point.volume < 0 ||
+        typeof point.pricing_type !== "string" || !allowedTypes.has(point.pricing_type) || typeof point.pricing_category !== "string") return result;
+      const service = point.pricing_category === "SERVICE";
+      if (point.pricing_type === "FREE_CUSTOMER_SERVICE" && service) free += point.volume;
+      if (point.pricing_type === "REGULAR") { paid += point.volume; if (service) paidService += point.volume; }
+      if (point.pricing_type === "REGULAR" && service && point.volume > 0) {
+        if (point.country === "BO" && typeof point.start === "number" && point.start >= serviceRateEffectiveFrom) {
+          estimatedServiceCostUsd += point.volume * boliviaServiceRateUsd;
+        } else serviceEstimateComplete = false;
+      }
+      if (point.pricing_type === "FREE_ENTRY_POINT") adFree += point.volume;
+      if (typeof point.cost === "number" && Number.isFinite(point.cost) && point.cost >= 0) { cost += point.cost; hasCost = true; }
+      else if (point.pricing_type === "REGULAR" && point.volume > 0) completeCost = false;
+    }
+  }
+  // Cost has no meaning without its billing currency. Missing COST must never
+  // silently become a zero invoice, including partner-billed accounts.
+  const currency = typeof payload.currency === "string" && /^[A-Z]{3}$/.test(payload.currency) ? payload.currency : null;
+  const analytics = payload.analytics;
+  if (isRecord(analytics) && Array.isArray(analytics.data_points)) {
+    let sent = 0, delivered = 0, valid = true;
+    for (const point of analytics.data_points) {
+      if (!isRecord(point) || typeof point.sent !== "number" || typeof point.delivered !== "number" ||
+        !Number.isSafeInteger(point.sent) || !Number.isSafeInteger(point.delivered) || point.sent < 0 || point.delivered < 0) { valid = false; break; }
+      sent += point.sent; delivered += point.delivered;
+    }
+    if (valid) { result.metaSentMessages = sent; result.metaDeliveredMessages = delivered; }
+  }
+  const quotaUsed = paidService > 0 ? 1000 : Math.min(1000, free);
+  const costAvailable = hasCost && completeCost && currency !== null && !partnerBilling;
+  return {
+    ...result, pricingStatus: "synced", freeServiceMessagesUsed: quotaUsed,
+    freeServiceMessagesRemaining: 1000 - quotaUsed, billableServiceMessages: paidService,
+    billableMessages: paid, adProtectedMessages: adFree, metaCost: costAvailable ? cost : null,
+    estimatedServiceCostUsd: serviceEstimateComplete ? Math.round(estimatedServiceCostUsd * 1e6) / 1e6 : null,
+    metaCurrency: currency, costStatus: partnerBilling ? "partner_billing" : costAvailable ? "available" : "unavailable",
+    lastSyncedAt: new Date().toISOString(),
+  };
+}
+
+export async function fetchMetaWhatsAppUsage(restaurantId: string, connection: UsageConnection | null): Promise<MetaUsage | null> {
+  if (!connection?.phone_number_id || !connection.waba_id || !connection.display_phone_number) return null;
+  const start = startOfBoliviaMonthIso();
+  const key = `${restaurantId}:${connection.phone_number_id}:${start}`;
+  const cached = usageCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.value;
+  const sender = await resolveWhatsAppSender(restaurantId, connection.phone_number_id);
+  if (!sender) return null;
+  const phone = connection.display_phone_number.replace(/\D/g, "");
+  const period = `start(${Math.floor(Date.parse(start) / 1000)}).end(${Math.floor(Date.now() / 1000)})`;
+  const filters = `phone_numbers(["${phone}"])`;
+  const dimensions = 'dimensions(["PHONE","COUNTRY","PRICING_CATEGORY","PRICING_TYPE"])';
+  async function request(includeCost: boolean) {
+    const url = new URL(`https://graph.facebook.com/${metaGraphVersion}/${connection!.waba_id}`);
+    url.searchParams.set("fields", ["currency",
+      `pricing_analytics.${period}.granularity(DAILY).${filters}.metric_types(${includeCost ? '["COST","VOLUME"]' : '["VOLUME"]'}).${dimensions}`,
+      `analytics.${period}.granularity(DAY).${filters}`].join(","));
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${sender!.token}` }, cache: "no-store", signal: AbortSignal.timeout(5000) });
+    return { response, payload: await response.json() as unknown };
+  }
+  try {
+    let { response, payload } = await request(true);
+    const error = isRecord(payload) && isRecord(payload.error) ? payload.error : null;
+    const partnerBilling = error?.code === 10 && error.error_subcode === 2388184;
+    if (partnerBilling) ({ response, payload } = await request(false));
+    if (!response.ok) return null;
+    const value = summarizeMetaWhatsAppUsage(payload, phone, partnerBilling);
+    // Server-only, short-lived cache: no access tokens or ciphertext stored.
+    if (usageCache.size >= 256) usageCache.delete(usageCache.keys().next().value!);
+    usageCache.set(key, { expires: Date.now() + 60000, value });
+    return value;
+  } catch { return null; }
+}
 
 function acquisitionForConversation(rows: MessageRow[]) {
   const firstInbound = [...rows]
@@ -262,15 +377,12 @@ function acquisitionForConversation(rows: MessageRow[]) {
   const explicitReferral = payloadRecord(payload.referral as Json);
   const referral = Object.keys(explicitReferral).length ? explicitReferral : payloadRecord(message.referral as Json);
   const hasMetaEntry = Boolean(referral.ctwa_clid || referral.source_id || referral.source_url);
-  const startedAt = firstInbound?.whatsapp_timestamp ?? firstInbound?.received_at;
-  const expiresAt = hasMetaEntry && startedAt ? new Date(new Date(startedAt).getTime() + 72 * 60 * 60 * 1000).toISOString() : undefined;
   const headline = typeof referral.headline === "string" ? referral.headline.trim() : "";
   const sourceType = typeof referral.source_type === "string" ? referral.source_type.trim() : "";
 
   return {
     source: hasMetaEntry ? "meta_entry" as const : "direct" as const,
     detail: hasMetaEntry ? headline || (sourceType ? `Entrada Meta: ${sourceType}` : "Anuncio o CTA de Meta") : "Directo / sin atribucion de Meta",
-    expiresAt,
   };
 }
 
@@ -302,6 +414,7 @@ export const whatsappCrmService = {
         stats: { activeConversations: 0, needsReply: 0, whatsappOrders: 0, todayRevenue: 0 },
         usage: emptyUsage,
         whatsappConfigured,
+        branchConnectionStatus: null,
       };
     }
 
@@ -315,6 +428,7 @@ export const whatsappCrmService = {
         stats: { activeConversations: 0, needsReply: 0, whatsappOrders: 0, todayRevenue: 0 },
         usage: emptyUsage,
         whatsappConfigured: false,
+        branchConnectionStatus: null,
       };
     }
 
@@ -343,9 +457,14 @@ export const whatsappCrmService = {
         .select("restaurant_id,bot_enabled,response_tone,greeting_message,menu_intro_message,checkout_message,location_request_message,qr_payment_message,receipt_request_message,fallback_message,human_handoff_message,updated_at")
         .eq("restaurant_id", restaurantId)
         .maybeSingle(),
-      admin.from("restaurant_whatsapp_connections").select("status").eq("restaurant_id", restaurantId).maybeSingle(),
+      admin.from("restaurant_whatsapp_connections").select("status,token_expires_at,phone_number_id,waba_id,display_phone_number").eq("restaurant_id", restaurantId).maybeSingle(),
     ]);
-    whatsappConfigured ||= connectionResult.data?.status === "connected";
+    const connection = connectionResult.data;
+    const branchConnectionStatus: WhatsAppCrmWorkspace["branchConnectionStatus"] = connection
+      ? connection.status === "connected" && connection.token_expires_at && Date.parse(connection.token_expires_at) <= Date.now()
+        ? "needs_reconnect" : connection.status
+      : null;
+    whatsappConfigured ||= branchConnectionStatus === "connected";
 
     const conversationRows = conversationsResult.data;
     const quickReplyRows = quickRepliesResult.data;
@@ -355,7 +474,7 @@ export const whatsappCrmService = {
     const phones = conversationsRaw.map((conversation) => conversation.from_phone);
     const customerIds = conversationsRaw.map((conversation) => conversation.customer_id);
 
-    const [customersResult, messagesResult, draftsResult, ordersResult, monthlyMessagesResult] = await Promise.all([
+    const [customersResult, messagesResult, receivedCountResult, sentCountResult, metaUsage, draftsResult, ordersResult, monthlyMessagesResult, campaignWindowsResult] = await Promise.all([
       customerIds.length
         ? admin.from("whatsapp_customers").select("id,phone,display_name").in("id", customerIds)
         : Promise.resolve({ data: [] as CustomerRow[] }),
@@ -367,6 +486,17 @@ export const whatsappCrmService = {
             .order("received_at", { ascending: false })
             .limit(Math.max(240, phones.length * 8))
         : Promise.resolve({ data: [] as MessageRow[] }),
+      connection?.phone_number_id
+        ? admin.from("whatsapp_messages").select("id", { count: "exact", head: true })
+          .eq("to_phone_number_id", connection.phone_number_id).gte("received_at", startOfBoliviaMonthIso())
+          .eq("payload->>direction", "inbound")
+        : Promise.resolve({ count: null, error: null }),
+      connection?.phone_number_id
+        ? admin.from("whatsapp_messages").select("id", { count: "exact", head: true })
+          .eq("to_phone_number_id", connection.phone_number_id).gte("received_at", startOfBoliviaMonthIso())
+          .eq("payload->>direction", "outbound").neq("payload->>source", "business_app")
+        : Promise.resolve({ count: null, error: null }),
+      fetchMetaWhatsAppUsage(restaurantId, connection),
       conversationsRaw.length
         ? admin
             .from("whatsapp_order_drafts")
@@ -395,8 +525,15 @@ export const whatsappCrmService = {
             .order("received_at", { ascending: true })
             .limit(20000)
         : Promise.resolve({ data: [] as MessageRow[] }),
+      phones.length && connection?.phone_number_id
+        ? admin.from("whatsapp_free_entry_windows").select("phone_number_id,customer_phone,expires_at")
+          .eq("restaurant_id", restaurantId).eq("phone_number_id", connection.phone_number_id)
+          .in("customer_phone", phones).gt("expires_at", new Date().toISOString())
+        : Promise.resolve({ data: [] }),
     ]);
 
+    const confirmedCampaignWindows = new Map<string, string>((campaignWindowsResult.data ?? []).map((window: { phone_number_id: string; customer_phone: string; expires_at: string }) =>
+      [`${window.phone_number_id}:${window.customer_phone}`, window.expires_at]));
     const customersById = new Map(((customersResult.data ?? []) as CustomerRow[]).map((customer) => [customer.id, customer]));
     const messages = ((messagesResult.data ?? []) as MessageRow[]).map(mapMessage);
     const latestMessageByConversation = new Map<string, WhatsAppCrmMessage>();
@@ -450,7 +587,7 @@ export const whatsappCrmService = {
       const activeOrder = customerOrders.find((order) => ["pending", "accepted", "preparing", "ready"].includes(order.status));
       const lastMessage = latestMessageByConversation.get(conversation.id);
       const activeDraft = draftsByConversation.get(conversation.id);
-      const acquisition = acquisitionsByConversation.get(conversation.id) ?? { source: "direct" as const, detail: "Directo / sin atribucion de Meta", expiresAt: undefined };
+      const acquisition = acquisitionsByConversation.get(conversation.id) ?? { source: "direct" as const, detail: "Directo / sin atribucion de Meta" };
       const tags = [
         activeDraft ? "Pedido abierto" : "",
         conversation.state === "handoff" ? "Humano" : "",
@@ -464,6 +601,8 @@ export const whatsappCrmService = {
         phone: conversation.from_phone,
         displayName: activeDraft?.customerName || contactNameByConversation.get(conversation.id) || (conversation.channel_key === "platform" ? customer?.display_name : null) || conversation.from_phone,
         state: conversation.state,
+        channel: conversation.channel_key === "platform" ? "platform" : "branch",
+        canReply: insideWhatsAppReplyWindow(conversation.last_customer_message_at),
         lastIntent: conversation.last_intent ?? "",
         lastMessageAt: conversation.last_message_at ?? conversation.updated_at,
         updatedAt: conversation.updated_at,
@@ -478,41 +617,33 @@ export const whatsappCrmService = {
         tags,
         acquisitionSource: acquisition.source,
         acquisitionDetail: acquisition.detail,
-        freeWindowExpiresAt: acquisition.expiresAt,
+        freeWindowExpiresAt: confirmedCampaignWindows.get(`${conversation.channel_key}:${conversation.from_phone}`),
       };
     });
 
-    const conversationById = new Map(conversations.map((conversation) => [conversation.id, conversation]));
     let apiMessagesThisMonth = 0;
-    let adProtectedMessages = 0;
+    let receivedMessagesThisMonth = 0;
     for (const row of (monthlyMessagesResult.data ?? []) as MessageRow[]) {
-      if (!row.conversation_id || messageDirection(row) !== "outbound") continue;
+      if (messageDirection(row) === "inbound") { receivedMessagesThisMonth += 1; continue; }
       if (payloadRecord(row.payload).source === "business_app") continue;
       apiMessagesThisMonth += 1;
-      const conversation = conversationById.get(row.conversation_id);
-      if (conversation?.freeWindowExpiresAt && new Date(row.received_at).getTime() <= new Date(conversation.freeWindowExpiresAt).getTime()) {
-        adProtectedMessages += 1;
-      }
     }
-    const organicServiceMessages = Math.max(0, apiMessagesThisMonth - adProtectedMessages);
-    const estimatedBillableMessages = Math.max(0, organicServiceMessages - 1000);
-    // Reference rate for Rest of Latin America; Meta billing remains the source of truth.
-    const estimatedCostUsd = estimatedBillableMessages * 0.01243;
     const usage: WhatsAppCrmUsage = {
-      apiMessagesThisMonth,
-      adProtectedMessages,
-      organicServiceMessages,
-      freeServiceMessagesRemaining: Math.max(0, 1000 - organicServiceMessages),
-      estimatedBillableMessages,
-      estimatedCostUsd,
-      estimatedCostBob: estimatedCostUsd * 6.96,
+      ...emptyUsage,
+      periodStart: startOfBoliviaMonthIso(),
+      ...metaUsage,
+      apiMessagesThisMonth: !sentCountResult.error && typeof sentCountResult.count === "number" ? sentCountResult.count : apiMessagesThisMonth,
+      receivedMessagesThisMonth: !receivedCountResult.error && typeof receivedCountResult.count === "number" ? receivedCountResult.count : receivedMessagesThisMonth,
       conversationsFromMetaEntry: conversations.filter((conversation) => conversation.acquisitionSource === "meta_entry").length,
       conversationsDirect: conversations.filter((conversation) => conversation.acquisitionSource === "direct").length,
     };
 
-    const selectedConversation = selectedConversationId
-      ? conversations.find((conversation) => conversation.id === selectedConversationId) ?? conversations[0]
+    const defaultConversation = branchConnectionStatus
+      ? conversations.find((conversation) => conversation.channel === "branch")
       : conversations[0];
+    const selectedConversation = selectedConversationId
+      ? conversations.find((conversation) => conversation.id === selectedConversationId) ?? defaultConversation
+      : defaultConversation;
 
     let selectedMessages: WhatsAppCrmMessage[] = [];
     if (selectedConversation) {
@@ -545,6 +676,7 @@ export const whatsappCrmService = {
       },
       usage,
       whatsappConfigured,
+      branchConnectionStatus,
     };
   },
 

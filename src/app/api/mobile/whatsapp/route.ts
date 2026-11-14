@@ -63,6 +63,7 @@ export async function GET(request: Request) {
         body: reply.body,
       })),
       whatsappConfigured: workspace.whatsappConfigured,
+      branchConnectionStatus: workspace.branchConnectionStatus,
     });
   } catch (error) {
     return failure(error);

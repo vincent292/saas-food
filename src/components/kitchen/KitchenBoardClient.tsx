@@ -81,12 +81,12 @@ export function KitchenBoardClient({
   const activeOrdersCount = groups.cocina.length + groups.vencidos.length + groups.despacho.length;
 
   return (
-    <main className={cn("min-h-screen bg-[var(--background)] px-4 sm:px-6 lg:px-8", focusMode ? "py-3" : "py-6")}>
+    <main className={cn("workspace-shell ui-operations min-h-screen bg-[var(--background)] px-4 sm:px-6 lg:px-8", focusMode ? "py-3" : "py-6")}>
       <div className={cn("mx-auto space-y-6", focusMode ? "max-w-none" : "max-w-7xl")}>
         <section className={cn("flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between", focusMode && "hidden")}>
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Cocina</p>
-            <h1 className="text-3xl font-black text-[var(--text)]">{restaurant.name}</h1>
+            <h1 className="text-3xl font-bold text-[var(--text)]">{restaurant.name}</h1>
             <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Recibe pedidos con sonido y amplía el tiempo si necesitas más preparación. Caja o despacho marcan listo y entregado.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -148,7 +148,7 @@ export function KitchenBoardClient({
         </div>
 
         {activeView === "operacion" ? (
-          <div className="-mx-4 overflow-x-auto overscroll-x-contain px-4 pb-3 scroll-px-4 [scrollbar-width:thin] sm:-mx-6 sm:px-6 sm:scroll-px-6 lg:-mx-8 lg:px-8 lg:scroll-px-8 xl:mx-0 xl:overflow-visible xl:px-0">
+          <div aria-label="Pedidos por estado de cocina" role="region" tabIndex={0} className="-mx-4 overflow-x-auto overscroll-x-contain px-4 pb-3 scroll-px-4 [scrollbar-width:thin] sm:-mx-6 sm:px-6 sm:scroll-px-6 lg:-mx-8 lg:px-8 lg:scroll-px-8 xl:mx-0 xl:overflow-visible xl:px-0">
             <section className="flex w-max snap-x snap-mandatory gap-4 touch-pan-x xl:grid xl:w-auto xl:grid-cols-3 xl:snap-none">
               <KitchenColumn
                 description="Pedidos aprobados, contando contra su tiempo estimado."
@@ -340,7 +340,7 @@ function KitchenCard({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Pedido</p>
-            <h2 className="truncate text-3xl font-black leading-none text-[var(--text)]">{order.orderNumber}</h2>
+            <h2 className="truncate text-3xl font-semibold leading-none text-[var(--text)]">{order.orderNumber}</h2>
           </div>
           <span className={cn("shrink-0 rounded-full border px-2.5 py-1 text-xs font-black", tone.className)}>
             {tone.value}

@@ -44,3 +44,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local visual review sessions and generated artifacts
+.playwright-cli/
+output/playwright/

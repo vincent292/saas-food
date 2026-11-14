@@ -1,23 +1,11 @@
 import { ProductSkeleton } from "@/components/products/ProductSkeleton";
-import { Card } from "@/components/ui/Card";
 
 export default function ProductsLoading() {
   return (
-    <div className="space-y-6">
-      <Card className="space-y-3">
-        <div className="h-4 w-44 animate-pulse rounded-full bg-[var(--color-neutral-100)]" />
-        <div className="h-9 w-64 animate-pulse rounded-full bg-[var(--color-neutral-100)]" />
-        <div className="h-4 w-full max-w-xl animate-pulse rounded-full bg-[var(--color-neutral-100)]" />
-      </Card>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {Array.from({ length: 5 }).map((_, index) => (
-          <Card className="space-y-3" key={index}>
-            <div className="h-4 w-24 animate-pulse rounded-full bg-[var(--color-neutral-100)]" />
-            <div className="h-8 w-16 animate-pulse rounded-full bg-[var(--color-neutral-100)]" />
-          </Card>
-        ))}
-      </div>
-      <ProductSkeleton />
+    <div className="product-workspace space-y-6">
+      <section className="catalog-header"><h2 className="catalog-title">Tu catálogo</h2><p className="catalog-description">Preparando tus productos y categorías…</p></section>
+      <div aria-hidden="true" className="catalog-metrics">{Array.from({ length: 5 }).map((_, i) => <div className="catalog-metric" key={i}><div className="h-3 w-16 rounded bg-[var(--color-neutral-200)]" /><div className="mt-3 h-6 w-10 rounded bg-[var(--color-neutral-200)]" /></div>)}</div>
+      <div className="catalog-layout"><div aria-hidden="true" className="catalog-categories hidden space-y-5 xl:block">{Array.from({ length: 5 }).map((_, i) => <div className="h-10 rounded-lg bg-[var(--color-neutral-100)]" key={i} />)}</div><div className="catalog-main"><div aria-hidden="true" className="mb-5 h-12 rounded-xl bg-[var(--color-neutral-100)]" /><ProductSkeleton /></div></div>
     </div>
   );
 }

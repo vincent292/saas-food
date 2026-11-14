@@ -197,7 +197,7 @@ export function POSProductGrid({
               </div>
             </Card>
 
-            {disabled ? <div className="rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para habilitar la venta rapida.</div> : null}
+            {disabled ? <div role="status" className="workspace-inline-feedback rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para habilitar la venta rapida.</div> : null}
 
             <div className={cn("grid gap-2.5 sm:gap-3 sm:grid-cols-2", expanded ? "lg:grid-cols-3 2xl:grid-cols-4" : "2xl:grid-cols-3")}>
               {filteredProducts.map((product) => {
@@ -345,7 +345,7 @@ function PosCartPanel({
   ) : <ShoppingCart className="h-6 w-6 text-[var(--primary)]" />;
   return <Card className={cn("flex h-[min(780px,calc(100dvh-7rem))] flex-col overflow-hidden rounded-[1.25rem] p-0", className)}>
     <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] p-4">
-      <div><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta rápida</p><h2 className="text-xl font-black">Pedido POS <span className="text-sm text-[var(--muted)]">({totalItems})</span></h2></div>
+      <div><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Venta rápida</p><h2 className="text-xl font-semibold">Pedido POS <span className="text-sm text-[var(--muted)]">({totalItems})</span></h2></div>
       {headerAction}
     </div>
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
@@ -479,7 +479,7 @@ function ProductOptionModal({
         <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] p-3 sm:gap-4 sm:p-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Configurar venta</p>
-            <h2 className="text-xl font-black leading-tight sm:text-2xl">{product.name}</h2>
+            <h2 className="text-xl font-semibold leading-tight sm:text-2xl">{product.name}</h2>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Precio base {formatMoney(product.price)}</p>
           </div>
           <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-neutral-100)] hover:bg-[var(--color-neutral-200)]" onClick={onClose} type="button">
@@ -499,7 +499,7 @@ function ProductOptionModal({
           {variants.length ? (
             <section>
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-black">Variante opcional</h3>
+                <h3 className="text-sm font-semibold">Variante opcional</h3>
                 <span className="text-xs font-semibold text-[var(--muted)]">Puedes mantener el precio base</span>
               </div>
               <div className="mt-2 grid gap-2">
@@ -540,7 +540,7 @@ function ProductOptionModal({
               <section className="rounded-[1.1rem] border border-[var(--border)] p-3 sm:rounded-[1.25rem]" key={group.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-black">{group.name}</h3>
+                    <h3 className="text-sm font-semibold">{group.name}</h3>
                     <p className="text-xs font-semibold text-[var(--muted)]">
                       {group.isRequired ? "Obligatorio" : "Opcional"} - elige {group.minChoices}-{group.maxChoices}
                     </p>

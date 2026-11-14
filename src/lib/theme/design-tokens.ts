@@ -4,7 +4,7 @@ export const defaultRestaurantPalette = {
   backgroundColor: "#FFFFFF",
   surfaceColor: "#FFFFFF",
   textColor: "#1C1C1C",
-  mutedColor: "#6B7280",
+  mutedColor: "#59677A",
   borderColor: "#E5E7EB",
   navBackgroundColor: "#12355B",
   navTextColor: "#FFFFFF",

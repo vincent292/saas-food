@@ -1,18 +1,11 @@
-import { Card } from "@/components/ui/Card";
-
 export function ProductSkeleton() {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <Card className="overflow-hidden p-0" key={index}>
-          <div className="aspect-[4/3] animate-pulse bg-[var(--color-neutral-100)]" />
-          <div className="space-y-3 p-5">
-            <div className="h-5 w-2/3 animate-pulse rounded-full bg-[var(--color-neutral-100)]" />
-            <div className="h-4 w-1/2 animate-pulse rounded-full bg-[var(--color-neutral-100)]" />
-            <div className="h-14 animate-pulse rounded-2xl bg-[var(--color-neutral-100)]" />
-          </div>
-        </Card>
-      ))}
+    <div aria-busy="true" className="catalog-product-grid" role="status">
+      <span className="sr-only">Cargando productos…</span>
+      {Array.from({ length: 6 }).map((_, index) => <div aria-hidden="true" className="catalog-product-card catalog-skeleton" key={index}>
+        <div className="catalog-product-media animate-pulse bg-[var(--color-neutral-100)]" />
+        <div className="space-y-4 p-4"><div className="h-3 w-20 rounded bg-[var(--color-neutral-100)]" /><div className="h-5 w-3/4 rounded bg-[var(--color-neutral-100)]" /><div className="h-10 rounded bg-[var(--color-neutral-100)]" /><div className="h-10 w-1/2 rounded bg-[var(--color-neutral-100)]" /></div>
+      </div>)}
     </div>
   );
 }

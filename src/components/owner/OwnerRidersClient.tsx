@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkspaceNotice } from "@/components/ui/WorkspaceNotice";
 import { AlertTriangle, CheckCircle2, Copy, ExternalLink, ReceiptText } from "lucide-react";
 import { useState } from "react";
 import { requestRiderRenewalAction } from "@/app/admin/actions";
@@ -126,7 +127,7 @@ function BranchRidersPanel({ branch, qrConfigured }: { branch: OwnerRiderBranch;
     <Card className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-black text-[var(--color-heading)]">{branch.restaurantName}</h2>
+          <h2 className="text-xl font-semibold text-[var(--color-heading)]">{branch.restaurantName}</h2>
           <p className="mt-1 text-sm font-semibold text-[var(--color-secondary-text)]">
             {branch.riders.length} rider{branch.riders.length === 1 ? "" : "s"} afiliado{branch.riders.length === 1 ? "" : "s"}
           </p>
@@ -247,10 +248,5 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 }
 
 function Banner({ children, tone }: { children: string; tone: "success" | "danger" }) {
-  const className =
-    tone === "success"
-      ? "rounded-2xl border border-[var(--color-success-soft)] bg-[var(--color-success-soft)] p-4 text-sm font-semibold text-[var(--color-success-strong)]"
-      : "rounded-2xl border border-[var(--color-danger-soft)] bg-[var(--color-danger-soft)] p-4 text-sm font-semibold text-[var(--color-danger-strong)]";
-
-  return <div className={className}>{children}</div>;
+  return <WorkspaceNotice title={children} tone={tone === "danger" ? "error" : "success"} />;
 }

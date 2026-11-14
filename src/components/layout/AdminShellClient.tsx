@@ -150,7 +150,7 @@ export function AdminShellClient({
   };
 
   return (
-    <div className="admin-panel min-h-dvh bg-[var(--color-surface)] text-[var(--color-heading)]">
+    <div className="admin-panel workspace-shell min-h-dvh bg-[var(--color-surface)] text-[var(--color-heading)]">
       {supportSession ? (
         <div className="fixed inset-x-0 top-0 z-[200] flex flex-wrap items-center justify-center gap-3 border-b border-[var(--color-warning-strong)] bg-[var(--color-warning-soft)] px-4 py-2 text-center text-xs font-black text-[var(--color-warning-strong)] shadow-sm">
           <span>Soporte: viendo como {supportSession.targetName} ({supportSession.targetRole}) · solo lectura hasta {new Intl.DateTimeFormat("es-BO", { timeStyle: "short" }).format(new Date(supportSession.expiresAt))}</span>
@@ -163,9 +163,10 @@ export function AdminShellClient({
 
       <div className={cn("fixed inset-0 z-40 bg-[var(--color-overlay)] backdrop-blur-sm lg:hidden", sidebarOpen ? "block" : "hidden")} onClick={() => setSidebarOpen(false)} />
       <aside
+        id="admin-sidebar"
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex w-[min(86vw,17.5rem)] flex-col border-r border-[var(--border)] bg-[var(--surface)] p-3 shadow-2xl transition-transform duration-200 sm:p-4 lg:translate-x-0 lg:shadow-none",
-          sidebarOpen ? "translate-x-0" : "-translate-x-full",
+          sidebarOpen ? "translate-x-0" : "invisible -translate-x-full lg:visible",
         )}
       >
         <div className="flex items-center justify-between gap-3">
@@ -173,7 +174,7 @@ export function AdminShellClient({
             <BrandLogo className="h-6 w-auto max-w-[160px]" variant="dark" />
             <span className="max-w-full truncate text-xs font-black text-white/82">{restaurantName || "Panel administrativo"}</span>
           </Link>
-          <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-body)] lg:hidden" onClick={() => setSidebarOpen(false)} type="button">
+          <button aria-label="Cerrar navegación" className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-body)] lg:hidden" onClick={() => setSidebarOpen(false)} type="button">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -184,7 +185,7 @@ export function AdminShellClient({
           </div>
         ) : null}
 
-        <nav className="admin-scrollbar mt-5 flex-1 space-y-1 overflow-y-auto pr-1">
+        <nav aria-label="Navegación principal" className="admin-scrollbar mt-5 flex-1 space-y-1 overflow-y-auto pr-1">
           {nav.map((item) => {
             const href = restaurantId ? `/admin/restaurantes/${restaurantId}/${item.href}` : item.href;
             const pendingModule = pendingNavigation.fromPathname === pathname ? pendingNavigation.module : "";
@@ -193,6 +194,7 @@ export function AdminShellClient({
 
             return (
               <Link
+                aria-current={active === item.href ? "page" : undefined}
                 className={cn(
                   "flex min-h-11 items-center gap-3 rounded-[var(--radius-control)] px-3 text-sm font-bold text-[var(--color-secondary-text)] transition hover:bg-[var(--primary-light)] hover:text-[var(--primary-dark)]",
                   selected && "bg-[var(--primary-light)] text-[var(--primary-dark)]",
@@ -251,12 +253,12 @@ export function AdminShellClient({
       <div className="lg:pl-72">
         <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--color-card-elevated)] px-4 py-3 shadow-sm backdrop-blur sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-3">
-            <button className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--color-body)] shadow-sm lg:hidden" onClick={() => setSidebarOpen(true)} type="button">
+            <button aria-label="Abrir navegación" aria-controls="admin-sidebar" aria-expanded={sidebarOpen} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--color-body)] shadow-sm lg:hidden" onClick={() => setSidebarOpen(true)} type="button">
               <Menu className="h-5 w-5" />
             </button>
-            <div className="min-w-0 flex-1">
+            <div className="workspace-page-heading min-w-0 flex-1">
               <p className="text-xs font-black uppercase text-[var(--primary)]">Panel administrativo</p>
-              <h1 className="truncate text-xl font-black text-[var(--color-heading)] sm:text-2xl">{title}</h1>
+              <h1 className="truncate text-xl font-bold text-[var(--color-heading)] sm:text-2xl">{title}</h1>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {restaurantId ? <PanelNotificationBell notifications={panelNotifications} restaurantId={restaurantId} scope={`restaurant:${restaurantId}`} /> : null}
@@ -271,7 +273,7 @@ export function AdminShellClient({
             </div>
           </div>
         </header>
-        <main className={cn("mx-auto px-3 py-4 pb-8 sm:px-6 sm:py-6 lg:px-8", active === "whatsapp" ? "max-w-[104rem] lg:py-4" : "max-w-7xl")}>{children}</main>
+        <main className={cn("workspace-content mx-auto px-3 py-4 pb-8 sm:px-6 sm:py-6 lg:px-8", active === "whatsapp" ? "max-w-[104rem] lg:py-4" : "max-w-7xl")}>{children}</main>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkspaceDialog } from "@/components/ui/WorkspaceDialog";
 import type { ReactNode } from "react";
 import { CalendarClock, ChevronLeft, ChevronRight, Clock3, FileUp, Flame, Grid2X2, LayoutList, LockKeyhole, PackageCheck, Plus, Search, Sparkles, Trash2, Utensils, WandSparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -15,7 +16,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FormSubmitButton } from "@/components/ui/FormSubmitButton";
 import { Input, Select, Textarea } from "@/components/ui/Input";
-import { SectionTitle } from "@/components/ui/SectionTitle";
+import { WorkspaceNotice } from "@/components/ui/WorkspaceNotice";
 import {
   businessCatalogItemLabel,
   businessCatalogItemsLabel,
@@ -241,24 +242,23 @@ export function ProductManagementClient({
   const variantExample = businessVariantExample(businessType);
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm sm:p-5">
+    <div className="product-workspace space-y-6">
+      <section className="catalog-header">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">{catalogTitle} operativo</p>
-            <h2 className="mt-1 text-2xl font-black text-[var(--text)] sm:text-3xl">Productos</h2>
-            <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">Categorias, {itemsLabel}, variantes y opciones del {catalogTitle.toLowerCase()} en una sola superficie.</p>
+            <h2 className="catalog-title">Tu catálogo</h2>
+            <p className="catalog-description">Organiza tus {itemsLabel} y prepara tu {catalogTitle.toLowerCase()} para vender.</p>
           </div>
           <div className="grid gap-2 sm:flex sm:flex-wrap">
             <button
-              className={buttonClasses(canManageProducts ? "primary" : "secondary", "w-full sm:w-auto")}
+              className={buttonClasses("secondary", "w-full sm:w-auto")}
               disabled={!canManageProducts}
               onClick={() => openMenuImportModal()}
-              title={canManageProducts ? "Importar menu desde imagen o PDF" : "Solo el dueno puede importar menus"}
+              title={canManageProducts ? "Importar menú desde imagen o PDF" : "Solo el dueno puede importar menus"}
               type="button"
             >
               <FileUp className="h-4 w-4" />
-              Importar menu
+              Importar menú
             </button>
             <button
               className={buttonClasses("secondary", "w-full sm:w-auto")}
@@ -268,25 +268,11 @@ export function ProductManagementClient({
               type="button"
             >
               <Plus className="h-4 w-4" />
-              {canManageProducts ? "Nueva categoria" : "Solo lectura"}
-            </button>
-            <button
-              className={buttonClasses(canCreateInSelectedCategory ? "primary" : "secondary", "w-full sm:w-auto")}
-              disabled={!canCreateInSelectedCategory}
-              onClick={() => openCreateProductModal()}
-              title={!canManageProducts ? "Solo el dueno puede cambiar productos y precios" : canCreateInSelectedCategory ? `Crear en ${selectedCategoryName}` : "Selecciona una categoria primero"}
-              type="button"
-            >
-              <Plus className="h-4 w-4" />
-              {!canManageProducts
-                ? "Solo el dueno"
-                : canCreateInSelectedCategory
-                  ? `${itemLabel[0].toUpperCase()}${itemLabel.slice(1)} en ${selectedCategoryName}`
-                  : "Selecciona categoria"}
+              {canManageProducts ? "Nueva categoría" : "Solo lectura"}
             </button>
             {canManageProducts ? (
               <button
-                className={buttonClasses("secondary", "w-full sm:w-auto")}
+                className={buttonClasses("ghost", "w-full sm:w-auto")}
                 disabled={!canCreateInSelectedCategory}
                 onClick={() => openCreateProductModal("promotion")}
                 title={canCreateInSelectedCategory ? `Crear promo en ${selectedCategoryName}` : "Selecciona una categoria primero"}
@@ -303,14 +289,10 @@ export function ProductManagementClient({
         </div>
       </section>
 
-      {created ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">Producto creado correctamente.</div> : null}
-      {updated ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">Producto actualizado correctamente.</div> : null}
-      {categoryCreated ? <div className="rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">Categoria creada correctamente.</div> : null}
-      {error ? (
-        <div className="rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]">
-          No se pudo guardar. {saveErrorMessages[error] ?? `Detalle: ${error}.`}
-        </div>
-      ) : null}
+      {created ? <WorkspaceNotice title="Producto creado" tone="success">Ya puedes encontrarlo en tu catálogo.</WorkspaceNotice> : null}
+      {updated ? <WorkspaceNotice title="Cambios guardados" tone="success">El producto se actualizó correctamente.</WorkspaceNotice> : null}
+      {categoryCreated ? <WorkspaceNotice title="Categoría creada" tone="success">Selecciona la categoría para agregar productos.</WorkspaceNotice> : null}
+      {error ? <WorkspaceNotice title="No se pudo guardar el producto" tone="error">{saveErrorMessages[error] ?? `Detalle: ${error}.`}</WorkspaceNotice> : null}
       {!canManageProducts ? (
         <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--color-card-muted)] p-4 sm:flex-row sm:items-start">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--primary-light)] text-[var(--primary)]">
@@ -325,76 +307,42 @@ export function ProductManagementClient({
         </div>
       ) : null}
 
-      <Card className="sticky top-[73px] z-20 grid gap-3 bg-[var(--color-card-elevated)] p-3 backdrop-blur sm:top-[85px] lg:grid-cols-[1fr_260px_220px_auto] lg:items-center">
-        <label className="relative block">
-          <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
-          <Input className="pl-11" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto, categoria o descripcion" value={query} />
-        </label>
-        <Select onChange={(event) => setCategoryId(event.target.value)} value={categoryId}>
-          <option value="all">Todas las categorias</option>
-          <option value="none">Sin categoria</option>
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </Select>
-        <Select onChange={(event) => setStatus(event.target.value as ProductStatus)} value={status}>
-          <option value="all">Todos los estados</option>
-          <option value="active">Activos</option>
-          <option value="inactive">Inactivos</option>
-        </Select>
-        <div className="flex w-full justify-self-start rounded-full bg-[var(--primary-light)] p-1 sm:w-auto lg:justify-self-end">
-          <button className={cn("inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 text-sm font-black text-[var(--primary-dark)] sm:flex-none", viewMode === "grid" && "bg-[var(--surface)] shadow-sm")} onClick={() => setViewMode("grid")} type="button">
-            <Grid2X2 className="h-4 w-4" />
-            Mosaico
-          </button>
-          <button className={cn("inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 text-sm font-black text-[var(--primary-dark)] sm:flex-none", viewMode === "list" && "bg-[var(--surface)] shadow-sm")} onClick={() => setViewMode("list")} type="button">
-            <LayoutList className="h-4 w-4" />
-            Lista
-          </button>
-        </div>
-      </Card>
-
-      <Card className="p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Categorias</p>
-            <h3 className="text-xl font-black text-[var(--text)]">Secciones del {catalogTitle.toLowerCase()}</h3>
+      <div className="catalog-layout">
+        <aside className="catalog-categories" aria-label="Categorías del catálogo">
+          <div className="catalog-categories-heading"><h3>Categorías</h3><span>{categories.length}</span></div>
+          <nav className="catalog-category-nav" aria-label="Filtrar por categoría">
+            <CategoryTile active={categoryId === "all"} count={products.length} label="Todas" onClick={() => setCategoryId("all")} />
+            {categories.map(category => <CategoryTile active={categoryId === category.id} count={productCountsByCategory.get(category.id) ?? 0} imageUrl={category.imageUrl} key={category.id} label={category.name} onClick={() => setCategoryId(category.id)} />)}
+            <CategoryTile active={categoryId === "none"} count={productCountsByCategory.get("none") ?? 0} label="Sin categoría" onClick={() => setCategoryId("none")} />
+          </nav>
+          <p className="catalog-category-help">{canManageProducts ? "Elige una categoría para crear un producto en ella." : "Selecciona una categoría para consultar sus productos."}</p>
+        </aside>
+        <div className="catalog-main">
+          <div className="catalog-toolbar">
+            <label className="catalog-search">
+              <span className="sr-only">Buscar en el catálogo</span>
+              <Search aria-hidden="true" className="h-4 w-4" />
+              <Input onChange={event => setQuery(event.target.value)} placeholder="Buscar productos…" value={query} />
+              {query ? <button aria-label="Limpiar búsqueda" onClick={() => setQuery("")} type="button"><X aria-hidden="true" className="h-4 w-4" /></button> : null}
+            </label>
+            <label className="catalog-status"><span className="sr-only">Estado del producto</span><Select onChange={event => setStatus(event.target.value as ProductStatus)} value={status}><option value="all">Todos los estados</option><option value="active">Activos</option><option value="inactive">Inactivos</option></Select></label>
+            <div className="catalog-view-switch" role="group" aria-label="Vista de productos">
+              <button aria-label="Ver mosaico" aria-pressed={viewMode === "grid"} onClick={() => setViewMode("grid")} type="button"><Grid2X2 aria-hidden="true" className="h-4 w-4" /><span>Mosaico</span></button>
+              <button aria-label="Ver lista" aria-pressed={viewMode === "list"} onClick={() => setViewMode("list")} type="button"><LayoutList aria-hidden="true" className="h-4 w-4" /><span>Lista</span></button>
+            </div>
           </div>
-          <p className="text-sm font-semibold text-[var(--muted)]">
-            {canManageProducts ? "Selecciona una categoria para crear productos ahi dentro." : "Filtra por categoria para revisar el catalogo de esta sucursal."}
-          </p>
-        </div>
-        <div className="admin-scrollbar mt-4 flex gap-3 overflow-x-auto pb-1">
-          <CategoryTile active={categoryId === "all"} count={products.length} label="Todas" onClick={() => setCategoryId("all")} />
-          {categories.map((category) => (
-            <CategoryTile
-              active={categoryId === category.id}
-              count={productCountsByCategory.get(category.id) ?? 0}
-              imageUrl={category.imageUrl}
-              key={category.id}
-              label={category.name}
-              onClick={() => setCategoryId(category.id)}
-            />
-          ))}
-        </div>
-      </Card>
-
-      <section className="space-y-4 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm sm:p-5">
+      <section className="catalog-results" aria-label="Productos del catálogo">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">Productos</p>
-            <SectionTitle
-              title={categoryId === "all" ? "Todos los productos" : categoryById.get(categoryId)?.name ?? "Sin categoria"}
-              description={
+            <h3 className="catalog-results-title">{categoryId === "all" ? "Todos los productos" : categoryById.get(categoryId)?.name ?? "Sin categoría"}</h3>
+            <p className="catalog-results-description">{
                 !canManageProducts
                   ? "Catalogo visible para operacion. Los cambios los realiza el dueno de la cuenta."
                   : canCreateInSelectedCategory
                   ? `Creando y filtrando dentro de ${selectedCategoryName}.`
-                  : "Selecciona una categoria para activar la creacion contextual."
-              }
-            />
+                  : "Selecciona una categoría para crear un producto en ella."
+              }</p>
+            <p className="catalog-result-count" role="status">{filteredProducts.length} de {products.length} {itemsLabel}</p>
           </div>
           <button
             className={buttonClasses(canCreateInSelectedCategory ? "primary" : "secondary", "w-full sm:w-auto")}
@@ -404,13 +352,13 @@ export function ProductManagementClient({
             type="button"
           >
             <Plus className="h-4 w-4" />
-            {!canManageProducts ? "Solo lectura" : canCreateInSelectedCategory ? `Nuevo ${itemLabel}` : "Elige categoria"}
+            {!canManageProducts ? "Solo lectura" : canCreateInSelectedCategory ? `Nuevo ${itemLabel}` : "Elige categoría"}
           </button>
         </div>
 
         {filteredProducts.length ? (
           viewMode === "grid" ? (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="catalog-product-grid">
               {filteredProducts.map((product) => (
                 <ProductCard
                   category={categoryById.get(product.categoryId)}
@@ -425,11 +373,11 @@ export function ProductManagementClient({
           ) : (
             <div className="space-y-3">
               {filteredProducts.map((product) => (
-                <Card className="grid gap-4 p-4 md:grid-cols-[92px_1fr_auto_auto] md:items-center" key={product.id}>
+                <Card className="catalog-list-row grid gap-4 p-4 md:grid-cols-[72px_1fr_auto_auto] md:items-center" key={product.id}>
                   <ProductThumb fit={product} imageUrl={product.imageUrl} name={product.name} />
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-black text-[var(--text)]">{product.name}</h3>
+                      <h3 className="font-semibold text-[var(--text)]">{product.name}</h3>
                       <Badge className={product.isAvailable ? "bg-[var(--color-success-soft)] text-[var(--color-success-strong)]" : "bg-[var(--color-neutral-100)] text-[var(--color-secondary-text)]"}>{product.isAvailable ? "Activo" : "Inactivo"}</Badge>
                       {product.isFeatured ? <Badge className="bg-[var(--color-warning-soft)] text-[var(--color-warning-strong)]">Destacado</Badge> : null}
                       <Badge className="bg-[var(--color-info-soft)] text-[var(--color-info-strong)]">
@@ -457,18 +405,14 @@ export function ProductManagementClient({
             </div>
           )
         ) : (
-          <EmptyState
-            title={products.length ? "No hay productos con esos filtros" : "Todavia no hay productos"}
-            description={
-              products.length
-                ? "Ajusta la busqueda o cambia la categoria seleccionada."
-                : canManageProducts
-                  ? `Crea el primer ${itemLabel} real para publicarlo en el ${catalogTitle.toLowerCase()}.`
-                  : "El dueno todavia no cargo productos para este catalogo."
-            }
-          />
+          <div className="catalog-empty">
+            <EmptyState title={products.length ? "No encontramos productos" : "Tu catálogo empieza aquí"} description={products.length ? "Prueba otra búsqueda o cambia los filtros para volver a encontrarlos." : canManageProducts ? `Selecciona una categoría y crea tu primer ${itemLabel}.` : "El dueño todavía no cargó productos en este catálogo."} />
+            {products.length ? <Button onClick={() => { setQuery(""); setStatus("all"); setCategoryId("all"); }} type="button" variant="secondary">Restablecer filtros</Button> : null}
+          </div>
         )}
       </section>
+        </div>
+      </div>
 
       {canManageProducts && categoryModalOpen ? (
         <ModalShell eyebrow="Crear" title="Categoria" onClose={() => setCategoryModalOpen(false)}>
@@ -540,7 +484,7 @@ export function ProductManagementClient({
 
           <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
             <section className="min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-              <h3 className="font-black">Datos del producto</h3>
+              <h3 className="font-semibold">Datos del producto</h3>
               <p className="mt-1 text-xs text-[var(--muted)]">Los campos con * son obligatorios.</p>
               <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2">
                 <Labeled label="Nombre *">
@@ -619,7 +563,7 @@ export function ProductManagementClient({
             <ProductEditorSection className="xl:col-start-1" description={`${draftVariantCount} ${draftVariantCount === 1 ? "variante" : "variantes"} · ${optionGroups.length} ${optionGroups.length === 1 ? "grupo" : "grupos"} de opciones`} title="Variantes y extras">
               <section className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="font-black">Variantes</h3>
+                  <h3 className="font-semibold">Variantes</h3>
                   <Button className="w-full sm:w-auto" onClick={() => setVariants((current) => [...current, emptyVariant(current.length)])} type="button" variant="secondary"><Plus className="h-4 w-4" />Agregar variante</Button>
                 </div>
                 {variants.map((variant, index) => (
@@ -639,7 +583,7 @@ export function ProductManagementClient({
               </section>
               <section className="space-y-3 border-t border-[var(--border)] pt-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0"><h3 className="font-black">Opciones configurables</h3><p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{businessOptionGroupCopy(businessType)}</p></div>
+                  <div className="min-w-0"><h3 className="font-semibold">Opciones configurables</h3><p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{businessOptionGroupCopy(businessType)}</p></div>
                   <Button className="w-full sm:w-auto" onClick={() => setOptionGroups((current) => [...current, emptyOptionGroup(current.length)])} type="button" variant="secondary"><Plus className="h-4 w-4" />Agregar grupo</Button>
                 </div>
                 {optionGroups.length ? optionGroups.map((group, groupIndex) => (
@@ -1137,7 +1081,7 @@ function MenuImportModal({
           </div>
         ) : null}
         {busy ? <AiImportProgress mode={isSaving ? "saving" : "analyzing"} /> : null}
-        {summary ? <div className="rounded-[var(--radius-card)] bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">{summary}</div> : null}
+        {summary ? <div role="status" className="workspace-inline-feedback rounded-[var(--radius-card)] bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]">{summary}</div> : null}
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
           <div>
@@ -1282,24 +1226,10 @@ function AiImportProgress({ mode }: { mode: "analyzing" | "saving" }) {
 }
 
 function CategoryTile({ label, count, imageUrl, active, onClick }: { label: string; count: number; imageUrl?: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      className={cn(
-        "min-h-20 w-[210px] shrink-0 rounded-3xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md",
-        active ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--color-on-primary)]" : "border-[var(--border)] bg-[var(--surface)] text-[var(--text)]",
-      )}
-      onClick={onClick}
-      type="button"
-    >
-      <div className="flex items-center gap-3">
-        <ProductThumb imageUrl={imageUrl} name={label} small />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-black">{label}</p>
-          <p className={cn("text-xs font-semibold", active ? "text-[var(--color-on-primary-muted)]" : "text-[var(--muted)]")}>{count} productos</p>
-        </div>
-      </div>
-    </button>
-  );
+  return <button aria-pressed={active} className="catalog-category" onClick={onClick} type="button">
+    {imageUrl ? <ProductThumb imageUrl={imageUrl} name="" small /> : <Utensils aria-hidden="true" className="h-4 w-4 shrink-0" />}
+    <span className="catalog-category-name">{label}</span><span className="catalog-category-count">{count}</span>
+  </button>;
 }
 
 function ProductThumb({ fit, imageUrl, name, small = false }: { fit?: { imagePositionX?: number; imagePositionY?: number; imageZoom?: number }; imageUrl?: string; name: string; small?: boolean }) {
@@ -1598,7 +1528,7 @@ function ProductSchedulePanel({
           <CalendarClock className="h-5 w-5" />
         </span>
         <div>
-          <h3 className="font-black text-[var(--text)]">{title}</h3>
+          <h3 className="font-semibold text-[var(--text)]">{title}</h3>
           <p className="mt-1 text-sm font-semibold text-[var(--muted)]">{description}</p>
         </div>
       </div>
@@ -1844,22 +1774,7 @@ function EditorRemoveButton({ label, onClick }: { label: string; onClick: () => 
 }
 
 function ModalShell({ title, eyebrow, children, onClose, wide = false }: { title: string; eyebrow: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--color-overlay)] p-0 backdrop-blur-sm sm:p-4">
-      <div className={cn("flex h-dvh w-full flex-col overflow-hidden bg-[var(--surface)] shadow-2xl sm:my-8 sm:max-h-[92vh] sm:rounded-[1.25rem]", wide ? "sm:max-w-6xl" : "sm:max-w-3xl")}>
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--primary)]">{eyebrow}</p>
-            <h2 className="text-2xl font-black text-[var(--text)]">{title}</h2>
-          </div>
-          <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)] text-[var(--color-body)]" onClick={onClose} type="button">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="admin-scrollbar flex-1 overflow-y-auto p-4 sm:p-5">{children}</div>
-      </div>
-    </div>
-  );
+  return <WorkspaceDialog title={title} description={eyebrow} onClose={onClose} wide={wide}>{children}</WorkspaceDialog>;
 }
 
 function Labeled({ label, children, className }: { label: string; children: ReactNode; className?: string }) {

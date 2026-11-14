@@ -366,7 +366,7 @@ export function CashWorkspaceClient({
             <div className="min-w-0">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">Caja / POS</p>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <h2 className="text-xl font-black text-[var(--text)] sm:text-2xl">{summary.session ? "Caja abierta" : "Caja cerrada"}</h2>
+                <h2 className="text-xl font-semibold text-[var(--text)] sm:text-2xl">{summary.session ? "Caja abierta" : "Caja cerrada"}</h2>
                 <span className="rounded-full bg-[var(--color-neutral-100)] px-2 py-0.5 text-[11px] font-black text-[var(--color-secondary-text)] sm:px-2.5 sm:py-1 sm:text-xs">{sessionText}</span>
               </div>
             </div>
@@ -399,7 +399,7 @@ export function CashWorkspaceClient({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Estado de caja</p>
-              <h2 className="mt-1 text-3xl font-black text-[var(--text)]">{summary.session ? "Caja abierta" : "Caja cerrada"}</h2>
+              <h2 className="mt-1 text-3xl font-semibold text-[var(--text)]">{summary.session ? "Caja abierta" : "Caja cerrada"}</h2>
               <p className="mt-2 max-w-2xl text-sm font-semibold text-[var(--muted)]">
                 {summary.session
                   ? `Abierta el ${formatShortDate(summary.session.openedAt)} a las ${formatShortTime(summary.session.openedAt)}${summary.session.openedByName ? ` por ${summary.session.openedByName}` : ""}.`
@@ -502,7 +502,7 @@ export function CashWorkspaceClient({
             <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] p-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Pedido registrado</p>
-                <h2 className="mt-1 text-2xl font-black text-[var(--color-heading)]">Pedido {status.posOrderNumber}</h2>
+                <h2 className="mt-1 text-2xl font-semibold text-[var(--color-heading)]">Pedido {status.posOrderNumber}</h2>
                 <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
                   Si elegiste QR, el pedido permanece pendiente hasta confirmar el banco. Puedes compartir el seguimiento al cliente desde aquí.
                 </p>
@@ -589,7 +589,7 @@ export function CashWorkspaceClient({
             <div className="flex items-center justify-between gap-3 text-left">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Seguimiento</p>
-                <h2 className="text-xl font-black text-[var(--color-heading)]">Pedido {status.posOrderNumber}</h2>
+                <h2 className="text-xl font-semibold text-[var(--color-heading)]">Pedido {status.posOrderNumber}</h2>
               </div>
               <button className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-neutral-100)]" onClick={() => setShowLargeTrackingQr(false)} type="button">
                 <X className="h-5 w-5" />
@@ -860,7 +860,7 @@ function CashSessionControl({
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--primary)]">Control de turno</p>
-          <h2 className="mt-1 text-2xl font-black text-[var(--text)]">{summary.session ? "Caja abierta" : "Caja cerrada"}</h2>
+          <h2 className="mt-1 text-2xl font-semibold text-[var(--text)]">{summary.session ? "Caja abierta" : "Caja cerrada"}</h2>
           <p className="mt-2 max-w-2xl text-sm font-semibold text-[var(--muted)]">
             {summary.session
               ? `Abierta el ${formatShortDate(summary.session.openedAt)} a las ${formatShortTime(summary.session.openedAt)}${summary.session.openedByName ? ` por ${summary.session.openedByName}` : ""}.`
@@ -1022,7 +1022,7 @@ export function TableSettlementCard(props: Parameters<typeof TableAccountDetails
   return <>
     <Card className="rounded-[1.25rem] p-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div><h3 className="text-xl font-black">{table.name}</h3><p className="text-sm text-[var(--muted)]">{occupied ? `${orders.length} pedidos · Cuenta abierta` : "Disponible · Sin cuenta abierta"}</p></div>
+        <div><h3 className="text-xl font-semibold">{table.name}</h3><p className="text-sm text-[var(--muted)]">{occupied ? `${orders.length} pedidos · Cuenta abierta` : "Disponible · Sin cuenta abierta"}</p></div>
         {occupied ? <div className="text-right"><p className="font-black">Pendiente: {formatMoney(due)}</p><p className="text-sm text-[var(--muted)]">Consumo: {formatMoney(total)}</p></div> : null}
         {occupied ? <Button type="button" variant="secondary" onClick={() => setOpen(true)}>Ver cuenta de {table.name}</Button> : null}
       </div>
@@ -1068,7 +1068,7 @@ function TableAccountDetails({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-xl font-black text-[var(--text)]">{table.name}</h3>
+              <h3 className="text-xl font-semibold text-[var(--text)]">{table.name}</h3>
               <span className="rounded-full bg-[var(--color-success-soft)] px-3 py-1 text-xs font-black text-[var(--color-success-strong)]">Disponible</span>
             </div>
             <p className="mt-1 text-sm font-semibold text-[var(--muted)]">Código {table.code} · {table.capacity} persona{table.capacity === 1 ? "" : "s"}</p>
@@ -1084,7 +1084,7 @@ function TableAccountDetails({
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-2xl font-black text-[var(--text)]">{table.name}</h3>
+            <h3 className="text-2xl font-semibold text-[var(--text)]">{table.name}</h3>
             <span className="rounded-full bg-[var(--color-warning-soft)] px-3 py-1 text-xs font-black text-[var(--color-warning-strong)]">Cuenta abierta</span>
             <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-black text-[var(--color-body)]">{table.code}</span>
           </div>
@@ -1175,7 +1175,7 @@ function TableAccountDetails({
           {alreadyPaid > 0 ? <p className="mt-2 text-xs font-black text-[var(--color-success-strong)]">Ya validado: {formatMoney(alreadyPaid)} · no se volverá a cobrar</p> : null}
           <p className="mt-2 text-xs font-bold text-[var(--color-secondary-text)]">Pedidos: {orderNumbers}</p>
 
-          {disabled ? <div className="mt-4 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para cerrar y cobrar una mesa.</div> : null}
+          {disabled ? <div role="status" className="workspace-inline-feedback mt-4 rounded-2xl bg-[var(--color-warning-soft)] p-3 text-sm font-bold text-[var(--color-warning-strong)]">Abre caja para cerrar y cobrar una mesa.</div> : null}
 
           <div className="mt-4 grid gap-3">
             <Select disabled={disabled || !pendingOrders.length} name="paymentMethod" onChange={(event) => setPaymentMethod(event.target.value as Order["paymentMethod"])} value={paymentMethod}>
@@ -1260,7 +1260,7 @@ function OrderOperationalSummary({ order, title, businessType, now }: { order: O
   return (
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-xl font-black text-[var(--text)]">
+        <h3 className="text-xl font-semibold text-[var(--text)]">
           {title} {order.orderNumber}
         </h3>
         <span className="rounded-full bg-[var(--color-success-soft)] px-3 py-1 text-xs font-black text-[var(--color-success-strong)]">{businessOrderStatusLabel(order.status, businessType)}</span>
@@ -1371,7 +1371,7 @@ function CashReportCard({ report }: { report: CashSessionReport }) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--primary)]">{report.session.status === "open" ? "Turno abierto" : "Turno cerrado"}</p>
-          <h3 className="mt-1 text-xl font-black text-[var(--text)]">
+          <h3 className="mt-1 text-xl font-semibold text-[var(--text)]">
             {formatShortDate(report.session.openedAt)} · {formatShortTime(report.session.openedAt)} - {report.session.status === "closed" ? formatShortTime(closedAt) : "en curso"}
           </h3>
           <p className="mt-1 text-sm font-semibold text-[var(--muted)]">

@@ -1,5 +1,7 @@
 "use client";
 
+import { WorkspaceDialog } from "@/components/ui/WorkspaceDialog";
+import { WorkspaceNotice } from "@/components/ui/WorkspaceNotice";
 import Link from "next/link";
 import {
   BellRing,
@@ -1039,7 +1041,7 @@ export function RestaurantSettingsFormClient({
                         >
                           {announcement.type === "closure" ? "Cierre" : "Comunicado"}
                         </span>
-                        <h3 className="mt-2 line-clamp-2 text-sm font-black text-[var(--color-heading)]">{announcement.title}</h3>
+                        <h3 className="mt-2 line-clamp-2 text-sm font-semibold text-[var(--color-heading)]">{announcement.title}</h3>
                         <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--color-secondary-text)]">{announcement.body || "Sin detalle adicional."}</p>
                       </div>
                       <span
@@ -1343,36 +1345,13 @@ function SettingsSavingOverlay() {
 }
 
 function SettingsSavedModal({ message, onClose }: { message: string; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Cambios guardados">
-      <div className="w-full max-w-sm rounded-[1.35rem] border border-[var(--border)] bg-[var(--surface)] p-6 text-center shadow-[var(--shadow-panel)]">
-        <div
-          className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[var(--color-success-soft)] text-[var(--color-success-strong)]"
-          style={{ animation: "settings-check-pop 420ms cubic-bezier(0.2, 0.9, 0.2, 1) both" }}
-        >
-          <CheckCircle2 className="h-9 w-9" />
-        </div>
-        <h2 className="mt-4 text-xl font-black text-[var(--color-heading)]">Cambios guardados</h2>
-        <p className="mt-2 text-sm font-semibold leading-6 text-[var(--color-secondary-text)]">{message}</p>
-        <button
-          className="mt-5 inline-flex min-h-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] px-5 text-sm font-black text-[var(--text)] shadow-sm transition hover:bg-[var(--primary-light)]"
-          onClick={onClose}
-          type="button"
-        >
-          Entendido
-        </button>
-      </div>
-    </div>
-  );
+  return <WorkspaceDialog title="Cambios guardados" onClose={onClose}>
+    <div className="space-y-5"><WorkspaceNotice title={message} tone="success" /><button className="ui-button min-h-11 rounded-[var(--radius-control)] border border-[var(--border)] px-5 text-sm font-semibold" onClick={onClose} type="button">Entendido</button></div>
+  </WorkspaceDialog>;
 }
 
 function Banner({ children, tone }: { children: string; tone: "success" | "danger" }) {
-  const className =
-    tone === "success"
-      ? "rounded-2xl bg-[var(--color-success-soft)] p-3 text-sm font-bold text-[var(--color-success-strong)]"
-      : "rounded-2xl bg-[var(--color-danger-soft)] p-3 text-sm font-bold text-[var(--color-danger-strong)]";
-
-  return <div className={className}>{children}</div>;
+  return <WorkspaceNotice title={children} tone={tone === "danger" ? "error" : "success"} />;
 }
 
 function InfoMetric({ label, value }: { label: string; value: string }) {
